@@ -1,0 +1,26 @@
+node_modules/
+dist/
+build/
+*.js.map
+*.tsbuildinfo
+
+# Checkpoint data (local chain state)
+l2-data/
+l2-checkpoint-*.json
+
+# Environment / secrets
+.env
+.env.*
+credentials.json
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+nul
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
