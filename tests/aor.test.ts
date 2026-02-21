@@ -68,7 +68,7 @@ import { hashString, dateToField, codeToField } from '../src/zkp/hash-utils.js';
 import {
   serializeDelegationCredential,
   deserializeDelegationCredential,
-} from '../src/nft/portable-credential.js';
+} from '../src/credentials/portable-credential.js';
 
 // ─── Test Data ───────────────────────────────────────────────
 

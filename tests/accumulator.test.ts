@@ -24,8 +24,8 @@ import {
   RX_STATUS_ACTIVE,
   RX_STATUS_FILLED,
 } from '../src/prescription/prescription-data.js';
-import { NftData, NFT_TYPE_PRESCRIPTION, NFT_TYPE_ELIGIBILITY } from '../src/nft/nft-data.js';
-import { NftInventory } from '../src/nft/nft-inventory.js';
+import { CredentialData, CREDENTIAL_TYPE_PRESCRIPTION, CREDENTIAL_TYPE_ELIGIBILITY } from '../src/credentials/credential-data.js';
+import { CredentialInventory } from '../src/credentials/credential-inventory.js';
 import { MerkleForest, ForestDomain } from '../src/zkp/merkle-forest.js';
 import { ForestRoots } from '../src/eligibility/forest-roots.js';
 import { FormularyEntry } from '../src/access-control/formulary-entry.js';
@@ -41,11 +41,17 @@ import {
   WalletRegistry,
   WalletState,
 } from '../src/wallets/wallet-state.js';
-import { EMPTY_NFT_ROOT } from '../src/engine/state-transition.js';
+import { EMPTY_CREDENTIAL_ROOT } from '../src/engine/state-transition.js';
+import { DOMAIN_TAG_PHARMACY } from '../src/wallets/wallet-derivation.js';
 
 // ─── Test Data ──────────────────────────────────────────────
 
-const pharmacyWalletId = Field(777666555444333222n);
+// Pharmacy wallet preimage components (H2 fix)
+const PHARM_QUAL = Field(2);
+const PHARM_ID_HASH = Field(555);
+const PHARM_EK_HASH = Field(666);
+const pharmacyWalletId = Poseidon.hash([DOMAIN_TAG_PHARMACY, PHARM_QUAL, PHARM_ID_HASH, PHARM_EK_HASH]);
+
 const prescriberWalletId = Field(111222333444555666n);
 const memberWalletId = Field(999888777666555444n);
 
@@ -118,7 +124,7 @@ function createTestWalletRegistry(): WalletRegistry {
     pharmacyWalletId,
     new WalletState({
       walletId: pharmacyWalletId,
-      nftInventoryRoot: EMPTY_NFT_ROOT,
+      credentialInventoryRoot: EMPTY_CREDENTIAL_ROOT,
       nonce: Field(0),
     }),
   );
@@ -126,7 +132,7 @@ function createTestWalletRegistry(): WalletRegistry {
     memberWalletId,
     new WalletState({
       walletId: memberWalletId,
-      nftInventoryRoot: EMPTY_NFT_ROOT,
+      credentialInventoryRoot: EMPTY_CREDENTIAL_ROOT,
       nonce: Field(0),
     }),
   );
@@ -134,26 +140,26 @@ function createTestWalletRegistry(): WalletRegistry {
 }
 
 /**
- * Set up a prescription NFT that's been FILLED (pharmacy side)
- * and an eligibility NFT with accumulator (member side).
+ * Set up a prescription credential that's been FILLED (pharmacy side)
+ * and an eligibility credential with accumulator (member side).
  */
-function setupDualNftScenario(accumulator: AccumulatorData): {
+function setupDualCredentialScenario(accumulator: AccumulatorData): {
   rxData: PrescriptionData;
-  prescriptionNft: NftData;
+  prescriptionCredential: CredentialData;
   prescriptionForest: MerkleForest;
   filledStatus: PrescriptionStatusData;
-  pharmacyInventory: NftInventory;
-  prescriptionNftSlot: bigint;
-  eligibilityNft: NftData;
+  pharmacyInventory: CredentialInventory;
+  prescriptionCredentialSlot: bigint;
+  eligibilityCredential: CredentialData;
   eligibilityForest: MerkleForest;
-  memberInventory: NftInventory;
-  eligibilityNftSlot: bigint;
+  memberInventory: CredentialInventory;
+  eligibilityCredentialSlot: bigint;
   registry: WalletRegistry;
 } {
   // ── Prescription side ──
   const rxData = createTestPrescriptionData();
   const prescriptionForest = new MerkleForest();
-  const pharmacyInventory = new NftInventory();
+  const pharmacyInventory = new CredentialInventory();
 
   // Insert prescription into MEDICATION tree
   prescriptionForest.setLeaf(ForestDomain.MEDICATION, 0n, rxData.commitment());
@@ -182,9 +188,9 @@ function setupDualNftScenario(accumulator: AccumulatorData): {
   });
   prescriptionForest.setLeaf(ForestDomain.TRANSACTION, 1n, filledStatus.commitment());
 
-  // Build prescription NFT
-  const prescriptionNft = new NftData({
-    nftType: NFT_TYPE_PRESCRIPTION,
+  // Build prescription credential
+  const prescriptionCredential = new CredentialData({
+    credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
     forestRoot: prescriptionForest.getForestRoot(),
     issuerWalletId: prescriberWalletId,
     subjectWalletId: pharmacyWalletId,
@@ -192,11 +198,11 @@ function setupDualNftScenario(accumulator: AccumulatorData): {
     expiresAt: dateToField('20270201'),
     revoked: Field(0),
   });
-  const { index: prescriptionNftSlot } = pharmacyInventory.mint(prescriptionNft);
+  const { index: prescriptionCredentialSlot } = pharmacyInventory.mint(prescriptionCredential);
 
   // ── Eligibility side ──
   const eligibilityForest = new MerkleForest();
-  const memberInventory = new NftInventory();
+  const memberInventory = new CredentialInventory();
 
   // Insert accumulator at leaf 127 of ACCESS_CONTROL tree
   eligibilityForest.setLeaf(
@@ -205,9 +211,9 @@ function setupDualNftScenario(accumulator: AccumulatorData): {
     accumulator.commitment(),
   );
 
-  // Build eligibility NFT
-  const eligibilityNft = new NftData({
-    nftType: NFT_TYPE_ELIGIBILITY,
+  // Build eligibility credential
+  const eligibilityCredential = new CredentialData({
+    credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
     forestRoot: eligibilityForest.getForestRoot(),
     issuerWalletId: Field(100200300400500600n), // insurer admin
     subjectWalletId: memberWalletId,
@@ -215,22 +221,22 @@ function setupDualNftScenario(accumulator: AccumulatorData): {
     expiresAt: dateToField('20261231'),
     revoked: Field(0),
   });
-  const { index: eligibilityNftSlot } = memberInventory.mint(eligibilityNft);
+  const { index: eligibilityCredentialSlot } = memberInventory.mint(eligibilityCredential);
 
   // Register both wallets
   const registry = createTestWalletRegistry();
 
   return {
     rxData,
-    prescriptionNft,
+    prescriptionCredential,
     prescriptionForest,
     filledStatus,
     pharmacyInventory,
-    prescriptionNftSlot,
-    eligibilityNft,
+    prescriptionCredentialSlot,
+    eligibilityCredential,
     eligibilityForest,
     memberInventory,
-    eligibilityNftSlot,
+    eligibilityCredentialSlot,
     registry,
   };
 }
@@ -286,7 +292,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
   // ── AccumulatorFulfillmentOutput ──────────────────────────
 
   describe('AccumulatorFulfillmentOutput', () => {
-    it('has 8 fields including newEligibilityForestRoot', () => {
+    it('has 10 fields including newEligibilityForestRoot, deductibleCreditCents, and ndcHash', () => {
       const output = new AccumulatorFulfillmentOutput({
         prescriptionHash: Field(1),
         oldForestRoot: Field(2),
@@ -296,25 +302,30 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         planPayCents: Field(6),
         operationType: Field(7),
         newEligibilityForestRoot: Field(8),
+        deductibleCreditCents: Field(9),
+        ndcHash: Field(10),
       });
       expect(output.prescriptionHash.toString()).toBe('1');
       expect(output.newEligibilityForestRoot.toString()).toBe('8');
+      expect(output.deductibleCreditCents.toString()).toBe('9');
     });
   });
 
   // ── Settlement Commitment ─────────────────────────────────
 
   describe('Settlement commitment', () => {
-    it('is Poseidon.hash([fulfillment.commitment(), patientPay, planPay])', () => {
+    it('is Poseidon.hash([fulfillment.commitment(), patientPay, planPay, deductibleCredit])', () => {
       const rxHash = createTestPrescriptionData().commitment();
       const fulfillment = createTestFulfillmentData(rxHash);
       const patientPay = Field(1000);
       const planPay = Field(4500);
+      const deductibleCredit = Field(0);
 
       const expected = Poseidon.hash([
         fulfillment.commitment(),
         patientPay,
         planPay,
+        deductibleCredit,
       ]);
 
       // Verify it differs from plain commitment
@@ -325,6 +336,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         fulfillment.commitment(),
         patientPay,
         planPay,
+        deductibleCredit,
       ]);
       expect(again.toString()).toBe(expected.toString());
     });
@@ -376,21 +388,24 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
       expect(planPayCents.toString()).toBe('0');
     });
 
-    it('deductible partially met: patient pays remainder', () => {
+    it('deductible partially met: patient pays remainder + copay on excess (C5 fix)', () => {
       const rxHash = createTestPrescriptionData().commitment();
       const fulfillment = createTestFulfillmentData(rxHash); // total = 5500
-      const formulary = createTestFormularyEntry();
+      const formulary = createTestFormularyEntry(); // copay = 1000
       const accumulator = createTestAccumulator({
         deductibleAmount: 50000, // $500 deductible
         deductiblePaid: 47000,   // $470 paid → $30 remaining
       });
 
-      const { patientPayCents, planPayCents } =
+      const { patientPayCents, planPayCents, deductibleCreditCents } =
         service.calculateAccumulatorAwareAmounts(fulfillment, formulary, accumulator);
 
-      // remaining = 50000 - 47000 = 3000; min(5500, 3000) = 3000
-      expect(patientPayCents.toString()).toBe('3000');
-      expect(planPayCents.toString()).toBe('2500');
+      // remaining = 3000; deductiblePay = min(5500, 3000) = 3000
+      // afterDeductible = 5500 - 3000 = 2500; copayOnRemainder = min(2500, 1000) = 1000
+      // basePay = 3000 + 1000 = 4000; planPay = 1500
+      expect(patientPayCents.toString()).toBe('4000');
+      expect(planPayCents.toString()).toBe('1500');
+      expect(deductibleCreditCents.toString()).toBe('3000');
     });
 
     it('deductible met → normal copay phase', () => {
@@ -478,7 +493,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           deductibleAmount: 50000, // $500 deductible
           deductiblePaid: 0,
         });
-        const scenario = setupDualNftScenario(accumulator);
+        const scenario = setupDualCredentialScenario(accumulator);
 
         const fulfillment = createTestFulfillmentData(scenario.rxData.commitment());
         const formularyRegistry = createTestFormularyRegistry();
@@ -498,7 +513,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         );
 
         const result = await AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(
-          scenario.prescriptionNft,
+          scenario.prescriptionCredential,
           scenario.rxData,
           scenario.filledStatus,
           fulfillment,
@@ -509,10 +524,13 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           newSlotWitness,
           formularyWitness,
           formularyRoot,
-          scenario.eligibilityNft,
+          scenario.eligibilityCredential,
           eligForestRoots,
           accumulator,
           accumulatorWitness,
+          PHARM_QUAL,
+          PHARM_ID_HASH,
+          PHARM_EK_HASH,
         );
 
         const output = result.proof.publicOutput;
@@ -523,8 +541,8 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         expect(output.planPayCents.toString()).toBe('0');
 
         // Both forest roots changed
-        expect(output.newForestRoot.toString()).not.toBe(scenario.prescriptionNft.forestRoot.toString());
-        expect(output.newEligibilityForestRoot.toString()).not.toBe(scenario.eligibilityNft.forestRoot.toString());
+        expect(output.newForestRoot.toString()).not.toBe(scenario.prescriptionCredential.forestRoot.toString());
+        expect(output.newEligibilityForestRoot.toString()).not.toBe(scenario.eligibilityCredential.forestRoot.toString());
       }, 120_000);
 
       it('normal phase: deductible met → patient pays $10 copay', async () => {
@@ -532,7 +550,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           deductibleAmount: 50000,
           deductiblePaid: 50000, // fully met
         });
-        const scenario = setupDualNftScenario(accumulator);
+        const scenario = setupDualCredentialScenario(accumulator);
 
         const fulfillment = createTestFulfillmentData(scenario.rxData.commitment());
         const formularyRegistry = createTestFormularyRegistry();
@@ -552,7 +570,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         );
 
         const result = await AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(
-          scenario.prescriptionNft,
+          scenario.prescriptionCredential,
           scenario.rxData,
           scenario.filledStatus,
           fulfillment,
@@ -563,10 +581,13 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           newSlotWitness,
           formularyWitness,
           formularyRoot,
-          scenario.eligibilityNft,
+          scenario.eligibilityCredential,
           eligForestRoots,
           accumulator,
           accumulatorWitness,
+          PHARM_QUAL,
+          PHARM_ID_HASH,
+          PHARM_EK_HASH,
         );
 
         const output = result.proof.publicOutput;
@@ -580,7 +601,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           oopMax: 500000,
           oopPaid: 500000, // fully met
         });
-        const scenario = setupDualNftScenario(accumulator);
+        const scenario = setupDualCredentialScenario(accumulator);
 
         const fulfillment = createTestFulfillmentData(scenario.rxData.commitment());
         const formularyRegistry = createTestFormularyRegistry();
@@ -600,7 +621,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         );
 
         const result = await AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(
-          scenario.prescriptionNft,
+          scenario.prescriptionCredential,
           scenario.rxData,
           scenario.filledStatus,
           fulfillment,
@@ -611,10 +632,13 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           newSlotWitness,
           formularyWitness,
           formularyRoot,
-          scenario.eligibilityNft,
+          scenario.eligibilityCredential,
           eligForestRoots,
           accumulator,
           accumulatorWitness,
+          PHARM_QUAL,
+          PHARM_ID_HASH,
+          PHARM_EK_HASH,
         );
 
         const output = result.proof.publicOutput;
@@ -624,7 +648,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
 
       it('no accumulators → same as simple copay ($10)', async () => {
         const accumulator = createTestAccumulator(); // all zeros
-        const scenario = setupDualNftScenario(accumulator);
+        const scenario = setupDualCredentialScenario(accumulator);
 
         const fulfillment = createTestFulfillmentData(scenario.rxData.commitment());
         const formularyRegistry = createTestFormularyRegistry();
@@ -644,7 +668,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         );
 
         const result = await AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(
-          scenario.prescriptionNft,
+          scenario.prescriptionCredential,
           scenario.rxData,
           scenario.filledStatus,
           fulfillment,
@@ -655,10 +679,13 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           newSlotWitness,
           formularyWitness,
           formularyRoot,
-          scenario.eligibilityNft,
+          scenario.eligibilityCredential,
           eligForestRoots,
           accumulator,
           accumulatorWitness,
+          PHARM_QUAL,
+          PHARM_ID_HASH,
+          PHARM_EK_HASH,
         );
 
         const output = result.proof.publicOutput;
@@ -675,7 +702,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           deductibleAmount: 50000,
           deductiblePaid: 0,
         });
-        const scenario = setupDualNftScenario(accumulator);
+        const scenario = setupDualCredentialScenario(accumulator);
 
         const fulfillment = createTestFulfillmentData(scenario.rxData.commitment());
         const formularyRegistry = createTestFormularyRegistry();
@@ -696,7 +723,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         );
 
         const fulfillResult = await AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(
-          scenario.prescriptionNft,
+          scenario.prescriptionCredential,
           scenario.rxData,
           scenario.filledStatus,
           fulfillment,
@@ -707,20 +734,26 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           newSlotWitness,
           formularyWitness,
           formularyRoot,
-          scenario.eligibilityNft,
+          scenario.eligibilityCredential,
           eligForestRoots,
           accumulator,
           accumulatorWitness,
+          PHARM_QUAL,
+          PHARM_ID_HASH,
+          PHARM_EK_HASH,
         );
 
         const origPatientPay = fulfillResult.proof.publicOutput.patientPayCents;
         const origPlanPay = fulfillResult.proof.publicOutput.planPayCents;
+
+        const origDeductibleCredit = fulfillResult.proof.publicOutput.deductibleCreditCents;
 
         // Mutate prescription forest: insert settlement commitment at index 2
         const settlementCommitment = Poseidon.hash([
           fulfillment.commitment(),
           origPatientPay,
           origPlanPay,
+          origDeductibleCredit,
         ]);
         scenario.prescriptionForest.setLeaf(
           ForestDomain.TRANSACTION,
@@ -728,22 +761,22 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           settlementCommitment,
         );
 
-        // Update prescription NFT
-        const postFulfillNft = new NftData({
-          nftType: NFT_TYPE_PRESCRIPTION,
+        // Update prescription credential
+        const postFulfillCredential = new CredentialData({
+          credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
           forestRoot: scenario.prescriptionForest.getForestRoot(),
-          issuerWalletId: scenario.prescriptionNft.issuerWalletId,
-          subjectWalletId: scenario.prescriptionNft.subjectWalletId,
-          issuedAt: scenario.prescriptionNft.issuedAt,
-          expiresAt: scenario.prescriptionNft.expiresAt,
+          issuerWalletId: scenario.prescriptionCredential.issuerWalletId,
+          subjectWalletId: scenario.prescriptionCredential.subjectWalletId,
+          issuedAt: scenario.prescriptionCredential.issuedAt,
+          expiresAt: scenario.prescriptionCredential.expiresAt,
           revoked: Field(0),
         });
 
-        // Update accumulator in eligibility forest
+        // Update accumulator in eligibility forest (C4: use deductibleCredit for deductible)
         const postFulfillAccumulator = new AccumulatorData({
           planYear: accumulator.planYear,
           deductibleAmountCents: accumulator.deductibleAmountCents,
-          deductiblePaidCents: Field(BigInt(accumulator.deductiblePaidCents.toString()) + BigInt(origPatientPay.toString())),
+          deductiblePaidCents: Field(BigInt(accumulator.deductiblePaidCents.toString()) + BigInt(origDeductibleCredit.toString())),
           oopMaxCents: accumulator.oopMaxCents,
           oopPaidCents: Field(BigInt(accumulator.oopPaidCents.toString()) + BigInt(origPatientPay.toString())),
           annualBenefitMaxCents: accumulator.annualBenefitMaxCents,
@@ -756,13 +789,13 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           postFulfillAccumulator.commitment(),
         );
 
-        const postFulfillEligNft = new NftData({
-          nftType: NFT_TYPE_ELIGIBILITY,
+        const postFulfillEligCredential = new CredentialData({
+          credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
           forestRoot: scenario.eligibilityForest.getForestRoot(),
-          issuerWalletId: scenario.eligibilityNft.issuerWalletId,
-          subjectWalletId: scenario.eligibilityNft.subjectWalletId,
-          issuedAt: scenario.eligibilityNft.issuedAt,
-          expiresAt: scenario.eligibilityNft.expiresAt,
+          issuerWalletId: scenario.eligibilityCredential.issuerWalletId,
+          subjectWalletId: scenario.eligibilityCredential.subjectWalletId,
+          issuedAt: scenario.eligibilityCredential.issuedAt,
+          expiresAt: scenario.eligibilityCredential.expiresAt,
           revoked: Field(0),
         });
 
@@ -789,7 +822,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         );
 
         const reversalResult = await AccumulatorFulfillmentProgram.proveReversalWithAccumulator(
-          postFulfillNft,
+          postFulfillCredential,
           scenario.rxData,
           fulfillment,
           reversalData,
@@ -799,10 +832,14 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           reversalSlotWitness,
           origPatientPay,
           origPlanPay,
-          postFulfillEligNft,
+          origDeductibleCredit,
+          postFulfillEligCredential,
           eligForestRoots2,
           postFulfillAccumulator,
           accWitness2,
+          PHARM_QUAL,
+          PHARM_ID_HASH,
+          PHARM_EK_HASH,
         );
 
         const output = reversalResult.proof.publicOutput;
@@ -812,7 +849,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
 
         // New eligibility forest root changed again (accumulator reversed)
         expect(output.newEligibilityForestRoot.toString())
-          .not.toBe(postFulfillEligNft.forestRoot.toString());
+          .not.toBe(postFulfillEligCredential.forestRoot.toString());
       }, 120_000);
     });
   });
@@ -827,12 +864,12 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
       await AccumulatorFulfillmentProgram.compile();
     }, 180_000);
 
-    it('submit with accumulator → both NFTs updated', async () => {
+    it('submit with accumulator → both credentials updated', async () => {
       const accumulator = createTestAccumulator({
         deductibleAmount: 50000,
         deductiblePaid: 50000, // met → normal copay
       });
-      const scenario = setupDualNftScenario(accumulator);
+      const scenario = setupDualCredentialScenario(accumulator);
       const formularyRegistry = createTestFormularyRegistry();
 
       const service = new AccumulatorFulfillmentService(
@@ -846,8 +883,8 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
       const result = await service.submitFulfillmentWithAccumulator(
         pharmacyWalletId,
         memberWalletId,
-        scenario.prescriptionNft,
-        scenario.eligibilityNft,
+        scenario.prescriptionCredential,
+        scenario.eligibilityCredential,
         scenario.rxData,
         scenario.filledStatus,
         fulfillment,
@@ -860,23 +897,24 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         ACCUMULATOR_LEAF_INDEX,
         scenario.pharmacyInventory,
         scenario.memberInventory,
-        scenario.prescriptionNftSlot,
-        scenario.eligibilityNftSlot,
+        scenario.prescriptionCredentialSlot,
+        scenario.eligibilityCredentialSlot,
+        [PHARM_QUAL, PHARM_ID_HASH, PHARM_EK_HASH],
       );
 
       // Normal copay: patientPay=1000, planPay=4500
       expect(result.patientPayCents.toString()).toBe('1000');
       expect(result.planPayCents.toString()).toBe('4500');
 
-      // Both NFTs updated
-      expect(result.newPrescriptionNftData.forestRoot.toString())
-        .not.toBe(scenario.prescriptionNft.forestRoot.toString());
-      expect(result.newEligibilityNftData.forestRoot.toString())
-        .not.toBe(scenario.eligibilityNft.forestRoot.toString());
+      // Both credentials updated
+      expect(result.newPrescriptionCredentialData.forestRoot.toString())
+        .not.toBe(scenario.prescriptionCredential.forestRoot.toString());
+      expect(result.newEligibilityCredentialData.forestRoot.toString())
+        .not.toBe(scenario.eligibilityCredential.forestRoot.toString());
 
-      // Accumulator updated: deductiblePaid unchanged (was already met),
-      // oopPaid increased by patientPay (1000), benefitUsed increased by planPay (4500)
-      expect(result.newAccumulatorData.deductiblePaidCents.toString()).toBe('51000');
+      // Accumulator updated (C4 fix): deductiblePaid unchanged because deductible was already met
+      // (deductibleCredit=0), oopPaid increased by patientPay (1000), benefitUsed by planPay (4500)
+      expect(result.newAccumulatorData.deductiblePaidCents.toString()).toBe('50000');
       expect(result.newAccumulatorData.oopPaidCents.toString()).toBe('1000');
       expect(result.newAccumulatorData.annualBenefitUsedCents.toString()).toBe('4500');
 
@@ -889,7 +927,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         deductibleAmount: 50000,
         deductiblePaid: 50000,
       });
-      const scenario = setupDualNftScenario(accumulator);
+      const scenario = setupDualCredentialScenario(accumulator);
       const formularyRegistry = createTestFormularyRegistry();
 
       const service = new AccumulatorFulfillmentService(
@@ -904,8 +942,8 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
       const fulfillResult = await service.submitFulfillmentWithAccumulator(
         pharmacyWalletId,
         memberWalletId,
-        scenario.prescriptionNft,
-        scenario.eligibilityNft,
+        scenario.prescriptionCredential,
+        scenario.eligibilityCredential,
         scenario.rxData,
         scenario.filledStatus,
         fulfillment,
@@ -918,8 +956,9 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         ACCUMULATOR_LEAF_INDEX,
         scenario.pharmacyInventory,
         scenario.memberInventory,
-        scenario.prescriptionNftSlot,
-        scenario.eligibilityNftSlot,
+        scenario.prescriptionCredentialSlot,
+        scenario.eligibilityCredentialSlot,
+        [PHARM_QUAL, PHARM_ID_HASH, PHARM_EK_HASH],
       );
 
       // Step 2: Reverse
@@ -936,8 +975,8 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
       const reversalResult = await service.reverseFulfillmentWithAccumulator(
         pharmacyWalletId,
         memberWalletId,
-        fulfillResult.newPrescriptionNftData,
-        fulfillResult.newEligibilityNftData,
+        fulfillResult.newPrescriptionCredentialData,
+        fulfillResult.newEligibilityCredentialData,
         scenario.rxData,
         fulfillment,
         reversalData,
@@ -947,12 +986,14 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         2n,  // originalFulfillmentIndex
         fulfillResult.patientPayCents,
         fulfillResult.planPayCents,
+        fulfillResult.deductibleCreditCents,
         fulfillResult.newAccumulatorData,
         ACCUMULATOR_LEAF_INDEX,
         scenario.pharmacyInventory,
         scenario.memberInventory,
-        scenario.prescriptionNftSlot,
-        scenario.eligibilityNftSlot,
+        scenario.prescriptionCredentialSlot,
+        scenario.eligibilityCredentialSlot,
+        [PHARM_QUAL, PHARM_ID_HASH, PHARM_EK_HASH],
       );
 
       // Refund amounts match original
@@ -1145,7 +1186,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         expect(planPayCents).toBe(0);
       });
 
-      test('deductible almost met → patient pays only remaining portion', () => {
+      test('deductible almost met → patient pays remaining deductible + copay on excess (C5 fix)', () => {
         const acc = createTestAccumulator({
           deductibleAmount: 50000,
           deductiblePaid: 48000, // $20 remaining
@@ -1153,9 +1194,11 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         const { patientPayCents, planPayCents } =
           AccumulatorQueryService.estimatePatientCost(acc, 5500, 1000);
 
-        // $20 remaining < $55 total → patient pays $20
-        expect(patientPayCents).toBe(2000);
-        expect(planPayCents).toBe(3500);
+        // remaining = 2000; deductiblePay = min(5500, 2000) = 2000
+        // afterDeductible = 3500; copayOnRemainder = min(3500, 1000) = 1000
+        // basePay = 2000 + 1000 = 3000
+        expect(patientPayCents).toBe(3000);
+        expect(planPayCents).toBe(2500);
       });
 
       test('deductible met → normal copay', () => {
@@ -1202,8 +1245,8 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         accumulator.commitment(),
       );
 
-      const nft = new NftData({
-        nftType: NFT_TYPE_ELIGIBILITY,
+      const credential = new CredentialData({
+        credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
         forestRoot: forest.getForestRoot(),
         issuerWalletId: Field(100200300400500600n),
         subjectWalletId: memberWalletId,
@@ -1214,7 +1257,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
 
       const formularyRegistry = createTestFormularyRegistry();
 
-      return { nft, forest, formularyRegistry };
+      return { credential, forest, formularyRegistry };
     }
 
     describe('lookupFormulary', () => {
@@ -1285,10 +1328,10 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
     describe('checkBenefit', () => {
       test('full benefit check — covered medication, copay phase', () => {
         const acc = createTestAccumulator(); // no accumulators
-        const { nft, forest, formularyRegistry } = setupBenefitCheck(acc);
+        const { credential, forest, formularyRegistry } = setupBenefitCheck(acc);
 
         const result = BenefitCheckService.checkBenefit(
-          ndcHash, 5500, nft, forest, acc, formularyRegistry,
+          ndcHash, 5500, credential, forest, acc, formularyRegistry,
         );
 
         expect(result.formulary.covered).toBe(true);
@@ -1297,7 +1340,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         expect(result.estimatedPatientPayCents).toBe(1000); // $10 copay
         expect(result.estimatedPlanPayCents).toBe(4500);
         expect(result.totalCostCents).toBe(5500);
-        expect(result.verification.nftActive).toBe(true);
+        expect(result.verification.credentialActive).toBe(true);
         expect(result.verification.accumulatorVerified).toBe(true);
         expect(result.verification.formularyVerified).toBe(true);
       });
@@ -1307,10 +1350,10 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           deductibleAmount: 50000,
           deductiblePaid: 0,
         });
-        const { nft, forest, formularyRegistry } = setupBenefitCheck(acc);
+        const { credential, forest, formularyRegistry } = setupBenefitCheck(acc);
 
         const result = BenefitCheckService.checkBenefit(
-          ndcHash, 5500, nft, forest, acc, formularyRegistry,
+          ndcHash, 5500, credential, forest, acc, formularyRegistry,
         );
 
         expect(result.costPhase).toBe('deductible');
@@ -1324,10 +1367,10 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           oopMax: 500000,
           oopPaid: 500000,
         });
-        const { nft, forest, formularyRegistry } = setupBenefitCheck(acc);
+        const { credential, forest, formularyRegistry } = setupBenefitCheck(acc);
 
         const result = BenefitCheckService.checkBenefit(
-          ndcHash, 5500, nft, forest, acc, formularyRegistry,
+          ndcHash, 5500, credential, forest, acc, formularyRegistry,
         );
 
         expect(result.costPhase).toBe('oop-max-met');
@@ -1337,11 +1380,11 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
 
       test('not-covered medication — patient pays 100%', () => {
         const acc = createTestAccumulator();
-        const { nft, forest, formularyRegistry } = setupBenefitCheck(acc);
+        const { credential, forest, formularyRegistry } = setupBenefitCheck(acc);
         const unknownNdc = hashString('99999999999');
 
         const result = BenefitCheckService.checkBenefit(
-          unknownNdc, 5500, nft, forest, acc, formularyRegistry,
+          unknownNdc, 5500, credential, forest, acc, formularyRegistry,
         );
 
         expect(result.formulary.covered).toBe(false);
@@ -1349,7 +1392,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         expect(result.estimatedPlanPayCents).toBe(0);
       });
 
-      test('revoked NFT is flagged as inactive', () => {
+      test('revoked credential is flagged as inactive', () => {
         const acc = createTestAccumulator();
         const forest = new MerkleForest();
         forest.setLeaf(
@@ -1358,8 +1401,8 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           acc.commitment(),
         );
 
-        const revokedNft = new NftData({
-          nftType: NFT_TYPE_ELIGIBILITY,
+        const revokedCredential = new CredentialData({
+          credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
           forestRoot: forest.getForestRoot(),
           issuerWalletId: Field(100200300400500600n),
           subjectWalletId: memberWalletId,
@@ -1370,20 +1413,20 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
 
         const registry = createTestFormularyRegistry();
         const result = BenefitCheckService.checkBenefit(
-          ndcHash, 5500, revokedNft, forest, acc, registry,
+          ndcHash, 5500, revokedCredential, forest, acc, registry,
         );
 
-        expect(result.verification.nftActive).toBe(false);
+        expect(result.verification.credentialActive).toBe(false);
       });
 
       test('mismatched accumulator fails verification', () => {
         const acc = createTestAccumulator({ deductibleAmount: 50000 });
         const wrongAcc = createTestAccumulator({ deductibleAmount: 99999 });
-        const { nft, forest, formularyRegistry } = setupBenefitCheck(acc);
+        const { credential, forest, formularyRegistry } = setupBenefitCheck(acc);
 
         // Pass wrong accumulator data — doesn't match forest
         const result = BenefitCheckService.checkBenefit(
-          ndcHash, 5500, nft, forest, wrongAcc, formularyRegistry,
+          ndcHash, 5500, credential, forest, wrongAcc, formularyRegistry,
         );
 
         expect(result.verification.accumulatorVerified).toBe(false);

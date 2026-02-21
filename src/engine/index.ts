@@ -13,10 +13,10 @@ export {
 } from './lifecycle.js';
 
 export {
-  EMPTY_NFT_ROOT,
+  EMPTY_CREDENTIAL_ROOT,
   TransitionOutput,
   StateTransitionProgram,
   StateTransitionProof,
 } from './state-transition.js';
 
-export { CareContract, NftRegistryWitness } from './care-contract.js';
+export { CareContract, CredentialRegistryWitness } from './care-contract.js';

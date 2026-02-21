@@ -5,7 +5,7 @@ import type { AccumulatorStatus } from './accumulator-query-service.js';
 import { FormularyEntry } from './formulary-entry.js';
 import { FormularyRegistry } from './formulary-registry.js';
 import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
-import { NftData, NFT_TYPE_ELIGIBILITY } from '../nft/nft-data.js';
+import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY } from '../credentials/credential-data.js';
 
 // ─── Tier Labels ─────────────────────────────────────────
 
@@ -74,12 +74,12 @@ export interface BenefitCheckResult {
   totalCostCents: number;
   /** Verification flags */
   verification: {
-    /** Accumulator data matches the eligibility NFT's forest */
+    /** Accumulator data matches the eligibility credential's forest */
     accumulatorVerified: boolean;
     /** Formulary entry commitment matches the registry */
     formularyVerified: boolean;
-    /** Eligibility NFT is active (not revoked) */
-    nftActive: boolean;
+    /** Eligibility credential is active (not revoked) */
+    credentialActive: boolean;
   };
 }
 
@@ -94,7 +94,7 @@ export interface BenefitCheckResult {
  *
  * All methods are static — no state, no side effects, fully offline.
  *
- * Inputs come from the member's eligibility NFT (on their device or
+ * Inputs come from the member's eligibility credential (on their device or
  * shared via PortableCredential) and the insurer's published formulary.
  */
 export class BenefitCheckService {
@@ -165,7 +165,7 @@ export class BenefitCheckService {
    *
    * @param ndcHash — Poseidon hash of the NDC code
    * @param totalCostCents — estimated total cost (ingredient + dispensing fee)
-   * @param eligibilityNft — the member's eligibility NFT
+   * @param eligibilityCredential — the member's eligibility credential
    * @param eligibilityForest — the member's eligibility forest (off-chain reconstruction)
    * @param accumulatorData — the member's current accumulator state
    * @param formularyRegistry — the insurer's published formulary tree
@@ -173,19 +173,19 @@ export class BenefitCheckService {
   static checkBenefit(
     ndcHash: Field,
     totalCostCents: number,
-    eligibilityNft: NftData,
+    eligibilityCredential: CredentialData,
     eligibilityForest: MerkleForest,
     accumulatorData: AccumulatorData,
     formularyRegistry: FormularyRegistry,
   ): BenefitCheckResult {
-    // 1. Verify NFT is active
-    const nftActive =
-      eligibilityNft.nftType.toString() === NFT_TYPE_ELIGIBILITY.toString() &&
-      eligibilityNft.revoked.toString() === '0';
+    // 1. Verify credential is active
+    const credentialActive =
+      eligibilityCredential.credentialType.toString() === CREDENTIAL_TYPE_ELIGIBILITY.toString() &&
+      eligibilityCredential.revoked.toString() === '0';
 
-    // 2. Verify forest root matches NFT
+    // 2. Verify forest root matches credential
     const forestRootMatches =
-      eligibilityForest.getForestRoot().toString() === eligibilityNft.forestRoot.toString();
+      eligibilityForest.getForestRoot().toString() === eligibilityCredential.forestRoot.toString();
 
     // 3. Verify accumulator in forest
     const accumulatorVerified = forestRootMatches &&
@@ -231,7 +231,7 @@ export class BenefitCheckService {
       verification: {
         accumulatorVerified,
         formularyVerified,
-        nftActive,
+        credentialActive,
       },
     };
   }

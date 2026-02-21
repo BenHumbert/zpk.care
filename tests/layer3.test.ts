@@ -21,7 +21,7 @@ import {
   isValidTransition,
 } from '../src/engine/lifecycle.js';
 import {
-  EMPTY_NFT_ROOT,
+  EMPTY_CREDENTIAL_ROOT,
   StateTransitionProgram,
   TransitionOutput,
 } from '../src/engine/state-transition.js';
@@ -161,16 +161,16 @@ describe('Layer 3 — zkApp Core Engine', () => {
     });
   });
 
-  describe('EMPTY_NFT_ROOT constant', () => {
+  describe('EMPTY_CREDENTIAL_ROOT constant', () => {
     test('matches a fresh MerkleTree(7) root', () => {
       const freshTree = new MerkleTree(7);
-      expect(EMPTY_NFT_ROOT.toString()).toBe(freshTree.getRoot().toString());
+      expect(EMPTY_CREDENTIAL_ROOT.toString()).toBe(freshTree.getRoot().toString());
     });
 
     test('is deterministic', () => {
       // Import a second time to verify module-scope constant is stable
-      expect(EMPTY_NFT_ROOT.toString()).toBe(EMPTY_NFT_ROOT.toString());
-      expect(EMPTY_NFT_ROOT.toString().length).toBeGreaterThan(0);
+      expect(EMPTY_CREDENTIAL_ROOT.toString()).toBe(EMPTY_CREDENTIAL_ROOT.toString());
+      expect(EMPTY_CREDENTIAL_ROOT.toString().length).toBeGreaterThan(0);
     });
   });
 
@@ -542,8 +542,8 @@ describe('Layer 3 — zkApp Core Engine', () => {
     let walletId: Field;
     const walletIndex = 0n;
 
-    // Track current wallet state for nonce/nftRoot
-    let currentNftRoot: Field;
+    // Track current wallet state for nonce/credentialRoot
+    let currentCredentialRoot: Field;
     let currentNonce: Field;
 
     beforeAll(async () => {
@@ -592,7 +592,7 @@ describe('Layer 3 — zkApp Core Engine', () => {
         lifecycleLeafCommitment(walletId, LIFECYCLE_REGISTERED),
       );
 
-      currentNftRoot = EMPTY_NFT_ROOT;
+      currentCredentialRoot = EMPTY_CREDENTIAL_ROOT;
       currentNonce = Field(0);
 
       // Advance lifecycle to ELIGIBLE (needed for active state testing)
@@ -610,8 +610,8 @@ describe('Layer 3 — zkApp Core Engine', () => {
       );
     });
 
-    test('updates wallet NFT inventory root', async () => {
-      const newNftRoot = Poseidon.hash([Field(1), Field(2)]); // simulated new NFT root
+    test('updates wallet credential inventory root', async () => {
+      const newCredentialRoot = Poseidon.hash([Field(1), Field(2)]); // simulated new credential root
       const newNonce = Field(1);
 
       const regWitness = getRegistryWitness(walletIndex);
@@ -620,9 +620,9 @@ describe('Layer 3 — zkApp Core Engine', () => {
       const tx = await Mina.transaction(admin, async () => {
         await contract.updateWalletState(
           walletId,
-          currentNftRoot,
+          currentCredentialRoot,
           currentNonce,
-          newNftRoot,
+          newCredentialRoot,
           newNonce,
           regWitness,
           lcWitness,
@@ -633,10 +633,10 @@ describe('Layer 3 — zkApp Core Engine', () => {
       await tx.sign([admin.key]).send();
 
       // Mirror
-      const newCommitment = Poseidon.hash([walletId, newNftRoot, newNonce]);
+      const newCommitment = Poseidon.hash([walletId, newCredentialRoot, newNonce]);
       registryTree.setLeaf(walletIndex, newCommitment);
 
-      currentNftRoot = newNftRoot;
+      currentCredentialRoot = newCredentialRoot;
       currentNonce = newNonce;
 
       expect(contract.walletRegistryRoot.get().toString())
@@ -644,7 +644,7 @@ describe('Layer 3 — zkApp Core Engine', () => {
     });
 
     test('rejects update with wrong nonce', async () => {
-      const newNftRoot = Poseidon.hash([Field(3), Field(4)]);
+      const newCredentialRoot = Poseidon.hash([Field(3), Field(4)]);
       const wrongNonce = Field(99); // should be currentNonce + 1
 
       const regWitness = getRegistryWitness(walletIndex);
@@ -654,9 +654,9 @@ describe('Layer 3 — zkApp Core Engine', () => {
         const tx = await Mina.transaction(admin, async () => {
           await contract.updateWalletState(
             walletId,
-            currentNftRoot,
+            currentCredentialRoot,
             currentNonce,
-            newNftRoot,
+            newCredentialRoot,
             wrongNonce,
             regWitness,
             lcWitness,
@@ -684,7 +684,7 @@ describe('Layer 3 — zkApp Core Engine', () => {
       );
 
       // Now try to update wallet state — should fail
-      const newNftRoot = Poseidon.hash([Field(5)]);
+      const newCredentialRoot = Poseidon.hash([Field(5)]);
       const newNonce = currentNonce.add(1);
       const regWitness = getRegistryWitness(walletIndex);
       const lcWitness2 = getLifecycleWitness(walletIndex);
@@ -693,9 +693,9 @@ describe('Layer 3 — zkApp Core Engine', () => {
         const tx = await Mina.transaction(admin, async () => {
           await contract.updateWalletState(
             walletId,
-            currentNftRoot,
+            currentCredentialRoot,
             currentNonce,
-            newNftRoot,
+            newCredentialRoot,
             newNonce,
             regWitness,
             lcWitness2,

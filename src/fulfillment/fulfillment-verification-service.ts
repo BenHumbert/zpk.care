@@ -1,5 +1,5 @@
 import { Field } from 'o1js';
-import { NftProgram, NftOperationProof, NFT_OP_VERIFY } from '../nft/nft-program.js';
+import { CredentialProgram, CredentialOperationProof, CREDENTIAL_OP_VERIFY } from '../credentials/credential-program.js';
 import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
 import { FormularyEntry } from '../access-control/formulary-entry.js';
 import { FulfillmentData, ReversalData } from './fulfillment-data.js';
@@ -64,12 +64,12 @@ export interface FullFulfillmentCheckResult {
  *   1. FulfillmentProgram proofs (fulfillment and reversal)
  *   2. Amount balance (off-chain sanity check)
  *   3. Claim history extraction from TRANSACTION tree
- *   4. Combined NFT holding + fulfillment check
+ *   4. Combined credential holding + fulfillment check
  *
  * All verification is OFFLINE — no internet required.
  *
  * Preconditions:
- *   await NftProgram.compile();           // for holding verification
+ *   await CredentialProgram.compile();           // for holding verification
  *   await FulfillmentProgram.compile();   // for fulfillment proof verification
  */
 export class FulfillmentVerificationService {
@@ -212,35 +212,35 @@ export class FulfillmentVerificationService {
   }
 
   /**
-   * Full fulfillment check: NFT holding + fulfillment proof.
+   * Full fulfillment check: credential holding + fulfillment proof.
    *
-   * Combines verification of the pharmacy's NFT holding proof with
+   * Combines verification of the pharmacy's credential holding proof with
    * the fulfillment proof.
    */
   async fullFulfillmentCheck(
-    holdingProof: InstanceType<typeof NftOperationProof>,
+    holdingProof: InstanceType<typeof CredentialOperationProof>,
     fulfillmentProof: InstanceType<typeof FulfillmentProof>,
   ): Promise<FullFulfillmentCheckResult> {
     const details: string[] = [];
 
-    // 1. Verify NFT holding
+    // 1. Verify credential holding
     let holdingValid = false;
     try {
-      const holdingOk = await NftProgram.verify(holdingProof);
+      const holdingOk = await CredentialProgram.verify(holdingProof);
       if (holdingOk) {
         const holdingOutput = holdingProof.publicOutput;
-        if (holdingOutput.operationType.toString() === NFT_OP_VERIFY.toString()) {
+        if (holdingOutput.operationType.toString() === CREDENTIAL_OP_VERIFY.toString()) {
           holdingValid = true;
-          details.push('NFT holding: verified');
+          details.push('Credential holding: verified');
         } else {
-          details.push('NFT holding: FAILED (wrong operation type)');
+          details.push('Credential holding: FAILED (wrong operation type)');
         }
       } else {
-        details.push('NFT holding: FAILED (proof verification failed)');
+        details.push('Credential holding: FAILED (proof verification failed)');
       }
     } catch (e) {
       details.push(
-        `NFT holding: FAILED (${e instanceof Error ? e.message : 'Unknown error'})`,
+        `Credential holding: FAILED (${e instanceof Error ? e.message : 'Unknown error'})`,
       );
     }
 

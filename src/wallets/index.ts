@@ -24,9 +24,9 @@ export {
 
 export {
   WALLET_TREE_HEIGHT,
-  NFT_INVENTORY_HEIGHT,
+  CREDENTIAL_INVENTORY_HEIGHT,
   WalletRegistryWitness,
-  NftInventoryWitness,
+  CredentialInventoryWitness,
   WalletState,
   WalletRegistry,
 } from './wallet-state.js';

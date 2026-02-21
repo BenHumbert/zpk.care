@@ -1,10 +1,12 @@
-import { Field, Poseidon } from 'o1js';
+import { Field, Poseidon, Encoding } from 'o1js';
 import { ReportingService } from '../src/reporting/reporting-service.js';
+import { hashString } from '../src/zkp/hash-utils.js';
 import type {
   VerifiedClaim,
   ClaimContext,
   PriorAuthContext,
   DateRange,
+  ReportFilter,
 } from '../src/reporting/report-types.js';
 import {
   FulfillmentOutput,
@@ -157,6 +159,7 @@ describe('Layer 10 — On-Chain Reporting', () => {
         patientPayCents: Field(1000n),
         planPayCents: Field(4000n),
         operationType: FULFILL_OP_CLAIM,
+        ndcHash: Field(0),
       });
 
       const claim = service.extractVerifiedClaim(proofOutput, context);
@@ -176,6 +179,7 @@ describe('Layer 10 — On-Chain Reporting', () => {
         patientPayCents: Field(1000n),
         planPayCents: Field(4000n),
         operationType: FULFILL_OP_REVERSAL,
+        ndcHash: Field(0),
       });
 
       const claim = service.extractVerifiedClaim(proofOutput, context);
@@ -194,6 +198,7 @@ describe('Layer 10 — On-Chain Reporting', () => {
         patientPayCents: Field(500n),
         planPayCents: Field(2000n),
         operationType: FULFILL_OP_CLAIM,
+        ndcHash: Field(0),
       });
 
       const claim = service.extractVerifiedClaim(proofOutput, context);
@@ -217,6 +222,7 @@ describe('Layer 10 — On-Chain Reporting', () => {
         patientPayCents: Field(9999999n),
         planPayCents: Field(88888888n),
         operationType: FULFILL_OP_CLAIM,
+        ndcHash: Field(0),
       });
 
       const claim = service.extractVerifiedClaim(proofOutput, context);
@@ -262,6 +268,7 @@ describe('Layer 10 — On-Chain Reporting', () => {
         patientPayCents: Field(500n),
         planPayCents: Field(4500n),
         operationType: FULFILL_OP_CLAIM,
+        ndcHash: Field(0),
       });
 
       expect(service.verifyContext(proofOutput, context, prescriptionHash)).toBe(true);
@@ -291,6 +298,7 @@ describe('Layer 10 — On-Chain Reporting', () => {
         patientPayCents: Field(500n),
         planPayCents: Field(4500n),
         operationType: FULFILL_OP_CLAIM,
+        ndcHash: Field(0),
       });
 
       expect(service.verifyContext(proofOutput, context, prescriptionHash)).toBe(false);
@@ -327,6 +335,7 @@ describe('Layer 10 — On-Chain Reporting', () => {
         patientPayCents: Field(500n),
         planPayCents: Field(4500n),
         operationType: FULFILL_OP_CLAIM,
+        ndcHash: Field(0),
       });
 
       // Tamper with ingredientCostCents
@@ -348,6 +357,7 @@ describe('Layer 10 — On-Chain Reporting', () => {
         patientPayCents: Field(1000n),
         planPayCents: Field(4000n),
         operationType: FULFILL_OP_CLAIM,
+        ndcHash: Field(0),
       });
 
       expect(service.isAlreadySettled(proofOutput, forestRoot)).toBe(true);
@@ -362,6 +372,7 @@ describe('Layer 10 — On-Chain Reporting', () => {
         patientPayCents: Field(1000n),
         planPayCents: Field(4000n),
         operationType: FULFILL_OP_CLAIM,
+        ndcHash: Field(0),
       });
 
       // Current forest root is different from the proof's newForestRoot
@@ -379,12 +390,13 @@ describe('Layer 10 — On-Chain Reporting', () => {
         patientPayCents: Field(500n),
         planPayCents: Field(2500n),
         operationType: FULFILL_OP_CLAIM,
+        ndcHash: Field(0),
       });
 
       // Before settlement: not yet settled
       expect(service.isAlreadySettled(proofOutput, Field(2n))).toBe(false);
 
-      // After settlement: NFT now has the new forest root
+      // After settlement: credential now has the new forest root
       expect(service.isAlreadySettled(proofOutput, newRoot)).toBe(true);
     });
   });
@@ -703,6 +715,674 @@ describe('Layer 10 — On-Chain Reporting', () => {
       expect(financial.costBreakdown.totalPlanPayCents).toBe(0);
       // Net cost: 5000 - 5000 = 0
       expect(financial.costBreakdown.netCostCents).toBe(0);
+    });
+
+    test('H7 fix: averages use fulfillment-only data, not net after reversals', () => {
+      // 2 fulfillments at $30 patient/$40 plan, 1 reversal refunding $30/$40
+      const claims = [
+        makeClaim({ patientPayCents: 3000, planPayCents: 4000, ingredientCostCents: 6500, dispensingFeeCents: 500 }),
+        makeClaim({
+          patientPayCents: 3000, planPayCents: 4000, ingredientCostCents: 6500, dispensingFeeCents: 500,
+          entryCommitment: Poseidon.hash([Field(9999)]).toString(),
+        }),
+        makeReversal({ patientPayCents: 3000, planPayCents: 4000, ingredientCostCents: 6500, dispensingFeeCents: 500 }),
+      ];
+
+      const financial = service.generateFinancialSummary(claims);
+      expect(financial.totalClaimCount).toBe(2);
+      expect(financial.totalReversalCount).toBe(1);
+
+      // Net cost breakdown accounts for reversals
+      expect(financial.costBreakdown.totalPatientPayCents).toBe(3000); // 3000+3000-3000
+      expect(financial.costBreakdown.totalPlanPayCents).toBe(4000);    // 4000+4000-4000
+
+      // Averages should use fulfillment-only data (not net)
+      // Before H7 fix: averagePatientPay = 3000 / 2 = 1500 (net / count, WRONG)
+      // After H7 fix: averagePatientPay = 6000 / 2 = 3000 (fulfillment-only / count, CORRECT)
+      expect(financial.averagePatientPay).toBe(3000);
+      expect(financial.averagePlanPay).toBe(4000);
+      expect(financial.averageClaimCost).toBe(7000); // (6500+500) per fulfillment
+    });
+  });
+
+  // ─── Drug Data Enrichment (GAP 1) ─────────────────────────
+
+  describe('Drug Data Enrichment', () => {
+    const testNdc = '00071015523';
+    const testNdcHash = hashString(testNdc).toString();
+
+    test('enriched context fields propagate to VerifiedClaim', () => {
+      const proofOutput = new FulfillmentOutput({
+        prescriptionHash: Field(12345n),
+        oldForestRoot: Field(111n),
+        newForestRoot: Field(222n),
+        entryCommitment: Field(333n),
+        patientPayCents: Field(1000n),
+        planPayCents: Field(4000n),
+        operationType: FULFILL_OP_CLAIM,
+        ndcHash: Field(0),
+      });
+
+      const context: ClaimContext = {
+        pharmacyWalletId: pharmacyWalletId1,
+        memberWalletId: memberWalletId1,
+        prescriberWalletId: prescriberWalletId1,
+        ndcHash: testNdcHash,
+        ingredientCostCents: 4500,
+        dispensingFeeCents: 500,
+        quantityDispensed: '30000',
+        dateOfService: 20260115,
+        // Drug enrichment
+        ndc: testNdc,
+        gpi: '27100060100310',
+        daysSupply: 30,
+        fillNumber: 0,
+        brandName: 'Lisinopril',
+        therapeuticClass: 'ACE Inhibitors',
+        tierLevel: 1,
+        dawCode: 0,
+      };
+
+      const claim = service.extractVerifiedClaim(proofOutput, context);
+
+      expect(claim.ndc).toBe('00071015523');
+      expect(claim.gpi).toBe('27100060100310');
+      expect(claim.daysSupply).toBe(30);
+      expect(claim.fillNumber).toBe(0);
+      expect(claim.brandName).toBe('Lisinopril');
+      expect(claim.therapeuticClass).toBe('ACE Inhibitors');
+      expect(claim.tierLevel).toBe(1);
+      expect(claim.dawCode).toBe(0);
+    });
+
+    test('extractVerifiedClaim works without enrichment (backward compat)', () => {
+      const proofOutput = new FulfillmentOutput({
+        prescriptionHash: Field(12345n),
+        oldForestRoot: Field(111n),
+        newForestRoot: Field(222n),
+        entryCommitment: Field(333n),
+        patientPayCents: Field(1000n),
+        planPayCents: Field(4000n),
+        operationType: FULFILL_OP_CLAIM,
+        ndcHash: Field(0),
+      });
+
+      const context: ClaimContext = {
+        pharmacyWalletId: pharmacyWalletId1,
+        memberWalletId: memberWalletId1,
+        prescriberWalletId: prescriberWalletId1,
+        ndcHash: ndcHash1,
+        ingredientCostCents: 4500,
+        dispensingFeeCents: 500,
+        quantityDispensed: '30000',
+        dateOfService: 20260115,
+        // No drug enrichment fields
+      };
+
+      const claim = service.extractVerifiedClaim(proofOutput, context);
+
+      expect(claim.ndc).toBeUndefined();
+      expect(claim.gpi).toBeUndefined();
+      expect(claim.daysSupply).toBeUndefined();
+      expect(claim.tierLevel).toBeUndefined();
+    });
+
+    test('verifyNdc returns true for matching NDC', () => {
+      const context: ClaimContext = {
+        pharmacyWalletId: pharmacyWalletId1,
+        memberWalletId: memberWalletId1,
+        prescriberWalletId: prescriberWalletId1,
+        ndcHash: testNdcHash,
+        ingredientCostCents: 4500,
+        dispensingFeeCents: 500,
+        quantityDispensed: '30000',
+        dateOfService: 20260115,
+        ndc: testNdc,
+      };
+
+      expect(service.verifyNdc(context)).toBe(true);
+    });
+
+    test('verifyNdc returns false for tampered NDC', () => {
+      const context: ClaimContext = {
+        pharmacyWalletId: pharmacyWalletId1,
+        memberWalletId: memberWalletId1,
+        prescriberWalletId: prescriberWalletId1,
+        ndcHash: testNdcHash,
+        ingredientCostCents: 4500,
+        dispensingFeeCents: 500,
+        quantityDispensed: '30000',
+        dateOfService: 20260115,
+        ndc: '99999999999', // Wrong NDC
+      };
+
+      expect(service.verifyNdc(context)).toBe(false);
+    });
+
+    test('verifyNdc returns true when ndc is undefined', () => {
+      const context: ClaimContext = {
+        pharmacyWalletId: pharmacyWalletId1,
+        memberWalletId: memberWalletId1,
+        prescriberWalletId: prescriberWalletId1,
+        ndcHash: ndcHash1,
+        ingredientCostCents: 4500,
+        dispensingFeeCents: 500,
+        quantityDispensed: '30000',
+        dateOfService: 20260115,
+        // ndc not provided
+      };
+
+      expect(service.verifyNdc(context)).toBe(true);
+    });
+
+    test('existing reports work with enriched claims', () => {
+      const claims = [
+        makeClaim({
+          ndc: testNdc,
+          gpi: '27100060100310',
+          daysSupply: 30,
+          tierLevel: 1,
+          therapeuticClass: 'ACE Inhibitors',
+          brandName: 'Lisinopril',
+        }),
+        makeClaim({
+          prescriptionHash: Poseidon.hash([Field(1002)]).toString(),
+          ndcHash: ndcHash2,
+          memberWalletId: memberWalletId2,
+          ndc: '00002314001',
+          gpi: '27700020000320',
+          daysSupply: 30,
+          tierLevel: 2,
+          therapeuticClass: 'SGLT2 Inhibitors',
+          brandName: 'Jardiance',
+        }),
+      ];
+
+      // All existing reports should work without errors
+      const register = service.generateClaimsRegister(claims);
+      expect(register.totalClaimCount).toBe(2);
+
+      const medUtil = service.generateMedicationUtilization(claims);
+      expect(medUtil.medications.length).toBe(2);
+
+      const financial = service.generateFinancialSummary(claims);
+      expect(financial.totalClaimCount).toBe(2);
+    });
+
+    test('enriched claims preserve drug data through report generation', () => {
+      const claims = [
+        makeClaim({
+          ndc: testNdc,
+          gpi: '27100060100310',
+          daysSupply: 30,
+          tierLevel: 1,
+          therapeuticClass: 'ACE Inhibitors',
+          brandName: 'Lisinopril',
+        }),
+      ];
+
+      const register = service.generateClaimsRegister(claims);
+      const claim = register.claims[0];
+      expect(claim.ndc).toBe(testNdc);
+      expect(claim.gpi).toBe('27100060100310');
+      expect(claim.tierLevel).toBe(1);
+      expect(claim.therapeuticClass).toBe('ACE Inhibitors');
+    });
+  });
+
+  // ─── QLIK-Style Dimensional Reporting (GAP 4) ─────────────
+
+  describe('Multi-Dimensional Filtering', () => {
+    // Build enriched claims for dimensional tests
+    function buildEnrichedClaims(): VerifiedClaim[] {
+      return [
+        // Claim A: Pharmacy1, Member1, Prescriber1, Tier 1 (Generic), ACE Inhibitors, Jan 15
+        makeClaim({
+          dateOfService: 20260115,
+          ndc: '00071015523',
+          gpi: '27100060100310',
+          tierLevel: 1,
+          therapeuticClass: 'ACE Inhibitors',
+          brandName: 'Lisinopril',
+          patientPayCents: 1000,
+          planPayCents: 4000,
+          ingredientCostCents: 4500,
+          dispensingFeeCents: 500,
+        }),
+        // Claim B: Pharmacy1, Member2, Prescriber1, Tier 2 (Preferred), SGLT2, Jan 20
+        makeClaim({
+          prescriptionHash: Poseidon.hash([Field(1002)]).toString(),
+          entryCommitment: Poseidon.hash([Field(2002)]).toString(),
+          memberWalletId: memberWalletId2,
+          ndcHash: ndcHash2,
+          dateOfService: 20260120,
+          ndc: '00002314001',
+          gpi: '27700020000320',
+          tierLevel: 2,
+          therapeuticClass: 'SGLT2 Inhibitors',
+          brandName: 'Jardiance',
+          patientPayCents: 3000,
+          planPayCents: 7000,
+          ingredientCostCents: 9000,
+          dispensingFeeCents: 1000,
+        }),
+        // Claim C: Pharmacy2, Member1, Prescriber2, Tier 1 (Generic), ACE Inhibitors, Feb 5
+        makeClaim({
+          prescriptionHash: Poseidon.hash([Field(1003)]).toString(),
+          entryCommitment: Poseidon.hash([Field(2003)]).toString(),
+          pharmacyWalletId: pharmacyWalletId2,
+          prescriberWalletId: prescriberWalletId2,
+          dateOfService: 20260205,
+          ndc: '00071015523',
+          gpi: '27100060100310',
+          tierLevel: 1,
+          therapeuticClass: 'ACE Inhibitors',
+          brandName: 'Lisinopril',
+          patientPayCents: 1000,
+          planPayCents: 5500,
+          ingredientCostCents: 6000,
+          dispensingFeeCents: 500,
+        }),
+        // Claim D: Pharmacy2, Member2, Prescriber2, Tier 4 (Specialty), Biologics, Feb 10
+        makeClaim({
+          prescriptionHash: Poseidon.hash([Field(1004)]).toString(),
+          entryCommitment: Poseidon.hash([Field(2004)]).toString(),
+          pharmacyWalletId: pharmacyWalletId2,
+          memberWalletId: memberWalletId2,
+          prescriberWalletId: prescriberWalletId2,
+          ndcHash: Poseidon.hash([Field(11111)]).toString(),
+          dateOfService: 20260210,
+          ndc: '00074905502',
+          gpi: '66400020002020',
+          tierLevel: 4,
+          therapeuticClass: 'TNF Inhibitors',
+          brandName: 'Humira',
+          patientPayCents: 15000,
+          planPayCents: 135000,
+          ingredientCostCents: 145000,
+          dispensingFeeCents: 5000,
+        }),
+        // Reversal E: Pharmacy1, Member2, Tier 2, Jan 25 (reversal of Claim B)
+        makeReversal({
+          prescriptionHash: Poseidon.hash([Field(1002)]).toString(),
+          entryCommitment: Poseidon.hash([Field(3002)]).toString(),
+          memberWalletId: memberWalletId2,
+          ndcHash: ndcHash2,
+          dateOfService: 20260125,
+          ndc: '00002314001',
+          gpi: '27700020000320',
+          tierLevel: 2,
+          therapeuticClass: 'SGLT2 Inhibitors',
+          patientPayCents: 3000,
+          planPayCents: 7000,
+          ingredientCostCents: 9000,
+          dispensingFeeCents: 1000,
+        }),
+      ];
+    }
+
+    test('applyFilters with dateRange only (backward compat via normalizeFilter)', () => {
+      const claims = buildEnrichedClaims();
+      const dateRange: DateRange = { startDate: 20260101, endDate: 20260131 };
+      // Pass DateRange directly — normalizeFilter should convert it
+      const report = service.generateClaimsRegister(claims, dateRange);
+
+      // Only Jan claims: A (Jan 15), B (Jan 20), E reversal (Jan 25)
+      expect(report.claims).toHaveLength(3);
+      expect(report.dateRange).toEqual(dateRange);
+    });
+
+    test('applyFilters with ReportFilter.dateRange', () => {
+      const claims = buildEnrichedClaims();
+      const filter: ReportFilter = {
+        dateRange: { startDate: 20260201, endDate: 20260228 },
+      };
+      const report = service.generateClaimsRegister(claims, filter);
+
+      // Only Feb claims: C (Feb 5), D (Feb 10)
+      expect(report.claims).toHaveLength(2);
+    });
+
+    test('applyFilters by pharmacyWalletIds', () => {
+      const claims = buildEnrichedClaims();
+      const filter: ReportFilter = { pharmacyWalletIds: [pharmacyWalletId2] };
+      const report = service.generateClaimsRegister(claims, filter);
+
+      // Pharmacy2: C and D
+      expect(report.claims).toHaveLength(2);
+      expect(report.claims.every(c => c.pharmacyWalletId === pharmacyWalletId2)).toBe(true);
+    });
+
+    test('applyFilters by tierLevels', () => {
+      const claims = buildEnrichedClaims();
+      const filter: ReportFilter = { tierLevels: [1] };
+      const report = service.generateClaimsRegister(claims, filter);
+
+      // Tier 1: A, C
+      expect(report.claims).toHaveLength(2);
+      expect(report.claims.every(c => c.tierLevel === 1)).toBe(true);
+    });
+
+    test('applyFilters by therapeuticClasses', () => {
+      const claims = buildEnrichedClaims();
+      const filter: ReportFilter = { therapeuticClasses: ['ACE Inhibitors'] };
+      const report = service.generateClaimsRegister(claims, filter);
+
+      // ACE Inhibitors: A, C
+      expect(report.claims).toHaveLength(2);
+    });
+
+    test('applyFilters by operationTypes (fulfillment only)', () => {
+      const claims = buildEnrichedClaims();
+      const filter: ReportFilter = { operationTypes: ['fulfillment'] };
+      const report = service.generateClaimsRegister(claims, filter);
+
+      // 4 fulfillments (A, B, C, D), no reversal (E)
+      expect(report.claims).toHaveLength(4);
+      expect(report.totalReversalCount).toBe(0);
+    });
+
+    test('applyFilters combines multiple dimensions (AND logic)', () => {
+      const claims = buildEnrichedClaims();
+      const filter: ReportFilter = {
+        pharmacyWalletIds: [pharmacyWalletId2],
+        tierLevels: [1],
+        operationTypes: ['fulfillment'],
+      };
+      const report = service.generateClaimsRegister(claims, filter);
+
+      // Pharmacy2 + Tier 1 + fulfillment = only C
+      expect(report.claims).toHaveLength(1);
+      expect(report.claims[0].dateOfService).toBe(20260205);
+    });
+
+    test('applyFilters by ndcs (plaintext NDC)', () => {
+      const claims = buildEnrichedClaims();
+      const filter: ReportFilter = { ndcs: ['00071015523'] };
+      const report = service.generateClaimsRegister(claims, filter);
+
+      // NDC 00071015523: A, C (Lisinopril)
+      expect(report.claims).toHaveLength(2);
+    });
+
+    test('applyFilters by gpis', () => {
+      const claims = buildEnrichedClaims();
+      const filter: ReportFilter = { gpis: ['66400020002020'] };
+      const report = service.generateClaimsRegister(claims, filter);
+
+      // GPI 66400020002020: D (Humira only)
+      expect(report.claims).toHaveLength(1);
+      expect(report.claims[0].brandName).toBe('Humira');
+    });
+
+    test('existing reports accept ReportFilter (backward compat)', () => {
+      const claims = buildEnrichedClaims();
+      const filter: ReportFilter = { tierLevels: [1, 2] };
+
+      const pharmacy = service.generatePharmacyActivity(claims, filter);
+      expect(pharmacy.pharmacies.length).toBeGreaterThan(0);
+
+      const prescriber = service.generatePrescriberActivity(claims, filter);
+      expect(prescriber.prescribers.length).toBeGreaterThan(0);
+
+      const member = service.generateMemberActivity(claims, filter);
+      expect(member.members.length).toBeGreaterThan(0);
+
+      const medUtil = service.generateMedicationUtilization(claims, filter);
+      expect(medUtil.medications.length).toBeGreaterThan(0);
+
+      const financial = service.generateFinancialSummary(claims, filter);
+      expect(financial.totalClaimCount).toBeGreaterThan(0);
+
+      const reversal = service.generateReversalReport(claims, filter);
+      expect(reversal.reversals).toHaveLength(1); // only tier 2 reversal
+    });
+  });
+
+  // ─── Tier Analysis Report ─────────────────────────────────
+
+  describe('Tier Analysis Report', () => {
+    function buildEnrichedClaims(): VerifiedClaim[] {
+      return [
+        makeClaim({ tierLevel: 1, therapeuticClass: 'ACE Inhibitors', patientPayCents: 1000, planPayCents: 4000, ingredientCostCents: 4500, dispensingFeeCents: 500 }),
+        makeClaim({ prescriptionHash: Poseidon.hash([Field(1002)]).toString(), tierLevel: 1, therapeuticClass: 'ACE Inhibitors', patientPayCents: 1000, planPayCents: 4000, ingredientCostCents: 4500, dispensingFeeCents: 500, memberWalletId: memberWalletId2 }),
+        makeClaim({ prescriptionHash: Poseidon.hash([Field(1003)]).toString(), tierLevel: 2, therapeuticClass: 'SGLT2 Inhibitors', ndcHash: ndcHash2, patientPayCents: 3000, planPayCents: 7000, ingredientCostCents: 9000, dispensingFeeCents: 1000 }),
+        makeClaim({ prescriptionHash: Poseidon.hash([Field(1004)]).toString(), tierLevel: 4, therapeuticClass: 'TNF Inhibitors', ndcHash: Poseidon.hash([Field(99)]).toString(), patientPayCents: 15000, planPayCents: 135000, ingredientCostCents: 145000, dispensingFeeCents: 5000 }),
+      ];
+    }
+
+    test('groups claims by tier level with correct labels', () => {
+      const claims = buildEnrichedClaims();
+      const report = service.generateTierAnalysis(claims);
+
+      expect(report.tiers).toHaveLength(3); // Tiers 1, 2, 4
+      expect(report.tiers[0].tierLevel).toBe(1);
+      expect(report.tiers[0].tierLabel).toBe('Generic');
+      expect(report.tiers[1].tierLevel).toBe(2);
+      expect(report.tiers[1].tierLabel).toBe('Preferred Brand');
+      expect(report.tiers[2].tierLevel).toBe(4);
+      expect(report.tiers[2].tierLabel).toBe('Specialty');
+    });
+
+    test('computes per-tier claim counts and costs', () => {
+      const claims = buildEnrichedClaims();
+      const report = service.generateTierAnalysis(claims);
+
+      const tier1 = report.tiers.find(t => t.tierLevel === 1)!;
+      expect(tier1.claimCount).toBe(2);
+      expect(tier1.uniqueMembers).toBe(2);
+      expect(tier1.costBreakdown.totalGrossCostCents).toBe(10000); // 2 * 5000
+
+      const tier4 = report.tiers.find(t => t.tierLevel === 4)!;
+      expect(tier4.claimCount).toBe(1);
+      expect(tier4.costBreakdown.totalGrossCostCents).toBe(150000);
+    });
+
+    test('skips claims without tierLevel', () => {
+      const claims = [
+        makeClaim({ tierLevel: 1 }),
+        makeClaim({ prescriptionHash: Poseidon.hash([Field(1005)]).toString() }), // no tierLevel
+      ];
+      const report = service.generateTierAnalysis(claims);
+
+      expect(report.tiers).toHaveLength(1);
+      expect(report.tiers[0].claimCount).toBe(1);
+    });
+
+    test('accepts ReportFilter', () => {
+      const claims = buildEnrichedClaims();
+      const report = service.generateTierAnalysis(claims, { operationTypes: ['fulfillment'] });
+
+      expect(report.tiers.length).toBeGreaterThan(0);
+      expect(report.filter).toBeDefined();
+    });
+  });
+
+  // ─── Therapeutic Class Report ─────────────────────────────
+
+  describe('Therapeutic Class Report', () => {
+    test('groups claims by therapeutic class', () => {
+      const claims = [
+        makeClaim({ therapeuticClass: 'ACE Inhibitors', patientPayCents: 1000, planPayCents: 4000, ingredientCostCents: 4500, dispensingFeeCents: 500 }),
+        makeClaim({ prescriptionHash: Poseidon.hash([Field(1002)]).toString(), therapeuticClass: 'ACE Inhibitors', patientPayCents: 1000, planPayCents: 4000, ingredientCostCents: 4500, dispensingFeeCents: 500 }),
+        makeClaim({ prescriptionHash: Poseidon.hash([Field(1003)]).toString(), therapeuticClass: 'SGLT2 Inhibitors', ndcHash: ndcHash2, patientPayCents: 3000, planPayCents: 7000, ingredientCostCents: 9000, dispensingFeeCents: 1000 }),
+      ];
+
+      const report = service.generateTherapeuticClassReport(claims);
+
+      expect(report.classes).toHaveLength(2);
+      // Sorted by claim count descending
+      expect(report.classes[0].therapeuticClass).toBe('ACE Inhibitors');
+      expect(report.classes[0].claimCount).toBe(2);
+      expect(report.classes[1].therapeuticClass).toBe('SGLT2 Inhibitors');
+      expect(report.classes[1].claimCount).toBe(1);
+    });
+
+    test('skips claims without therapeuticClass', () => {
+      const claims = [
+        makeClaim({ therapeuticClass: 'ACE Inhibitors' }),
+        makeClaim({ prescriptionHash: Poseidon.hash([Field(1006)]).toString() }), // no therapeuticClass
+      ];
+      const report = service.generateTherapeuticClassReport(claims);
+
+      expect(report.classes).toHaveLength(1);
+    });
+  });
+
+  // ─── Time Series Report ───────────────────────────────────
+
+  describe('Time Series Report', () => {
+    test('aggregates by monthly bucket', () => {
+      const claims = [
+        makeClaim({ dateOfService: 20260115, patientPayCents: 1000, planPayCents: 4000, ingredientCostCents: 4500, dispensingFeeCents: 500 }),
+        makeClaim({ prescriptionHash: Poseidon.hash([Field(1002)]).toString(), dateOfService: 20260120, patientPayCents: 2000, planPayCents: 3000, ingredientCostCents: 4000, dispensingFeeCents: 1000 }),
+        makeClaim({ prescriptionHash: Poseidon.hash([Field(1003)]).toString(), dateOfService: 20260205, patientPayCents: 1000, planPayCents: 5500, ingredientCostCents: 6000, dispensingFeeCents: 500 }),
+      ];
+
+      const report = service.generateTimeSeries(claims, 'monthly');
+
+      expect(report.bucket).toBe('monthly');
+      expect(report.entries).toHaveLength(2); // Jan and Feb
+      expect(report.entries[0].bucketKey).toBe('2026-01');
+      expect(report.entries[0].claimCount).toBe(2);
+      expect(report.entries[1].bucketKey).toBe('2026-02');
+      expect(report.entries[1].claimCount).toBe(1);
+    });
+
+    test('aggregates by daily bucket', () => {
+      const claims = [
+        makeClaim({ dateOfService: 20260115 }),
+        makeClaim({ prescriptionHash: Poseidon.hash([Field(1002)]).toString(), dateOfService: 20260115 }),
+        makeClaim({ prescriptionHash: Poseidon.hash([Field(1003)]).toString(), dateOfService: 20260120 }),
+      ];
+
+      const report = service.generateTimeSeries(claims, 'daily');
+
+      expect(report.entries).toHaveLength(2); // Jan 15 and Jan 20
+      expect(report.entries[0].bucketKey).toBe('2026-01-15');
+      expect(report.entries[0].claimCount).toBe(2);
+      expect(report.entries[1].bucketKey).toBe('2026-01-20');
+      expect(report.entries[1].claimCount).toBe(1);
+    });
+
+    test('handles reversals in time series', () => {
+      const claims = [
+        makeClaim({ dateOfService: 20260115 }),
+        makeReversal({ dateOfService: 20260115 }),
+      ];
+
+      const report = service.generateTimeSeries(claims, 'daily');
+
+      expect(report.entries).toHaveLength(1);
+      expect(report.entries[0].claimCount).toBe(1);
+      expect(report.entries[0].reversalCount).toBe(1);
+    });
+
+    test('applies filter to time series', () => {
+      const claims = [
+        makeClaim({ dateOfService: 20260115, tierLevel: 1 }),
+        makeClaim({ prescriptionHash: Poseidon.hash([Field(1002)]).toString(), dateOfService: 20260115, tierLevel: 2 }),
+        makeClaim({ prescriptionHash: Poseidon.hash([Field(1003)]).toString(), dateOfService: 20260120, tierLevel: 1 }),
+      ];
+
+      const report = service.generateTimeSeries(claims, 'daily', { tierLevels: [1] });
+
+      expect(report.entries).toHaveLength(2);
+      expect(report.entries[0].claimCount).toBe(1); // Jan 15 tier 1 only
+      expect(report.entries[1].claimCount).toBe(1); // Jan 20 tier 1 only
+    });
+  });
+
+  // ─── Cross-Tab (Pivot Table) Report ───────────────────────
+
+  describe('Cross-Tab Report', () => {
+    function buildCrossTabClaims(): VerifiedClaim[] {
+      return [
+        makeClaim({ pharmacyWalletId: pharmacyWalletId1, tierLevel: 1, patientPayCents: 1000, planPayCents: 4000, ingredientCostCents: 4500, dispensingFeeCents: 500 }),
+        makeClaim({ prescriptionHash: Poseidon.hash([Field(1002)]).toString(), pharmacyWalletId: pharmacyWalletId1, tierLevel: 2, patientPayCents: 3000, planPayCents: 7000, ingredientCostCents: 9000, dispensingFeeCents: 1000 }),
+        makeClaim({ prescriptionHash: Poseidon.hash([Field(1003)]).toString(), pharmacyWalletId: pharmacyWalletId2, tierLevel: 1, patientPayCents: 1000, planPayCents: 5500, ingredientCostCents: 6000, dispensingFeeCents: 500 }),
+        makeClaim({ prescriptionHash: Poseidon.hash([Field(1004)]).toString(), pharmacyWalletId: pharmacyWalletId2, tierLevel: 1, patientPayCents: 1000, planPayCents: 4000, ingredientCostCents: 4500, dispensingFeeCents: 500 }),
+      ];
+    }
+
+    test('pivot pharmacy x tier with claimCount', () => {
+      const claims = buildCrossTabClaims();
+      const report = service.generateCrossTab(claims, 'pharmacyWalletId', 'tierLevel', 'claimCount');
+
+      expect(report.rowDimension).toBe('pharmacyWalletId');
+      expect(report.colDimension).toBe('tierLevel');
+      expect(report.measure).toBe('claimCount');
+      expect(report.columnHeaders).toEqual(['1', '2']); // sorted
+
+      // Find rows
+      const row1 = report.rows.find(r => r.rowKey === pharmacyWalletId1);
+      expect(row1).toBeDefined();
+      expect(row1!.values).toEqual([1, 1]); // 1 tier-1 claim, 1 tier-2 claim
+
+      const row2 = report.rows.find(r => r.rowKey === pharmacyWalletId2);
+      expect(row2).toBeDefined();
+      expect(row2!.values).toEqual([2, 0]); // 2 tier-1 claims, 0 tier-2 claims
+    });
+
+    test('pivot pharmacy x tier with totalPlanPayCents', () => {
+      const claims = buildCrossTabClaims();
+      const report = service.generateCrossTab(claims, 'pharmacyWalletId', 'tierLevel', 'totalPlanPayCents');
+
+      const row1 = report.rows.find(r => r.rowKey === pharmacyWalletId1)!;
+      expect(row1.values).toEqual([4000, 7000]); // tier 1: 4000, tier 2: 7000
+
+      const row2 = report.rows.find(r => r.rowKey === pharmacyWalletId2)!;
+      expect(row2.values).toEqual([9500, 0]); // tier 1: 5500+4000, tier 2: 0
+    });
+
+    test('pivot pharmacy x tier with totalGrossCostCents', () => {
+      const claims = buildCrossTabClaims();
+      const report = service.generateCrossTab(claims, 'pharmacyWalletId', 'tierLevel', 'totalGrossCostCents');
+
+      const row1 = report.rows.find(r => r.rowKey === pharmacyWalletId1)!;
+      expect(row1.values).toEqual([5000, 10000]); // tier 1: 4500+500, tier 2: 9000+1000
+
+      const row2 = report.rows.find(r => r.rowKey === pharmacyWalletId2)!;
+      expect(row2.values).toEqual([11500, 0]); // tier 1: (6000+500)+(4500+500), tier 2: 0
+    });
+
+    test('pivot with filter applied', () => {
+      const claims = buildCrossTabClaims();
+      const report = service.generateCrossTab(
+        claims, 'pharmacyWalletId', 'tierLevel', 'claimCount',
+        { pharmacyWalletIds: [pharmacyWalletId1] },
+      );
+
+      expect(report.rows).toHaveLength(1);
+      expect(report.rows[0].rowKey).toBe(pharmacyWalletId1);
+    });
+
+    test('pivot with operationType dimension', () => {
+      const claims = [
+        makeClaim({ tierLevel: 1 }),
+        makeReversal({ tierLevel: 1 }),
+        makeClaim({ prescriptionHash: Poseidon.hash([Field(1007)]).toString(), tierLevel: 2 }),
+      ];
+
+      const report = service.generateCrossTab(claims, 'operationType', 'tierLevel', 'claimCount');
+
+      expect(report.columnHeaders).toEqual(['1', '2']);
+      const fulfillmentRow = report.rows.find(r => r.rowKey === 'fulfillment')!;
+      expect(fulfillmentRow.values).toEqual([1, 1]);
+      // reversal: claimCount only counts fulfillments, so reversal row has [0, 0]
+      const reversalRow = report.rows.find(r => r.rowKey === 'reversal')!;
+      expect(reversalRow.values).toEqual([0, 0]);
+    });
+
+    test('empty cross-tab for no matching claims', () => {
+      const claims = buildCrossTabClaims();
+      const report = service.generateCrossTab(
+        claims, 'pharmacyWalletId', 'tierLevel', 'claimCount',
+        { tierLevels: [3] }, // No tier 3 claims
+      );
+
+      expect(report.rows).toHaveLength(0);
+      expect(report.columnHeaders).toHaveLength(0);
     });
   });
 });

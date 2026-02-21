@@ -7,18 +7,18 @@
  * Run: $env:NODE_OPTIONS="--max-old-space-size=12288"; npx jest tests/layer3-recursive.test.ts --verbose --maxWorkers=1
  *
  * Timing (typical):
- *   Compilation: ~45s (ProofGate ~10s + StateTransition ~35s)
- *   Each proof:  ~50s (ProofGate ~15s + StateTransition ~35s)
- *   Total:       ~3-4 min for all 3 tests
+ *   Compilation: ~35s (StateTransition only — wallet verification inlined)
+ *   Each proof:  ~35s
+ *   Total:       ~2-3 min for all 3 tests
  */
 import { MerkleTree } from 'o1js';
-import { ProofGateProgram } from '../src/wallets/proof-gate.js';
 import { StateTransitionProgram, TransitionOutput } from '../src/engine/state-transition.js';
 import { WalletRegistryWitness, WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
 import { LifecycleWitness } from '../src/engine/lifecycle.js';
 import {
   deriveMemberWalletId,
   memberWalletPreimage,
+  DOMAIN_TAG_MEMBER,
 } from '../src/wallets/wallet-derivation.js';
 import type { MemberLocalData } from '../src/models/member.js';
 
@@ -49,24 +49,20 @@ describe('L3 — StateTransitionProgram Recursive Proofs', () => {
     const t0 = Date.now();
     console.log('\n╔══════════════════════════════════════════════════╗');
     console.log('║  L3 RECURSIVE PROOF COMPILATION                  ║');
+    console.log('║  (wallet verification inlined — no ProofGateProof)║');
     console.log('╚══════════════════════════════════════════════════╝\n');
 
-    console.log(`[compile] ProofGateProgram... (${mem()})`);
-    let t = Date.now();
-    await ProofGateProgram.compile();
-    console.log(`[compile] ProofGateProgram DONE in ${secs(t)}s (${mem()})\n`);
-
-    console.log(`[compile] StateTransitionProgram (RECURSIVE)... (${mem()})`);
-    t = Date.now();
+    console.log(`[compile] StateTransitionProgram... (${mem()})`);
+    const t = Date.now();
     await StateTransitionProgram.compile();
     console.log(`[compile] StateTransitionProgram DONE in ${secs(t)}s (${mem()})\n`);
 
     console.log(`✓ Total compilation: ${secs(t0)}s — ready to run proofs\n`);
   }, 300_000);
 
-  test('proveRegistration: generates a valid recursive proof', async () => {
+  test('proveRegistration: generates a valid proof (inline wallet verification)', async () => {
     const t = Date.now();
-    console.log(`\n── Test 1/3: Generate Recursive Proof (${mem()}) ──`);
+    console.log(`\n── Test 1/3: Generate Proof (${mem()}) ──`);
 
     const regTree = new MerkleTree(WALLET_TREE_HEIGHT);
     const lcTree = new MerkleTree(WALLET_TREE_HEIGHT);
@@ -74,23 +70,15 @@ describe('L3 — StateTransitionProgram Recursive Proofs', () => {
     const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
     const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
 
-    // Step 1: ProofGateProof
-    console.log(`[test1] Generating ProofGateProof...`);
-    let s = Date.now();
-    const pgResult = await ProofGateProgram.verifyMember(
-      walletId,
-      preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!,
-    );
-    console.log(`[test1] ProofGateProof done in ${secs(s)}s (${mem()})`);
-
-    // Step 2: StateTransitionProof (recursive)
-    console.log(`[test1] Generating StateTransitionProof (recursive)...`);
-    s = Date.now();
+    // StateTransitionProof (wallet verification inlined — no ProofGateProof needed)
+    console.log(`[test1] Generating StateTransitionProof...`);
+    const s = Date.now();
     const regWitness = new WalletRegistryWitness(regTree.getWitness(0n));
     const lcWitness = new LifecycleWitness(lcTree.getWitness(0n));
 
     const stResult = await StateTransitionProgram.proveRegistration(
-      pgResult.proof,
+      DOMAIN_TAG_MEMBER,
+      preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!,
       regWitness,
       lcWitness,
       regTree.getRoot(),
@@ -115,24 +103,16 @@ describe('L3 — StateTransitionProgram Recursive Proofs', () => {
     const regTree = new MerkleTree(WALLET_TREE_HEIGHT);
     const lcTree = new MerkleTree(WALLET_TREE_HEIGHT);
 
-    const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
     const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
 
-    console.log(`[test2] Generating ProofGateProof...`);
-    let s = Date.now();
-    const pgResult = await ProofGateProgram.verifyMember(
-      walletId,
-      preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!,
-    );
-    console.log(`[test2] ProofGateProof done in ${secs(s)}s (${mem()})`);
-
     console.log(`[test2] Generating StateTransitionProof...`);
-    s = Date.now();
+    let s = Date.now();
     const regWitness = new WalletRegistryWitness(regTree.getWitness(0n));
     const lcWitness = new LifecycleWitness(lcTree.getWitness(0n));
 
     const stResult = await StateTransitionProgram.proveRegistration(
-      pgResult.proof,
+      DOMAIN_TAG_MEMBER,
+      preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!,
       regWitness,
       lcWitness,
       regTree.getRoot(),
@@ -150,9 +130,9 @@ describe('L3 — StateTransitionProgram Recursive Proofs', () => {
     console.log(`✓ Test 2/3 PASSED in ${secs(t)}s\n`);
   }, 300_000);
 
-  test('proveRegistration: wrong ownership proof registers wrong wallet', async () => {
+  test('proveRegistration: different identity fields register different wallet', async () => {
     const t = Date.now();
-    console.log(`── Test 3/3: Wrong Ownership Proof (${mem()}) ──`);
+    console.log(`── Test 3/3: Different Identity Fields (${mem()}) ──`);
 
     const regTree = new MerkleTree(WALLET_TREE_HEIGHT);
     const lcTree = new MerkleTree(WALLET_TREE_HEIGHT);
@@ -162,22 +142,15 @@ describe('L3 — StateTransitionProgram Recursive Proofs', () => {
     const wrongPreimage = memberWalletPreimage(wrongMember, TEST_ENROLLMENT_KEY);
     const wrongWalletId = deriveMemberWalletId(wrongMember, TEST_ENROLLMENT_KEY);
 
-    console.log(`[test3] Generating ProofGateProof for wrong identity...`);
-    let s = Date.now();
-    const pgResult = await ProofGateProgram.verifyMember(
-      wrongWalletId,
-      wrongPreimage[0]!, wrongPreimage[1]!, wrongPreimage[2]!,
-      wrongPreimage[3]!, wrongPreimage[4]!,
-    );
-    console.log(`[test3] ProofGateProof done in ${secs(s)}s (${mem()})`);
-
-    console.log(`[test3] Generating StateTransitionProof with wrong identity...`);
-    s = Date.now();
+    console.log(`[test3] Generating StateTransitionProof with different identity...`);
+    const s = Date.now();
     const regWitness = new WalletRegistryWitness(regTree.getWitness(0n));
     const lcWitness = new LifecycleWitness(lcTree.getWitness(0n));
 
     const stResult = await StateTransitionProgram.proveRegistration(
-      pgResult.proof,
+      DOMAIN_TAG_MEMBER,
+      wrongPreimage[0]!, wrongPreimage[1]!, wrongPreimage[2]!,
+      wrongPreimage[3]!, wrongPreimage[4]!,
       regWitness,
       lcWitness,
       regTree.getRoot(),
@@ -185,7 +158,7 @@ describe('L3 — StateTransitionProgram Recursive Proofs', () => {
     );
     console.log(`[test3] StateTransitionProof done in ${secs(s)}s (${mem()})`);
 
-    // The proof uses the walletId from the ProofGateProof — registers wrong wallet
+    // The proof computes walletId from the provided preimage — registers the "wrong" wallet
     const output = stResult.proof.publicOutput as unknown as TransitionOutput;
     expect(output.walletId.toString()).toBe(wrongWalletId.toString());
     expect(output.walletId.toString()).not.toBe(walletId.toString());

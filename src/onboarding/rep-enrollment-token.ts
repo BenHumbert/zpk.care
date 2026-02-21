@@ -19,7 +19,7 @@ import { hashString, dateToField } from '../zkp/hash-utils.js';
  *   2. Insurer generates RepEnrollmentToken
  *   3. Token sent to rep out-of-band (email/SMS)
  *   4. Rep creates enrollment key, derives wallet, submits token
- *   5. Insurer validates token, registers rep wallet (no NFT, no lifecycle)
+ *   5. Insurer validates token, registers rep wallet (no credential, no lifecycle)
  */
 export class RepEnrollmentToken extends Struct({
   /** Poseidon hash of unique token ID */

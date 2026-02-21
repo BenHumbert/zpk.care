@@ -4,7 +4,7 @@ import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
 /**
  * ForestRoots — provable Struct containing all 6 domain tree roots.
  *
- * The NftData.forestRoot is a single Poseidon hash of 6 tree roots.
+ * The CredentialData.forestRoot is a single Poseidon hash of 6 tree roots.
  * To prove a leaf exists in one specific tree inside the forest,
  * the ZK circuit needs all 6 roots to:
  *   1. Verify the individual tree inclusion (witness check)

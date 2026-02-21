@@ -15,16 +15,15 @@
  *   $env:NODE_OPTIONS="--max-old-space-size=12288"; npx jest tests/l2-recursive.test.ts --verbose --maxWorkers=1
  *
  * Timing (estimated on Ryzen 7 5800XT):
- *   Compilation: ~2-3 min (ProofGate ~10s + StateTransition ~35s + BatchProgram ~60-120s)
+ *   Compilation: ~2-3 min (StateTransition ~35s + BatchProgram ~60-120s)
  *   Each proof:  ~30-60s
- *   Total:       ~8-12 min
+ *   Total:       ~6-10 min
  */
 import { Field, MerkleTree, Poseidon } from 'o1js';
-import { ProofGateProgram } from '../src/wallets/proof-gate.js';
 import {
   StateTransitionProgram,
   TransitionOutput,
-  EMPTY_NFT_ROOT,
+  EMPTY_CREDENTIAL_ROOT,
 } from '../src/engine/state-transition.js';
 import {
   BatchProgram,
@@ -39,6 +38,7 @@ import { LifecycleWitness, LIFECYCLE_REGISTERED, lifecycleLeafCommitment } from 
 import {
   deriveMemberWalletId,
   memberWalletPreimage,
+  DOMAIN_TAG_MEMBER,
 } from '../src/wallets/wallet-derivation.js';
 import type { MemberLocalData } from '../src/models/member.js';
 
@@ -89,13 +89,8 @@ describe('L2 — BatchProgram Recursive Proofs', () => {
     console.log('║  L2 BATCH PROGRAM COMPILATION                    ║');
     console.log('╚══════════════════════════════════════════════════╝\n');
 
-    console.log(`[compile] ProofGateProgram... (${mem()})`);
+    console.log(`[compile] StateTransitionProgram (inline wallet verification)... (${mem()})`);
     let t = Date.now();
-    await ProofGateProgram.compile();
-    console.log(`[compile] ProofGateProgram DONE in ${secs(t)}s (${mem()})\n`);
-
-    console.log(`[compile] StateTransitionProgram (RECURSIVE)... (${mem()})`);
-    t = Date.now();
     await StateTransitionProgram.compile();
     console.log(`[compile] StateTransitionProgram DONE in ${secs(t)}s (${mem()})\n`);
 
@@ -118,23 +113,15 @@ describe('L2 — BatchProgram Recursive Proofs', () => {
     walletId1 = deriveMemberWalletId(member1, ENROLLMENT_KEY_1);
     const preimage = memberWalletPreimage(member1, ENROLLMENT_KEY_1);
 
-    // Step 1: ProofGateProof
-    console.log(`[test1] Generating ProofGateProof...`);
-    let s = Date.now();
-    const pgResult = await ProofGateProgram.verifyMember(
-      walletId1,
-      preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!,
-    );
-    console.log(`[test1] ProofGateProof done in ${secs(s)}s`);
-
-    // Step 2: StateTransitionProof (registration)
+    // StateTransitionProof (registration — wallet verification inlined)
     console.log(`[test1] Generating StateTransitionProof (registration)...`);
-    s = Date.now();
+    let s = Date.now();
     const regWitness = new WalletRegistryWitness(regTree.getWitness(0n));
     const lcWitness = new LifecycleWitness(lcTree.getWitness(0n));
 
     const stResult = await StateTransitionProgram.proveRegistration(
-      pgResult.proof,
+      DOMAIN_TAG_MEMBER,
+      preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!,
       regWitness,
       lcWitness,
       regTree.getRoot(),
@@ -143,7 +130,7 @@ describe('L2 — BatchProgram Recursive Proofs', () => {
     console.log(`[test1] StateTransitionProof done in ${secs(s)}s`);
 
     // Update trees to match new state
-    const walletCommitment = Poseidon.hash([walletId1, EMPTY_NFT_ROOT, Field(0)]);
+    const walletCommitment = Poseidon.hash([walletId1, EMPTY_CREDENTIAL_ROOT, Field(0)]);
     regTree.setLeaf(0n, walletCommitment);
     const lcLeaf = lifecycleLeafCommitment(walletId1, LIFECYCLE_REGISTERED);
     lcTree.setLeaf(0n, lcLeaf);
@@ -172,28 +159,20 @@ describe('L2 — BatchProgram Recursive Proofs', () => {
     // Use current tree state from test 1 (wallet is registered)
     const preimage = memberWalletPreimage(member1, ENROLLMENT_KEY_1);
 
-    // Step 1: ProofGateProof
-    console.log(`[test2] Generating ProofGateProof...`);
-    let s = Date.now();
-    const pgResult = await ProofGateProgram.verifyMember(
-      walletId1,
-      preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!,
-    );
-    console.log(`[test2] ProofGateProof done in ${secs(s)}s`);
-
-    // Step 2: StateTransitionProof (wallet update — change NFT root)
+    // StateTransitionProof (wallet update — wallet verification inlined)
     console.log(`[test2] Generating StateTransitionProof (wallet update)...`);
-    s = Date.now();
+    let s = Date.now();
 
-    const newNftRoot = Poseidon.hash([Field(9999)]); // Simulated new NFT inventory
+    const newCredentialRoot = Poseidon.hash([Field(9999)]); // Simulated new credential inventory
     const regWitness = new WalletRegistryWitness(regTree.getWitness(0n));
     const lcWitness = new LifecycleWitness(lcTree.getWitness(0n));
 
     const stResult = await StateTransitionProgram.proveWalletUpdate(
-      pgResult.proof,
-      EMPTY_NFT_ROOT,   // oldNftRoot
+      DOMAIN_TAG_MEMBER,
+      preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!,
+      EMPTY_CREDENTIAL_ROOT,   // oldCredentialRoot
       Field(0),          // oldNonce
-      newNftRoot,        // newNftRoot
+      newCredentialRoot,        // newCredentialRoot
       regWitness,
       lcWitness,
       regTree.getRoot(),
@@ -203,7 +182,7 @@ describe('L2 — BatchProgram Recursive Proofs', () => {
     console.log(`[test2] StateTransitionProof done in ${secs(s)}s`);
 
     // Update registry tree for new wallet state
-    const newCommitment = Poseidon.hash([walletId1, newNftRoot, Field(1)]);
+    const newCommitment = Poseidon.hash([walletId1, newCredentialRoot, Field(1)]);
     regTree.setLeaf(0n, newCommitment);
 
     // Step 3: wrapTransition

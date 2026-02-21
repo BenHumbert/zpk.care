@@ -27,6 +27,8 @@ export interface DemoMember {
   enrollmentKey: string;
   /** Display: employer-assigned employee ID */
   employeeId: string;
+  /** Family identifier — groups subscriber + dependents. Employer-generated. */
+  familyId: string;
   /** Display: relationship to subscriber (SELF, SPOUSE, CHILD, OTHER) */
   relationship: string;
   /** Display: street address */
@@ -47,8 +49,8 @@ export interface DemoMember {
  * 8 fictional members across different demographics.
  *
  * Cardholder IDs follow typical PBM patterns: group prefix + sequence.
- * Enrollment keys are user-generated secrets — in production, these
- * would be cryptographically random; here they're descriptive for demo clarity.
+ * Enrollment keys are 256-bit cryptographically random secrets (base64url).
+ * Generated via crypto.randomBytes(32) — same format as production.
  */
 export const DEMO_MEMBERS: DemoMember[] = [
   {
@@ -59,8 +61,9 @@ export const DEMO_MEMBERS: DemoMember[] = [
       firstName: 'Alice',
       lastName: 'Johnson',
     },
-    enrollmentKey: 'alice-enrollment-secret-2026',
+    enrollmentKey: 'JQPHJGskGApMqdkhO54jBMMHkt-X7F9qtzL1-XWcLgg',
     employeeId: 'EMP-10001',
+    familyId: 'FAM-ACME-10001',
     relationship: 'SELF',
     address: '742 Evergreen Terrace',
     city: 'Springfield',
@@ -77,8 +80,9 @@ export const DEMO_MEMBERS: DemoMember[] = [
       firstName: 'Bob',
       lastName: 'Martinez',
     },
-    enrollmentKey: 'bob-enrollment-secret-2026',
+    enrollmentKey: 'Hi-q1tOsEq4wQyZbjFH3RGVpOTFpEx6jHmfVVeavJLM',
     employeeId: 'EMP-10002',
+    familyId: 'FAM-ACME-10002',
     relationship: 'SELF',
     address: '1600 Pennsylvania Ave',
     city: 'Dallas',
@@ -95,8 +99,9 @@ export const DEMO_MEMBERS: DemoMember[] = [
       firstName: 'Carol',
       lastName: 'Williams',
     },
-    enrollmentKey: 'carol-enrollment-secret-2026',
+    enrollmentKey: 'TIWNbqbc3A0plIcxHaambI39sR2U_Eai3StqyAoX6yk',
     employeeId: 'EMP-10003',
+    familyId: 'FAM-ACME-10003',
     relationship: 'SELF',
     address: '221B Baker Street',
     city: 'New York',
@@ -113,8 +118,9 @@ export const DEMO_MEMBERS: DemoMember[] = [
       firstName: 'Daniel',
       lastName: 'Williams',
     },
-    enrollmentKey: 'daniel-enrollment-secret-2026',
+    enrollmentKey: 'YBPTaHEaJhkZ6OlmQKnM9YF0ab8NNK71X_wFXOFd3QE',
     employeeId: 'EMP-10003',
+    familyId: 'FAM-ACME-10003',
     relationship: 'SPOUSE',
     address: '221B Baker Street',
     city: 'New York',
@@ -131,8 +137,9 @@ export const DEMO_MEMBERS: DemoMember[] = [
       firstName: 'Emma',
       lastName: 'Williams',
     },
-    enrollmentKey: 'emma-enrollment-secret-2026',
+    enrollmentKey: '6iWfcfRkeTzvMcWWL2ZnDAHaCExfA1adtMSdT9hbt8o',
     employeeId: 'EMP-10003',
+    familyId: 'FAM-ACME-10003',
     relationship: 'CHILD',
     address: '221B Baker Street',
     city: 'New York',
@@ -149,8 +156,9 @@ export const DEMO_MEMBERS: DemoMember[] = [
       firstName: 'Frank',
       lastName: 'Lee',
     },
-    enrollmentKey: 'frank-enrollment-secret-2026',
+    enrollmentKey: 'C_7-Nfw7z_SXsgaIh4eNoMVW3Tlsh_xMIFkfcHy0S5Q',
     employeeId: 'GX-50001',
+    familyId: 'FAM-GX-50001',
     relationship: 'SELF',
     address: '350 Fifth Avenue',
     city: 'New York',
@@ -167,8 +175,9 @@ export const DEMO_MEMBERS: DemoMember[] = [
       firstName: 'Grace',
       lastName: 'Nakamura',
     },
-    enrollmentKey: 'grace-enrollment-secret-2026',
+    enrollmentKey: 'SpTd-J0WgzvQg2Y-5iGcHPZ5XDOvl3KoFK_0xXpWZNY',
     employeeId: 'GX-50002',
+    familyId: 'FAM-GX-50002',
     relationship: 'SELF',
     address: '1000 Sunset Blvd',
     city: 'San Francisco',
@@ -185,8 +194,9 @@ export const DEMO_MEMBERS: DemoMember[] = [
       firstName: 'Henry',
       lastName: 'Okafor',
     },
-    enrollmentKey: 'henry-enrollment-secret-2026',
+    enrollmentKey: 'u1so1epbAeoqZleQMbKYfXNQ9-hzZfbEvrEn78ymyrU',
     employeeId: 'GX-50003',
+    familyId: 'FAM-GX-50003',
     relationship: 'SELF',
     address: '555 Collins Avenue',
     city: 'Miami',
@@ -205,6 +215,11 @@ export const MEMBER_BY_CARDHOLDER_ID = new Map<string, DemoMember>(
 /** Quick lookup: employeeId → DemoMember[] (employee + dependents) */
 export function getMembersByEmployee(employeeId: string): DemoMember[] {
   return DEMO_MEMBERS.filter((m) => m.employeeId === employeeId);
+}
+
+/** Quick lookup: familyId → DemoMember[] (subscriber + all dependents) */
+export function getMembersByFamily(familyId: string): DemoMember[] {
+  return DEMO_MEMBERS.filter((m) => m.familyId === familyId);
 }
 
 /** Get only subscribers (relationship=SELF) */

@@ -95,22 +95,26 @@ export function exportEnrollmentBackup(
     maxmem: SCRYPT_MAXMEM,
   });
 
-  const cipher = createCipheriv('aes-256-gcm', derivedKey, iv);
-  const encrypted = Buffer.concat([
-    cipher.update(enrollmentKey, 'utf8'),
-    cipher.final(),
-  ]);
-  const authTag = cipher.getAuthTag();
+  try {
+    const cipher = createCipheriv('aes-256-gcm', derivedKey, iv);
+    const encrypted = Buffer.concat([
+      cipher.update(enrollmentKey, 'utf8'),
+      cipher.final(),
+    ]);
+    const authTag = cipher.getAuthTag();
 
-  return {
-    version: 1,
-    walletId,
-    domainTag,
-    salt: salt.toString('hex'),
-    iv: iv.toString('hex'),
-    encryptedKey: Buffer.concat([encrypted, authTag]).toString('hex'),
-    createdAt: Date.now(),
-  };
+    return {
+      version: 1,
+      walletId,
+      domainTag,
+      salt: salt.toString('hex'),
+      iv: iv.toString('hex'),
+      encryptedKey: Buffer.concat([encrypted, authTag]).toString('hex'),
+      createdAt: Date.now(),
+    };
+  } finally {
+    derivedKey.fill(0);
+  }
 }
 
 /**
@@ -149,17 +153,21 @@ export function importEnrollmentBackup(
     maxmem: SCRYPT_MAXMEM,
   });
 
-  const decipher = createDecipheriv('aes-256-gcm', derivedKey, iv);
-  decipher.setAuthTag(authTag);
-
   try {
-    const decrypted = Buffer.concat([
-      decipher.update(ciphertext),
-      decipher.final(),
-    ]);
-    return decrypted.toString('utf8');
-  } catch {
-    throw new Error('Decryption failed — wrong PIN or corrupted backup');
+    const decipher = createDecipheriv('aes-256-gcm', derivedKey, iv);
+    decipher.setAuthTag(authTag);
+
+    try {
+      const decrypted = Buffer.concat([
+        decipher.update(ciphertext),
+        decipher.final(),
+      ]);
+      return decrypted.toString('utf8');
+    } catch {
+      throw new Error('Decryption failed — wrong PIN or corrupted backup');
+    }
+  } finally {
+    derivedKey.fill(0);
   }
 }
 

@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>zkpCare Node Network</title>
+  <style>
+    :root {
+      --bg-primary: #1a1a2e;
+      --bg-secondary: #16213e;
+      --bg-card: #1e2a45;
+      --text-primary: #e0e0e0;
+      --text-secondary: #8899aa;
+      --color-member: #4fc3f7;
+      --color-prescriber: #66bb6a;
+      --color-pharmacy: #ffa726;
+      --color-insurer: #ab47bc;
+      --border-subtle: rgba(255, 255, 255, 0.1);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      width: 100%;
+      text-align: center;
+    }
+
+    .header {
+      margin-bottom: 48px;
+    }
+
+    .title {
+      font-size: 42px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      background: linear-gradient(135deg, var(--color-member), var(--color-insurer));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .subtitle {
+      font-size: 16px;
+      color: var(--text-secondary);
+      letter-spacing: 0.5px;
+    }
+
+    .node-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+
+    .node-card {
+      background: var(--bg-card);
+      border-radius: 12px;
+      border-top: 4px solid;
+      padding: 24px;
+      text-align: left;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .node-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    .node-card.member { border-top-color: var(--color-member); }
+    .node-card.prescriber { border-top-color: var(--color-prescriber); }
+    .node-card.pharmacy { border-top-color: var(--color-pharmacy); }
+    .node-card.insurer { border-top-color: var(--color-insurer); }
+    .node-card.sequencer { border-top-color: #26c6da; }
+
+    .node-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+
+    .member .node-icon {
+      background: rgba(79, 195, 247, 0.15);
+      color: var(--color-member);
+    }
+
+    .prescriber .node-icon {
+      background: rgba(102, 187, 106, 0.15);
+      color: var(--color-prescriber);
+    }
+
+    .pharmacy .node-icon {
+      background: rgba(255, 167, 38, 0.15);
+      color: var(--color-pharmacy);
+    }
+
+    .insurer .node-icon {
+      background: rgba(171, 71, 188, 0.15);
+      color: var(--color-insurer);
+    }
+
+    .sequencer-icon {
+      background: rgba(38, 198, 218, 0.15);
+      color: #26c6da;
+      font-family: 'Consolas', monospace;
+    }
+
+    .sequencer-link {
+      background: #26c6da;
+      color: #000;
+    }
+
+    .sequencer .node-capabilities li::before { color: #26c6da; }
+
+    .node-title {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .node-context {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+    }
+
+    .node-capabilities {
+      list-style: none;
+      margin-bottom: 20px;
+    }
+
+    .node-capabilities li {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+      padding-left: 20px;
+      position: relative;
+    }
+
+    .node-capabilities li::before {
+      content: '•';
+      position: absolute;
+      left: 0;
+      font-weight: bold;
+    }
+
+    .member .node-capabilities li::before { color: var(--color-member); }
+    .prescriber .node-capabilities li::before { color: var(--color-prescriber); }
+    .pharmacy .node-capabilities li::before { color: var(--color-pharmacy); }
+    .insurer .node-capabilities li::before { color: var(--color-insurer); }
+
+    .node-link {
+      display: inline-block;
+      padding: 10px 20px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 14px;
+      transition: opacity 0.2s;
+    }
+
+    .node-link:hover {
+      opacity: 0.85;
+    }
+
+    .member .node-link {
+      background: var(--color-member);
+      color: #000;
+    }
+
+    .prescriber .node-link {
+      background: var(--color-prescriber);
+      color: #000;
+    }
+
+    .pharmacy .node-link {
+      background: var(--color-pharmacy);
+      color: #000;
+    }
+
+    .insurer .node-link {
+      background: var(--color-insurer);
+      color: #fff;
+    }
+
+    .demo-card {
+      background: var(--bg-card);
+      border-radius: 12px;
+      border-top: 4px solid var(--color-member);
+      padding: 32px;
+      text-align: center;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .demo-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    .demo-title {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    .demo-description {
+      font-size: 15px;
+      color: var(--text-secondary);
+      margin-bottom: 24px;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .demo-link {
+      display: inline-block;
+      padding: 12px 32px;
+      background: linear-gradient(135deg, var(--color-member), var(--color-insurer));
+      color: #fff;
+      text-decoration: none;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 16px;
+      transition: opacity 0.2s;
+    }
+
+    .demo-link:hover {
+      opacity: 0.9;
+    }
+
+    .footer {
+      margin-top: 48px;
+      text-align: center;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    /* ─── Test Data Setup ─────────────────────────── */
+
+    .setup-card {
+      background: var(--bg-card);
+      border-radius: 12px;
+      border-top: 4px solid var(--color-prescriber);
+      padding: 32px;
+      margin-bottom: 32px;
+      text-align: left;
+    }
+
+    .setup-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    .setup-title {
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .setup-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #f44336;
+    }
+
+    .status-dot.ok {
+      background: #4caf50;
+      box-shadow: 0 0 8px #4caf50;
+    }
+
+    .setup-actions {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    .btn:hover { opacity: 0.85; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-primary {
+      background: var(--color-prescriber);
+      color: #000;
+    }
+
+    .btn-secondary {
+      background: rgba(255,255,255,0.1);
+      color: var(--text-primary);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .btn.loading {
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .member-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 12px;
+    }
+
+    .member-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      padding: 12px 16px;
+      border-left: 3px solid var(--border-subtle);
+      transition: border-color 0.3s;
+    }
+
+    .member-row.enrolled {
+      border-left-color: var(--color-prescriber);
+    }
+
+    .member-row .member-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .member-row .member-name {
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .member-row .member-meta {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .member-row .member-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .badge-enrolled {
+      background: rgba(76, 175, 80, 0.2);
+      color: #4caf50;
+    }
+
+    .badge-pending {
+      background: rgba(255, 193, 7, 0.2);
+      color: #ffc107;
+    }
+
+    .badge-enrolling {
+      background: rgba(33, 150, 243, 0.2);
+      color: #2196f3;
+    }
+
+    .setup-log {
+      margin-top: 16px;
+      max-height: 200px;
+      overflow-y: auto;
+      font-family: 'Consolas', monospace;
+      font-size: 12px;
+      color: var(--text-secondary);
+      background: rgba(0,0,0,0.2);
+      border-radius: 6px;
+      padding: 12px;
+      display: none;
+    }
+
+    .setup-log.visible { display: block; }
+
+    .setup-log .log-line {
+      margin-bottom: 4px;
+    }
+
+    .setup-log .log-line.success { color: #4caf50; }
+    .setup-log .log-line.error { color: #f44336; }
+    .setup-log .log-line.info { color: #4fc3f7; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1 class="title">zkpCare Node Network</h1>
+      <p class="subtitle">Zero Knowledge Proof Claim Adjudication on MINA Protocol</p>
+    </div>
+
+    <div class="node-grid">
+      <!-- Member Node -->
+      <div class="node-card member">
+        <div class="node-icon">M</div>
+        <h2 class="node-title">Member</h2>
+        <p class="node-context">Mobile Device / Phone</p>
+        <ul class="node-capabilities">
+          <li>Drug History</li>
+          <li>Accumulator Progress</li>
+          <li>PCP Assignment</li>
+        </ul>
+        <a href="member.html" target="_blank" class="node-link">Open Dashboard</a>
+      </div>
+
+      <!-- Prescriber Node -->
+      <div class="node-card prescriber">
+        <div class="node-icon">Rx</div>
+        <h2 class="node-title">Prescriber</h2>
+        <p class="node-context">Hospital PC / EMR Terminal</p>
+        <ul class="node-capabilities">
+          <li>Prescribing History</li>
+          <li>Patient Breakdown</li>
+          <li>Formulary Lookup</li>
+        </ul>
+        <a href="prescriber.html" target="_blank" class="node-link">Open Dashboard</a>
+      </div>
+
+      <!-- Pharmacy Node -->
+      <div class="node-card pharmacy">
+        <div class="node-icon">Rx</div>
+        <h2 class="node-title">Pharmacy</h2>
+        <p class="node-context">POS Terminal / Dispensing System</p>
+        <ul class="node-capabilities">
+          <li>DUR Cross-Pharmacy Checks</li>
+          <li>Dispensing History</li>
+          <li>Drug Interactions</li>
+        </ul>
+        <a href="pharmacy.html" target="_blank" class="node-link">Open Dashboard</a>
+      </div>
+
+      <!-- Insurer Node -->
+      <div class="node-card insurer">
+        <div class="node-icon">I</div>
+        <h2 class="node-title">Insurer</h2>
+        <p class="node-context">Backend Server / Admin Portal</p>
+        <ul class="node-capabilities">
+          <li>12 Report Types</li>
+          <li>Audit Suite</li>
+          <li>Admin Operations</li>
+        </ul>
+        <a href="insurer.html" target="_blank" class="node-link">Open Dashboard</a>
+      </div>
+    </div>
+
+    <!-- Sequencer Console -->
+    <div class="node-grid" style="grid-template-columns: 1fr; margin-bottom: 32px;">
+      <div class="node-card sequencer">
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <div class="node-icon sequencer-icon">&gt;_</div>
+          <div style="flex: 1;">
+            <h2 class="node-title">Sequencer Console</h2>
+            <p class="node-context">L2 Chain Operator View</p>
+          </div>
+          <a href="sequencer.html" target="_blank" class="node-link sequencer-link">Open Console</a>
+        </div>
+        <ul class="node-capabilities" style="margin-top: 12px; margin-bottom: 0;">
+          <li>Live Console Stream (SSE)</li>
+          <li>Receipt &amp; Batch Tables</li>
+          <li>Audit Chain (Poseidon Hash)</li>
+          <li>Admin Actions (Force Batch, Checkpoint)</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Test Data Setup -->
+    <div class="setup-card" id="setup-panel">
+      <div class="setup-header">
+        <h2 class="setup-title">Test Data Setup</h2>
+        <div class="setup-status">
+          <span id="seq-status-text">Checking sequencer...</span>
+          <span class="status-dot" id="seq-status-dot"></span>
+        </div>
+      </div>
+
+      <div class="setup-actions">
+        <button class="btn btn-primary" id="btn-enroll-all" disabled>Enroll All Members</button>
+        <button class="btn btn-secondary" id="btn-enroll-acme" disabled>Enroll ACME Corp (5)</button>
+        <button class="btn btn-secondary" id="btn-enroll-globex" disabled>Enroll Globex Inc (3)</button>
+        <button class="btn btn-secondary" id="btn-reset" disabled>Reset Session</button>
+      </div>
+
+      <div class="member-grid" id="member-grid">
+        <!-- Populated by JS -->
+      </div>
+
+      <div class="setup-log" id="setup-log"></div>
+    </div>
+
+    <!-- Interactive Demo -->
+    <div class="demo-card">
+      <h2 class="demo-title">Interactive Demo</h2>
+      <p class="demo-description">
+        Full-stack demonstration with enrollment, prescription fill, prior auth, family pooling,
+        PCP verification, and L2 batch settlement with real zero-knowledge proofs.
+      </p>
+      <a href="interactive.html" target="_blank" class="demo-link">Launch Interactive Demo</a>
+    </div>
+
+    <div class="footer">
+      <p>All PHI/PII stays local on user devices. Only Poseidon hash commitments go on-chain.</p>
+    </div>
+  </div>
+
+  <script>
+    const API = 'http://127.0.0.1:3030';
+
+    const MEMBERS = [
+      { idx: 0, name: 'Alice Johnson',   group: 'ACME',  rel: 'SELF',   family: 'FAM-ACME-10001' },
+      { idx: 1, name: 'Bob Martinez',    group: 'ACME',  rel: 'SELF',   family: 'FAM-ACME-10002' },
+      { idx: 2, name: 'Carol Williams',  group: 'ACME',  rel: 'SELF',   family: 'FAM-ACME-10003' },
+      { idx: 3, name: 'Daniel Williams', group: 'ACME',  rel: 'SPOUSE', family: 'FAM-ACME-10003' },
+      { idx: 4, name: 'Emma Williams',   group: 'ACME',  rel: 'CHILD',  family: 'FAM-ACME-10003' },
+      { idx: 5, name: 'Frank Lee',       group: 'Globex', rel: 'SELF',  family: 'FAM-GX-50001' },
+      { idx: 6, name: 'Grace Nakamura',  group: 'Globex', rel: 'SELF',  family: 'FAM-GX-50002' },
+      { idx: 7, name: 'Henry Okafor',    group: 'Globex', rel: 'SELF',  family: 'FAM-GX-50003' },
+    ];
+
+    let enrolledSet = new Set();
+    let enrollingSet = new Set();
+    let sequencerReady = false;
+
+    // ─── Helpers ──────────────────────────────────
+
+    async function postJson(path, body, timeoutMs = 180000) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await fetch(`${API}${path}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        return res.json();
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    async function fetchJson(path, timeoutMs = 60000) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await fetch(`${API}${path}`, { signal: controller.signal });
+        return res.json();
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    function log(msg, type) {
+      const el = document.getElementById('setup-log');
+      el.classList.add('visible');
+      const line = document.createElement('div');
+      line.className = 'log-line ' + (type || '');
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      el.appendChild(line);
+      el.scrollTop = el.scrollHeight;
+    }
+
+    // ─── Render ───────────────────────────────────
+
+    function renderMemberGrid() {
+      const grid = document.getElementById('member-grid');
+      grid.innerHTML = MEMBERS.map(m => {
+        const enrolled = enrolledSet.has(m.idx);
+        const enrolling = enrollingSet.has(m.idx);
+        const statusClass = enrolled ? 'enrolled' : '';
+        const badge = enrolled
+          ? '<span class="member-badge badge-enrolled">Enrolled</span>'
+          : enrolling
+            ? '<span class="member-badge badge-enrolling">Enrolling...</span>'
+            : '<span class="member-badge badge-pending">Not enrolled</span>';
+        const btn = enrolled || enrolling
+          ? ''
+          : `<button class="btn btn-secondary" onclick="enrollOne(${m.idx})" ${sequencerReady ? '' : 'disabled'} style="padding: 6px 14px; font-size: 12px;">Enroll</button>`;
+        return `
+          <div class="member-row ${statusClass}" id="member-${m.idx}">
+            <div class="member-info">
+              <span class="member-name">${m.name}</span>
+              <span class="member-meta">${m.group} / ${m.rel} / ${m.family}</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              ${badge}
+              ${btn}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function updateButtons() {
+      const allEnrolled = MEMBERS.every(m => enrolledSet.has(m.idx));
+      const acmeEnrolled = MEMBERS.filter(m => m.group === 'ACME').every(m => enrolledSet.has(m.idx));
+      const globexEnrolled = MEMBERS.filter(m => m.group === 'Globex').every(m => enrolledSet.has(m.idx));
+      const anyEnrolling = enrollingSet.size > 0;
+
+      document.getElementById('btn-enroll-all').disabled = !sequencerReady || allEnrolled || anyEnrolling;
+      document.getElementById('btn-enroll-acme').disabled = !sequencerReady || acmeEnrolled || anyEnrolling;
+      document.getElementById('btn-enroll-globex').disabled = !sequencerReady || globexEnrolled || anyEnrolling;
+      document.getElementById('btn-reset').disabled = !sequencerReady || anyEnrolling;
+    }
+
+    // ─── Enrollment ───────────────────────────────
+
+    async function enrollOne(idx) {
+      if (enrolledSet.has(idx) || enrollingSet.has(idx)) return;
+      enrollingSet.add(idx);
+      renderMemberGrid();
+      updateButtons();
+
+      const m = MEMBERS[idx];
+      log(`Enrolling ${m.name} (index ${idx})...`, 'info');
+
+      try {
+        const result = await postJson('/interactive/enroll', { memberIndex: idx });
+        enrollingSet.delete(idx);
+        if (result.error) {
+          log(`Failed: ${m.name} - ${result.error}`, 'error');
+        } else {
+          enrolledSet.add(idx);
+          log(`Enrolled: ${m.name} - wallet ${(result.walletId || '').slice(0, 12)}...`, 'success');
+        }
+      } catch (err) {
+        enrollingSet.delete(idx);
+        log(`Error enrolling ${m.name}: ${err.message}`, 'error');
+      }
+      renderMemberGrid();
+      updateButtons();
+    }
+
+    async function enrollGroup(groupName) {
+      const members = MEMBERS.filter(m => m.group === groupName && !enrolledSet.has(m.idx));
+      for (const m of members) {
+        await enrollOne(m.idx);
+      }
+    }
+
+    async function enrollAll() {
+      const unenrolled = MEMBERS.filter(m => !enrolledSet.has(m.idx));
+      for (const m of unenrolled) {
+        await enrollOne(m.idx);
+      }
+    }
+
+    async function resetSession() {
+      log('Resetting session...', 'info');
+      try {
+        await postJson('/interactive/reset', {});
+        enrolledSet.clear();
+        enrollingSet.clear();
+        log('Session reset complete.', 'success');
+      } catch (err) {
+        log(`Reset failed: ${err.message}`, 'error');
+      }
+      renderMemberGrid();
+      updateButtons();
+    }
+
+    // ─── Check state on load ──────────────────────
+
+    async function checkSequencer() {
+      const dot = document.getElementById('seq-status-dot');
+      const text = document.getElementById('seq-status-text');
+      try {
+        const res = await fetch(`${API}/health`);
+        if (res.ok) {
+          sequencerReady = true;
+          dot.classList.add('ok');
+          // Check if any members already enrolled
+          const state = await fetchJson('/interactive/state');
+          const enrolled = state.enrolledMembers || [];
+          for (const m of enrolled) {
+            if (typeof m.memberIndex === 'number') enrolledSet.add(m.memberIndex);
+          }
+          const compiledStr = state.compiled
+            ? 'Ready (ZK compiled)'
+            : 'Ready (compiling ZK programs...)';
+          text.textContent = compiledStr;
+        } else {
+          text.textContent = 'Sequencer not ready';
+        }
+      } catch {
+        text.textContent = 'Sequencer offline';
+      }
+      renderMemberGrid();
+      updateButtons();
+    }
+
+    // ─── Wire up buttons ──────────────────────────
+
+    document.getElementById('btn-enroll-all').addEventListener('click', enrollAll);
+    document.getElementById('btn-enroll-acme').addEventListener('click', () => enrollGroup('ACME'));
+    document.getElementById('btn-enroll-globex').addEventListener('click', () => enrollGroup('Globex'));
+    document.getElementById('btn-reset').addEventListener('click', resetSession);
+
+    // ─── Init ─────────────────────────────────────
+
+    renderMemberGrid();
+    checkSequencer();
+    // Re-check every 5s until sequencer is ready
+    const healthInterval = setInterval(async () => {
+      if (!sequencerReady) await checkSequencer();
+      else clearInterval(healthInterval);
+    }, 5000);
+  </script>
+</body>
+</html>

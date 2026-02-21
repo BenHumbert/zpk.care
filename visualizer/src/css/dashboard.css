@@ -1,0 +1,214 @@
+/* ─── Global Dark Theme ─────────────────────────────── */
+body.dark-side {
+  background: #1a1a2e;
+  color: #e0e0e0;
+}
+
+.tabs-dark ul {
+  background: #16213e;
+}
+
+.tabs-dark ul li a {
+  color: #b0b0b0;
+}
+
+.tabs-dark ul li.active a {
+  color: #4fc3f7;
+  border-bottom: 2px solid #4fc3f7;
+}
+
+.app-bar-dark {
+  background: #0f3460 !important;
+}
+
+/* ─── Network Status Strip ─────────────────────────── */
+.network-strip {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: #0d1b2a;
+  border-bottom: 1px solid #2a2a4a;
+  padding: 0 12px;
+  overflow-x: auto;
+}
+
+.net-kpi {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-right: 1px solid #1a2a4a;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.net-kpi:last-child {
+  border-right: none;
+}
+
+.net-kpi-block {
+  margin-left: auto;
+}
+
+.net-kpi-block + .net-kpi-block {
+  margin-left: 0;
+}
+
+.net-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot-offline {
+  background: #555;
+  box-shadow: 0 0 0 2px #333;
+}
+
+.dot-online {
+  background: #4caf50;
+  box-shadow: 0 0 6px rgba(76, 175, 80, 0.6);
+  animation: dot-pulse 2s ease-in-out infinite;
+}
+
+@keyframes dot-pulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(76, 175, 80, 0.4); }
+  50% { box-shadow: 0 0 10px rgba(76, 175, 80, 0.8); }
+}
+
+.net-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.net-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #6a7a8a;
+  font-weight: 600;
+}
+
+.net-value {
+  font-size: 0.8rem;
+  color: #b0c0d0;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Counter Cards ─────────────────────────────────── */
+.counter-card {
+  border-radius: 8px;
+  border: 1px solid #2a2a4a;
+  transition: transform 0.2s;
+}
+
+.counter-card:hover {
+  transform: translateY(-2px);
+}
+
+.counter-value {
+  font-size: 2.5rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.counter-label {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-top: 4px;
+}
+
+/* ─── Chart Cards ────────────────────────────────────── */
+.chart-card {
+  border-radius: 8px;
+  border: 1px solid #2a2a4a;
+}
+
+/* ─── General ────────────────────────────────────────── */
+.bg-darkCobalt {
+  background: #16213e !important;
+  border-radius: 8px;
+  border: 1px solid #2a2a4a;
+}
+
+/* ─── Tables ─────────────────────────────────────────── */
+.table.dark {
+  color: #e0e0e0;
+}
+
+.table.dark thead th {
+  background: #0f3460;
+  color: #4fc3f7;
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.table.dark td {
+  border-color: #2a2a4a;
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+}
+
+/* ─── Accumulator Progress Bars ──────────────────────── */
+.accum-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+  gap: 12px;
+}
+
+.accum-label {
+  min-width: 140px;
+  font-size: 0.85rem;
+  color: #b0b0b0;
+}
+
+.accum-bar-container {
+  flex: 1;
+  height: 20px;
+  background: #2a2a4a;
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+}
+
+.accum-bar-fill {
+  height: 100%;
+  border-radius: 10px;
+  transition: width 0.5s ease;
+}
+
+.accum-bar-text {
+  position: absolute;
+  right: 8px;
+  top: 0;
+  line-height: 20px;
+  font-size: 0.75rem;
+  color: #e0e0e0;
+  font-weight: 600;
+}
+
+/* ─── Scrollbar (dark) ───────────────────────────────── */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1a1a2e;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2a2a4a;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3a5a;
+}

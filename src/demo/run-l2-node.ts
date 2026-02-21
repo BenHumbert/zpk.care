@@ -20,8 +20,8 @@ import os from 'os';
 import {
   deriveMemberWalletId,
   memberWalletPreimage,
+  DOMAIN_TAG_MEMBER,
 } from '../wallets/wallet-derivation.js';
-import { ProofGateProgram } from '../wallets/proof-gate.js';
 import {
   WalletRegistryWitness,
   WALLET_TREE_HEIGHT,
@@ -30,7 +30,7 @@ import {
 // Engine
 import {
   StateTransitionProgram,
-  EMPTY_NFT_ROOT,
+  EMPTY_CREDENTIAL_ROOT,
 } from '../engine/state-transition.js';
 import {
   LifecycleWitness,
@@ -114,21 +114,16 @@ async function main() {
   // Phase 2: Compile 3 Recursive Programs
   // ═══════════════════════════════════════════════════════════
 
-  console.log('-- Phase 2: Compile Recursive Programs (3-level chain) --');
+  console.log('-- Phase 2: Compile Recursive Programs (2-level chain) --');
   console.log('');
-  console.log('  ProofGateProgram -> StateTransitionProgram -> BatchProgram');
-  console.log('  Each level wraps the previous. Compilation order matters.');
+  console.log('  StateTransitionProgram (inline wallet verification) -> BatchProgram');
+  console.log('  Wallet ownership verified inline — no ProofGateProof needed.');
   console.log('');
 
   const compileStart = performance.now();
 
-  process.stdout.write('  > ProofGateProgram ... ');
+  process.stdout.write('  > StateTransitionProgram (inline wallet verification) ... ');
   let t = performance.now();
-  await ProofGateProgram.compile();
-  console.log(`${elapsedSec(t)}s (${memMB()} MB)`);
-
-  process.stdout.write('  > StateTransitionProgram (recursive) ... ');
-  t = performance.now();
   await StateTransitionProgram.compile();
   console.log(`${elapsedSec(t)}s (${memMB()} MB)`);
 
@@ -208,7 +203,7 @@ async function main() {
 
   console.log('-- Phase 5: Generate & Submit Proofs --');
   console.log('');
-  console.log('  Proof chain per transaction: ProofGateProof -> StateTransitionProof -> L2Receipt');
+  console.log('  Proof chain per transaction: StateTransitionProof (inline wallet verification) -> L2Receipt');
   console.log('  The L2 node verifies each proof and issues an instant L2 receipt.');
   console.log('  Proofs accumulate in the pending pool until the batch timer fires.');
   console.log('');
@@ -218,21 +213,14 @@ async function main() {
   console.log('  --- Transaction 1: Alice Registration ---');
   console.log('');
 
-  process.stdout.write('  > ProofGateProof (Alice) ... ');
-  t = performance.now();
-  const alicePgResult = await ProofGateProgram.verifyMember(
-    aliceWalletId,
-    alicePreimage[0]!, alicePreimage[1]!, alicePreimage[2]!, alicePreimage[3]!, alicePreimage[4]!,
-  );
-  console.log(`${elapsedSec(t)}s`);
-
   process.stdout.write('  > StateTransitionProof (registration) ... ');
   t = performance.now();
   const aliceRegWitness = new WalletRegistryWitness(regTree.getWitness(0n));
   const aliceLcWitness = new LifecycleWitness(lcTree.getWitness(0n));
 
   const aliceStResult = await StateTransitionProgram.proveRegistration(
-    alicePgResult.proof,
+    DOMAIN_TAG_MEMBER,
+    alicePreimage[0]!, alicePreimage[1]!, alicePreimage[2]!, alicePreimage[3]!, alicePreimage[4]!,
     aliceRegWitness,
     aliceLcWitness,
     regTree.getRoot(),
@@ -241,7 +229,7 @@ async function main() {
   console.log(`${elapsedSec(t)}s`);
 
   // Update local trees to match
-  const aliceCommitment = Poseidon.hash([aliceWalletId, EMPTY_NFT_ROOT, Field(0)]);
+  const aliceCommitment = Poseidon.hash([aliceWalletId, EMPTY_CREDENTIAL_ROOT, Field(0)]);
   regTree.setLeaf(0n, aliceCommitment);
   const aliceLcLeaf = lifecycleLeafCommitment(aliceWalletId, LIFECYCLE_REGISTERED);
   lcTree.setLeaf(0n, aliceLcLeaf);
@@ -257,21 +245,14 @@ async function main() {
   console.log('  --- Transaction 2: Bob Registration ---');
   console.log('');
 
-  process.stdout.write('  > ProofGateProof (Bob) ... ');
-  t = performance.now();
-  const bobPgResult = await ProofGateProgram.verifyMember(
-    bobWalletId,
-    bobPreimage[0]!, bobPreimage[1]!, bobPreimage[2]!, bobPreimage[3]!, bobPreimage[4]!,
-  );
-  console.log(`${elapsedSec(t)}s`);
-
   process.stdout.write('  > StateTransitionProof (registration) ... ');
   t = performance.now();
   const bobRegWitness = new WalletRegistryWitness(regTree.getWitness(1n));
   const bobLcWitness = new LifecycleWitness(lcTree.getWitness(1n));
 
   const bobStResult = await StateTransitionProgram.proveRegistration(
-    bobPgResult.proof,
+    DOMAIN_TAG_MEMBER,
+    bobPreimage[0]!, bobPreimage[1]!, bobPreimage[2]!, bobPreimage[3]!, bobPreimage[4]!,
     bobRegWitness,
     bobLcWitness,
     regTree.getRoot(),
@@ -280,7 +261,7 @@ async function main() {
   console.log(`${elapsedSec(t)}s`);
 
   // Update local trees
-  const bobCommitment = Poseidon.hash([bobWalletId, EMPTY_NFT_ROOT, Field(0)]);
+  const bobCommitment = Poseidon.hash([bobWalletId, EMPTY_CREDENTIAL_ROOT, Field(0)]);
   regTree.setLeaf(1n, bobCommitment);
   const bobLcLeaf = lifecycleLeafCommitment(bobWalletId, LIFECYCLE_REGISTERED);
   lcTree.setLeaf(1n, bobLcLeaf);
@@ -311,21 +292,13 @@ async function main() {
   console.log('  Batch #0 settled!');
   console.log('');
 
-  // ── 5d: Alice Wallet Update (NFT mint) ─────────────────────
+  // ── 5d: Alice Wallet Update (credential mint) ─────────────────────
 
-  console.log('  --- Transaction 3: Alice Wallet Update (simulated NFT mint) ---');
+  console.log('  --- Transaction 3: Alice Wallet Update (simulated credential mint) ---');
   console.log('');
 
-  process.stdout.write('  > ProofGateProof (Alice) ... ');
-  t = performance.now();
-  const alicePg2 = await ProofGateProgram.verifyMember(
-    aliceWalletId,
-    alicePreimage[0]!, alicePreimage[1]!, alicePreimage[2]!, alicePreimage[3]!, alicePreimage[4]!,
-  );
-  console.log(`${elapsedSec(t)}s`);
-
-  // Simulate NFT mint by changing the inventory root
-  const newNftRoot = Poseidon.hash([Field(42), Field(999)]);
+  // Simulate credential mint by changing the inventory root
+  const newCredentialRoot = Poseidon.hash([Field(42), Field(999)]);
 
   process.stdout.write('  > StateTransitionProof (wallet update) ... ');
   t = performance.now();
@@ -333,10 +306,11 @@ async function main() {
   const aliceUpdLcWitness = new LifecycleWitness(lcTree.getWitness(0n));
 
   const aliceUpdResult = await StateTransitionProgram.proveWalletUpdate(
-    alicePg2.proof,
-    EMPTY_NFT_ROOT,        // oldNftRoot
+    DOMAIN_TAG_MEMBER,
+    alicePreimage[0]!, alicePreimage[1]!, alicePreimage[2]!, alicePreimage[3]!, alicePreimage[4]!,
+    EMPTY_CREDENTIAL_ROOT,        // oldCredentialRoot
     Field(0),               // oldNonce
-    newNftRoot,             // newNftRoot
+    newCredentialRoot,             // newCredentialRoot
     aliceUpdRegWitness,
     aliceUpdLcWitness,
     regTree.getRoot(),
@@ -346,7 +320,7 @@ async function main() {
   console.log(`${elapsedSec(t)}s`);
 
   // Update local trees
-  const aliceNewCommitment = Poseidon.hash([aliceWalletId, newNftRoot, Field(1)]);
+  const aliceNewCommitment = Poseidon.hash([aliceWalletId, newCredentialRoot, Field(1)]);
   regTree.setLeaf(0n, aliceNewCommitment);
 
   process.stdout.write('  > Submit to L2 node ... ');
@@ -466,8 +440,8 @@ async function main() {
   console.log('+==========================================================+');
   console.log('');
   console.log(`  Wall clock:      ${wallSec}s`);
-  console.log(`  Compilation:     ${compileSec}s (3 programs)`);
-  console.log(`  Proofs generated: 5 (3 ProofGate + 2 StateTransition + 1 wallet update = 6 total)`);
+  console.log(`  Compilation:     ${compileSec}s (2 programs)`);
+  console.log(`  Proofs generated: 3 (2 registrations + 1 wallet update)`);
   console.log(`  Proofs submitted: 3 (Alice reg + Bob reg + Alice update)`);
   console.log(`  Batches built:   ${stats.totalBatches} (auto-batched every ${BATCH_INTERVAL_MS / 1000}s)`);
   console.log(`  Batches settled: ${stats.totalSettled} (simulated L1 settlement)`);

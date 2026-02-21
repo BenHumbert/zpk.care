@@ -1,21 +1,21 @@
-// NFT System — User Path (L4)
+// Credential System — User Path (L4)
 
 export {
-  NFT_TYPE_ELIGIBILITY,
-  NFT_TYPE_PRESCRIPTION,
-  NftData,
-} from './nft-data.js';
-export type { NftLocalMetadata } from './nft-data.js';
+  CREDENTIAL_TYPE_ELIGIBILITY,
+  CREDENTIAL_TYPE_PRESCRIPTION,
+  CredentialData,
+} from './credential-data.js';
+export type { CredentialLocalMetadata } from './credential-data.js';
 
-export { NftInventory } from './nft-inventory.js';
+export { CredentialInventory } from './credential-inventory.js';
 
 export {
-  NFT_OP_MINT,
-  NFT_OP_VERIFY,
-  NftOperationOutput,
-  NftProgram,
-  NftOperationProof,
-} from './nft-program.js';
+  CREDENTIAL_OP_MINT,
+  CREDENTIAL_OP_VERIFY,
+  CredentialOperationOutput,
+  CredentialProgram,
+  CredentialOperationProof,
+} from './credential-program.js';
 
 export {
   serializeCredential,

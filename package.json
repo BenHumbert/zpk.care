@@ -6,7 +6,14 @@
   "main": "build/index.js",
   "scripts": {
     "build": "tsc",
-    "test": "npx jest --verbose"
+    "test": "npx jest --verbose",
+    "start:leviathan": "npx tsx src/nodes/start-leviathan.ts",
+    "start:nautilus": "npx tsx src/nodes/start-nautilus.ts",
+    "start:prover": "npx tsx src/nodes/start-prover.ts",
+    "start:member": "npx tsx src/nodes/start-member-nautilus.ts",
+    "start:prescriber": "npx tsx src/nodes/start-prescriber-nautilus.ts",
+    "start:pharmacy": "npx tsx src/nodes/start-pharmacy-nautilus.ts",
+    "start:insurer": "npx tsx src/nodes/start-insurer-nautilus.ts"
   },
   "keywords": ["zkp", "mina", "healthcare", "nft", "o1js"],
   "author": "",

@@ -2,7 +2,7 @@
  * zkpCare — Full Claim Lifecycle Demo
  *
  * Runs the complete lifecycle in the terminal with real ZK proof generation:
- *   Enrollment → eScript → Fill → Accumulator Update → NFT Change
+ *   Enrollment → eScript → Fill → Accumulator Update → Credential Change
  *
  * Run:
  *   $env:NODE_OPTIONS="--max-old-space-size=12288"; npx tsx src/demo/run-full-cycle.ts
@@ -31,8 +31,8 @@ import { lifecycleLeafCommitment, LIFECYCLE_ELIGIBLE } from '../engine/lifecycle
 import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
 import { hashString, dateToField, centsToField, quantityToField } from '../zkp/hash-utils.js';
 
-// NFT
-import { NftData, NFT_TYPE_PRESCRIPTION } from '../nft/nft-data.js';
+// Credentials
+import { CredentialData, CREDENTIAL_TYPE_PRESCRIPTION } from '../credentials/credential-data.js';
 
 // Eligibility
 import { EligibilityData } from '../eligibility/eligibility-data.js';
@@ -253,7 +253,7 @@ async function main() {
   });
 
   // Employer step: generate enrollment token
-  tokenAuthority.generateToken('ACME-CORP', 'PLAN-GOLD-2026', 'EMP-10001', '20261231', 'TOKEN-001');
+  tokenAuthority.generateToken('ACME-CORP', 'PLAN-GOLD-2026', 'EMP-10001', 'FAM-ACME-10001', '20261231', 'TOKEN-001');
   console.log('  Step 1: ACME Corp HR generates enrollment token TOKEN-001');
 
   // Member step: computes walletId locally (already done above)
@@ -270,11 +270,11 @@ async function main() {
     enrollmentService.processEnrollment(memberWalletId, 'TOKEN-001', '20260201'));
 
   console.log('  Step 3: Insurer processes enrollment ceremony');
-  console.log(`          -> Wallet registered, NFT minted, token consumed`);
+  console.log(`          -> Wallet registered, credential minted, token consumed`);
   console.log('');
 
   // Extract state
-  const eligNftData = enrollResult.nftData;
+  const eligCredentialData = enrollResult.credentialData;
   const eligForest = enrollmentService.getMemberForest(memberWalletId)!;
   let eligForestRoots = ForestRoots.fromForest(eligForest);
   const eligForestRootBefore = eligForest.getForestRoot();
@@ -303,7 +303,7 @@ async function main() {
   console.log(`    Deductible:  $0.00 / ${cents(50000)}  ${progressBar(0, 50000)} 0%`);
   console.log(`    OOPM:        $0.00 / ${cents(800000)} ${progressBar(0, 800000)} 0%`);
   console.log('');
-  console.log(`  Eligibility NFT forest root: ${truncField(eligForestRootBefore)}`);
+  console.log(`  Eligibility credential forest root: ${truncField(eligForestRootBefore)}`);
   console.log('');
 
   // ═══════════════════════════════════════════════════════════
@@ -350,8 +350,8 @@ async function main() {
   rxForest.setLeaf(ForestDomain.TRANSACTION, 0n, activeStatus.commitment());
   let rxForestRoots = ForestRoots.fromForest(rxForest);
 
-  let rxNftData = new NftData({
-    nftType: NFT_TYPE_PRESCRIPTION,
+  let rxCredentialData = new CredentialData({
+    credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
     forestRoot: rxForest.getForestRoot(),
     issuerWalletId: prescriberWalletId,
     subjectWalletId: pharmacyWalletId,
@@ -392,7 +392,7 @@ async function main() {
   console.log('    Qty:     30 tablets, 3 refills authorized');
   console.log(`    Cost:    $4.50 ingredient + $2.00 dispensing = $6.50 total`);
   console.log('');
-  console.log('  Prescription NFT created with MEDICATION + TRANSACTION trees');
+  console.log('  Prescription credential created with MEDICATION + TRANSACTION trees');
   console.log(`  Rx hash: ${truncField(prescriptionData.commitment())}`);
   console.log('');
 
@@ -479,7 +479,7 @@ async function main() {
 
   await timed('P6', '4/8 EligibilityProgram.proveEligibility', 'prove', true, () =>
     EligibilityProgram.proveEligibility(
-      eligNftData,
+      eligCredentialData,
       eligibilityData,
       eligForestRoots,
       eligWitness,
@@ -496,7 +496,7 @@ async function main() {
 
   await timed('P6', '5/8 AccessControl.proveFormularyAccess', 'prove', true, () =>
     AccessControlProgram.proveFormularyAccess(
-      eligNftData,
+      eligCredentialData,
       eligibilityData,
       eligForestRoots,
       formEligWitness,
@@ -505,6 +505,7 @@ async function main() {
       ndcHash,
       quantityToField(30),
       Field(30n),
+      Field(20260101),
     ));
   console.log('       Lisinopril 10mg: ON FORMULARY, Tier 1, $10 copay');
   console.log('');
@@ -540,7 +541,7 @@ async function main() {
 
   await timed('P6', '7/8 PrescriptionProgram.proveStatusUpdate (ACTIVE->FILLED)', 'prove', true, () =>
     PrescriptionProgram.proveStatusUpdate(
-      rxNftData,
+      rxCredentialData,
       prescriptionData,
       activeStatus,
       filledStatus,
@@ -548,14 +549,15 @@ async function main() {
       medWitness,
       oldStatusWitness,
       newSlotWitness,
+      ...prescriberPreimageFields as [Field, Field, Field],
     ));
   console.log('       Prescription status: ACTIVE -> FILLED (ZK-enforced transition)');
 
   // Mutate forest for fulfillment phase
   rxForest.setLeaf(ForestDomain.TRANSACTION, 1n, filledStatus.commitment());
   rxForestRoots = ForestRoots.fromForest(rxForest);
-  rxNftData = new NftData({
-    nftType: NFT_TYPE_PRESCRIPTION,
+  rxCredentialData = new CredentialData({
+    credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
     forestRoot: rxForest.getForestRoot(),
     issuerWalletId: prescriberWalletId,
     subjectWalletId: pharmacyWalletId,
@@ -574,7 +576,7 @@ async function main() {
 
   const fulfillResult = await timed('P6', '8/8 AccumulatorFulfillment.proveFulfillmentWithAccumulator (THE CLAIM)', 'prove', true, () =>
     AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(
-      rxNftData,
+      rxCredentialData,
       prescriptionData,
       filledStatus,
       fulfillmentData,
@@ -585,13 +587,15 @@ async function main() {
       fulfNewSlotWitness,
       fulfFormWitness,
       eligibilityData.formularyRoot,
-      eligNftData,
+      eligCredentialData,
       eligForestRoots,
       accumulatorData,
       accumWitness,
+      // H2: pharmacy wallet identity preimage
+      ...pharmacyPreimageFields as [Field, Field, Field],
     ));
 
-  console.log('       THE CLAIM: Dual-NFT fulfillment with accumulator update');
+  console.log('       THE CLAIM: Dual-credential fulfillment with accumulator update');
   console.log('       15 private inputs verified in a single ZK circuit');
   console.log('');
 
@@ -639,12 +643,12 @@ async function main() {
   console.log(`                 ${progressBar(0, 800000)}  ->  ${progressBar(newOopPaid, 800000)}  ${(newOopPaid / 800000 * 100).toFixed(1)}%`);
   console.log('');
 
-  // Show NFT forest root change
+  // Show credential forest root change
   const newEligForestRoot = proofOutput.newEligibilityForestRoot;
-  console.log('  ELIGIBILITY NFT:');
+  console.log('  ELIGIBILITY CREDENTIAL:');
   console.log(`    Forest root BEFORE: ${truncField(eligForestRootBefore)}`);
   console.log(`    Forest root AFTER:  ${truncField(newEligForestRoot)}`);
-  console.log(`    CHANGED: ${!eligForestRootBefore.equals(newEligForestRoot).toBoolean() ? 'YES -- accumulator updated in NFT' : 'NO (unexpected)'}`);
+  console.log(`    CHANGED: ${!eligForestRootBefore.equals(newEligForestRoot).toBoolean() ? 'YES -- accumulator updated in credential' : 'NO (unexpected)'}`);
   console.log('');
 
   // What just happened narrative
@@ -652,11 +656,11 @@ async function main() {
   console.log('  ------------------');
   console.log(`  1. Alice proved her identity without revealing any personal data`);
   console.log(`  2. Dr. Chen wrote an eScript that was cryptographically sealed`);
-  console.log(`  3. Main Street Pharmacy proved it holds the prescription NFT`);
+  console.log(`  3. Main Street Pharmacy proved it holds the prescription credential`);
   console.log(`  4. The ZK circuit computed: $6.50 total < $500 deductible`);
   console.log(`     -> Patient pays full $6.50 (applied to deductible)`);
   console.log(`     -> Plan pays $0.00 (deductible not yet met)`);
-  console.log(`  5. Alice's eligibility NFT was updated with new accumulator`);
+  console.log(`  5. Alice's eligibility credential was updated with new accumulator`);
   console.log(`  6. No personal data was ever transmitted. No insurer database.`);
   console.log(`     Only Poseidon hash commitments exist on-chain.`);
   console.log('');
@@ -712,7 +716,7 @@ async function main() {
 
   console.log('+==========================================================+');
   console.log('|  Zero personal data transmitted. Zero insurer database.   |');
-  console.log('|  All 8 proofs verified. Claim settled. NFT updated.       |');
+  console.log('|  All 8 proofs verified. Claim settled. Credential updated. |');
   console.log('|  This is pharmacy benefit adjudication on MINA Protocol.  |');
   console.log('+==========================================================+');
   console.log('');

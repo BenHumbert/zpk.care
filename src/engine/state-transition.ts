@@ -1,8 +1,7 @@
-import { Field, Struct, Poseidon, ZkProgram, MerkleTree } from 'o1js';
-import { ProofGateProof } from '../wallets/proof-gate.js';
+import { Field, Struct, Poseidon, ZkProgram, MerkleTree, Provable } from 'o1js';
 import {
   WalletRegistryWitness,
-  NFT_INVENTORY_HEIGHT,
+  CREDENTIAL_INVENTORY_HEIGHT,
 } from '../wallets/wallet-state.js';
 import {
   LifecycleWitness,
@@ -10,13 +9,18 @@ import {
   LIFECYCLE_REVOKED,
   lifecycleLeafCommitment,
 } from './lifecycle.js';
+import {
+  DOMAIN_TAG_MEMBER,
+  DOMAIN_TAG_PRESCRIBER,
+  DOMAIN_TAG_PHARMACY,
+} from '../wallets/wallet-derivation.js';
 
 /**
- * Empty NFT inventory root — computed once at module load.
+ * Empty credential inventory root — computed once at module load.
  * This is the Merkle root of a tree with all-zero leaves (height 7, 64 slots).
- * Used when creating a fresh WalletState with no NFTs.
+ * Used when creating a fresh WalletState with no credentials.
  */
-export const EMPTY_NFT_ROOT = new MerkleTree(NFT_INVENTORY_HEIGHT).getRoot();
+export const EMPTY_CREDENTIAL_ROOT = new MerkleTree(CREDENTIAL_INVENTORY_HEIGHT).getRoot();
 
 /**
  * TransitionOutput — public output of every StateTransitionProgram proof.
@@ -43,17 +47,66 @@ export class TransitionOutput extends Struct({
 }) {}
 
 /**
- * StateTransitionProgram — Recursive ZkProgram for portable proofs.
+ * Compute walletId from domain tag and preimage fields using Provable.switch.
+ *
+ * Supports three entity types:
+ *   - Member (tag=0): Poseidon.hash([0, f0, f1, f2, f3, f4]) — 6 fields
+ *   - Prescriber (tag=1): Poseidon.hash([1, f0, f1, f2]) — 4 fields
+ *   - Pharmacy (tag=2): Poseidon.hash([2, f0, f1, f2]) — 4 fields
+ *
+ * All three hash variants are computed inside the circuit; Provable.switch
+ * selects the correct one based on domainTag. Non-member entities pass
+ * Field(0) for unused f3/f4 — these zeros are included in the member hash
+ * but the switch ensures the correct (shorter) hash is selected.
+ *
+ * @param domainTag — Field(0)=member, Field(1)=prescriber, Field(2)=pharmacy
+ * @param f0..f4 — preimage fields (padded with Field(0) for non-members)
+ */
+function computeWalletId(
+  domainTag: Field,
+  f0: Field, f1: Field, f2: Field, f3: Field, f4: Field,
+): Field {
+  // Compute all three hash variants
+  const memberHash = Poseidon.hash([DOMAIN_TAG_MEMBER, f0, f1, f2, f3, f4]);
+  const prescriberHash = Poseidon.hash([DOMAIN_TAG_PRESCRIBER, f0, f1, f2]);
+  const pharmacyHash = Poseidon.hash([DOMAIN_TAG_PHARMACY, f0, f1, f2]);
+
+  // Select the correct one via domain tag
+  const isMember = domainTag.equals(DOMAIN_TAG_MEMBER);
+  const isPrescriber = domainTag.equals(DOMAIN_TAG_PRESCRIBER);
+  const isPharmacy = domainTag.equals(DOMAIN_TAG_PHARMACY);
+
+  // At least one must be true
+  isMember.or(isPrescriber).or(isPharmacy).assertTrue('Invalid domain tag');
+
+  return Provable.switch(
+    [isMember, isPrescriber, isPharmacy],
+    Field,
+    [memberHash, prescriberHash, pharmacyHash],
+  );
+}
+
+/**
+ * StateTransitionProgram — ZkProgram for portable proofs.
  *
  * Each method:
- *   1. Verifies a ProofGateProof (recursive proof composition!)
+ *   1. Verifies wallet ownership inline (Poseidon hash of preimage fields)
  *   2. Proves the state transition is valid (Merkle witness checks)
  *   3. Returns a TransitionOutput that can be verified anywhere
+ *
+ * Supports all entity types (member, prescriber, pharmacy) via domainTag
+ * private input and Provable.switch for walletId computation.
  *
  * The resulting proof is SELF-CONTAINED — it wraps wallet ownership
  * AND state validity into a single proof. No internet needed to verify.
  *
- * Flow: ProofGateProof → StateTransitionProof → verify offline or settle on-chain
+ * NOTE: Wallet verification is inlined (not recursive via ProofGateProof)
+ * to keep the proof chain at 2 levels, avoiding a Pickles wrap_main.ml
+ * bug where maxProofsVerified=2 fails at recursion depth >= 2.
+ * ProofGateProgram still exists for standalone wallet ownership proofs
+ * (NFC/RFID verification, etc.).
+ *
+ * Flow: StateTransitionProof (depth 0) → BatchProof (depth 1) → settle on-chain
  */
 export const StateTransitionProgram = ZkProgram({
   name: 'StateTransition',
@@ -63,30 +116,43 @@ export const StateTransitionProgram = ZkProgram({
     /**
      * Prove a valid wallet registration.
      *
-     * Verifies the user owns the wallet (recursive ProofGateProof),
-     * then proves the wallet was correctly added to an empty slot
-     * in both the registry and lifecycle trees.
+     * Takes the entity's domain tag and preimage fields as private inputs,
+     * computes the walletId inline via Provable.switch (supporting member,
+     * prescriber, and pharmacy entity types), then proves the wallet was
+     * correctly added to an empty slot in both the registry and lifecycle trees.
      *
      * After: registry has new WalletState, lifecycle is REGISTERED.
+     *
+     * @param domainTag — Field(0)=member, Field(1)=prescriber, Field(2)=pharmacy
+     * @param f0..f4 — preimage fields (non-members pad unused fields with Field(0))
      */
     proveRegistration: {
       privateInputs: [
-        ProofGateProof,
+        Field, // domainTag
+        Field, // f0 (cardholderIdHash / qualifierCode)
+        Field, // f1 (dateOfBirth / prescriberIdHash / serviceProviderIdHash)
+        Field, // f2 (firstNameHash / enrollmentKeyHash)
+        Field, // f3 (lastNameHash / Field(0) for non-member)
+        Field, // f4 (enrollmentKeyHash / Field(0) for non-member)
         WalletRegistryWitness,
         LifecycleWitness,
         Field, // currentRegistryRoot
         Field, // currentLifecycleRoot
       ],
       async method(
-        ownershipProof: InstanceType<typeof ProofGateProof>,
+        domainTag: Field,
+        f0: Field,
+        f1: Field,
+        f2: Field,
+        f3: Field,
+        f4: Field,
         registryWitness: WalletRegistryWitness,
         lifecycleWitness: LifecycleWitness,
         currentRegistryRoot: Field,
         currentLifecycleRoot: Field,
       ) {
-        // 1. Recursively verify wallet ownership
-        ownershipProof.verify();
-        const walletId = ownershipProof.publicInput;
+        // 1. Compute wallet identity inline via domain-tag switch
+        const walletId = computeWalletId(domainTag, f0, f1, f2, f3, f4);
 
         // 2. Verify the registry slot is empty
         const emptyRegistryRoot = registryWitness.calculateRoot(Field(0));
@@ -96,10 +162,10 @@ export const StateTransitionProgram = ZkProgram({
         );
 
         // 3. Compute new WalletState commitment and insert
-        //    Matches WalletState.commitment(): Poseidon.hash([walletId, nftRoot, nonce])
+        //    Matches WalletState.commitment(): Poseidon.hash([walletId, credentialRoot, nonce])
         const walletCommitment = Poseidon.hash([
           walletId,
-          EMPTY_NFT_ROOT,
+          EMPTY_CREDENTIAL_ROOT,
           Field(0), // nonce = 0 for fresh wallet
         ]);
         const newRegistryRoot = registryWitness.calculateRoot(walletCommitment);
@@ -135,18 +201,24 @@ export const StateTransitionProgram = ZkProgram({
     /**
      * Prove a valid wallet state update.
      *
-     * Verifies the user owns the wallet (recursive ProofGateProof),
-     * checks the wallet is not revoked, verifies the old state matches,
-     * enforces nonce increment, and computes the new registry root.
+     * Takes the entity's domain tag and preimage fields as private inputs,
+     * computes the walletId inline via Provable.switch, checks the wallet
+     * is not revoked, verifies the old state matches, enforces nonce
+     * increment, and computes the new registry root.
      *
      * Lifecycle root is unchanged (state updates don't affect lifecycle).
      */
     proveWalletUpdate: {
       privateInputs: [
-        ProofGateProof,
-        Field, // oldNftRoot
+        Field, // domainTag
+        Field, // f0
+        Field, // f1
+        Field, // f2
+        Field, // f3
+        Field, // f4
+        Field, // oldCredentialRoot
         Field, // oldNonce
-        Field, // newNftRoot
+        Field, // newCredentialRoot
         WalletRegistryWitness,
         LifecycleWitness,
         Field, // currentRegistryRoot
@@ -154,19 +226,23 @@ export const StateTransitionProgram = ZkProgram({
         Field, // currentLifecycle (to verify not revoked)
       ],
       async method(
-        ownershipProof: InstanceType<typeof ProofGateProof>,
-        oldNftRoot: Field,
+        domainTag: Field,
+        f0: Field,
+        f1: Field,
+        f2: Field,
+        f3: Field,
+        f4: Field,
+        oldCredentialRoot: Field,
         oldNonce: Field,
-        newNftRoot: Field,
+        newCredentialRoot: Field,
         registryWitness: WalletRegistryWitness,
         lifecycleWitness: LifecycleWitness,
         currentRegistryRoot: Field,
         currentLifecycleRoot: Field,
         currentLifecycle: Field,
       ) {
-        // 1. Recursively verify wallet ownership
-        ownershipProof.verify();
-        const walletId = ownershipProof.publicInput;
+        // 1. Compute wallet identity inline via domain-tag switch
+        const walletId = computeWalletId(domainTag, f0, f1, f2, f3, f4);
 
         // 2. Verify wallet is not revoked
         const lifecycleLeaf = lifecycleLeafCommitment(
@@ -184,7 +260,7 @@ export const StateTransitionProgram = ZkProgram({
           .assertFalse('Wallet is revoked');
 
         // 3. Verify old wallet state matches registry
-        const oldCommitment = Poseidon.hash([walletId, oldNftRoot, oldNonce]);
+        const oldCommitment = Poseidon.hash([walletId, oldCredentialRoot, oldNonce]);
         const computedRegistryRoot =
           registryWitness.calculateRoot(oldCommitment);
         computedRegistryRoot.assertEquals(
@@ -194,7 +270,7 @@ export const StateTransitionProgram = ZkProgram({
 
         // 4. Compute new state with incremented nonce
         const newNonce = oldNonce.add(1);
-        const newCommitment = Poseidon.hash([walletId, newNftRoot, newNonce]);
+        const newCommitment = Poseidon.hash([walletId, newCredentialRoot, newNonce]);
         const newRegistryRoot = registryWitness.calculateRoot(newCommitment);
 
         // 5. Return transition output (lifecycle unchanged)

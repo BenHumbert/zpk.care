@@ -63,7 +63,7 @@ export interface DemoPharmacy {
 export const DEMO_PHARMACIES: DemoPharmacy[] = [
   {
     localData: { serviceProviderIdQualifier: 1, serviceProviderId: '2345678901' },
-    enrollmentKey: 'pharmacy-key-mainst-2026',
+    enrollmentKey: 'ksmHyIHcdsHWalWhdIq2SHTSIDdDYQQohZZ7zYqHE8w',
     ncpdpProviderId: '5901234',
     storeName: 'Main Street Pharmacy',
     chain: 'Independent',
@@ -78,7 +78,7 @@ export const DEMO_PHARMACIES: DemoPharmacy[] = [
   },
   {
     localData: { serviceProviderIdQualifier: 1, serviceProviderId: '2456789012' },
-    enrollmentKey: 'pharmacy-key-wellcare-2026',
+    enrollmentKey: 'flh-P_pasPQJYzMDtt3pI46hP1lRiQinsA2l3WDBN3I',
     ncpdpProviderId: '5902345',
     storeName: 'WellCare Drugs #1042',
     chain: 'WellCare Drugs',
@@ -93,7 +93,7 @@ export const DEMO_PHARMACIES: DemoPharmacy[] = [
   },
   {
     localData: { serviceProviderIdQualifier: 1, serviceProviderId: '2567890123' },
-    enrollmentKey: 'pharmacy-key-health-2026',
+    enrollmentKey: 'KEgaiKG6VDsjhVexjx4EkGyoB9gx6az_NmdEQqXGY58',
     ncpdpProviderId: '5903456',
     storeName: 'HealthMart Pharmacy #8871',
     chain: 'HealthMart',
@@ -108,7 +108,7 @@ export const DEMO_PHARMACIES: DemoPharmacy[] = [
   },
   {
     localData: { serviceProviderIdQualifier: 1, serviceProviderId: '2678901234' },
-    enrollmentKey: 'pharmacy-key-rxdirect-2026',
+    enrollmentKey: 'LWhNOwcuVkvOmf5a0FIeF1BMICZhw8qgSTx4NKw5Ezs',
     ncpdpProviderId: '5904567',
     storeName: 'RxDirect Mail',
     chain: 'RxDirect',
@@ -123,7 +123,7 @@ export const DEMO_PHARMACIES: DemoPharmacy[] = [
   },
   {
     localData: { serviceProviderIdQualifier: 1, serviceProviderId: '2789012345' },
-    enrollmentKey: 'pharmacy-key-specialty-2026',
+    enrollmentKey: '2FC4Ry7-7yefEpO9lG1uS4MIuel6PzKCzenV3ROnpIg',
     ncpdpProviderId: '5905678',
     storeName: 'BioSpecialty Pharmacy',
     chain: 'BioSpecialty',
@@ -138,7 +138,7 @@ export const DEMO_PHARMACIES: DemoPharmacy[] = [
   },
   {
     localData: { serviceProviderIdQualifier: 1, serviceProviderId: '2890123456' },
-    enrollmentKey: 'pharmacy-key-compound-2026',
+    enrollmentKey: 'alxF58WQuyoJODDLXSDo_k6Fn5VZdKa04NJ6I5GhiQM',
     ncpdpProviderId: '5906789',
     storeName: 'Precision Compounding',
     chain: 'Independent',
@@ -153,7 +153,7 @@ export const DEMO_PHARMACIES: DemoPharmacy[] = [
   },
   {
     localData: { serviceProviderIdQualifier: 1, serviceProviderId: '2901234567' },
-    enrollmentKey: 'pharmacy-key-sunrise-2026',
+    enrollmentKey: 'TWjO1KMau6G3YHSx15e_9Yt43nQxyiojEeST_rHq4-w',
     ncpdpProviderId: '5907890',
     storeName: 'Sunrise LTC Pharmacy',
     chain: 'Sunrise Health',
@@ -168,7 +168,7 @@ export const DEMO_PHARMACIES: DemoPharmacy[] = [
   },
   {
     localData: { serviceProviderIdQualifier: 1, serviceProviderId: '2012345678' },
-    enrollmentKey: 'pharmacy-key-campus-2026',
+    enrollmentKey: 'j9x6rhZCTX0LXYj_FwysyYTvicocA7kumsTtghxZys4',
     ncpdpProviderId: '5908901',
     storeName: 'Campus Health Pharmacy',
     chain: 'Independent',

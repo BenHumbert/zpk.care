@@ -119,7 +119,7 @@ function attachFinancialData(
 // ─── AuditEvent Hash Chain ──────────────────────────────────
 
 describe('AuditEvent Hash Chain', () => {
-  test('computeEventCommitment produces deterministic hash from 7 fields', () => {
+  test('computeEventCommitment produces deterministic hash from 10 fields', () => {
     const event = makeEvent({
       sequenceNumber: 0n,
       receiptId: 'l2-00000000',
@@ -135,12 +135,30 @@ describe('AuditEvent Hash Chain', () => {
     const hash2 = AuditService.computeEventCommitment(event);
     expect(hash1.toString()).toBe(hash2.toString());
 
-    // Verify it matches manual Poseidon computation
+    // Verify it matches manual Poseidon computation (10 fields, ndcHash/patientPay/planPay default to 0)
     const manual = Poseidon.hash([
       Field(100n), Field(200n), Field(201n),
-      Field(300n), Field(301n), Field(0n), Field(1n),
+      Field(300n), Field(301n), Field(0n), Field(1n), Field(0n),
+      Field(0n), Field(0n),
     ]);
     expect(hash1.toString()).toBe(manual.toString());
+  });
+
+  test('computeEventCommitment includes ndcHash when present', () => {
+    const eventA = makeEvent({
+      sequenceNumber: 0n,
+      receiptId: 'l2-00000000',
+    });
+    const eventB = makeEvent({
+      sequenceNumber: 0n,
+      receiptId: 'l2-00000000',
+      ndcHash: '12345',
+    });
+
+    const hashA = AuditService.computeEventCommitment(eventA);
+    const hashB = AuditService.computeEventCommitment(eventB);
+    // With ndcHash vs without should produce different commitments
+    expect(hashA.toString()).not.toBe(hashB.toString());
   });
 
   test('computeChainHash produces deterministic hash from prev + commitment', () => {

@@ -26,7 +26,7 @@ export const TOKEN_STATUS_REVOKED = Field(3);
  *   2. Token sent to employee (QR code, email, HR portal)
  *   3. Token also sent to insurer (no PHI — just tokenId, groupId, planId)
  *   4. Member presents token + their walletId to insurer
- *   5. Insurer validates token, registers wallet, mints eligibility NFT
+ *   5. Insurer validates token, registers wallet, mints eligibility credential
  *
  * The token binds an opaque employee identity to a specific group and plan
  * without the insurer ever seeing the employee's name, DOB, or other PHI.
@@ -40,6 +40,8 @@ export class GroupEnrollmentToken extends Struct({
   planIdHash: Field,
   /** Poseidon hash of employee ID (opaque to insurer) */
   employeeIdHash: Field,
+  /** Poseidon hash of family ID (groups subscriber + dependents) */
+  familyIdHash: Field,
   /** Expiration date as numeric CCYYMMDD */
   validUntil: Field,
   /** Poseidon hash of employer identity (token issuer) */
@@ -57,6 +59,7 @@ export class GroupEnrollmentToken extends Struct({
       this.groupIdHash,
       this.planIdHash,
       this.employeeIdHash,
+      this.familyIdHash,
       this.validUntil,
       this.issuerHash,
       this.nonce,
@@ -77,6 +80,8 @@ export interface GroupEnrollmentTokenLocalData {
   planId: string;
   /** Employee ID (opaque to insurer — employer's internal ID) */
   employeeId: string;
+  /** Family ID — groups subscriber + dependents under one identifier */
+  familyId: string;
   /** Expiration date as CCYYMMDD string */
   validUntil: string;
   /** Employer identity (name or ID) */
@@ -97,6 +102,7 @@ export function buildGroupEnrollmentToken(
     groupIdHash: hashString(local.groupId),
     planIdHash: hashString(local.planId),
     employeeIdHash: hashString(local.employeeId),
+    familyIdHash: hashString(local.familyId),
     validUntil: dateToField(local.validUntil),
     issuerHash: hashString(local.issuer),
     nonce: Field(BigInt(local.nonce)),

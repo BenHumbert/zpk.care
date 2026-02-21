@@ -23,7 +23,9 @@ import { Field } from 'o1js';
 import type { ILocalStore } from '../storage/local-store.js';
 import type { StateTransitionProof } from '../engine/state-transition.js';
 import { L2SequencerService } from './l2-sequencer-service.js';
-import type { L2Receipt, L2Batch } from './l2-types.js';
+import type { AdminStateConfig } from './l2-sequencer-service.js';
+import type { L2Receipt, L2Batch, L1Status, ClaimSubmissionMetadata } from './l2-types.js';
+import type { ClaimAccumulatorEntry } from './claim-accumulator-types.js';
 import {
   L2CheckpointStore,
   CHECKPOINT_VERSION,
@@ -31,7 +33,34 @@ import {
 import type {
   L2Checkpoint,
   L2CheckpointTrigger,
+  L2SequencerState,
 } from './l2-checkpoint.js';
+import { L2PeerNetwork, generateMessageId } from './l2-peer-network.js';
+import type { PartitionConfig } from './l2-partition.js';
+import { PartitionRouter } from './l2-partition.js';
+import type { GossipMessage, L2NodeRole } from './l2-peer-types.js';
+import type {
+  ProofAcceptedPayload,
+  BatchBuiltPayload,
+  BatchSettledPayload,
+  BatchFailedPayload,
+} from './l2-peer-types.js';
+
+// ─── Settlement Strategy ─────────────────────────────────
+
+/**
+ * SettlementStrategy — pluggable L1 settlement hook.
+ *
+ * Called by L2Node after a batch is built. Must submit the batch
+ * to L1 and return the L1 transaction hash.
+ *
+ * Built-in strategies:
+ *   - undefined (default): simulated settlement (fake tx hash)
+ *   - localBlockchainSettlement(): real CareContract.settleBatch on LocalBlockchain
+ *
+ * Custom strategies can target testnet, mainnet, or any other L1.
+ */
+export type SettlementStrategy = (batch: L2Batch) => Promise<string>;
 
 // ─── Options ─────────────────────────────────────────────
 
@@ -45,6 +74,32 @@ export interface L2NodeOptions {
   settlementDelayMs: number;
   /** Maximum retries for failed batch settlements */
   maxBatchRetries: number;
+  /** Optional settlement strategy. When set, replaces the default simulation. */
+  settlementStrategy?: SettlementStrategy;
+  /** Node role: 'sequencer' (default) or 'replica'. Replicas forward proofs and apply gossip. */
+  role?: L2NodeRole;
+  /** Unique node identifier. Default: auto-generated. */
+  nodeId?: string;
+  /** Initial peer URLs to connect to on startup. Default: [] (standalone). */
+  seedPeers?: string[];
+  /** Maximum concurrent peer connections. Default: 12. */
+  maxPeers?: number;
+  /**
+   * L2-only mode: no MINA L1 settlement.
+   *
+   * When true, batches are finalized immediately after building (no L1 tx).
+   * Settlement strategy is ignored. autoSettle means "auto-finalize after build".
+   * syncFromL1() throws. All audit/batch/proof logic still applies.
+   */
+  l2Only?: boolean;
+  /** Partition config for multi-sequencer deployment. When set, rejects proofs for wrong partition. */
+  partitionConfig?: PartitionConfig;
+  /** Partition router for forwarding proofs to the correct sequencer. */
+  partitionRouter?: PartitionRouter;
+  /** Bearer token for admin RPC methods. Passed to peer L2Client instances for authenticated calls. */
+  adminToken?: string;
+  /** Shared secret for HMAC-SHA256 gossip authentication between peers. */
+  gossipSecret?: string;
 }
 
 /** Default options */
@@ -70,7 +125,9 @@ export type L2EventType =
   | 'batch:settling'
   | 'batch:settled'
   | 'batch:failed'
-  | 'audit:event';
+  | 'audit:event'
+  | 'formulary:updated'
+  | 'network:updated';
 
 /** Chain event with typed data payload */
 export interface L2ChainEvent {
@@ -99,6 +156,11 @@ export interface L2NodeStatus {
   inFlightBatch: bigint | null;
   nextBatchInMs: number;
   batchIntervalMs: number;
+  chainProofEnabled: boolean;
+  globalStateRoot: string;
+  blockHeight: string;
+  /** Whether this node operates in L2-only mode (no L1 settlement) */
+  l2Only: boolean;
 }
 
 // ─── L2Node ──────────────────────────────────────────────
@@ -130,6 +192,14 @@ export class L2Node {
   private autoCheckpoint = true;
   private maxCheckpoints = 5;
 
+  // Proving mutex — o1js requires serial ZkProgram proving (single global context)
+  private _provingLockQueue: Promise<void> = Promise.resolve();
+
+  // Peer network
+  private peerNetwork: L2PeerNetwork | null = null;
+  private nodeId: string;
+  private role: L2NodeRole;
+
   constructor(
     options: Partial<L2NodeOptions>,
     store: ILocalStore,
@@ -138,18 +208,26 @@ export class L2Node {
     initialWalletCount: Field,
   ) {
     this.options = { ...DEFAULT_L2_NODE_OPTIONS, ...options };
+    this.nodeId = options.nodeId ?? `node-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    this.role = options.role ?? 'sequencer';
     this.sequencer = new L2SequencerService(
       store,
       initialRegistryRoot,
       initialLifecycleRoot,
       initialWalletCount,
       this.options.batchIntervalMs,
+      this.options.l2Only ?? false,
     );
+
+    // Configure partition if provided
+    if (this.options.partitionConfig) {
+      this.sequencer.setPartitionConfig(this.options.partitionConfig);
+    }
   }
 
   // ─── Lifecycle ──────────────────────────────────────────
 
-  /** Start the L2 node — begins the batch timer */
+  /** Start the L2 node — begins the batch timer and connects to peers */
   start(): void {
     if (this.running) return;
     this.running = true;
@@ -162,10 +240,20 @@ export class L2Node {
       data: {
         batchIntervalMs: this.options.batchIntervalMs,
         autoSettle: this.options.autoSettle,
+        role: this.role,
+        nodeId: this.nodeId,
       },
     });
 
-    this.scheduleBatchTick();
+    // Only sequencers run the batch timer — replicas receive batches via gossip
+    if (this.role === 'sequencer') {
+      this.scheduleBatchTick();
+    }
+
+    // Connect to seed peers (fire-and-forget)
+    if (this.options.seedPeers && this.options.seedPeers.length > 0) {
+      this.initPeerNetwork().catch(() => {});
+    }
   }
 
   /**
@@ -186,6 +274,12 @@ export class L2Node {
       await new Promise<void>((resolve) => {
         this.stopResolve = resolve;
       });
+    }
+
+    // Disconnect peer network
+    if (this.peerNetwork) {
+      this.peerNetwork.stop();
+      this.peerNetwork = null;
     }
 
     // Save shutdown checkpoint
@@ -214,10 +308,12 @@ export class L2Node {
   /**
    * Submit a StateTransitionProof to the L2 chain.
    * Returns an L2Receipt (instant confirmation) if the proof is valid.
+   *
+   * @param metadata — optional claim context for drug history tracking
    */
-  async submitProof(proof: StateTransitionProof): Promise<L2Receipt> {
+  async submitProof(proof: StateTransitionProof, metadata?: ClaimSubmissionMetadata): Promise<L2Receipt> {
     try {
-      const receipt = await this.sequencer.submitProof(proof);
+      const receipt = await this.sequencer.submitProof(proof, metadata);
       this.totalProofsAccepted++;
 
       this.emit({
@@ -231,6 +327,35 @@ export class L2Node {
           pendingCount: this.sequencer.getPendingCount(),
         },
       });
+
+      // Sequencer: broadcast proof:accepted gossip to peers
+      if (this.role === 'sequencer' && this.peerNetwork) {
+        const auditLog = this.sequencer.getAuditLog();
+        const latestAuditEvent = auditLog.events[auditLog.events.length - 1];
+        const claimEntry = metadata
+          ? this.sequencer.getClaimsByMember(receipt.walletId).slice(-1)[0]
+          : undefined;
+
+        const payload: ProofAcceptedPayload = {
+          receipt,
+          auditEvent: latestAuditEvent,
+          claimEntry,
+          currentRegistryRoot: this.sequencer.getCurrentRegistryRoot().toString(),
+          currentLifecycleRoot: this.sequencer.getCurrentLifecycleRoot().toString(),
+          currentWalletCount: this.sequencer.getCurrentWalletCount().toString(),
+        };
+
+        const gossipMsg: GossipMessage = {
+          messageId: generateMessageId(
+            'proof:accepted', this.nodeId, Date.now(), receipt.receiptId,
+          ),
+          type: 'proof:accepted',
+          senderId: this.nodeId,
+          timestamp: Date.now(),
+          payload,
+        };
+        this.peerNetwork.broadcast(gossipMsg).catch(() => {});
+      }
 
       return receipt;
     } catch (err) {
@@ -253,6 +378,39 @@ export class L2Node {
     return this.executeBatchCycle();
   }
 
+  /**
+   * Emit a messaging audit event into the L2 Poseidon hash chain.
+   *
+   * Delegates to the sequencer's emitMessagingAuditEvent, then emits
+   * an 'audit:event' chain event with type: 'messaging' for observers.
+   */
+  emitMessagingAuditEvent(
+    senderWalletId: string,
+    messagingRootBefore: string,
+    messagingRootAfter: string,
+  ): { chainHash: string; sequenceNumber: bigint } {
+    const result = this.sequencer.emitMessagingAuditEvent(
+      senderWalletId,
+      messagingRootBefore,
+      messagingRootAfter,
+    );
+
+    this.emit({
+      type: 'audit:event',
+      timestamp: Date.now(),
+      data: {
+        type: 'messaging',
+        senderWalletId,
+        messagingRootBefore,
+        messagingRootAfter,
+        chainHash: result.chainHash,
+        sequenceNumber: result.sequenceNumber.toString(),
+      },
+    });
+
+    return result;
+  }
+
   // ─── Events ─────────────────────────────────────────────
 
   /** Subscribe to all chain events */
@@ -265,7 +423,7 @@ export class L2Node {
     this.handlers = this.handlers.filter((h) => h !== handler);
   }
 
-  private emit(event: L2ChainEvent): void {
+  emit(event: L2ChainEvent): void {
     for (const handler of this.handlers) {
       try {
         handler(event);
@@ -297,12 +455,318 @@ export class L2Node {
       inFlightBatch: this.sequencer.getInFlightBatchNumber(),
       nextBatchInMs: nextBatchIn,
       batchIntervalMs: this.options.batchIntervalMs,
+      chainProofEnabled: this.sequencer.isChainProofEnabled(),
+      globalStateRoot: this.sequencer.getCurrentGlobalStateRoot().toString(),
+      blockHeight: this.sequencer.getCurrentBlockHeight().toString(),
+      l2Only: this.options.l2Only ?? false,
     };
+  }
+
+  /**
+   * Enable ChainProgram integration by setting admin state.
+   * Delegates to L2SequencerService.setAdminState().
+   */
+  setAdminState(config: AdminStateConfig): void {
+    this.sequencer.setAdminState(config);
+  }
+
+  /** Whether the node is in L2-only mode (no L1 settlement) */
+  isL2Only(): boolean {
+    return this.options.l2Only ?? false;
+  }
+
+  /** Get the partition config for this node, or null if not partitioned */
+  getPartitionConfig(): PartitionConfig | null {
+    return this.sequencer.getPartitionConfig();
+  }
+
+  /** Get the partition router for forwarding proofs, or null if not configured */
+  getPartitionRouter(): PartitionRouter | null {
+    return this.options.partitionRouter ?? null;
   }
 
   /** Direct access to the underlying sequencer for advanced queries */
   getSequencer(): L2SequencerService {
     return this.sequencer;
+  }
+
+  // ─── Claim Accumulator Queries ────────────────────────────
+
+  /** Current Merkle root of the Claim Accumulator Tree */
+  getClaimAccumulatorRoot(): string {
+    return this.sequencer.getClaimAccumulatorRoot();
+  }
+
+  /** Number of claims in the accumulator */
+  getClaimLeafCount(): bigint {
+    return this.sequencer.getClaimLeafCount();
+  }
+
+  /** All claims for a member wallet ID */
+  getClaimsByMember(memberWalletId: string): ClaimAccumulatorEntry[] {
+    return this.sequencer.getClaimsByMember(memberWalletId);
+  }
+
+  /** All claims for a pharmacy wallet ID */
+  getClaimsByPharmacy(pharmacyWalletId: string): ClaimAccumulatorEntry[] {
+    return this.sequencer.getClaimsByPharmacy(pharmacyWalletId);
+  }
+
+  /** All claims for a prescriber wallet ID */
+  getClaimsByPrescriber(prescriberWalletId: string): ClaimAccumulatorEntry[] {
+    return this.sequencer.getClaimsByPrescriber(prescriberWalletId);
+  }
+
+  /** All claims for an NDC hash */
+  getClaimsByNdc(ndcHash: string): ClaimAccumulatorEntry[] {
+    return this.sequencer.getClaimsByNdc(ndcHash);
+  }
+
+  /** Get a claim with its Merkle inclusion proof */
+  getClaimWithProof(leafIndex: bigint): {
+    entry: ClaimAccumulatorEntry;
+    witnessJson: string;
+    root: string;
+  } | undefined {
+    return this.sequencer.getClaimWithProof(leafIndex);
+  }
+
+  /**
+   * H4 fix: Sync L2 state from L1 after a direct L1 settlement
+   * (settleTransition fallback or admin op that changed on-chain roots).
+   *
+   * Delegates to sequencer.syncFromL1() and emits an event.
+   */
+  syncFromL1(newRegistryRoot: Field, newLifecycleRoot: Field, newWalletCount: Field): void {
+    if (this.options.l2Only) {
+      throw new Error('L2-only mode: no L1 sync available');
+    }
+    this.sequencer.syncFromL1(newRegistryRoot, newLifecycleRoot, newWalletCount);
+    this.emit({
+      type: 'node:started', // Reuse existing event type for L1 sync notification
+      timestamp: Date.now(),
+      data: {
+        action: 'l1_sync',
+        registryRoot: newRegistryRoot.toString(),
+        lifecycleRoot: newLifecycleRoot.toString(),
+        walletCount: newWalletCount.toString(),
+      },
+    });
+  }
+
+  // ─── Peer Network ──────────────────────────────────────
+
+  /** Get this node's unique identifier */
+  getNodeId(): string {
+    return this.nodeId;
+  }
+
+  /** Get this node's role */
+  getRole(): L2NodeRole {
+    return this.role;
+  }
+
+  /** Get the peer network instance (null if no peers configured) */
+  getPeerNetwork(): L2PeerNetwork | null {
+    return this.peerNetwork;
+  }
+
+  /**
+   * Initialize the peer network: create it, connect to seeds, subscribe to gossip.
+   * Called during start() when seedPeers are configured.
+   */
+  private async initPeerNetwork(): Promise<void> {
+    const config = {
+      nodeId: this.nodeId,
+      role: this.role,
+      seedPeers: this.options.seedPeers ?? [],
+      maxPeers: this.options.maxPeers ?? 12,
+      gossipRelayEnabled: true,
+      announceIntervalMs: 60_000,
+      syncOnConnect: true,
+      ...(this.options.gossipSecret ? { gossipSecret: this.options.gossipSecret } : {}),
+      ...(this.options.adminToken ? { adminToken: this.options.adminToken } : {}),
+    };
+
+    this.peerNetwork = new L2PeerNetwork(config);
+
+    // Subscribe to gossip messages (replicas apply state, sequencers ignore their own)
+    this.peerNetwork.on((msg: GossipMessage) => {
+      this.handleGossip(msg).catch(() => {});
+    });
+
+    this.peerNetwork.start();
+
+    // Connect to seed peers
+    for (const url of config.seedPeers) {
+      try {
+        await this.peerNetwork.connectToPeer(url);
+      } catch {
+        // Seed unreachable — will retry on next announce cycle
+      }
+    }
+  }
+
+  /**
+   * Handle an incoming gossip message.
+   *
+   * Replicas apply state changes from the sequencer.
+   * Sequencers ignore their own broadcasts (already applied locally).
+   */
+  private async handleGossip(msg: GossipMessage): Promise<void> {
+    // Don't process our own messages
+    if (msg.senderId === this.nodeId) return;
+
+    switch (msg.type) {
+      case 'proof:accepted': {
+        if (this.role !== 'replica') return;
+        const payload = msg.payload as ProofAcceptedPayload;
+        this.sequencer.applyReplicatedReceipt(
+          payload.receipt,
+          payload.auditEvent,
+          payload.claimEntry,
+          payload.currentRegistryRoot,
+          payload.currentLifecycleRoot,
+          payload.currentWalletCount,
+        );
+        this.totalProofsAccepted++;
+        this.emit({
+          type: 'proof:accepted',
+          timestamp: Date.now(),
+          data: {
+            receiptId: payload.receipt.receiptId,
+            walletId: payload.receipt.walletId,
+            isRegistration: payload.receipt.isRegistration,
+            sequenceNumber: payload.receipt.sequenceNumber.toString(),
+            source: 'gossip',
+          },
+        });
+        break;
+      }
+
+      case 'batch:built': {
+        if (this.role !== 'replica') return;
+        const payload = msg.payload as BatchBuiltPayload;
+        this.sequencer.applyReplicatedBatch(
+          payload.batch,
+          payload.block,
+          payload.updatedReceipts,
+          payload.updatedAuditEvents,
+        );
+        this.totalBatchesBuilt++;
+        this.emit({
+          type: 'batch:built',
+          timestamp: Date.now(),
+          data: {
+            batchNumber: payload.batch.batchNumber.toString(),
+            registrationCount: payload.batch.registrationCount,
+            transitionCount: payload.batch.transitionCount,
+            source: 'gossip',
+          },
+        });
+        break;
+      }
+
+      case 'batch:settled': {
+        if (this.role !== 'replica') return;
+        const payload = msg.payload as BatchSettledPayload;
+        this.sequencer.applyReplicatedSettlement(
+          payload.batchNumber,
+          payload.l1TxHash,
+          payload.lastSettledRegistryRoot,
+          payload.lastSettledLifecycleRoot,
+          payload.lastSettledWalletCount,
+        );
+        this.totalBatchesSettled++;
+        this.emit({
+          type: 'batch:settled',
+          timestamp: Date.now(),
+          data: {
+            batchNumber: payload.batchNumber.toString(),
+            l1TxHash: payload.l1TxHash,
+            source: 'gossip',
+          },
+        });
+        break;
+      }
+
+      case 'batch:failed': {
+        if (this.role !== 'replica') return;
+        const payload = msg.payload as BatchFailedPayload;
+        this.sequencer.applyReplicatedBatchFailure(
+          payload.batchNumber,
+          payload.reason,
+        );
+        this.totalBatchesFailed++;
+        this.emit({
+          type: 'batch:failed',
+          timestamp: Date.now(),
+          data: {
+            batchNumber: payload.batchNumber.toString(),
+            reason: payload.reason,
+            source: 'gossip',
+          },
+        });
+        break;
+      }
+
+      // peer:announce and state:snapshot handled by L2PeerNetwork directly
+      default:
+        break;
+    }
+  }
+
+  /**
+   * Create a new L2Node by syncing state from a peer (Initial Block Download).
+   *
+   * Connects to the peer, downloads the full state snapshot, and creates
+   * a node with that state. The node is NOT started — call node.start().
+   *
+   * Usage:
+   *   const node = await L2Node.fromPeerSync('http://sequencer:3030', store);
+   *   node.start(); // Begins receiving gossip
+   */
+  static async fromPeerSync(
+    peerUrl: string,
+    store: ILocalStore,
+    options?: Partial<L2NodeOptions>,
+  ): Promise<L2Node> {
+    // Temporarily create a network to fetch state
+    // Pass adminToken so the IBD snapshot request is authenticated
+    const tempNetwork = new L2PeerNetwork({
+      nodeId: 'ibd-temp',
+      role: (options?.role ?? 'replica'),
+      ...(options?.adminToken ? { adminToken: options.adminToken } : {}),
+      ...(options?.gossipSecret ? { gossipSecret: options.gossipSecret } : {}),
+    });
+    const peerInfo = await tempNetwork.connectToPeer(peerUrl);
+    const state = await tempNetwork.requestStateSync(peerInfo.peerId);
+    tempNetwork.stop();
+
+    // Create node from the downloaded state
+    // Propagate l2Only from peer state if not explicitly set in options
+    const mergedOptions: Partial<L2NodeOptions> = { ...(options ?? {}) };
+    if (mergedOptions.l2Only === undefined && state.l2Only !== undefined) {
+      mergedOptions.l2Only = state.l2Only;
+    }
+    const node = new L2Node(
+      mergedOptions,
+      store,
+      Field(BigInt(state.currentRegistryRoot)),
+      Field(BigInt(state.currentLifecycleRoot)),
+      Field(BigInt(state.currentWalletCount)),
+    );
+    node.sequencer.restoreState(state);
+
+    // Add the peer as a seed so start() will connect
+    if (!node.options.seedPeers) {
+      node.options.seedPeers = [];
+    }
+    if (!node.options.seedPeers.includes(peerUrl)) {
+      node.options.seedPeers.push(peerUrl);
+    }
+
+    return node;
   }
 
   // ─── Internal: Batch Timer ──────────────────────────────
@@ -362,7 +826,8 @@ export class L2Node {
       });
 
       const buildStart = Date.now();
-      const batch = await this.sequencer.buildBatch();
+      // Acquire proving lock — buildBatch() calls ZkProgram methods (wrapTransition, mergeBatches)
+      const batch = await this.withProvingLock(() => this.sequencer.buildBatch());
 
       if (!batch) {
         this.batchInProgress = false;
@@ -384,9 +849,84 @@ export class L2Node {
         },
       });
 
-      // Settle
-      if (this.options.autoSettle) {
+      // Broadcast batch:built gossip to peers
+      if (this.peerNetwork) {
+        const blockNumber = batch.blockNumbers?.[0] ?? batch.batchNumber;
+        const block = this.sequencer.getBlock(blockNumber);
+        if (block) {
+          const updatedReceipts = this.sequencer.getAllReceipts().filter(
+            (r) => r.l1BatchNumber === batch.batchNumber,
+          );
+          const auditLog = this.sequencer.getAuditLog();
+          const updatedAuditEvents = auditLog.events.filter(
+            (e) => e.l1BatchNumber === batch.batchNumber,
+          );
+
+          const payload: BatchBuiltPayload = {
+            batch,
+            block,
+            updatedReceipts,
+            updatedAuditEvents,
+          };
+
+          const gossipMsg: GossipMessage = {
+            messageId: generateMessageId(
+              'batch:built', this.nodeId, Date.now(),
+              batch.batchNumber.toString(),
+            ),
+            type: 'batch:built',
+            senderId: this.nodeId,
+            timestamp: Date.now(),
+            payload,
+          };
+          this.peerNetwork.broadcast(gossipMsg).catch(() => {});
+        }
+      }
+
+      // Settle — in L2-only mode, batch is already finalized by the sequencer
+      if (this.options.autoSettle && !this.options.l2Only) {
         await this.settleBatch(batch);
+      } else if (this.options.l2Only) {
+        // Emit settled event (batch was finalized during buildBatch)
+        this.totalBatchesSettled++;
+        this.emit({
+          type: 'batch:settled',
+          timestamp: Date.now(),
+          data: {
+            batchNumber: batch.batchNumber.toString(),
+            l1TxHash: batch.l1TxHash ?? `l2-final-${batch.batchNumber}`,
+            registrationCount: batch.registrationCount,
+            transitionCount: batch.transitionCount,
+            l2Only: true,
+          },
+        });
+
+        // Broadcast batch:settled gossip so replicas clear inFlightBatchNumber
+        if (this.peerNetwork) {
+          const settledPayload: BatchSettledPayload = {
+            batchNumber: batch.batchNumber,
+            l1TxHash: batch.l1TxHash ?? `l2-final-${batch.batchNumber}`,
+            lastSettledRegistryRoot: this.sequencer.getLastSettledRegistryRoot().toString(),
+            lastSettledLifecycleRoot: this.sequencer.getLastSettledLifecycleRoot().toString(),
+            lastSettledWalletCount: this.sequencer.getLastSettledWalletCount().toString(),
+          };
+          const settledMsg: GossipMessage = {
+            messageId: generateMessageId(
+              'batch:settled', this.nodeId, Date.now(),
+              batch.batchNumber.toString(),
+            ),
+            type: 'batch:settled',
+            senderId: this.nodeId,
+            timestamp: Date.now(),
+            payload: settledPayload,
+          };
+          this.peerNetwork.broadcast(settledMsg).catch(() => {});
+        }
+
+        // Auto-checkpoint after each L2-only settlement
+        if (this.checkpointStore && this.autoCheckpoint) {
+          await this.saveCheckpoint('batch_settled');
+        }
       }
 
       return batch;
@@ -436,17 +976,47 @@ export class L2Node {
       data: { batchNumber: batch.batchNumber.toString() },
     });
 
-    // Simulate L1 confirmation delay
-    if (this.options.settlementDelayMs > 0) {
-      await new Promise((r) => setTimeout(r, this.options.settlementDelayMs));
+    let l1TxHash: string;
+
+    if (this.options.settlementStrategy) {
+      // Real L1 settlement via pluggable strategy
+      try {
+        l1TxHash = await this.options.settlementStrategy(batch);
+      } catch (err) {
+        // Mark batch as failed and re-throw
+        const reason = err instanceof Error ? err.message : String(err);
+        this.sequencer.markBatchFailed(batch.batchNumber, reason);
+
+        // Broadcast batch:failed gossip
+        if (this.peerNetwork) {
+          const failPayload: BatchFailedPayload = {
+            batchNumber: batch.batchNumber,
+            reason,
+          };
+          const failMsg: GossipMessage = {
+            messageId: generateMessageId(
+              'batch:failed', this.nodeId, Date.now(),
+              batch.batchNumber.toString(),
+            ),
+            type: 'batch:failed',
+            senderId: this.nodeId,
+            timestamp: Date.now(),
+            payload: failPayload,
+          };
+          this.peerNetwork.broadcast(failMsg).catch(() => {});
+        }
+
+        throw err;
+      }
+    } else {
+      // Simulate L1 confirmation delay
+      if (this.options.settlementDelayMs > 0) {
+        await new Promise((r) => setTimeout(r, this.options.settlementDelayMs));
+      }
+      l1TxHash = `sim-l1-tx-${String(this.nextSettlementId++).padStart(4, '0')}`;
     }
 
-    // ──────────────────────────────────────────────────────
-    // SETTLEMENT HOOK — Replace this block for real MINA L1
-    // ──────────────────────────────────────────────────────
-    const l1TxHash = `sim-l1-tx-${String(this.nextSettlementId++).padStart(4, '0')}`;
     this.sequencer.markBatchSettled(batch.batchNumber, l1TxHash);
-    // ──────────────────────────────────────────────────────
 
     this.totalBatchesSettled++;
 
@@ -461,9 +1031,62 @@ export class L2Node {
       },
     });
 
+    // Broadcast batch:settled gossip
+    if (this.peerNetwork) {
+      const settledPayload: BatchSettledPayload = {
+        batchNumber: batch.batchNumber,
+        l1TxHash,
+        lastSettledRegistryRoot: this.sequencer.getLastSettledRegistryRoot().toString(),
+        lastSettledLifecycleRoot: this.sequencer.getLastSettledLifecycleRoot().toString(),
+        lastSettledWalletCount: this.sequencer.getLastSettledWalletCount().toString(),
+      };
+      const settledMsg: GossipMessage = {
+        messageId: generateMessageId(
+          'batch:settled', this.nodeId, Date.now(),
+          batch.batchNumber.toString(),
+        ),
+        type: 'batch:settled',
+        senderId: this.nodeId,
+        timestamp: Date.now(),
+        payload: settledPayload,
+      };
+      this.peerNetwork.broadcast(settledMsg).catch(() => {});
+    }
+
     // Auto-checkpoint after each settlement
     if (this.checkpointStore && this.autoCheckpoint) {
       await this.saveCheckpoint('batch_settled');
+    }
+  }
+
+  // ─── Proving Lock ────────────────────────────────────────
+
+  /**
+   * Acquire the proving lock. o1js uses a single global context that
+   * does not support concurrent ZkProgram proving. All code paths that
+   * call ZkProgram methods (prove, compile) must serialize through this lock.
+   *
+   * Returns a release function — call it when proving is complete.
+   */
+  acquireProvingLock(): Promise<() => void> {
+    let releaseFn!: () => void;
+    const previous = this._provingLockQueue;
+    this._provingLockQueue = new Promise<void>((resolve) => {
+      releaseFn = resolve;
+    });
+    return previous.then(() => releaseFn);
+  }
+
+  /**
+   * Execute an async function while holding the proving lock.
+   * Convenience wrapper around acquireProvingLock().
+   */
+  async withProvingLock<T>(fn: () => Promise<T>): Promise<T> {
+    const release = await this.acquireProvingLock();
+    try {
+      return await fn();
+    } finally {
+      release();
     }
   }
 
@@ -580,8 +1203,13 @@ export class L2Node {
     options?: Partial<L2NodeOptions>,
   ): L2Node {
     const state = checkpoint.sequencerState;
+    // Propagate l2Only from checkpoint state if not explicitly set in options
+    const mergedOptions: Partial<L2NodeOptions> = { ...options };
+    if (mergedOptions.l2Only === undefined && state.l2Only !== undefined) {
+      mergedOptions.l2Only = state.l2Only;
+    }
     const node = new L2Node(
-      options ?? {},
+      mergedOptions,
       store,
       Field(BigInt(state.currentRegistryRoot)),
       Field(BigInt(state.currentLifecycleRoot)),

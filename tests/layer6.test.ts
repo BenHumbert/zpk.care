@@ -20,7 +20,7 @@ import {
 } from '../src/access-control/access-control-program.js';
 import { AccessControlService } from '../src/access-control/access-control-service.js';
 import { AccessVerificationService } from '../src/access-control/access-verification-service.js';
-import { NftData, NFT_TYPE_ELIGIBILITY, NFT_TYPE_PRESCRIPTION } from '../src/nft/nft-data.js';
+import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY, CREDENTIAL_TYPE_PRESCRIPTION } from '../src/credentials/credential-data.js';
 import { EligibilityData, COVERAGE_PHARMACY } from '../src/eligibility/eligibility-data.js';
 import { ForestRoots } from '../src/eligibility/forest-roots.js';
 import { MerkleForest, ForestDomain } from '../src/zkp/merkle-forest.js';
@@ -79,6 +79,7 @@ function createTestEligibilityData(formularyRoot: Field): EligibilityData {
     copayAmountCents: Field(2000),
     coverageType: COVERAGE_PHARMACY,
     formularyRoot,
+    networkRoot: Field(0),
   });
 }
 
@@ -96,10 +97,10 @@ function createTestForest(
   return forest;
 }
 
-/** Helper: create an NftData from a forest */
-function createTestNft(forest: MerkleForest): NftData {
-  return new NftData({
-    nftType: NFT_TYPE_ELIGIBILITY,
+/** Helper: create a CredentialData from a forest */
+function createTestCredential(forest: MerkleForest): CredentialData {
+  return new CredentialData({
+    credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
     forestRoot: forest.getForestRoot(),
     issuerWalletId: Field(999),
     subjectWalletId: Field(123),
@@ -236,14 +237,14 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       const { registry, lisinoprilIdx } = createTestFormulary();
       const eligData = createTestEligibilityData(registry.getRoot());
       const forest = createTestForest(eligData);
-      const nftData = createTestNft(forest);
+      const credentialData = createTestCredential(forest);
       const forestRoots = ForestRoots.fromForest(forest);
       const eligWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
       const entry = registry.getEntry(lisinoprilIdx)!;
       const formularyWitness = registry.getEntryWitness(lisinoprilIdx);
 
       const result = await AccessControlProgram.proveFormularyAccess(
-        nftData,
+        credentialData,
         eligData,
         forestRoots,
         eligWitness,
@@ -252,10 +253,11 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
         entry.ndcHash,
         quantityToField(30),  // 30 units requested (within 90 max)
         Field(30),            // 30 day supply (within 90 max)
+        Field(20260101),      // currentDate
       );
 
       const output = result.proof.publicOutput;
-      expect(output.nftCommitment.toString()).toBe(nftData.commitment().toString());
+      expect(output.credentialCommitment.toString()).toBe(credentialData.commitment().toString());
       expect(output.medicationHash.toString()).toBe(entry.ndcHash.toString());
       expect(output.tierLevel.toString()).toBe('1');
       expect(output.copayAmount.toString()).toBe('1000');
@@ -266,29 +268,30 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       const { registry, lisinoprilIdx } = createTestFormulary();
       const eligData = createTestEligibilityData(registry.getRoot());
       const forest = createTestForest(eligData);
-      const nftData = createTestNft(forest);
+      const credentialData = createTestCredential(forest);
       const forestRoots = ForestRoots.fromForest(forest);
       const eligWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
       const entry = registry.getEntry(lisinoprilIdx)!;
       const formularyWitness = registry.getEntryWitness(lisinoprilIdx);
 
       const result = await AccessControlProgram.proveFormularyAccess(
-        nftData, eligData, forestRoots, eligWitness,
+        credentialData, eligData, forestRoots, eligWitness,
         entry, formularyWitness,
         entry.ndcHash, quantityToField(30), Field(30),
+        Field(20260101),
       );
 
       const ok = await AccessControlProgram.verify(result.proof);
       expect(ok).toBe(true);
     }, 60_000);
 
-    it('rejects wrong NFT type', async () => {
+    it('rejects wrong credential type', async () => {
       const { registry, lisinoprilIdx } = createTestFormulary();
       const eligData = createTestEligibilityData(registry.getRoot());
       const forest = createTestForest(eligData);
-      // Create NFT with wrong type
-      const nftData = new NftData({
-        nftType: NFT_TYPE_PRESCRIPTION,
+      // Create credential with wrong type
+      const credentialData = new CredentialData({
+        credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
         forestRoot: forest.getForestRoot(),
         issuerWalletId: Field(999),
         subjectWalletId: Field(123),
@@ -303,9 +306,10 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
 
       await expect(
         AccessControlProgram.proveFormularyAccess(
-          nftData, eligData, forestRoots, eligWitness,
+          credentialData, eligData, forestRoots, eligWitness,
           entry, formularyWitness,
           entry.ndcHash, quantityToField(30), Field(30),
+          Field(20260101),
         ),
       ).rejects.toThrow();
     }, 30_000);
@@ -314,7 +318,7 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       const { registry, lisinoprilIdx } = createTestFormulary();
       const eligData = createTestEligibilityData(registry.getRoot());
       const forest = createTestForest(eligData);
-      const nftData = createTestNft(forest);
+      const credentialData = createTestCredential(forest);
       const forestRoots = ForestRoots.fromForest(forest);
       const eligWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
       const entry = registry.getEntry(lisinoprilIdx)!;
@@ -323,9 +327,10 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       // Request 120 units, max is 90
       await expect(
         AccessControlProgram.proveFormularyAccess(
-          nftData, eligData, forestRoots, eligWitness,
+          credentialData, eligData, forestRoots, eligWitness,
           entry, formularyWitness,
           entry.ndcHash, quantityToField(120), Field(30),
+          Field(20260101),
         ),
       ).rejects.toThrow();
     }, 30_000);
@@ -334,7 +339,7 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       const { registry, lisinoprilIdx } = createTestFormulary();
       const eligData = createTestEligibilityData(registry.getRoot());
       const forest = createTestForest(eligData);
-      const nftData = createTestNft(forest);
+      const credentialData = createTestCredential(forest);
       const forestRoots = ForestRoots.fromForest(forest);
       const eligWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
       const entry = registry.getEntry(lisinoprilIdx)!;
@@ -343,9 +348,10 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       // Request 120 day supply, max is 90
       await expect(
         AccessControlProgram.proveFormularyAccess(
-          nftData, eligData, forestRoots, eligWitness,
+          credentialData, eligData, forestRoots, eligWitness,
           entry, formularyWitness,
           entry.ndcHash, quantityToField(30), Field(120),
+          Field(20260101),
         ),
       ).rejects.toThrow();
     }, 30_000);
@@ -358,7 +364,7 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       const eligData = createTestEligibilityData(registry.getRoot());
       const paData = buildPriorAuthData(samplePALocal);
       const forest = createTestForest(eligData, paData);
-      const nftData = createTestNft(forest);
+      const credentialData = createTestCredential(forest);
       const forestRoots = ForestRoots.fromForest(forest);
       const eligWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
       const paWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 1n);
@@ -366,7 +372,7 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       const formularyWitness = registry.getEntryWitness(ozempicIdx);
 
       const result = await AccessControlProgram.provePriorAuth(
-        nftData, eligData, forestRoots,
+        credentialData, eligData, forestRoots,
         eligWitness, paWitness, paData,
         entry, formularyWitness,
         Field(20260615),  // current date mid-year
@@ -386,7 +392,7 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       const eligData = createTestEligibilityData(registry.getRoot());
       const paData = buildPriorAuthData(samplePALocal);
       const forest = createTestForest(eligData, paData);
-      const nftData = createTestNft(forest);
+      const credentialData = createTestCredential(forest);
       const forestRoots = ForestRoots.fromForest(forest);
       const eligWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
       const paWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 1n);
@@ -396,7 +402,7 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       // Date past expiration (20270115 > 20261231)
       await expect(
         AccessControlProgram.provePriorAuth(
-          nftData, eligData, forestRoots,
+          credentialData, eligData, forestRoots,
           eligWitness, paWitness, paData,
           entry, formularyWitness,
           Field(20270115),
@@ -410,7 +416,7 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       const eligData = createTestEligibilityData(registry.getRoot());
       const paData = buildPriorAuthData(samplePALocal);
       const forest = createTestForest(eligData, paData);
-      const nftData = createTestNft(forest);
+      const credentialData = createTestCredential(forest);
       const forestRoots = ForestRoots.fromForest(forest);
       const eligWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
       const paWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 1n);
@@ -420,7 +426,7 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       // Request 20 units, only 12 approved
       await expect(
         AccessControlProgram.provePriorAuth(
-          nftData, eligData, forestRoots,
+          credentialData, eligData, forestRoots,
           eligWitness, paWitness, paData,
           entry, formularyWitness,
           Field(20260615),
@@ -439,7 +445,7 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       };
       const paData = buildPriorAuthData(paLocal);
       const forest = createTestForest(eligData, paData);
-      const nftData = createTestNft(forest);
+      const credentialData = createTestCredential(forest);
       const forestRoots = ForestRoots.fromForest(forest);
       const eligWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
       const paWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 1n);
@@ -449,7 +455,7 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       // Lisinopril has requiresPriorAuth = 0 — should reject
       await expect(
         AccessControlProgram.provePriorAuth(
-          nftData, eligData, forestRoots,
+          credentialData, eligData, forestRoots,
           eligWitness, paWitness, paData,
           entry, formularyWitness,
           Field(20260615),
@@ -512,12 +518,13 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
     it('proveFormularyAccess generates verifiable proof', async () => {
       const eligData = createTestEligibilityData(registry.getRoot());
       const forest = createTestForest(eligData);
-      const nftData = createTestNft(forest);
+      const credentialData = createTestCredential(forest);
       const entry = registry.getEntry(lisinoprilIdx)!;
 
       const proof = await service.proveFormularyAccess(
-        nftData, eligData, forest, 0n, lisinoprilIdx,
+        credentialData, eligData, forest, 0n, lisinoprilIdx,
         entry.ndcHash, quantityToField(30), Field(30),
+        Field(20260101),
       );
 
       const ok = await AccessControlProgram.verify(proof);
@@ -528,10 +535,10 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       const eligData = createTestEligibilityData(registry.getRoot());
       const paData = buildPriorAuthData(samplePALocal);
       const forest = createTestForest(eligData, paData);
-      const nftData = createTestNft(forest);
+      const credentialData = createTestCredential(forest);
 
       const proof = await service.provePriorAuth(
-        nftData, eligData, forest, 0n, 1n,
+        credentialData, eligData, forest, 0n, 1n,
         paData, ozempicIdx,
         Field(20260615),
         quantityToField(4),
@@ -564,20 +571,21 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       const paData = buildPriorAuthData(samplePALocal);
       freshService.createPriorAuth(paData, forest, 1n);
 
-      // 5. Build NFT with updated forest root
-      const nftData = createTestNft(forest);
+      // 5. Build credential with updated forest root
+      const credentialData = createTestCredential(forest);
 
       // 6. Prove formulary access for Lisinopril (no PA needed)
       const lisinoprilEntry = freshRegistry.getEntry(lIdx)!;
       const formularyProof = await freshService.proveFormularyAccess(
-        nftData, eligData, forest, 0n, lIdx,
+        credentialData, eligData, forest, 0n, lIdx,
         lisinoprilEntry.ndcHash, quantityToField(30), Field(30),
+        Field(20260101),
       );
       expect(formularyProof.publicOutput.priorAuthRequired.toString()).toBe('0');
 
       // 7. Prove PA for Ozempic
       const paProof = await freshService.provePriorAuth(
-        nftData, eligData, forest, 0n, 1n,
+        credentialData, eligData, forest, 0n, 1n,
         paData, oIdx,
         Field(20260615),
         quantityToField(4),
@@ -598,7 +606,7 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       const eligData = createTestEligibilityData(registry.getRoot());
       const paData = buildPriorAuthData(samplePALocal);
       const forest = createTestForest(eligData, paData);
-      const nftData = createTestNft(forest);
+      const credentialData = createTestCredential(forest);
       const forestRoots = ForestRoots.fromForest(forest);
       const eligWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
       const paWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 1n);
@@ -607,9 +615,10 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       const lisinoprilEntry = registry.getEntry(lisinoprilIdx)!;
       const lisinoprilWitness = registry.getEntryWitness(lisinoprilIdx);
       const r1 = await AccessControlProgram.proveFormularyAccess(
-        nftData, eligData, forestRoots, eligWitness,
+        credentialData, eligData, forestRoots, eligWitness,
         lisinoprilEntry, lisinoprilWitness,
         lisinoprilEntry.ndcHash, quantityToField(30), Field(30),
+        Field(20260101),
       );
       formularyProofNoPA = r1.proof;
 
@@ -617,15 +626,16 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       const ozempicEntry = registry.getEntry(ozempicIdx)!;
       const ozempicWitness = registry.getEntryWitness(ozempicIdx);
       const r2 = await AccessControlProgram.proveFormularyAccess(
-        nftData, eligData, forestRoots, eligWitness,
+        credentialData, eligData, forestRoots, eligWitness,
         ozempicEntry, ozempicWitness,
         ozempicEntry.ndcHash, quantityToField(2), Field(28),
+        Field(20260101),
       );
       formularyProofWithPA = r2.proof;
 
       // PA proof for Ozempic
       const r3 = await AccessControlProgram.provePriorAuth(
-        nftData, eligData, forestRoots,
+        credentialData, eligData, forestRoots,
         eligWitness, paWitness, paData,
         ozempicEntry, ozempicWitness,
         Field(20260615), quantityToField(4),

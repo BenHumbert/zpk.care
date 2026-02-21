@@ -113,7 +113,7 @@ export class MessagingService {
     // Encrypt the message
     const sharedSecret = deriveSharedSecret(senderPrivateKey, recipientPublicKey);
     const encrypted = encryptMessage(plaintext, sharedSecret);
-    const contentHash = computeContentHash(encrypted.ciphertext, encrypted.iv);
+    const contentHash = computeContentHash(encrypted.ciphertext, encrypted.iv, encrypted.tag);
 
     // Track nonce per sender
     const senderKey = senderWalletId.toString();

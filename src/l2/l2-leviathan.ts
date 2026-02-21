@@ -1,0 +1,1266 @@
+/**
+ * L2Leviathan — Multi-leader partitioned L2 node for zkpCare.
+ *
+ * Each leviathan manages N partition sequencers. It leads one primary
+ * partition (accepts proofs, builds batches) and replicates all other
+ * partitions via gossip. If a partition leader goes down, the next
+ * in the failover chain automatically promotes.
+ *
+ * Architecture:
+ *   - N L2SequencerService instances (one per partition), each with own root chain
+ *   - Shared L2PeerNetwork for gossip across all partitions
+ *   - Per-partition batch timers (only for led partitions)
+ *   - Heartbeat protocol for leader detection and failover
+ *   - Aggregated read queries across all partitions
+ *
+ * Usage:
+ *   const lev = new L2Leviathan(config, options, store, regRoot, lcRoot, walletCount);
+ *   lev.start();
+ *   await lev.submitProof(proof);  // routes to correct partition
+ *   await lev.stop();
+ */
+import { Field } from 'o1js';
+import type { ILocalStore } from '../storage/local-store.js';
+import type { StateTransitionProof, TransitionOutput } from '../engine/state-transition.js';
+import { L2SequencerService } from './l2-sequencer-service.js';
+import type { AdminStateConfig } from './l2-sequencer-service.js';
+import type { L2Receipt, L2Batch, L2Block, ClaimSubmissionMetadata } from './l2-types.js';
+import type { AuditEvent, AuditLog } from '../audit/audit-types.js';
+import type { ClaimAccumulatorEntry } from './claim-accumulator-types.js';
+import { L2PeerNetwork, generateMessageId } from './l2-peer-network.js';
+import type { GossipMessage, L2NodeRole } from './l2-peer-types.js';
+import type {
+  ProofAcceptedPayload,
+  BatchBuiltPayload,
+  BatchSettledPayload,
+  BatchFailedPayload,
+} from './l2-peer-types.js';
+import { getPartition, PartitionRouter } from './l2-partition.js';
+import type { PartitionConfig } from './l2-partition.js';
+import type { L2ChainEvent, L2EventHandler, L2NodeOptions } from './l2-node.js';
+import { DEFAULT_L2_NODE_OPTIONS } from './l2-node.js';
+import type { L2CheckpointTrigger, L2SequencerState } from './l2-checkpoint.js';
+import type { LeviathanCheckpoint } from './l2-checkpoint.js';
+import {
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_HEARTBEAT_TIMEOUT_MS,
+} from './l2-leviathan-types.js';
+import type {
+  LeviathanConfig,
+  PartitionLeaderEntry,
+  LeviathanStatus,
+  PartitionStats,
+  LeaderHeartbeatPayload,
+  LeaderPromotionPayload,
+} from './l2-leviathan-types.js';
+
+// ─── L2Leviathan ──────────────────────────────────────────
+
+export class L2Leviathan {
+  private config: LeviathanConfig;
+  private nodeId: string;
+  private options: L2NodeOptions;
+  private store: ILocalStore;
+
+  // Per-partition sequencer instances
+  private partitionSequencers: Map<number, L2SequencerService> = new Map();
+
+  // Per-partition batch timers (only for led partitions)
+  private batchTimers: Map<number, ReturnType<typeof setTimeout>> = new Map();
+  private batchInProgress: Map<number, boolean> = new Map();
+
+  // Leadership tracking
+  private leaderMap: Map<number, PartitionLeaderEntry> = new Map();
+  private heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatMonitorTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Peer network (shared across all partitions)
+  private peerNetwork: L2PeerNetwork | null = null;
+
+  // Per-partition stats
+  private partitionProofs: Map<number, number> = new Map();
+  private partitionBatches: Map<number, number> = new Map();
+  private partitionSettled: Map<number, number> = new Map();
+  private partitionFailed: Map<number, number> = new Map();
+
+  // Event system
+  private handlers: L2EventHandler[] = [];
+
+  // Lifecycle
+  private running = false;
+  private startedAt = 0;
+
+  // Proving mutex — o1js requires serial ZkProgram proving
+  private _provingLockQueue: Promise<void> = Promise.resolve();
+
+  constructor(
+    config: LeviathanConfig,
+    options: Partial<L2NodeOptions>,
+    store: ILocalStore,
+    initialRegistryRoot: Field,
+    initialLifecycleRoot: Field,
+    initialWalletCount: Field,
+  ) {
+    if (config.partitionCount < 1) {
+      throw new Error('partitionCount must be >= 1');
+    }
+    if (config.primaryPartition < 0 || config.primaryPartition >= config.partitionCount) {
+      throw new Error(`primaryPartition ${config.primaryPartition} out of range [0, ${config.partitionCount})`);
+    }
+
+    this.config = {
+      ...config,
+      heartbeatIntervalMs: config.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
+      heartbeatTimeoutMs: config.heartbeatTimeoutMs ?? DEFAULT_HEARTBEAT_TIMEOUT_MS,
+    };
+    this.options = { ...DEFAULT_L2_NODE_OPTIONS, ...options };
+    this.nodeId = options.nodeId ?? `lev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    this.store = store;
+
+    // Create one L2SequencerService per partition
+    for (let i = 0; i < config.partitionCount; i++) {
+      const seq = new L2SequencerService(
+        store,
+        initialRegistryRoot,
+        initialLifecycleRoot,
+        initialWalletCount,
+        this.options.batchIntervalMs,
+        this.options.l2Only ?? false,
+      );
+      seq.setPartitionConfig({ partitionCount: config.partitionCount, partitionIndex: i });
+      this.partitionSequencers.set(i, seq);
+      this.partitionProofs.set(i, 0);
+      this.partitionBatches.set(i, 0);
+      this.partitionSettled.set(i, 0);
+      this.partitionFailed.set(i, 0);
+      this.batchInProgress.set(i, false);
+    }
+
+    // Initialize leader map — this node leads its primary partition
+    for (let i = 0; i < config.partitionCount; i++) {
+      const chain = config.failoverChain.get(i);
+      const primaryLeader = chain?.[0] ?? (i === config.primaryPartition ? this.nodeId : 'unknown');
+      this.leaderMap.set(i, {
+        partitionIndex: i,
+        currentLeader: primaryLeader,
+        lastHeartbeatAt: Date.now(),
+        isLocalLeader: i === config.primaryPartition,
+      });
+    }
+  }
+
+  // ─── Lifecycle ──────────────────────────────────────────
+
+  start(): void {
+    if (this.running) return;
+    this.running = true;
+    this.startedAt = Date.now();
+
+    this.emit({
+      type: 'node:started',
+      timestamp: Date.now(),
+      data: {
+        role: 'leviathan',
+        nodeId: this.nodeId,
+        partitionCount: this.config.partitionCount,
+        primaryPartition: this.config.primaryPartition,
+        batchIntervalMs: this.options.batchIntervalMs,
+      },
+    });
+
+    // Start batch timer for primary partition
+    this.scheduleBatchTick(this.config.primaryPartition);
+
+    // Start heartbeat broadcast and monitor
+    this.scheduleHeartbeat();
+    this.scheduleHeartbeatMonitor();
+
+    // Connect to seed peers
+    if (this.options.seedPeers && this.options.seedPeers.length > 0) {
+      this.initPeerNetwork().catch(() => {});
+    }
+  }
+
+  async stop(): Promise<void> {
+    if (!this.running) return;
+    this.running = false;
+
+    // Stop all batch timers
+    for (const [, timer] of this.batchTimers) {
+      clearTimeout(timer);
+    }
+    this.batchTimers.clear();
+
+    // Stop heartbeat timers
+    if (this.heartbeatTimer !== null) {
+      clearTimeout(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    if (this.heartbeatMonitorTimer !== null) {
+      clearTimeout(this.heartbeatMonitorTimer);
+      this.heartbeatMonitorTimer = null;
+    }
+
+    // Wait for any in-progress batches
+    const waitPromises: Promise<void>[] = [];
+    for (const [partIdx, inProgress] of this.batchInProgress) {
+      if (inProgress) {
+        waitPromises.push(new Promise<void>((resolve) => {
+          const check = () => {
+            if (!this.batchInProgress.get(partIdx)) resolve();
+            else setTimeout(check, 50);
+          };
+          check();
+        }));
+      }
+    }
+    if (waitPromises.length > 0) {
+      await Promise.all(waitPromises);
+    }
+
+    // Disconnect peer network
+    if (this.peerNetwork) {
+      this.peerNetwork.stop();
+      this.peerNetwork = null;
+    }
+
+    this.emit({
+      type: 'node:stopped',
+      timestamp: Date.now(),
+      data: {
+        uptimeMs: Date.now() - this.startedAt,
+        nodeId: this.nodeId,
+      },
+    });
+  }
+
+  isRunning(): boolean {
+    return this.running;
+  }
+
+  // ─── Core API ───────────────────────────────────────────
+
+  /**
+   * Submit a StateTransitionProof to the leviathan.
+   *
+   * Routes to the correct partition sequencer based on walletId.
+   * Rejects if this node is not the leader for that partition.
+   */
+  async submitProof(proof: StateTransitionProof, metadata?: ClaimSubmissionMetadata): Promise<L2Receipt> {
+    const output = proof.publicOutput as unknown as TransitionOutput;
+    const walletId = output.walletId.toString();
+    const partition = getPartition(walletId, this.config.partitionCount);
+
+    // Check leadership
+    const leader = this.leaderMap.get(partition);
+    if (!leader || !leader.isLocalLeader) {
+      const currentLeader = leader?.currentLeader ?? 'unknown';
+      throw new Error(
+        `Not leader for partition ${partition} (walletId routes here). ` +
+        `Current leader: ${currentLeader}`,
+      );
+    }
+
+    const seq = this.partitionSequencers.get(partition)!;
+
+    try {
+      const receipt = await seq.submitProof(proof, metadata);
+      this.partitionProofs.set(partition, (this.partitionProofs.get(partition) ?? 0) + 1);
+
+      this.emit({
+        type: 'proof:accepted',
+        timestamp: Date.now(),
+        data: {
+          receiptId: receipt.receiptId,
+          walletId: receipt.walletId,
+          isRegistration: receipt.isRegistration,
+          sequenceNumber: receipt.sequenceNumber.toString(),
+          partitionIndex: partition,
+          pendingCount: seq.getPendingCount(),
+        },
+      });
+
+      // Broadcast proof:accepted gossip with partitionIndex
+      if (this.peerNetwork) {
+        const auditLog = seq.getAuditLog();
+        const latestAuditEvent = auditLog.events[auditLog.events.length - 1];
+        const claimEntry = metadata
+          ? seq.getClaimsByMember(receipt.walletId).slice(-1)[0]
+          : undefined;
+
+        const payload: ProofAcceptedPayload = {
+          receipt,
+          auditEvent: latestAuditEvent,
+          claimEntry,
+          currentRegistryRoot: seq.getCurrentRegistryRoot().toString(),
+          currentLifecycleRoot: seq.getCurrentLifecycleRoot().toString(),
+          currentWalletCount: seq.getCurrentWalletCount().toString(),
+          partitionIndex: partition,
+        };
+
+        const gossipMsg: GossipMessage = {
+          messageId: generateMessageId(
+            'proof:accepted', this.nodeId, Date.now(), receipt.receiptId,
+          ),
+          type: 'proof:accepted',
+          senderId: this.nodeId,
+          timestamp: Date.now(),
+          payload,
+        };
+        this.peerNetwork.broadcast(gossipMsg).catch(() => {});
+      }
+
+      return receipt;
+    } catch (err) {
+      this.emit({
+        type: 'proof:rejected',
+        timestamp: Date.now(),
+        data: {
+          reason: err instanceof Error ? err.message : String(err),
+          partitionIndex: partition,
+        },
+      });
+      throw err;
+    }
+  }
+
+  /**
+   * Manually trigger a batch build for a specific partition.
+   * Defaults to the primary partition.
+   */
+  async forceBatch(partitionIndex?: number): Promise<L2Batch | null> {
+    const idx = partitionIndex ?? this.config.primaryPartition;
+    return this.executeBatchCycle(idx);
+  }
+
+  // ─── Events ─────────────────────────────────────────────
+
+  on(handler: L2EventHandler): void {
+    this.handlers.push(handler);
+  }
+
+  off(handler: L2EventHandler): void {
+    this.handlers = this.handlers.filter((h) => h !== handler);
+  }
+
+  emit(event: L2ChainEvent): void {
+    for (const handler of this.handlers) {
+      try {
+        handler(event);
+      } catch {
+        // Don't let handler errors crash the node
+      }
+    }
+  }
+
+  // ─── Getters ────────────────────────────────────────────
+
+  getNodeId(): string {
+    return this.nodeId;
+  }
+
+  getRole(): L2NodeRole {
+    return 'leviathan';
+  }
+
+  getPeerNetwork(): L2PeerNetwork | null {
+    return this.peerNetwork;
+  }
+
+  isL2Only(): boolean {
+    return this.options.l2Only ?? false;
+  }
+
+  getConfig(): LeviathanConfig {
+    return { ...this.config };
+  }
+
+  /** Get the sequencer for a specific partition (default: primary) */
+  getSequencer(partitionIndex?: number): L2SequencerService {
+    const idx = partitionIndex ?? this.config.primaryPartition;
+    const seq = this.partitionSequencers.get(idx);
+    if (!seq) throw new Error(`Partition ${idx} not found`);
+    return seq;
+  }
+
+  /** Get all partition sequencers */
+  getAllSequencers(): Map<number, L2SequencerService> {
+    return new Map(this.partitionSequencers);
+  }
+
+  /** Check if this node is the leader for a partition */
+  isLeaderFor(partitionIndex: number): boolean {
+    return this.leaderMap.get(partitionIndex)?.isLocalLeader ?? false;
+  }
+
+  /** Get all partitions this node currently leads */
+  getActiveLeaderPartitions(): number[] {
+    const result: number[] = [];
+    for (const [idx, entry] of this.leaderMap) {
+      if (entry.isLocalLeader) result.push(idx);
+    }
+    return result.sort((a, b) => a - b);
+  }
+
+  /** Get the full leader map */
+  getLeaderMap(): Map<number, PartitionLeaderEntry> {
+    return new Map(this.leaderMap);
+  }
+
+  // ─── Read Queries (Aggregated) ──────────────────────────
+
+  /** Look up a receipt by ID — searches all partition sequencers */
+  getReceipt(receiptId: string): L2Receipt | undefined {
+    for (const [, seq] of this.partitionSequencers) {
+      const receipt = seq.getReceipt(receiptId);
+      if (receipt) return receipt;
+    }
+    return undefined;
+  }
+
+  /** Get all receipts for a wallet — routes to correct partition */
+  getReceiptsByWallet(walletId: string): L2Receipt[] {
+    const partition = getPartition(walletId, this.config.partitionCount);
+    const seq = this.partitionSequencers.get(partition);
+    return seq ? seq.getReceiptsByWallet(walletId) : [];
+  }
+
+  /** Get all receipts across all partitions */
+  getAllReceipts(): L2Receipt[] {
+    const all: L2Receipt[] = [];
+    for (const [, seq] of this.partitionSequencers) {
+      all.push(...seq.getAllReceipts());
+    }
+    return all.sort((a, b) => Number(a.sequenceNumber - b.sequenceNumber));
+  }
+
+  /** Get all batches across all partitions */
+  getAllBatches(): L2Batch[] {
+    const all: L2Batch[] = [];
+    for (const [, seq] of this.partitionSequencers) {
+      all.push(...seq.getAllBatches());
+    }
+    return all.sort((a, b) => Number(a.batchNumber - b.batchNumber));
+  }
+
+  /** Get a block by number — searches all partitions */
+  getBlock(blockNumber: bigint): L2Block | undefined {
+    for (const [, seq] of this.partitionSequencers) {
+      const block = seq.getBlock(blockNumber);
+      if (block) return block;
+    }
+    return undefined;
+  }
+
+  /** Get a batch by number — searches all partitions */
+  getBatch(batchNumber: bigint): L2Batch | undefined {
+    for (const [, seq] of this.partitionSequencers) {
+      const batch = seq.getBatch(batchNumber);
+      if (batch) return batch;
+    }
+    return undefined;
+  }
+
+  /** Get merged audit log across all partitions, sorted by timestamp */
+  getAuditLog(): AuditLog {
+    const allEvents: AuditEvent[] = [];
+    for (const [, seq] of this.partitionSequencers) {
+      const log = seq.getAuditLog();
+      allEvents.push(...log.events);
+    }
+    allEvents.sort((a, b) => a.timestamp - b.timestamp);
+    return {
+      events: allEvents,
+      genesisHash: this.getSequencer(0).getAuditLog().genesisHash,
+      latestChainHash: allEvents.length > 0
+        ? allEvents[allEvents.length - 1].chainHash
+        : this.getSequencer(0).getAuditLog().genesisHash,
+      eventCount: BigInt(allEvents.length),
+    };
+  }
+
+  /** Get claims for a member — routes to correct partition */
+  getClaimsByMember(memberWalletId: string): ClaimAccumulatorEntry[] {
+    const partition = getPartition(memberWalletId, this.config.partitionCount);
+    const seq = this.partitionSequencers.get(partition);
+    return seq ? seq.getClaimsByMember(memberWalletId) : [];
+  }
+
+  /** Get claims for a pharmacy — searches all partitions */
+  getClaimsByPharmacy(pharmacyWalletId: string): ClaimAccumulatorEntry[] {
+    const all: ClaimAccumulatorEntry[] = [];
+    for (const [, seq] of this.partitionSequencers) {
+      all.push(...seq.getClaimsByPharmacy(pharmacyWalletId));
+    }
+    return all;
+  }
+
+  /** Get claims for a prescriber — searches all partitions */
+  getClaimsByPrescriber(prescriberWalletId: string): ClaimAccumulatorEntry[] {
+    const all: ClaimAccumulatorEntry[] = [];
+    for (const [, seq] of this.partitionSequencers) {
+      all.push(...seq.getClaimsByPrescriber(prescriberWalletId));
+    }
+    return all;
+  }
+
+  /** Get claims for an NDC hash — searches all partitions */
+  getClaimsByNdc(ndcHash: string): ClaimAccumulatorEntry[] {
+    const all: ClaimAccumulatorEntry[] = [];
+    for (const [, seq] of this.partitionSequencers) {
+      all.push(...seq.getClaimsByNdc(ndcHash));
+    }
+    return all;
+  }
+
+  /** Get a claim with its Merkle inclusion proof — searches all partitions */
+  getClaimWithProof(leafIndex: bigint): {
+    entry: ClaimAccumulatorEntry;
+    witnessJson: string;
+    root: string;
+  } | undefined {
+    for (const [, seq] of this.partitionSequencers) {
+      const result = seq.getClaimWithProof(leafIndex);
+      if (result) return result;
+    }
+    return undefined;
+  }
+
+  /** Current Merkle root of the primary partition's claim accumulator */
+  getClaimAccumulatorRoot(): string {
+    return this.getSequencer().getClaimAccumulatorRoot();
+  }
+
+  /** Total claim leaf count across all partitions */
+  getClaimLeafCount(): bigint {
+    let total = 0n;
+    for (const [, seq] of this.partitionSequencers) {
+      total += seq.getClaimLeafCount();
+    }
+    return total;
+  }
+
+  /** Sync from L1 — throws in L2-only mode */
+  syncFromL1(newRegistryRoot: Field, newLifecycleRoot: Field, newWalletCount: Field): void {
+    if (this.isL2Only()) {
+      throw new Error('L2-only mode: no L1 sync available');
+    }
+    for (const [, seq] of this.partitionSequencers) {
+      seq.syncFromL1(newRegistryRoot, newLifecycleRoot, newWalletCount);
+    }
+  }
+
+  /** Get partition config for the primary partition */
+  getPartitionConfig(): PartitionConfig | null {
+    return {
+      partitionCount: this.config.partitionCount,
+      partitionIndex: this.config.primaryPartition,
+    };
+  }
+
+  /** Get partition router — leviathans handle routing internally */
+  getPartitionRouter(): PartitionRouter | null {
+    return null;
+  }
+
+  // ─── Status ─────────────────────────────────────────────
+
+  getStatus(): LeviathanStatus {
+    const now = Date.now();
+    const partitionStats: PartitionStats[] = [];
+    let totalProofs = 0;
+    let totalBatches = 0;
+    let totalSettled = 0;
+    let totalFailed = 0;
+    let totalPending = 0;
+
+    for (let i = 0; i < this.config.partitionCount; i++) {
+      const seq = this.partitionSequencers.get(i)!;
+      const leader = this.leaderMap.get(i)!;
+      const proofs = this.partitionProofs.get(i) ?? 0;
+      const batches = this.partitionBatches.get(i) ?? 0;
+      const settled = this.partitionSettled.get(i) ?? 0;
+
+      partitionStats.push({
+        partitionIndex: i,
+        isLeader: leader.isLocalLeader,
+        currentLeader: leader.currentLeader,
+        pendingProofs: seq.getPendingCount(),
+        totalReceipts: seq.getAllReceipts().length,
+        totalBatches: seq.getAllBatches().length,
+        latestSequenceNumber: seq.getLatestSequenceNumber().toString(),
+        registryRoot: seq.getCurrentRegistryRoot().toString(),
+        lifecycleRoot: seq.getCurrentLifecycleRoot().toString(),
+        walletCount: seq.getCurrentWalletCount().toString(),
+        auditChainHash: seq.getLatestChainHash(),
+      });
+
+      totalProofs += proofs;
+      totalBatches += batches;
+      totalSettled += settled;
+      totalFailed += (this.partitionFailed.get(i) ?? 0);
+      totalPending += seq.getPendingCount();
+    }
+
+    const leaderMapObj: Record<number, string> = {};
+    for (const [idx, entry] of this.leaderMap) {
+      leaderMapObj[idx] = entry.currentLeader;
+    }
+
+    return {
+      nodeId: this.nodeId,
+      role: 'leviathan',
+      partitionCount: this.config.partitionCount,
+      primaryPartition: this.config.primaryPartition,
+      activeLeaderPartitions: this.getActiveLeaderPartitions(),
+      leaderMap: leaderMapObj,
+      partitionStats,
+      globalTotals: {
+        totalProofsAccepted: totalProofs,
+        totalBatchesBuilt: totalBatches,
+        totalBatchesSettled: totalSettled,
+        totalBatchesFailed: totalFailed,
+        pendingProofs: totalPending,
+      },
+      running: this.running,
+      uptimeMs: this.running ? now - this.startedAt : 0,
+      l2Only: this.options.l2Only ?? false,
+    };
+  }
+
+  getPartitionStatus(partitionIndex: number): PartitionStats | undefined {
+    const status = this.getStatus();
+    return status.partitionStats.find((s) => s.partitionIndex === partitionIndex);
+  }
+
+  // ─── Batch Building ─────────────────────────────────────
+
+  private scheduleBatchTick(partitionIndex: number): void {
+    if (!this.running) return;
+
+    const timer = setTimeout(async () => {
+      this.emit({
+        type: 'node:tick',
+        timestamp: Date.now(),
+        data: {
+          partitionIndex,
+          pendingCount: this.partitionSequencers.get(partitionIndex)?.getPendingCount() ?? 0,
+        },
+      });
+      await this.executeBatchCycle(partitionIndex);
+      this.scheduleBatchTick(partitionIndex);
+    }, this.options.batchIntervalMs);
+
+    this.batchTimers.set(partitionIndex, timer);
+  }
+
+  private async executeBatchCycle(partitionIndex: number): Promise<L2Batch | null> {
+    if (this.batchInProgress.get(partitionIndex)) return null;
+
+    const seq = this.partitionSequencers.get(partitionIndex);
+    if (!seq) return null;
+
+    if (seq.getPendingCount() === 0) {
+      this.emit({
+        type: 'batch:empty',
+        timestamp: Date.now(),
+        data: { partitionIndex },
+      });
+      return null;
+    }
+
+    this.batchInProgress.set(partitionIndex, true);
+
+    try {
+      this.emit({
+        type: 'batch:building',
+        timestamp: Date.now(),
+        data: { partitionIndex, pendingCount: seq.getPendingCount() },
+      });
+
+      // Acquire proving lock — o1js requires serial proving
+      const batch = await this.withProvingLock(() => seq.buildBatch());
+
+      if (!batch) {
+        this.batchInProgress.set(partitionIndex, false);
+        return null;
+      }
+
+      this.partitionBatches.set(partitionIndex, (this.partitionBatches.get(partitionIndex) ?? 0) + 1);
+
+      this.emit({
+        type: 'batch:built',
+        timestamp: Date.now(),
+        data: {
+          batchNumber: batch.batchNumber.toString(),
+          partitionIndex,
+          registrationCount: batch.registrationCount,
+          transitionCount: batch.transitionCount,
+        },
+      });
+
+      // Broadcast batch:built gossip
+      if (this.peerNetwork) {
+        const blockNumber = batch.blockNumbers?.[0] ?? batch.batchNumber;
+        const block = seq.getBlock(blockNumber);
+        if (block) {
+          const updatedReceipts = seq.getAllReceipts().filter(
+            (r) => r.l1BatchNumber === batch.batchNumber,
+          );
+          const auditLog = seq.getAuditLog();
+          const updatedAuditEvents = auditLog.events.filter(
+            (e) => e.l1BatchNumber === batch.batchNumber,
+          );
+
+          const payload: BatchBuiltPayload = {
+            batch,
+            block,
+            updatedReceipts,
+            updatedAuditEvents,
+            partitionIndex,
+          };
+
+          const gossipMsg: GossipMessage = {
+            messageId: generateMessageId(
+              'batch:built', this.nodeId, Date.now(),
+              batch.batchNumber.toString(),
+            ),
+            type: 'batch:built',
+            senderId: this.nodeId,
+            timestamp: Date.now(),
+            payload,
+          };
+          this.peerNetwork.broadcast(gossipMsg).catch(() => {});
+        }
+      }
+
+      // L2-only mode: batch is already finalized
+      if (this.options.l2Only) {
+        this.partitionSettled.set(partitionIndex, (this.partitionSettled.get(partitionIndex) ?? 0) + 1);
+
+        this.emit({
+          type: 'batch:settled',
+          timestamp: Date.now(),
+          data: {
+            batchNumber: batch.batchNumber.toString(),
+            partitionIndex,
+            l1TxHash: batch.l1TxHash ?? `l2-final-${batch.batchNumber}`,
+            l2Only: true,
+          },
+        });
+
+        // Broadcast batch:settled gossip
+        if (this.peerNetwork) {
+          const settledPayload: BatchSettledPayload = {
+            batchNumber: batch.batchNumber,
+            l1TxHash: batch.l1TxHash ?? `l2-final-${batch.batchNumber}`,
+            lastSettledRegistryRoot: seq.getLastSettledRegistryRoot().toString(),
+            lastSettledLifecycleRoot: seq.getLastSettledLifecycleRoot().toString(),
+            lastSettledWalletCount: seq.getLastSettledWalletCount().toString(),
+            partitionIndex,
+          };
+          const settledMsg: GossipMessage = {
+            messageId: generateMessageId(
+              'batch:settled', this.nodeId, Date.now(),
+              batch.batchNumber.toString(),
+            ),
+            type: 'batch:settled',
+            senderId: this.nodeId,
+            timestamp: Date.now(),
+            payload: settledPayload,
+          };
+          this.peerNetwork.broadcast(settledMsg).catch(() => {});
+        }
+      }
+
+      return batch;
+    } catch (err) {
+      this.emit({
+        type: 'batch:failed',
+        timestamp: Date.now(),
+        data: {
+          reason: err instanceof Error ? err.message : String(err),
+          partitionIndex,
+        },
+      });
+      this.partitionFailed.set(partitionIndex, (this.partitionFailed.get(partitionIndex) ?? 0) + 1);
+      return null;
+    } finally {
+      this.batchInProgress.set(partitionIndex, false);
+    }
+  }
+
+  // ─── Proving Lock ───────────────────────────────────────
+
+  private acquireProvingLock(): Promise<() => void> {
+    let releaseFn!: () => void;
+    const previous = this._provingLockQueue;
+    this._provingLockQueue = new Promise<void>((resolve) => {
+      releaseFn = resolve;
+    });
+    return previous.then(() => releaseFn);
+  }
+
+  private async withProvingLock<T>(fn: () => Promise<T>): Promise<T> {
+    const release = await this.acquireProvingLock();
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+
+  // ─── Peer Network ──────────────────────────────────────
+
+  private async initPeerNetwork(): Promise<void> {
+    const peerConfig = {
+      nodeId: this.nodeId,
+      role: 'leviathan' as L2NodeRole,
+      seedPeers: this.options.seedPeers ?? [],
+      maxPeers: this.options.maxPeers ?? 12,
+      gossipRelayEnabled: true,
+      announceIntervalMs: 60_000,
+      syncOnConnect: false, // Leviathans manage their own sync
+      ...(this.options.gossipSecret ? { gossipSecret: this.options.gossipSecret } : {}),
+      ...(this.options.adminToken ? { adminToken: this.options.adminToken } : {}),
+    };
+
+    this.peerNetwork = new L2PeerNetwork(peerConfig);
+
+    // Subscribe to gossip
+    this.peerNetwork.on((msg: GossipMessage) => {
+      this.handleGossip(msg).catch(() => {});
+    });
+
+    this.peerNetwork.start();
+
+    // Connect to seed peers
+    for (const url of peerConfig.seedPeers) {
+      try {
+        await this.peerNetwork.connectToPeer(url);
+      } catch {
+        // Seed unreachable — will retry on next announce cycle
+      }
+    }
+  }
+
+  // ─── Gossip Handling ────────────────────────────────────
+
+  /**
+   * Handle an incoming gossip message.
+   *
+   * Routes to the correct partition sequencer based on partitionIndex.
+   * Skips messages from self. Applies replicated state for partitions
+   * we don't lead. Handles heartbeat and promotion messages.
+   */
+  private async handleGossip(msg: GossipMessage): Promise<void> {
+    // Don't process our own messages
+    if (msg.senderId === this.nodeId) return;
+
+    switch (msg.type) {
+      case 'proof:accepted': {
+        const payload = msg.payload as ProofAcceptedPayload;
+        const partition = payload.partitionIndex ?? 0;
+        const seq = this.partitionSequencers.get(partition);
+        if (!seq) return;
+
+        // Skip if we are the leader for this partition (we originated it)
+        if (this.isLeaderFor(partition)) return;
+
+        seq.applyReplicatedReceipt(
+          payload.receipt,
+          payload.auditEvent,
+          payload.claimEntry,
+          payload.currentRegistryRoot,
+          payload.currentLifecycleRoot,
+          payload.currentWalletCount,
+        );
+
+        this.emit({
+          type: 'proof:accepted',
+          timestamp: Date.now(),
+          data: {
+            receiptId: payload.receipt.receiptId,
+            walletId: payload.receipt.walletId,
+            partitionIndex: partition,
+            source: 'gossip',
+          },
+        });
+        break;
+      }
+
+      case 'batch:built': {
+        const payload = msg.payload as BatchBuiltPayload;
+        const partition = payload.partitionIndex ?? 0;
+        const seq = this.partitionSequencers.get(partition);
+        if (!seq) return;
+        if (this.isLeaderFor(partition)) return;
+
+        seq.applyReplicatedBatch(
+          payload.batch,
+          payload.block,
+          payload.updatedReceipts,
+          payload.updatedAuditEvents,
+        );
+        break;
+      }
+
+      case 'batch:settled': {
+        const payload = msg.payload as BatchSettledPayload;
+        const partition = payload.partitionIndex ?? 0;
+        const seq = this.partitionSequencers.get(partition);
+        if (!seq) return;
+        if (this.isLeaderFor(partition)) return;
+
+        seq.applyReplicatedSettlement(
+          payload.batchNumber,
+          payload.l1TxHash,
+          payload.lastSettledRegistryRoot,
+          payload.lastSettledLifecycleRoot,
+          payload.lastSettledWalletCount,
+        );
+        break;
+      }
+
+      case 'batch:failed': {
+        const payload = msg.payload as BatchFailedPayload;
+        const partition = payload.partitionIndex ?? 0;
+        const seq = this.partitionSequencers.get(partition);
+        if (!seq) return;
+        if (this.isLeaderFor(partition)) return;
+
+        seq.applyReplicatedBatchFailure(
+          payload.batchNumber,
+          payload.reason,
+        );
+        break;
+      }
+
+      case 'leader:heartbeat': {
+        const payload = msg.payload as LeaderHeartbeatPayload;
+        this.handleHeartbeat(payload);
+        break;
+      }
+
+      case 'leader:promotion': {
+        const payload = msg.payload as LeaderPromotionPayload;
+        this.handlePromotion(payload);
+        break;
+      }
+
+      // peer:announce and state:snapshot handled by L2PeerNetwork directly
+      default:
+        break;
+    }
+  }
+
+  // ─── Heartbeat Protocol ─────────────────────────────────
+
+  private scheduleHeartbeat(): void {
+    if (!this.running) return;
+
+    this.heartbeatTimer = setTimeout(() => {
+      this.broadcastHeartbeat();
+      this.scheduleHeartbeat();
+    }, this.config.heartbeatIntervalMs);
+  }
+
+  private broadcastHeartbeat(): void {
+    if (!this.peerNetwork) return;
+
+    const ledPartitions = this.getActiveLeaderPartitions();
+    const partitionSequences: Record<number, string> = {};
+    for (const idx of ledPartitions) {
+      const seq = this.partitionSequencers.get(idx);
+      if (seq) {
+        partitionSequences[idx] = seq.getLatestSequenceNumber().toString();
+      }
+    }
+
+    const payload: LeaderHeartbeatPayload = {
+      nodeId: this.nodeId,
+      partitions: ledPartitions,
+      partitionSequences,
+      timestamp: Date.now(),
+    };
+
+    const msg: GossipMessage = {
+      messageId: generateMessageId(
+        'leader:heartbeat', this.nodeId, Date.now(), 'hb',
+      ),
+      type: 'leader:heartbeat',
+      senderId: this.nodeId,
+      timestamp: Date.now(),
+      payload,
+    };
+
+    this.peerNetwork.broadcast(msg).catch(() => {});
+  }
+
+  private handleHeartbeat(payload: LeaderHeartbeatPayload): void {
+    for (const partIdx of payload.partitions) {
+      const entry = this.leaderMap.get(partIdx);
+      if (!entry) continue;
+
+      // Update leader info if this heartbeat is from the current leader
+      // or if we don't know the leader yet
+      if (entry.currentLeader === payload.nodeId || entry.currentLeader === 'unknown') {
+        entry.currentLeader = payload.nodeId;
+        entry.lastHeartbeatAt = Date.now();
+        entry.isLocalLeader = (payload.nodeId === this.nodeId);
+      }
+    }
+  }
+
+  private scheduleHeartbeatMonitor(): void {
+    if (!this.running) return;
+
+    this.heartbeatMonitorTimer = setTimeout(() => {
+      this.checkHeartbeats();
+      this.scheduleHeartbeatMonitor();
+    }, this.config.heartbeatIntervalMs);
+  }
+
+  private checkHeartbeats(): void {
+    const now = Date.now();
+
+    for (const [partIdx, entry] of this.leaderMap) {
+      // Skip partitions we already lead
+      if (entry.isLocalLeader) continue;
+
+      // Skip if leader is alive
+      if (now - entry.lastHeartbeatAt <= this.config.heartbeatTimeoutMs) continue;
+
+      // Leader timed out — check if we should promote
+      const chain = this.config.failoverChain.get(partIdx);
+      if (!chain) continue;
+
+      // Find the highest-priority live node (skip the dead leader)
+      for (const candidateId of chain) {
+        if (candidateId === entry.currentLeader) continue; // Skip dead leader
+        if (candidateId === this.nodeId) {
+          // We are the highest-priority live candidate — promote
+          this.promoteToLeader(partIdx, entry.currentLeader);
+          break;
+        }
+        // Check if this candidate has a recent heartbeat
+        // (i.e., they're handling some other partition and are alive)
+        let candidateAlive = false;
+        for (const [, otherEntry] of this.leaderMap) {
+          if (otherEntry.currentLeader === candidateId &&
+              now - otherEntry.lastHeartbeatAt <= this.config.heartbeatTimeoutMs) {
+            candidateAlive = true;
+            break;
+          }
+        }
+        if (candidateAlive) {
+          // A higher-priority candidate is alive — they should promote, not us
+          break;
+        }
+        // Candidate is also dead — continue to next in chain
+      }
+    }
+  }
+
+  /** Promote this node to leader for a partition */
+  promoteToLeader(partitionIndex: number, previousLeaderId?: string): void {
+    const entry = this.leaderMap.get(partitionIndex);
+    if (!entry) return;
+
+    const prevLeader = previousLeaderId ?? entry.currentLeader;
+
+    entry.currentLeader = this.nodeId;
+    entry.isLocalLeader = true;
+    entry.lastHeartbeatAt = Date.now();
+
+    // Start batch timer for this partition
+    this.scheduleBatchTick(partitionIndex);
+
+    this.emit({
+      type: 'node:started',
+      timestamp: Date.now(),
+      data: {
+        action: 'leader_promotion',
+        partitionIndex,
+        previousLeader: prevLeader,
+        newLeader: this.nodeId,
+      },
+    });
+
+    // Broadcast promotion gossip
+    if (this.peerNetwork) {
+      const payload: LeaderPromotionPayload = {
+        newLeaderId: this.nodeId,
+        partitionIndex,
+        previousLeaderId: prevLeader,
+        reason: 'heartbeat_timeout',
+        timestamp: Date.now(),
+      };
+
+      const msg: GossipMessage = {
+        messageId: generateMessageId(
+          'leader:promotion', this.nodeId, Date.now(),
+          `p${partitionIndex}`,
+        ),
+        type: 'leader:promotion',
+        senderId: this.nodeId,
+        timestamp: Date.now(),
+        payload,
+      };
+      this.peerNetwork.broadcast(msg).catch(() => {});
+    }
+  }
+
+  /** Demote this node from leading a partition */
+  demoteFromLeader(partitionIndex: number, newLeaderId: string): void {
+    const entry = this.leaderMap.get(partitionIndex);
+    if (!entry) return;
+
+    // Stop batch timer for this partition
+    const timer = this.batchTimers.get(partitionIndex);
+    if (timer) {
+      clearTimeout(timer);
+      this.batchTimers.delete(partitionIndex);
+    }
+
+    entry.currentLeader = newLeaderId;
+    entry.isLocalLeader = false;
+    entry.lastHeartbeatAt = Date.now();
+
+    this.emit({
+      type: 'node:started',
+      timestamp: Date.now(),
+      data: {
+        action: 'leader_demotion',
+        partitionIndex,
+        newLeader: newLeaderId,
+      },
+    });
+  }
+
+  private handlePromotion(payload: LeaderPromotionPayload): void {
+    const entry = this.leaderMap.get(payload.partitionIndex);
+    if (!entry) return;
+
+    // If I also just promoted for this partition, check priority
+    if (entry.isLocalLeader && entry.currentLeader === this.nodeId) {
+      const chain = this.config.failoverChain.get(payload.partitionIndex);
+      if (chain) {
+        const myPriority = chain.indexOf(this.nodeId);
+        const theirPriority = chain.indexOf(payload.newLeaderId);
+        if (theirPriority >= 0 && (myPriority < 0 || theirPriority < myPriority)) {
+          // They have higher priority — demote self
+          this.demoteFromLeader(payload.partitionIndex, payload.newLeaderId);
+          return;
+        }
+        // I have higher priority — ignore their promotion, my heartbeat will win
+        return;
+      }
+    }
+
+    // Accept the promotion
+    entry.currentLeader = payload.newLeaderId;
+    entry.lastHeartbeatAt = Date.now();
+    entry.isLocalLeader = (payload.newLeaderId === this.nodeId);
+  }
+
+  // ─── Checkpoint ─────────────────────────────────────────
+
+  exportCheckpoint(trigger: L2CheckpointTrigger): LeviathanCheckpoint {
+    const partitionStates: Record<number, L2SequencerState> = {};
+    const partitionNodeStats: Record<number, { totalProofsAccepted: number; totalBatchesBuilt: number; totalBatchesSettled: number; totalBatchesFailed: number; nextSettlementId: number }> = {};
+
+    for (const [idx, seq] of this.partitionSequencers) {
+      partitionStates[idx] = seq.exportState();
+      partitionNodeStats[idx] = {
+        totalProofsAccepted: this.partitionProofs.get(idx) ?? 0,
+        totalBatchesBuilt: this.partitionBatches.get(idx) ?? 0,
+        totalBatchesSettled: this.partitionSettled.get(idx) ?? 0,
+        totalBatchesFailed: this.partitionFailed.get(idx) ?? 0,
+        nextSettlementId: 1,
+      };
+    }
+
+    const leaderMapObj: Record<number, string> = {};
+    for (const [idx, entry] of this.leaderMap) {
+      leaderMapObj[idx] = entry.currentLeader;
+    }
+
+    const failoverChainObj: Record<number, string[]> = {};
+    for (const [idx, chain] of this.config.failoverChain) {
+      failoverChainObj[idx] = [...chain];
+    }
+
+    return {
+      version: 1,
+      createdAt: Date.now(),
+      trigger,
+      partitionStates,
+      leaderMap: leaderMapObj,
+      partitionNodeStats,
+      leviathanConfig: {
+        partitionCount: this.config.partitionCount,
+        primaryPartition: this.config.primaryPartition,
+        failoverChain: failoverChainObj,
+      },
+    };
+  }
+
+  restoreFromCheckpoint(checkpoint: LeviathanCheckpoint): void {
+    for (const [idxStr, state] of Object.entries(checkpoint.partitionStates)) {
+      const idx = Number(idxStr);
+      const seq = this.partitionSequencers.get(idx);
+      if (seq) {
+        seq.restoreState(state);
+      }
+    }
+
+    for (const [idxStr, stats] of Object.entries(checkpoint.partitionNodeStats)) {
+      const idx = Number(idxStr);
+      this.partitionProofs.set(idx, stats.totalProofsAccepted);
+      this.partitionBatches.set(idx, stats.totalBatchesBuilt);
+      this.partitionSettled.set(idx, stats.totalBatchesSettled);
+      this.partitionFailed.set(idx, stats.totalBatchesFailed);
+    }
+
+    for (const [idxStr, leaderId] of Object.entries(checkpoint.leaderMap)) {
+      const idx = Number(idxStr);
+      const entry = this.leaderMap.get(idx);
+      if (entry) {
+        entry.currentLeader = leaderId;
+        entry.isLocalLeader = (leaderId === this.nodeId);
+        entry.lastHeartbeatAt = Date.now();
+      }
+    }
+  }
+
+  static fromCheckpoint(
+    checkpoint: LeviathanCheckpoint,
+    store: ILocalStore,
+    options?: Partial<L2NodeOptions>,
+  ): L2Leviathan {
+    const cfg = checkpoint.leviathanConfig;
+    const failoverChain = new Map<number, string[]>();
+    for (const [idxStr, chain] of Object.entries(cfg.failoverChain)) {
+      failoverChain.set(Number(idxStr), chain);
+    }
+
+    // Get initial roots from partition 0 state (arbitrary — will be overwritten by restoreState)
+    const p0State = checkpoint.partitionStates[0] ?? checkpoint.partitionStates[cfg.primaryPartition];
+    const regRoot = Field(BigInt(p0State?.currentRegistryRoot ?? '0'));
+    const lcRoot = Field(BigInt(p0State?.currentLifecycleRoot ?? '0'));
+    const wc = Field(BigInt(p0State?.currentWalletCount ?? '0'));
+
+    const config: LeviathanConfig = {
+      partitionCount: cfg.partitionCount,
+      primaryPartition: cfg.primaryPartition,
+      failoverChain,
+      heartbeatIntervalMs: DEFAULT_HEARTBEAT_INTERVAL_MS,
+      heartbeatTimeoutMs: DEFAULT_HEARTBEAT_TIMEOUT_MS,
+    };
+
+    const lev = new L2Leviathan(config, options ?? {}, store, regRoot, lcRoot, wc);
+    lev.restoreFromCheckpoint(checkpoint);
+    return lev;
+  }
+}

@@ -4,7 +4,7 @@ import { Field, MerkleTree, MerkleWitness, Poseidon } from 'o1js';
  * Merkle Forest — a collection of domain-specific Merkle trees
  * that compose into a single forest root.
  *
- * Each NFT embeds a forest containing trees for:
+ * Each credential embeds a forest containing trees for:
  *   - Members
  *   - Prescribers
  *   - Pharmacies
@@ -12,7 +12,7 @@ import { Field, MerkleTree, MerkleWitness, Poseidon } from 'o1js';
  *   - Access Control (approvals/revocations)
  *
  * The forest root = Poseidon hash of all individual tree roots.
- * This is the single value stored on-chain in the NFT metadata.
+ * This is the single value stored on-chain in the credential metadata.
  */
 
 /** Tree height of 8 supports 128 leaves per tree — sufficient for initial scope */
@@ -88,7 +88,7 @@ export class MerkleForest {
 
   /**
    * Compute the forest root — a single hash of all domain tree roots.
-   * This is the value embedded in the NFT.
+   * This is the value embedded in the credential.
    */
   getForestRoot(): Field {
     const roots: Field[] = [];

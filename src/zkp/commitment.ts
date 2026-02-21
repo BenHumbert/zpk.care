@@ -79,7 +79,7 @@ export function buildTransactionHeaderData(local: TransactionHeaderLocalData): T
 /**
  * Generate a unique member identifier.
  * This is the root identity used across the system to link
- * a member to their proof-gated wallet and all associated NFTs.
+ * a member to their proof-gated wallet and all associated credentials.
  */
 export function generateMemberIdentifier(local: MemberLocalData): Field {
   return Poseidon.hash([

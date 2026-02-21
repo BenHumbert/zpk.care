@@ -40,6 +40,8 @@ export class RosterEntry extends Struct({
   planIdHash: Field,
   /** Poseidon hash of employer group ID */
   groupIdHash: Field,
+  /** Poseidon hash of family ID (groups subscriber + dependents) */
+  familyIdHash: Field,
   /** Enrollment date as numeric CCYYMMDD */
   enrolledDate: Field,
   /** Termination date as numeric CCYYMMDD (Field(0) = active) */
@@ -58,6 +60,7 @@ export class RosterEntry extends Struct({
       this.walletId,
       this.planIdHash,
       this.groupIdHash,
+      this.familyIdHash,
       this.enrolledDate,
       this.terminatedDate,
       this.status,
@@ -75,6 +78,8 @@ export interface RosterEntryLocalData {
   planId: string;
   /** Employer group ID */
   groupId: string;
+  /** Family ID — groups subscriber + dependents */
+  familyId: string;
   /** Enrollment date as CCYYMMDD string */
   enrolledDate: string;
   /** Enrollment token ID */
@@ -96,6 +101,7 @@ export function buildRosterEntry(
     walletId,
     planIdHash: hashString(local.planId),
     groupIdHash: hashString(local.groupId),
+    familyIdHash: hashString(local.familyId),
     enrolledDate: dateToField(local.enrolledDate),
     terminatedDate: Field(0),
     status: ENROLLMENT_STATUS_ACTIVE,
@@ -121,6 +127,7 @@ export class OpaqueRoster {
   private entries: Map<bigint, RosterEntry>;
   private walletIndices: Map<string, bigint>;
   private groupMembers: Map<string, Set<bigint>>;
+  private familyMembers: Map<string, Set<bigint>>;
   private nextIndex: bigint;
 
   constructor() {
@@ -128,6 +135,7 @@ export class OpaqueRoster {
     this.entries = new Map();
     this.walletIndices = new Map();
     this.groupMembers = new Map();
+    this.familyMembers = new Map();
     this.nextIndex = 0n;
   }
 
@@ -171,6 +179,13 @@ export class OpaqueRoster {
     }
     this.groupMembers.get(groupKey)!.add(index);
 
+    // Index by family for family-level operations
+    const familyKey = entry.familyIdHash.toString();
+    if (!this.familyMembers.has(familyKey)) {
+      this.familyMembers.set(familyKey, new Set());
+    }
+    this.familyMembers.get(familyKey)!.add(index);
+
     return { index, newRoot: this.tree.getRoot() };
   }
 
@@ -211,6 +226,21 @@ export class OpaqueRoster {
       .filter((r) => r.entry !== undefined);
   }
 
+  /** Get all roster entries for a given family (for family-level operations) */
+  getEntriesByFamily(
+    familyIdHash: Field,
+  ): { entry: RosterEntry; index: bigint }[] {
+    const familyKey = familyIdHash.toString();
+    const indices = this.familyMembers.get(familyKey);
+    if (!indices) return [];
+    return Array.from(indices)
+      .map((index) => ({
+        entry: this.entries.get(index)!,
+        index,
+      }))
+      .filter((r) => r.entry !== undefined);
+  }
+
   /**
    * Update a roster entry at an existing index.
    * Used for termination (setting terminatedDate and status).
@@ -226,5 +256,13 @@ export class OpaqueRoster {
   /** Get a circuit-compatible witness for a roster entry */
   getEntryWitness(index: bigint): RosterMerkleWitness {
     return new RosterMerkleWitness(this.tree.getWitness(index));
+  }
+
+  /** Get all roster entries (for bulk operations like formulary updates) */
+  getAllEntries(): { entry: RosterEntry; index: bigint }[] {
+    return Array.from(this.entries.entries()).map(([index, entry]) => ({
+      entry,
+      index,
+    }));
   }
 }

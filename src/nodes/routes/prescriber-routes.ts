@@ -1,0 +1,444 @@
+/**
+ * Prescriber Routes — REST endpoints for PrescriberNode Nautilus Apps.
+ *
+ * Same onboarding flow as member but uses securePrescriberDerivation()
+ * with NPI credentials (prescriberIdQualifier, prescriberId).
+ *
+ * Additional capabilities:
+ *   - Provider network lookups (in-network prescribers)
+ *   - Formulary queries (plan drug lists)
+ *   - PCP patient queries (assignment is on the member node — consent-based)
+ */
+import { Field } from 'o1js';
+import { generateEnrollmentKey } from '../../wallets/wallet-derivation.js';
+import { securePrescriberDerivation } from '../../security/secure-context.js';
+import { exportEnrollmentBackup, importEnrollmentBackup } from '../../security/enrollment-backup.js';
+import { PrescriberNode } from '../prescriber-node.js';
+import type { NautilusAppServer } from '../nautilus-app-server.js';
+import type { RouteRegistration } from '../nautilus-app-types.js';
+import type { PrescriberLocalData } from '../../models/prescriber.js';
+import { ProviderNetworkRegistry } from '../../eligibility/provider-network-registry.js';
+
+const DOMAIN_TAG_PRESCRIBER = 1;
+
+/**
+ * Build all prescriber routes.
+ *
+ * @param server — NautilusAppServer reference (captured in closures)
+ * @param networkRegistry — optional ProviderNetworkRegistry for in-network queries
+ */
+export function buildPrescriberRoutes(
+  server: NautilusAppServer,
+  networkRegistry?: ProviderNetworkRegistry,
+): RouteRegistration[] {
+  const routes: RouteRegistration[] = [];
+
+  // Track PCP assignments locally (prescriber → member mappings)
+  const pcpPatients: Map<string, { memberWalletId: string; effectiveDate: string; specialty: string }> = new Map();
+
+  // ══════════════════════════════════════════════════════════
+  //  ONBOARDING
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'POST',
+    path: '/onboarding/accept-token',
+    handler: async (_req, res, _params, _query, body) => {
+      if (server.getOnboardingPhase() !== 'awaiting_token') {
+        return server.sendResponse(res, 409, false, undefined, `Cannot accept token in phase: ${server.getOnboardingPhase()}`);
+      }
+      const b = body as { tokenId?: string; groupId?: string; planId?: string; validUntil?: string } | undefined;
+      if (!b?.tokenId) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing tokenId');
+      }
+      const state = server.getLocalState();
+      const data = state.getState();
+      if (data) {
+        data.onboarding.phase = 'token_received';
+        data.onboarding.tokenId = b.tokenId;
+        data.onboarding.tokenData = {
+          groupId: b.groupId ?? '',
+          planId: b.planId ?? '',
+          validUntil: b.validUntil ?? '',
+        };
+        await state.save(data);
+      }
+      server.setOnboardingPhase('token_received');
+      server.sendResponse(res, 200, true, { phase: 'token_received', tokenId: b.tokenId });
+    },
+  });
+
+  routes.push({
+    method: 'POST',
+    path: '/onboarding/generate-key',
+    handler: async (_req, res, _params, _query, _body) => {
+      if (server.getOnboardingPhase() !== 'token_received') {
+        return server.sendResponse(res, 409, false, undefined, `Cannot generate key in phase: ${server.getOnboardingPhase()}`);
+      }
+      const enrollmentKey = generateEnrollmentKey();
+      const state = server.getLocalState();
+      const data = state.getState();
+      if (data) {
+        data.onboarding.phase = 'key_generated';
+        state.setEnrollmentKey(enrollmentKey);
+        await state.save(data);
+      }
+      server.setOnboardingPhase('key_generated');
+      server.sendResponse(res, 200, true, { phase: 'key_generated' });
+    },
+  });
+
+  // Prescriber uses NPI credentials (not member PHI)
+  routes.push({
+    method: 'POST',
+    path: '/onboarding/derive-wallet',
+    handler: async (_req, res, _params, _query, body) => {
+      if (server.getOnboardingPhase() !== 'key_generated') {
+        return server.sendResponse(res, 409, false, undefined, `Cannot derive wallet in phase: ${server.getOnboardingPhase()}`);
+      }
+      const b = body as { prescriberIdQualifier?: number; prescriberId?: string } | undefined;
+      if (b?.prescriberIdQualifier === undefined || !b?.prescriberId) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing prescriberIdQualifier or prescriberId');
+      }
+      const state = server.getLocalState();
+      if (!state.hasEnrollmentKey()) {
+        return server.sendResponse(res, 409, false, undefined, 'Enrollment key not generated');
+      }
+
+      const localData: PrescriberLocalData = {
+        prescriberIdQualifier: b.prescriberIdQualifier,
+        prescriberId: b.prescriberId,
+      };
+      const result = state.useEnrollmentKey((key) =>
+        securePrescriberDerivation(localData, key),
+      );
+      const walletId = result.walletId.toString();
+      const preimageFields = result.preimage.map((f) => f.toString());
+
+      const data = state.getState();
+      if (data) {
+        data.walletId = walletId;
+        data.preimageFields = preimageFields;
+        data.domainTag = DOMAIN_TAG_PRESCRIBER;
+        data.onboarding.phase = 'wallet_derived';
+      }
+      await state.save(data!);
+
+      server.setOnboardingPhase('wallet_derived');
+      server.sendResponse(res, 200, true, { phase: 'wallet_derived', walletId });
+    },
+  });
+
+  routes.push({
+    method: 'POST',
+    path: '/onboarding/enroll',
+    handler: async (_req, res, _params, _query, _body) => {
+      if (server.getOnboardingPhase() !== 'wallet_derived') {
+        return server.sendResponse(res, 409, false, undefined, `Cannot enroll in phase: ${server.getOnboardingPhase()}`);
+      }
+      const state = server.getLocalState();
+      const data = state.getState();
+      if (!data?.walletId) {
+        return server.sendResponse(res, 409, false, undefined, 'Wallet not derived');
+      }
+      const node = new PrescriberNode({
+        role: 'prescriber',
+        walletId: data.walletId,
+        sequencerUrl: server.getConfig().sequencerUrl,
+        displayName: server.getConfig().displayName,
+      });
+      server.setEntityNode(node);
+
+      data.onboarding.phase = 'enrolled';
+      data.onboarding.enrollmentTimestamp = Date.now();
+      data.lastSequencerUrl = server.getConfig().sequencerUrl;
+      await state.save(data);
+
+      server.setOnboardingPhase('enrolled');
+      server.sendResponse(res, 200, true, { phase: 'enrolled', walletId: data.walletId });
+    },
+  });
+
+  routes.push({
+    method: 'POST',
+    path: '/onboarding/compile',
+    handler: async (_req, res, _params, _query, _body) => {
+      if (server.getOnboardingPhase() !== 'enrolled') {
+        return server.sendResponse(res, 409, false, undefined, `Cannot compile in phase: ${server.getOnboardingPhase()}`);
+      }
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) {
+        return server.sendResponse(res, 409, false, undefined, 'Node not initialized');
+      }
+      server.setOnboardingPhase('compiling');
+      const results = await node.compilePrograms();
+
+      const state = server.getLocalState();
+      const data = state.getState();
+      if (data) {
+        data.onboarding.phase = 'ready';
+        data.onboarding.compilationStatus = results;
+        await state.save(data);
+      }
+      server.setOnboardingPhase('ready');
+      server.sendResponse(res, 200, true, { phase: 'ready', compilationStatus: results });
+    },
+  });
+
+  routes.push({
+    method: 'POST',
+    path: '/onboarding/backup-key',
+    handler: async (_req, res, _params, _query, body) => {
+      const phase = server.getOnboardingPhase();
+      if (phase === 'awaiting_token' || phase === 'token_received') {
+        return server.sendResponse(res, 409, false, undefined, 'Enrollment key not yet generated');
+      }
+      const b = body as { pin?: string } | undefined;
+      if (!b?.pin) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing pin');
+      }
+      const state = server.getLocalState();
+      if (!state.hasEnrollmentKey()) {
+        return server.sendResponse(res, 409, false, undefined, 'No enrollment key in state');
+      }
+      const data = state.getState();
+      const pin = b.pin;
+      const walletIdForBackup = data?.walletId ?? '0';
+      const backup = state.useEnrollmentKey((key) =>
+        exportEnrollmentBackup(key, pin, walletIdForBackup, DOMAIN_TAG_PRESCRIBER),
+      );
+      server.sendResponse(res, 200, true, { backup });
+    },
+  });
+
+  routes.push({
+    method: 'POST',
+    path: '/onboarding/restore-key',
+    handler: async (_req, res, _params, _query, body) => {
+      const b = body as { backup?: Record<string, unknown>; pin?: string } | undefined;
+      if (!b?.backup || !b?.pin) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing backup or pin');
+      }
+      try {
+        const enrollmentKey = importEnrollmentBackup(
+          b.backup as unknown as Parameters<typeof importEnrollmentBackup>[0],
+          b.pin,
+        );
+        const state = server.getLocalState();
+        state.setEnrollmentKey(enrollmentKey);
+        const data = state.getState();
+        if (data) {
+          await state.save(data);
+        }
+        server.sendResponse(res, 200, true, { restored: true });
+      } catch (err) {
+        server.sendResponse(res, 400, false, undefined, err instanceof Error ? err.message : 'Restore failed');
+      }
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  PRESCRIBING HISTORY QUERIES
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'GET',
+    path: '/prescriptions',
+    handler: async (_req, res) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      server.sendResponse(res, 200, true, await node.getPrescribingHistory());
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/prescriptions/summary',
+    handler: async (_req, res) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      server.sendResponse(res, 200, true, await node.getActivitySummary());
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/prescriptions/range',
+    handler: async (_req, res, _params, query) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      const start = query.get('start');
+      const end = query.get('end');
+      if (!start || !end) return server.sendResponse(res, 400, false, undefined, 'Missing start or end');
+      server.sendResponse(res, 200, true, await node.getPrescribingHistoryByDateRange(start, end));
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/prescriptions/patient/:memberWalletId',
+    handler: async (_req, res, params) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      server.sendResponse(res, 200, true, await node.getClaimsByPatient(params.memberWalletId));
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/prescriptions/medication/:ndcHash',
+    handler: async (_req, res, params) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      server.sendResponse(res, 200, true, await node.getClaimsByMedication(params.ndcHash));
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/prescriptions/pharmacy/:pharmacyWalletId',
+    handler: async (_req, res, params) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      server.sendResponse(res, 200, true, await node.getClaimsByPharmacy(params.pharmacyWalletId));
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/prescriptions/patients/count',
+    handler: async (_req, res) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      server.sendResponse(res, 200, true, { count: await node.getUniquePatientCount() });
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/prescriptions/pharmacies/count',
+    handler: async (_req, res) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      server.sendResponse(res, 200, true, { count: await node.getUniquePharmacyCount() });
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/prescriptions/medications/breakdown',
+    handler: async (_req, res) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      server.sendResponse(res, 200, true, await node.getMedicationBreakdown());
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  PROVIDER NETWORK
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'GET',
+    path: '/network/prescribers',
+    handler: async (_req, res) => {
+      if (!networkRegistry) {
+        return server.sendResponse(res, 404, false, undefined, 'Provider network not configured');
+      }
+      server.sendResponse(res, 200, true, {
+        count: networkRegistry.count,
+        root: networkRegistry.getRoot().toString(),
+      });
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/network/check/:walletId',
+    handler: async (_req, res, params) => {
+      if (!networkRegistry) {
+        return server.sendResponse(res, 404, false, undefined, 'Provider network not configured');
+      }
+      const inNetwork = networkRegistry.isInNetwork(Field(BigInt(params.walletId)));
+      server.sendResponse(res, 200, true, { walletId: params.walletId, inNetwork });
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/network/count',
+    handler: async (_req, res) => {
+      if (!networkRegistry) {
+        return server.sendResponse(res, 404, false, undefined, 'Provider network not configured');
+      }
+      server.sendResponse(res, 200, true, { count: networkRegistry.count });
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  FORMULARY
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'GET',
+    path: '/formulary/:planIdHash',
+    handler: async (_req, res, params) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      const formulary = await node.getFormulary(params.planIdHash);
+      if (!formulary) return server.sendResponse(res, 404, false, undefined, 'Formulary not found');
+      server.sendResponse(res, 200, true, formulary);
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/formulary/:planIdHash/check/:ndcHash',
+    handler: async (_req, res, params) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      const formulary = await node.getFormulary(params.planIdHash);
+      if (!formulary) return server.sendResponse(res, 404, false, undefined, 'Formulary not found');
+      // Parse formulary entries to check for the specific drug
+      try {
+        const entries = JSON.parse(formulary.entriesJson) as Array<{ ndcHash?: string; tierLevel?: number; copay?: number }>;
+        const entry = entries.find((e) => e.ndcHash === params.ndcHash);
+        server.sendResponse(res, 200, true, {
+          ndcHash: params.ndcHash,
+          onFormulary: !!entry,
+          tierLevel: entry?.tierLevel,
+          copay: entry?.copay,
+        });
+      } catch {
+        server.sendResponse(res, 200, true, { ndcHash: params.ndcHash, onFormulary: false });
+      }
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  PCP QUERIES (assignment is on the MEMBER node — consent-based)
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'GET',
+    path: '/pcp/patients',
+    handler: async (_req, res) => {
+      const patients = Array.from(pcpPatients.values());
+      server.sendResponse(res, 200, true, { patients, count: patients.length });
+    },
+  });
+
+  // ── Query: Proof Timings ──────────────────────────────────
+
+  routes.push({
+    method: 'GET',
+    path: '/proof-timings',
+    handler: async (_req, res) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      server.sendResponse(res, 200, true, node.getProofTimings());
+    },
+  });
+
+  return routes;
+}

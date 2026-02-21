@@ -271,9 +271,10 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
     test('computeContentHash is deterministic for same input', () => {
       const ciphertext = Buffer.from('encrypted-content-bytes');
       const iv = Buffer.from('123456789012');
+      const tag = Buffer.from('1234567890123456');
 
-      const hash1 = computeContentHash(ciphertext, iv);
-      const hash2 = computeContentHash(ciphertext, iv);
+      const hash1 = computeContentHash(ciphertext, iv, tag);
+      const hash2 = computeContentHash(ciphertext, iv, tag);
       expect(hash1.toString()).toBe(hash2.toString());
     });
 
@@ -924,8 +925,9 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
       const newMsgRoot = computeMessagingRoot(
         msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot(),
       );
+      const oldMsgRoot = contract.messagingRoot.get();
       const submitTx = await Mina.transaction(admin, async () => {
-        await contract.submitMessage(newMsgRoot, msg.commitment());
+        await contract.submitMessage(oldMsgRoot, newMsgRoot, msg.commitment());
       });
       await submitTx.prove();
       await submitTx.sign([admin.key]).send();
@@ -935,7 +937,7 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
       // Non-admin rejected
       await expect(async () => {
         const badTx = await Mina.transaction(nonAdmin, async () => {
-          await contract.submitMessage(Field(999n), Field(0));
+          await contract.submitMessage(contract.messagingRoot.get(), Field(999n), Field(0));
         });
         await badTx.prove();
         await badTx.sign([nonAdmin.key]).send();
@@ -961,8 +963,9 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
         msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot(),
       );
 
+      const oldRevRoot = contract.messagingRoot.get();
       const revokeTx = await Mina.transaction(admin, async () => {
-        await contract.revokeDelegation(newRoot, delegationCommitment);
+        await contract.revokeDelegation(oldRevRoot, newRoot, delegationCommitment);
       });
       await revokeTx.prove();
       await revokeTx.sign([admin.key]).send();
@@ -972,7 +975,7 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
       // Non-admin rejected
       await expect(async () => {
         const badTx = await Mina.transaction(nonAdmin, async () => {
-          await contract.revokeDelegation(Field(999n), Field(0));
+          await contract.revokeDelegation(contract.messagingRoot.get(), Field(999n), Field(0));
         });
         await badTx.prove();
         await badTx.sign([nonAdmin.key]).send();

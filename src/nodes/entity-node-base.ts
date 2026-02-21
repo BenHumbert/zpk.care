@@ -1,0 +1,289 @@
+/**
+ * EntityNodeBase — abstract base class for all entity nodes.
+ *
+ * Provides shared functionality:
+ *   - L2Client connection to the sequencer
+ *   - Partition discovery and routing
+ *   - ClaimAccumulatorEntry → EntityClaimView transformation
+ *   - Activity summary computation
+ *   - Date range filtering
+ *   - Event streaming
+ *   - Health checks
+ *
+ * Subclasses (MemberNode, PrescriberNode, PharmacyNode, InsurerNode)
+ * add role-specific proof generation and query methods.
+ */
+import { L2Client, DEFAULT_L2_CLIENT_OPTIONS } from '../l2/l2-client.js';
+import type { L2ClientOptions } from '../l2/l2-client.js';
+import { PartitionRouter, getPartition } from '../l2/l2-partition.js';
+import type { L2ChainState, L2Receipt } from '../l2/l2-types.js';
+import type { ClaimAccumulatorEntry } from '../l2/claim-accumulator-types.js';
+import type { L2ChainEvent, L2EventHandler, L2NodeStatus } from '../l2/l2-node.js';
+import type {
+  EntityNodeConfig,
+  EntityRole,
+  EntityClaimView,
+  EntityActivitySummary,
+} from './entity-node-types.js';
+
+// ─── EntityNodeBase ─────────────────────────────────────────
+
+export abstract class EntityNodeBase {
+  protected client: L2Client;
+  protected config: EntityNodeConfig;
+  private partitionRouter: PartitionRouter | null = null;
+  private partitionClients: Map<number, L2Client> = new Map();
+
+  constructor(config: EntityNodeConfig) {
+    if (!config.sequencerUrl) {
+      throw new Error('sequencerUrl is required');
+    }
+    if (!config.role) {
+      throw new Error('role is required');
+    }
+    this.config = config;
+    const clientOptions: L2ClientOptions = {
+      ...DEFAULT_L2_CLIENT_OPTIONS,
+      sequencerUrl: config.sequencerUrl,
+      ...config.clientOptions,
+    };
+    this.client = new L2Client(clientOptions);
+  }
+
+  // ─── Connection ─────────────────────────────────────────
+
+  /**
+   * Discover all sequencer partitions from the primary sequencer.
+   * After discovery, proofs can be auto-routed to the correct partition.
+   */
+  async discoverPartitions(): Promise<void> {
+    const info = await this.client.getPartitionInfo();
+    if (!info.partitioned || !info.partitionConfig) {
+      this.partitionRouter = null;
+      this.partitionClients.clear();
+      return;
+    }
+
+    const router = new PartitionRouter(info.partitionConfig.partitionCount);
+    for (const p of info.allPartitions) {
+      router.setPartition(p.partitionIndex, p.url);
+    }
+    this.partitionRouter = router;
+
+    // Pre-create clients for each partition
+    this.partitionClients.clear();
+    for (const p of info.allPartitions) {
+      const clientOpts: L2ClientOptions = {
+        ...DEFAULT_L2_CLIENT_OPTIONS,
+        sequencerUrl: p.url,
+        ...this.config.clientOptions,
+      };
+      this.partitionClients.set(p.partitionIndex, new L2Client(clientOpts));
+    }
+  }
+
+  /**
+   * Get the L2Client for a specific member wallet's partition.
+   * Falls back to the primary client if no partition routing is configured.
+   */
+  protected getClientForWallet(walletId: string): L2Client {
+    if (!this.partitionRouter) return this.client;
+    const partitionCount = this.partitionRouter.getPartitionCount();
+    const idx = getPartition(walletId, partitionCount);
+    return this.partitionClients.get(idx) ?? this.client;
+  }
+
+  // ─── Shared Query Methods ───────────────────────────────
+
+  /** Get the sequencer's current chain state (roots, counts, batch info) */
+  async getChainState(): Promise<L2ChainState> {
+    return this.client.getChainState();
+  }
+
+  /** Get the sequencer's current status */
+  async getStatus(): Promise<L2NodeStatus> {
+    return this.client.getStatus();
+  }
+
+  /** Check if the sequencer is reachable and running */
+  async isHealthy(): Promise<boolean> {
+    return this.client.isHealthy();
+  }
+
+  /** Look up a receipt by ID */
+  async getReceipt(receiptId: string): Promise<L2Receipt | null> {
+    return this.client.getReceipt(receiptId);
+  }
+
+  /**
+   * Connect to the sequencer's SSE event stream.
+   * Returns a disconnect function.
+   */
+  connectEvents(handler: L2EventHandler): () => void {
+    return this.client.connectEvents(handler);
+  }
+
+  /** Get the underlying L2Client (for advanced use) */
+  getClient(): L2Client {
+    return this.client;
+  }
+
+  /** Get this node's entity role */
+  getRole(): EntityRole {
+    return this.config.role;
+  }
+
+  /** Get this node's wallet ID (undefined for insurer) */
+  getWalletId(): string | undefined {
+    return this.config.walletId;
+  }
+
+  /** Get the display name */
+  getDisplayName(): string | undefined {
+    return this.config.displayName;
+  }
+
+  /** Get the current partition router (null if no partitioning) */
+  getPartitionRouter(): PartitionRouter | null {
+    return this.partitionRouter;
+  }
+
+  // ─── Shared Transformation Helpers ──────────────────────
+
+  /**
+   * Transform ClaimAccumulatorEntry[] into EntityClaimView[].
+   * Merges the cryptographic leaf data with display metadata.
+   */
+  protected toClaimViews(entries: ClaimAccumulatorEntry[]): EntityClaimView[] {
+    return entries.map((entry) => ({
+      leafIndex: entry.leafIndex,
+      dateOfService: entry.leaf.dateOfService,
+      patientPayCents: entry.leaf.patientPayCents,
+      planPayCents: entry.leaf.planPayCents,
+      operationType:
+        entry.leaf.operationType === '2' ? 'reversal' : 'fulfillment',
+      memberWalletId: entry.leaf.memberWalletId,
+      pharmacyWalletId: entry.leaf.pharmacyWalletId,
+      prescriberWalletId: entry.leaf.prescriberWalletId,
+      ndcHash: entry.leaf.ndcHash,
+      brandName: entry.metadata.brandName,
+      ndc: entry.metadata.ndc,
+      tierLevel: entry.metadata.tierLevel,
+      therapeuticClass: entry.metadata.therapeuticClass,
+      daysSupply: entry.metadata.daysSupply,
+      fillNumber: entry.metadata.fillNumber,
+      gpi: entry.metadata.gpi,
+      receiptId: entry.metadata.receiptId,
+      timestamp: entry.metadata.timestamp,
+    }));
+  }
+
+  /**
+   * Compute an activity summary from a list of claim views.
+   */
+  protected summarize(views: EntityClaimView[]): EntityActivitySummary {
+    let totalClaims = 0;
+    let totalReversals = 0;
+    let totalPatientPayCents = 0n;
+    let totalPlanPayCents = 0n;
+    const ndcSet = new Set<string>();
+    let earliest: string | null = null;
+    let latest: string | null = null;
+
+    for (const v of views) {
+      if (v.operationType === 'reversal') {
+        totalReversals++;
+      } else {
+        totalClaims++;
+      }
+      if (v.operationType === 'reversal') {
+        totalPatientPayCents -= BigInt(v.patientPayCents);
+        totalPlanPayCents -= BigInt(v.planPayCents);
+      } else {
+        totalPatientPayCents += BigInt(v.patientPayCents);
+        totalPlanPayCents += BigInt(v.planPayCents);
+      }
+      ndcSet.add(v.ndcHash);
+
+      if (earliest === null || v.dateOfService < earliest) {
+        earliest = v.dateOfService;
+      }
+      if (latest === null || v.dateOfService > latest) {
+        latest = v.dateOfService;
+      }
+    }
+
+    return {
+      totalClaims,
+      totalReversals,
+      activeClaims: totalClaims - totalReversals,
+      totalPatientPayCents,
+      totalPlanPayCents,
+      uniqueMedications: ndcSet.size,
+      dateRange:
+        earliest && latest ? { earliest, latest } : null,
+    };
+  }
+
+  /**
+   * Filter claim views to a date range (inclusive, CCYYMMDD string compare).
+   */
+  protected filterByDateRange(
+    views: EntityClaimView[],
+    start: string,
+    end: string,
+  ): EntityClaimView[] {
+    return views.filter(
+      (v) => v.dateOfService >= start && v.dateOfService <= end,
+    );
+  }
+
+  /**
+   * Compute a medication breakdown from claim views.
+   */
+  protected medicationBreakdown(
+    views: EntityClaimView[],
+  ): import('./entity-node-types.js').MedicationBreakdownEntry[] {
+    const map = new Map<
+      string,
+      {
+        ndcHash: string;
+        brandName?: string;
+        tierLevel?: number;
+        therapeuticClass?: string;
+        claimCount: number;
+        totalPatientPayCents: bigint;
+        totalPlanPayCents: bigint;
+      }
+    >();
+
+    for (const v of views) {
+      const existing = map.get(v.ndcHash);
+      if (existing) {
+        existing.claimCount++;
+        if (v.operationType === 'reversal') {
+          existing.totalPatientPayCents -= BigInt(v.patientPayCents);
+          existing.totalPlanPayCents -= BigInt(v.planPayCents);
+        } else {
+          existing.totalPatientPayCents += BigInt(v.patientPayCents);
+          existing.totalPlanPayCents += BigInt(v.planPayCents);
+        }
+      } else {
+        const sign = v.operationType === 'reversal' ? -1n : 1n;
+        map.set(v.ndcHash, {
+          ndcHash: v.ndcHash,
+          brandName: v.brandName,
+          tierLevel: v.tierLevel,
+          therapeuticClass: v.therapeuticClass,
+          claimCount: 1,
+          totalPatientPayCents: BigInt(v.patientPayCents) * sign,
+          totalPlanPayCents: BigInt(v.planPayCents) * sign,
+        });
+      }
+    }
+
+    return Array.from(map.values()).sort(
+      (a, b) => b.claimCount - a.claimCount,
+    );
+  }
+}

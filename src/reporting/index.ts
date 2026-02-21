@@ -21,4 +21,17 @@ export type {
   PriorAuthUtilizationEntry,
   PriorAuthReport,
   ReversalReport,
+  // GAP 4 — Multi-dimensional reporting
+  ReportFilter,
+  TierAnalysisEntry,
+  TierAnalysisReport,
+  TherapeuticClassEntry,
+  TherapeuticClassReport,
+  TimeBucket,
+  TimeSeriesEntry,
+  TimeSeriesReport,
+  CrossTabDimension,
+  CrossTabMeasure,
+  CrossTabRow,
+  CrossTabReport,
 } from './report-types.js';

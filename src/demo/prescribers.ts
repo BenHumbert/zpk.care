@@ -50,7 +50,7 @@ export interface DemoPrescriber {
 export const DEMO_PRESCRIBERS: DemoPrescriber[] = [
   {
     localData: { prescriberIdQualifier: 1, prescriberId: '1234567890' },
-    enrollmentKey: 'prescriber-key-chen-2026',
+    enrollmentKey: 'gpRL1IB9NWulKfKjrjWK0QM7ahqIrOkodzEQn1NJb1M',
     firstName: 'Sarah',
     lastName: 'Chen',
     credential: 'MD',
@@ -62,7 +62,7 @@ export const DEMO_PRESCRIBERS: DemoPrescriber[] = [
   },
   {
     localData: { prescriberIdQualifier: 1, prescriberId: '1345678901' },
-    enrollmentKey: 'prescriber-key-patel-2026',
+    enrollmentKey: 'VU-76Mog6u__oSejywybSCIwE4U3SNP1b9XJAI6WuWs',
     firstName: 'Raj',
     lastName: 'Patel',
     credential: 'MD',
@@ -74,7 +74,7 @@ export const DEMO_PRESCRIBERS: DemoPrescriber[] = [
   },
   {
     localData: { prescriberIdQualifier: 1, prescriberId: '1456789012' },
-    enrollmentKey: 'prescriber-key-jones-2026',
+    enrollmentKey: 'OOznCEj3yhv8WEY2aB_ixmMaFvBC6BGX21lNW9xV0_M',
     firstName: 'Michael',
     lastName: 'Jones',
     credential: 'DO',
@@ -86,7 +86,7 @@ export const DEMO_PRESCRIBERS: DemoPrescriber[] = [
   },
   {
     localData: { prescriberIdQualifier: 1, prescriberId: '1567890123' },
-    enrollmentKey: 'prescriber-key-kim-2026',
+    enrollmentKey: 'xUMyTg2Ebk30rW7pzPE7QmtuvSRB9q-gmy_w8jIwHGQ',
     firstName: 'Jennifer',
     lastName: 'Kim',
     credential: 'MD',
@@ -98,7 +98,7 @@ export const DEMO_PRESCRIBERS: DemoPrescriber[] = [
   },
   {
     localData: { prescriberIdQualifier: 1, prescriberId: '1678901234' },
-    enrollmentKey: 'prescriber-key-garcia-2026',
+    enrollmentKey: 'u6oJYMbXMtaklRKxEUSjIwXtTDNzYkWaQE8sqt1hM9I',
     firstName: 'Maria',
     lastName: 'Garcia',
     credential: 'NP',
@@ -110,7 +110,7 @@ export const DEMO_PRESCRIBERS: DemoPrescriber[] = [
   },
   {
     localData: { prescriberIdQualifier: 1, prescriberId: '1789012345' },
-    enrollmentKey: 'prescriber-key-thompson-2026',
+    enrollmentKey: 'VxwuV-VrkPAxoWRDK5fLhVVS_bDuQvSnYuIiPO0KInc',
     firstName: 'David',
     lastName: 'Thompson',
     credential: 'MD',
@@ -122,7 +122,7 @@ export const DEMO_PRESCRIBERS: DemoPrescriber[] = [
   },
   {
     localData: { prescriberIdQualifier: 1, prescriberId: '1890123456' },
-    enrollmentKey: 'prescriber-key-wilson-2026',
+    enrollmentKey: 'tr-yD6cbuBcWBm9dEjCD8x2D2PP5ZLWiI_AhoMqR80Q',
     firstName: 'Emily',
     lastName: 'Wilson',
     credential: 'PA',
@@ -134,7 +134,7 @@ export const DEMO_PRESCRIBERS: DemoPrescriber[] = [
   },
   {
     localData: { prescriberIdQualifier: 1, prescriberId: '1901234567' },
-    enrollmentKey: 'prescriber-key-nguyen-2026',
+    enrollmentKey: '8IydwvtG_0ymWMZ9LX1I4wpZY9PH3qFcTEhqFY8R5DA',
     firstName: 'Thanh',
     lastName: 'Nguyen',
     credential: 'MD',
@@ -146,7 +146,7 @@ export const DEMO_PRESCRIBERS: DemoPrescriber[] = [
   },
   {
     localData: { prescriberIdQualifier: 1, prescriberId: '1012345678' },
-    enrollmentKey: 'prescriber-key-smith-2026',
+    enrollmentKey: '3RMBQoAYuzb6CoD6oepLsSBN5ojn6_QnbFptjfE0ffg',
     firstName: 'Robert',
     lastName: 'Smith',
     credential: 'MD',
@@ -158,7 +158,7 @@ export const DEMO_PRESCRIBERS: DemoPrescriber[] = [
   },
   {
     localData: { prescriberIdQualifier: 1, prescriberId: '1123456789' },
-    enrollmentKey: 'prescriber-key-brown-2026',
+    enrollmentKey: 'oIvqJdxtPqYPU0ENnyHPrbirjAbjEDS58686Z6Wibt4',
     firstName: 'Lisa',
     lastName: 'Brown',
     credential: 'PharmD',

@@ -1,5 +1,5 @@
 import { Field, JsonProof } from 'o1js';
-import { NftOperationOutput, NftOperationProof, NftProgram } from './nft-program.js';
+import { CredentialOperationOutput, CredentialOperationProof, CredentialProgram } from './credential-program.js';
 
 /**
  * PortableCredential — serialized proof for NFC/RFID/QR offline transport.
@@ -11,14 +11,14 @@ export interface PortableCredential {
   /** Protocol version (currently 1) */
   version: number;
   /** Type of proof contained */
-  proofType: 'nft-mint' | 'nft-holding' | 'nft-type-holding';
+  proofType: 'credential-mint' | 'credential-holding' | 'credential-type-holding';
   /** JSON-serialized proof (from proof.toJSON()) */
   proofJson: JsonProof;
   /** Extracted public output for quick inspection (before full verification) */
   publicOutput: {
     walletId: string;
     operationType: string;
-    nftCommitment: string;
+    credentialCommitment: string;
     oldInventoryRoot: string;
     newInventoryRoot: string;
   };
@@ -33,13 +33,13 @@ export interface PortableCredential {
 /**
  * Serialize a proof into a PortableCredential for offline transport.
  *
- * @param proof — the NftOperationProof or any proof with toJSON()
- * @param proofType — which NftProgram method generated this proof
+ * @param proof — the CredentialOperationProof or any proof with toJSON()
+ * @param proofType — which CredentialProgram method generated this proof
  * @param vkHash — verification key hash (for verifier to confirm they have correct VK)
  * @param expiresAt — optional expiration timestamp (0 = never)
  */
 export function serializeCredential(
-  proof: { toJSON(): JsonProof; publicOutput: NftOperationOutput },
+  proof: { toJSON(): JsonProof; publicOutput: CredentialOperationOutput },
   proofType: PortableCredential['proofType'],
   vkHash: Field,
   expiresAt: number = 0,
@@ -53,7 +53,7 @@ export function serializeCredential(
     publicOutput: {
       walletId: output.walletId.toString(),
       operationType: output.operationType.toString(),
-      nftCommitment: output.nftCommitment.toString(),
+      credentialCommitment: output.credentialCommitment.toString(),
       oldInventoryRoot: output.oldInventoryRoot.toString(),
       newInventoryRoot: output.newInventoryRoot.toString(),
     },
@@ -77,7 +77,7 @@ export function deserializeCredential(json: string): PortableCredential {
  * verification key. This is the core of the NFC/RFID/QR verification flow.
  *
  * @param credential — the portable credential to verify
- * @param verificationKey — the NftProgram verification key (stored on verifier device)
+ * @param verificationKey — the CredentialProgram verification key (stored on verifier device)
  * @returns true if the proof is valid
  */
 export async function verifyCredentialOffline(
@@ -91,8 +91,8 @@ export async function verifyCredentialOffline(
     }
 
     // Reconstruct proof from JSON and verify using the ZkProgram
-    const proof = await NftOperationProof.fromJSON(credential.proofJson);
-    return NftProgram.verify(proof);
+    const proof = await CredentialOperationProof.fromJSON(credential.proofJson);
+    return CredentialProgram.verify(proof);
   } catch {
     return false;
   }

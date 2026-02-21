@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>zkpCare -- Insurer / PBM Node</title>
+  <link rel="stylesheet" href="css/node-dashboard.css">
+</head>
+<body>
+
+  <!-- Fixed Header -->
+  <header class="node-header theme-insurer">
+    <h1 style="color: var(--color-insurer);">Insurer / PBM Node</h1>
+    <div class="node-identity">
+      <span class="health-dot disconnected" id="header-health" title="Sequencer connection"></span>
+    </div>
+  </header>
+
+  <!-- Privacy Banner -->
+  <div style="max-width: 1400px; margin: 0 auto; padding: 76px 24px 0 24px;">
+    <div class="privacy-banner">
+      <h3>Zero PHI/PII</h3>
+      <p>All identifiers are opaque Poseidon hashes. No personal data is visible.</p>
+    </div>
+  </div>
+
+  <!-- Dashboard Grid -->
+  <main class="dashboard-grid" style="padding-top: 12px;">
+    <div id="section-overview"></div>
+    <div id="section-explorer"></div>
+    <div id="section-reports"></div>
+    <div id="section-audit"></div>
+    <div id="section-admin"></div>
+    <div id="section-chain-proof"></div>
+    <div id="section-receipts"></div>
+    <div id="section-batches"></div>
+    <div id="section-audit-chain"></div>
+    <div id="section-info"></div>
+  </main>
+
+  <script type="module" src="js/insurer-dashboard.js"></script>
+</body>
+</html>

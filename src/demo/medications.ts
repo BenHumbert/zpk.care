@@ -65,6 +65,8 @@ export interface DemoMedication {
   packageSize: number;
   /** Formulary entry for this medication */
   formularyEntry: FormularyEntryLocalData;
+  /** Whether this medication starts on the formulary (default true) */
+  initiallyOnFormulary?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -646,19 +648,157 @@ const TIER4_SPECIALTY: DemoMedication[] = [
 ];
 
 // ─────────────────────────────────────────────────────────────
+// OFF-FORMULARY — Not initially covered (insurer can add)
+// ─────────────────────────────────────────────────────────────
+
+const OFF_FORMULARY: DemoMedication[] = [
+  {
+    ndc: '00169468412',
+    ndcFormatted: '00169-4684-12',
+    gpi: '27700010302220',
+    brandName: 'Wegovy',
+    genericName: 'Semaglutide (Weight Management)',
+    strength: '2.4mg/dose',
+    dosageForm: 'Prefilled Pen',
+    route: 'Subcutaneous',
+    manufacturer: 'Novo Nordisk',
+    therapeuticClass: 'GLP-1 Receptor Agonist (Weight)',
+    deaSchedule: 0,
+    awpUnitPriceCents: 170000,
+    awpPackagePriceCents: 170000,
+    packageSize: 1,
+    initiallyOnFormulary: false,
+    formularyEntry: {
+      ndc: '00169468412',
+      tierLevel: 4,
+      copayAmount: 20000,
+      requiresPriorAuth: true,
+      maxQuantityPerFill: 3,
+      maxDaySupply: 90,
+      stepTherapyRequired: true,
+    },
+  },
+  {
+    ndc: '00069025001',
+    ndcFormatted: '00069-0250-01',
+    gpi: '12300040100120',
+    brandName: 'Paxlovid',
+    genericName: 'Nirmatrelvir/Ritonavir',
+    strength: '150mg/100mg',
+    dosageForm: 'Tablet Pack',
+    route: 'Oral',
+    manufacturer: 'Pfizer',
+    therapeuticClass: 'COVID-19 Antiviral (Protease Inhibitor)',
+    deaSchedule: 0,
+    awpUnitPriceCents: 26500,
+    awpPackagePriceCents: 132500,
+    packageSize: 5,
+    initiallyOnFormulary: false,
+    formularyEntry: {
+      ndc: '00069025001',
+      tierLevel: 3,
+      copayAmount: 6000,
+      requiresPriorAuth: false,
+      maxQuantityPerFill: 5,
+      maxDaySupply: 5,
+      stepTherapyRequired: false,
+    },
+  },
+  {
+    ndc: '00074116802',
+    ndcFormatted: '00074-1168-02',
+    gpi: '21100080002440',
+    brandName: 'Skyrizi',
+    genericName: 'Risankizumab-rzaa',
+    strength: '150mg/mL',
+    dosageForm: 'Prefilled Syringe',
+    route: 'Subcutaneous',
+    manufacturer: 'AbbVie',
+    therapeuticClass: 'IL-23 Inhibitor (Psoriasis)',
+    deaSchedule: 0,
+    awpUnitPriceCents: 2800000,
+    awpPackagePriceCents: 2800000,
+    packageSize: 1,
+    initiallyOnFormulary: false,
+    formularyEntry: {
+      ndc: '00074116802',
+      tierLevel: 4,
+      copayAmount: 25000,
+      requiresPriorAuth: true,
+      maxQuantityPerFill: 1,
+      maxDaySupply: 90,
+      stepTherapyRequired: true,
+    },
+  },
+  {
+    ndc: '00002140580',
+    ndcFormatted: '00002-1405-80',
+    gpi: '27700030100220',
+    brandName: 'Mounjaro',
+    genericName: 'Tirzepatide',
+    strength: '5mg/0.5mL',
+    dosageForm: 'Prefilled Pen',
+    route: 'Subcutaneous',
+    manufacturer: 'Eli Lilly',
+    therapeuticClass: 'GIP/GLP-1 Receptor Agonist',
+    deaSchedule: 0,
+    awpUnitPriceCents: 105000,
+    awpPackagePriceCents: 420000,
+    packageSize: 4,
+    initiallyOnFormulary: false,
+    formularyEntry: {
+      ndc: '00002140580',
+      tierLevel: 4,
+      copayAmount: 17500,
+      requiresPriorAuth: true,
+      maxQuantityPerFill: 4,
+      maxDaySupply: 30,
+      stepTherapyRequired: true,
+    },
+  },
+  {
+    ndc: '00589060701',
+    ndcFormatted: '00589-0607-01',
+    gpi: '65300015200840',
+    brandName: 'Adbry',
+    genericName: 'Tralokinumab-ldrm',
+    strength: '150mg/mL',
+    dosageForm: 'Prefilled Syringe',
+    route: 'Subcutaneous',
+    manufacturer: 'LEO Pharma',
+    therapeuticClass: 'IL-13 Inhibitor (Eczema/Dermatitis)',
+    deaSchedule: 0,
+    awpUnitPriceCents: 340000,
+    awpPackagePriceCents: 680000,
+    packageSize: 2,
+    initiallyOnFormulary: false,
+    formularyEntry: {
+      ndc: '00589060701',
+      tierLevel: 3,
+      copayAmount: 8000,
+      requiresPriorAuth: true,
+      maxQuantityPerFill: 2,
+      maxDaySupply: 30,
+      stepTherapyRequired: true,
+    },
+  },
+];
+
+// ─────────────────────────────────────────────────────────────
 // COMBINED EXPORTS
 // ─────────────────────────────────────────────────────────────
 
-/** All demo medications, all tiers */
+/** All demo medications, all tiers (including off-formulary) */
 export const DEMO_MEDICATIONS: DemoMedication[] = [
   ...TIER1_GENERICS,
   ...TIER2_PREFERRED,
   ...TIER3_NON_PREFERRED,
   ...TIER4_SPECIALTY,
+  ...OFF_FORMULARY,
 ];
 
-/** Tier 1 generics only */
-export { TIER1_GENERICS, TIER2_PREFERRED, TIER3_NON_PREFERRED, TIER4_SPECIALTY };
+/** Tier arrays + off-formulary */
+export { TIER1_GENERICS, TIER2_PREFERRED, TIER3_NON_PREFERRED, TIER4_SPECIALTY, OFF_FORMULARY };
 
 /** Quick lookup: NDC → DemoMedication */
 export const MEDICATION_BY_NDC = new Map<string, DemoMedication>(

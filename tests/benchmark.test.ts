@@ -34,9 +34,9 @@ import { lifecycleLeafCommitment, LIFECYCLE_ELIGIBLE } from '../src/engine/lifec
 import { MerkleForest, ForestDomain } from '../src/zkp/merkle-forest.js';
 import { hashString, dateToField, centsToField, quantityToField } from '../src/zkp/hash-utils.js';
 
-// NFT
-import { NftData, NFT_TYPE_ELIGIBILITY, NFT_TYPE_PRESCRIPTION } from '../src/nft/nft-data.js';
-import { NftInventory } from '../src/nft/nft-inventory.js';
+// Credentials
+import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY, CREDENTIAL_TYPE_PRESCRIPTION } from '../src/credentials/credential-data.js';
+import { CredentialInventory } from '../src/credentials/credential-inventory.js';
 
 // Eligibility
 import { EligibilityData, buildEligibilityData } from '../src/eligibility/eligibility-data.js';
@@ -134,7 +134,7 @@ let enrollmentService: EnrollmentService;
 let adminWalletId: Field;
 
 // Enrollment output
-let eligNftData: NftData;
+let eligCredentialData: CredentialData;
 let eligForest: MerkleForest;
 let eligForestRoots: ForestRoots;
 let eligibilityData: EligibilityData;
@@ -142,8 +142,8 @@ let accumulatorData: AccumulatorData;
 let formularyEntry: FormularyEntry;
 let formularyRegistry: FormularyRegistry;
 
-// Prescription NFT state
-let rxNftData: NftData;
+// Prescription credential state
+let rxCredentialData: CredentialData;
 let rxForest: MerkleForest;
 let rxForestRoots: ForestRoots;
 let prescriptionData: PrescriptionData;
@@ -249,7 +249,7 @@ describe('Full Claim Lifecycle Benchmark', () => {
       });
 
       // Generate enrollment token
-      tokenAuthority.generateToken('ACME-CORP', 'PLAN-GOLD-2026', 'EMP-10001', '20261231', 'TOKEN-001');
+      tokenAuthority.generateToken('ACME-CORP', 'PLAN-GOLD-2026', 'EMP-10001', 'FAM-ACME-10001', '20261231', 'TOKEN-001');
 
       enrollmentService = new EnrollmentService(
         walletRegistry, lifecycleTree, tokenAuthority, groupRegistry,
@@ -262,7 +262,7 @@ describe('Full Claim Lifecycle Benchmark', () => {
       const result = enrollmentService.processEnrollment(memberWalletId, 'TOKEN-001', '20260201');
 
       // Extract state from enrollment result
-      eligNftData = result.nftData;
+      eligCredentialData = result.credentialData;
       eligForest = enrollmentService.getMemberForest(memberWalletId)!;
       eligForestRoots = ForestRoots.fromForest(eligForest);
 
@@ -304,8 +304,8 @@ describe('Full Claim Lifecycle Benchmark', () => {
       });
     });
 
-    // 1e. Build prescription NFT (simulates eScript creation)
-    await timed('P1', 'Build prescription NFT + forest', 'offchain', true, () => {
+    // 1e. Build prescription credential (simulates eScript creation)
+    await timed('P1', 'Build prescription credential + forest', 'offchain', true, () => {
       const ndcHash = hashString('00071015523');
       const rxCommitment = Poseidon.hash([
         ndcHash,
@@ -353,8 +353,8 @@ describe('Full Claim Lifecycle Benchmark', () => {
 
       rxForestRoots = ForestRoots.fromForest(rxForest);
 
-      rxNftData = new NftData({
-        nftType: NFT_TYPE_PRESCRIPTION,
+      rxCredentialData = new CredentialData({
+        credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
         forestRoot: rxForest.getForestRoot(),
         issuerWalletId: prescriberWalletId,
         subjectWalletId: pharmacyWalletId,
@@ -450,7 +450,7 @@ describe('Full Claim Lifecycle Benchmark', () => {
 
     await timed('P3', 'EligibilityProgram.proveEligibility', 'prove', true, () =>
       EligibilityProgram.proveEligibility(
-        eligNftData,
+        eligCredentialData,
         eligibilityData,
         eligForestRoots,
         eligWitness,
@@ -469,7 +469,7 @@ describe('Full Claim Lifecycle Benchmark', () => {
 
     await timed('P3', 'AccessControl.proveFormularyAccess', 'prove', true, () =>
       AccessControlProgram.proveFormularyAccess(
-        eligNftData,
+        eligCredentialData,
         eligibilityData,
         eligForestRoots,
         eligWitness,
@@ -478,6 +478,7 @@ describe('Full Claim Lifecycle Benchmark', () => {
         ndcHash,
         quantityToField(30),
         Field(30n),
+        Field(20260101),
       ));
   }, 120_000);
 
@@ -513,7 +514,7 @@ describe('Full Claim Lifecycle Benchmark', () => {
 
     await timed('P3', 'PrescriptionProgram.proveStatusUpdate', 'prove', true, () =>
       PrescriptionProgram.proveStatusUpdate(
-        rxNftData,
+        rxCredentialData,
         prescriptionData,
         activeStatus,
         filledStatus,
@@ -521,13 +522,14 @@ describe('Full Claim Lifecycle Benchmark', () => {
         medWitness,
         oldStatusWitness,
         newSlotWitness,
+        ...prescriberPreimageFields as [Field, Field, Field],
       ));
 
     // Mutate forest for next phase (fulfillment needs FILLED status in tree)
     rxForest.setLeaf(ForestDomain.TRANSACTION, 1n, filledStatus.commitment());
     rxForestRoots = ForestRoots.fromForest(rxForest);
-    rxNftData = new NftData({
-      nftType: NFT_TYPE_PRESCRIPTION,
+    rxCredentialData = new CredentialData({
+      credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
       forestRoot: rxForest.getForestRoot(),
       issuerWalletId: prescriberWalletId,
       subjectWalletId: pharmacyWalletId,
@@ -538,7 +540,7 @@ describe('Full Claim Lifecycle Benchmark', () => {
   }, 120_000);
 
   test('Phase 3h: Prove fulfillment with accumulators (THE CLAIM)', async () => {
-    // Build witnesses for the dual-NFT fulfillment proof
+    // Build witnesses for the dual-credential fulfillment proof
     const medWitness = rxForest.getWitness(ForestDomain.MEDICATION, 0n);
     const statusWitness = rxForest.getWitness(ForestDomain.TRANSACTION, 1n);
     const newSlotWitness = rxForest.getWitness(ForestDomain.TRANSACTION, 2n);
@@ -547,7 +549,7 @@ describe('Full Claim Lifecycle Benchmark', () => {
 
     await timed('P3', 'AccumulatorFulfillment.proveFulfillmentWithAccumulator', 'prove', true, () =>
       AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(
-        rxNftData,
+        rxCredentialData,
         prescriptionData,
         filledStatus,
         fulfillmentData,
@@ -558,10 +560,12 @@ describe('Full Claim Lifecycle Benchmark', () => {
         newSlotWitness,
         formWitness,
         eligibilityData.formularyRoot,
-        eligNftData,
+        eligCredentialData,
         eligForestRoots,
         accumulatorData,
         accumWitness,
+        // H2 fix: pharmacy wallet identity preimage (qualifier, serviceProviderIdHash, enrollmentKeyHash)
+        ...pharmacyPreimageFields as [Field, Field, Field],
       ));
   }, 180_000);
 

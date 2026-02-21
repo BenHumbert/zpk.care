@@ -16,9 +16,12 @@ import http from 'http';
 import https from 'https';
 import type { StateTransitionProof } from '../engine/state-transition.js';
 import type { L2ChainEvent, L2EventHandler, L2NodeStatus } from './l2-node.js';
-import type { L2Receipt, L2Block, L2Batch } from './l2-types.js';
+import type { L2Receipt, L2Block, L2Batch, L2ChainState, L2ChainProofResponse, ClaimSubmissionMetadata } from './l2-types.js';
+import type { ClaimAccumulatorEntry } from './claim-accumulator-types.js';
 import type { AuditLog } from '../audit/audit-types.js';
 import type { RpcRequest, RpcResponse } from './l2-rpc-server.js';
+import type { GossipMessage, PeerInfo, StateDigest } from './l2-peer-types.js';
+import type { L2SequencerState } from './l2-checkpoint.js';
 import { l2Stringify, l2Parse } from './l2-json.js';
 
 // ─── Configuration ──────────────────────────────────────
@@ -33,6 +36,8 @@ export interface L2ClientOptions {
   maxRetries: number;
   /** Base delay for exponential backoff in ms. Default 1000. */
   retryBaseDelayMs: number;
+  /** Bearer token for admin RPC methods. When set, sent as Authorization header on all requests. */
+  adminToken?: string;
 }
 
 /** Default client options (sequencerUrl must be provided) */
@@ -96,6 +101,131 @@ export class L2Client {
   /** Trigger a manual batch build on the sequencer */
   async forceBatch(): Promise<L2Batch | null> {
     return this.rpcCall<L2Batch | null>('l2_forceBatch');
+  }
+
+  // ─── State Queries ──────────────────────────────────────
+
+  /** Get compact chain state (roots, counts, batch info) for proof building */
+  async getChainState(): Promise<L2ChainState> {
+    return this.rpcCall<L2ChainState>('l2_getChainState');
+  }
+
+  /** Get all receipts for a specific wallet */
+  async getReceiptsByWallet(walletId: string): Promise<L2Receipt[]> {
+    return this.rpcCall<L2Receipt[]>('l2_getReceiptsByWallet', { walletId });
+  }
+
+  /** Get all receipts (full list for light node sync) */
+  async getAllReceipts(): Promise<L2Receipt[]> {
+    return this.rpcCall<L2Receipt[]>('l2_getAllReceipts');
+  }
+
+  /** Get all batches (full list for settlement tracking) */
+  async getAllBatches(): Promise<L2Batch[]> {
+    return this.rpcCall<L2Batch[]>('l2_getAllBatches');
+  }
+
+  /** Get latest chain proof for offline verification */
+  async getChainProof(): Promise<L2ChainProofResponse> {
+    return this.rpcCall<L2ChainProofResponse>('l2_getChainProof');
+  }
+
+  /** Get a published formulary by plan ID hash */
+  async getFormulary(planIdHash: string): Promise<{
+    formularyRoot: string;
+    entriesJson: string;
+    publishedAt: number;
+    version: number;
+  } | null> {
+    return this.rpcCall('l2_getFormulary', { planIdHash });
+  }
+
+  /** Publish a formulary update for a plan */
+  async storeFormulary(
+    planIdHash: string,
+    formularyRoot: string,
+    entriesJson: string,
+  ): Promise<{ success: boolean; planIdHash: string; formularyRoot: string }> {
+    return this.rpcCall('l2_storeFormulary', { planIdHash, formularyRoot, entriesJson });
+  }
+
+  // ─── Claim Accumulator Queries ──────────────────────────
+
+  /** Get all claims for a member wallet ID */
+  async getClaimsByMember(walletId: string): Promise<ClaimAccumulatorEntry[]> {
+    return this.rpcCall<ClaimAccumulatorEntry[]>('l2_getClaimsByMember', { walletId });
+  }
+
+  /** Get all claims for a pharmacy wallet ID */
+  async getClaimsByPharmacy(walletId: string): Promise<ClaimAccumulatorEntry[]> {
+    return this.rpcCall<ClaimAccumulatorEntry[]>('l2_getClaimsByPharmacy', { walletId });
+  }
+
+  /** Get all claims for a prescriber wallet ID */
+  async getClaimsByPrescriber(walletId: string): Promise<ClaimAccumulatorEntry[]> {
+    return this.rpcCall<ClaimAccumulatorEntry[]>('l2_getClaimsByPrescriber', { walletId });
+  }
+
+  /** Get all claims for an NDC hash */
+  async getClaimsByNdc(ndcHash: string): Promise<ClaimAccumulatorEntry[]> {
+    return this.rpcCall<ClaimAccumulatorEntry[]>('l2_getClaimsByNdc', { ndcHash });
+  }
+
+  /** Get a claim with its Merkle inclusion proof */
+  async getClaimWithProof(leafIndex: bigint): Promise<{
+    entry: ClaimAccumulatorEntry;
+    witnessJson: string;
+    root: string;
+  } | null> {
+    return this.rpcCall('l2_getClaimWithProof', { leafIndex: leafIndex.toString() });
+  }
+
+  /** Get the Claim Accumulator Tree root and leaf count */
+  async getClaimAccumulatorRoot(): Promise<{ root: string; leafCount: string }> {
+    return this.rpcCall('l2_getClaimAccumulatorRoot');
+  }
+
+  // ─── Peer Network / Gossip ────────────────────────────
+
+  /** Relay a gossip message to a remote peer */
+  async gossipRelay(
+    message: GossipMessage,
+    fromPeerId?: string,
+  ): Promise<{ accepted: boolean }> {
+    return this.rpcCall('l2_gossipRelay', {
+      message: message as unknown as Record<string, unknown>,
+      ...(fromPeerId ? { fromPeerId } : {}),
+    });
+  }
+
+  /** Get a remote peer's identity information */
+  async getPeerInfo(): Promise<PeerInfo> {
+    return this.rpcCall<PeerInfo>('l2_getPeerInfo');
+  }
+
+  /** Get a remote peer's list of known peer URLs */
+  async getPeerList(): Promise<string[]> {
+    return this.rpcCall<string[]>('l2_getPeerList');
+  }
+
+  /** Request a full state snapshot from a peer (for IBD recovery) */
+  async requestSnapshot(): Promise<L2SequencerState> {
+    return this.rpcCall<L2SequencerState>('l2_requestSnapshot');
+  }
+
+  /** Get a compact state digest from a peer for quick sync check */
+  async getStateDigest(): Promise<StateDigest> {
+    return this.rpcCall<StateDigest>('l2_getStateDigest');
+  }
+
+  /** Get partition info for multi-sequencer routing */
+  async getPartitionInfo(): Promise<{
+    partitioned: boolean;
+    partitionConfig: { partitionCount: number; partitionIndex: number } | null;
+    allPartitions: { partitionIndex: number; url: string }[];
+    l2Only: boolean;
+  }> {
+    return this.rpcCall('l2_getPartitionInfo');
   }
 
   /** Health check — returns true if sequencer is reachable and running */
@@ -207,9 +337,13 @@ export class L2Client {
     };
 
     const body = l2Stringify(rpcReq);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this.options.adminToken) {
+      headers['Authorization'] = `Bearer ${this.options.adminToken}`;
+    }
     const resBody = await this.httpRequest('/rpc', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body,
     });
 

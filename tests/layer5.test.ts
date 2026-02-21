@@ -27,11 +27,11 @@ import {
 } from '../src/eligibility/eligibility-program.js';
 import { EligibilityService } from '../src/eligibility/eligibility-service.js';
 import { VerificationService } from '../src/eligibility/verification-service.js';
-import { NftData, NFT_TYPE_ELIGIBILITY, NFT_TYPE_PRESCRIPTION } from '../src/nft/nft-data.js';
-import { NftInventory } from '../src/nft/nft-inventory.js';
-import { NftProgram } from '../src/nft/nft-program.js';
-import { serializeCredential } from '../src/nft/portable-credential.js';
-import { CareContract, NftRegistryWitness } from '../src/engine/care-contract.js';
+import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY, CREDENTIAL_TYPE_PRESCRIPTION } from '../src/credentials/credential-data.js';
+import { CredentialInventory } from '../src/credentials/credential-inventory.js';
+import { CredentialProgram } from '../src/credentials/credential-program.js';
+import { serializeCredential } from '../src/credentials/portable-credential.js';
+import { CareContract, CredentialRegistryWitness } from '../src/engine/care-contract.js';
 import {
   LIFECYCLE_REGISTERED,
   LIFECYCLE_ELIGIBLE,
@@ -58,6 +58,7 @@ import {
 import { InMemoryStore } from '../src/storage/local-store.js';
 import { MerkleForest, ForestDomain, ForestMerkleWitness } from '../src/zkp/merkle-forest.js';
 import { hashString, dateToField } from '../src/zkp/hash-utils.js';
+import { NetworkMerkleWitness, NETWORK_TREE_HEIGHT } from '../src/eligibility/provider-network-registry.js';
 import type { MemberLocalData } from '../src/models/member.js';
 import type { PrescriberLocalData } from '../src/models/prescriber.js';
 import type { PharmacyLocalData } from '../src/models/pharmacy.js';
@@ -110,6 +111,7 @@ function createTestEligibilityData(): EligibilityData {
     copayAmountCents: Field(2000),
     coverageType: COVERAGE_PHARMACY,
     formularyRoot: Field(0),
+    networkRoot: Field(0),
   });
 }
 
@@ -123,14 +125,14 @@ function createTestForest(eligData: EligibilityData, leafIndex: bigint = 0n): Me
   return forest;
 }
 
-/** Helper: create an ELIGIBILITY NFT from eligibility data + forest */
-function createTestEligibilityNft(
+/** Helper: create an ELIGIBILITY credential from eligibility data + forest */
+function createTestEligibilityCredential(
   forest: MerkleForest,
   subject: Field = memberWalletId,
   issuer: Field = prescriberWalletId,
-): NftData {
-  return new NftData({
-    nftType: NFT_TYPE_ELIGIBILITY,
+): CredentialData {
+  return new CredentialData({
+    credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
     forestRoot: forest.getForestRoot(),
     issuerWalletId: issuer,
     subjectWalletId: subject,
@@ -143,6 +145,12 @@ function createTestEligibilityNft(
 // ─── Tests ───────────────────────────────────────────────
 
 describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
+  /** Helper: create a dummy network witness (for networkRoot=Field(0) / no-network tests) */
+  function dummyNetworkWitness(): NetworkMerkleWitness {
+    const emptyTree = new MerkleTree(NETWORK_TREE_HEIGHT);
+    return new NetworkMerkleWitness(emptyTree.getWitness(0n));
+  }
+
   // ─── EligibilityData Model ─────────────────────────────
 
   describe('EligibilityData Model', () => {
@@ -189,7 +197,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       expect(ed.coverageType.toString()).toBe('1');
     });
 
-    test('commitment matches manual Poseidon.hash of 7 fields', () => {
+    test('commitment matches manual Poseidon.hash of 8 fields', () => {
       const ed = createTestEligibilityData();
       const manual = Poseidon.hash([
         ed.planIdHash,
@@ -199,6 +207,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
         ed.copayAmountCents,
         ed.coverageType,
         ed.formularyRoot,
+        ed.networkRoot,
       ]);
       expect(ed.commitment().toString()).toBe(manual.toString());
     });
@@ -304,14 +313,14 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const { index: planIndex } = planRegistry.addPlan(eligData);
 
       const forest = createTestForest(eligData);
-      const nftData = createTestEligibilityNft(forest);
+      const credentialData = createTestEligibilityCredential(forest);
       const forestRoots = ForestRoots.fromForest(forest);
       const forestWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
       const planWitness = planRegistry.getPlanWitness(planIndex);
       const currentDate = Field(20260601); // within effective range
 
       const result = await EligibilityProgram.proveEligibility(
-        nftData,
+        credentialData,
         eligData,
         forestRoots,
         forestWitness,
@@ -322,9 +331,9 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
 
       expect(result.proof).toBeDefined();
       const output = result.proof.publicOutput as unknown as EligibilityOutput;
-      expect(output.nftCommitment.toString()).toBe(nftData.commitment().toString());
+      expect(output.credentialCommitment.toString()).toBe(credentialData.commitment().toString());
       expect(output.benefitPlanCommitment.toString()).toBe(eligData.commitment().toString());
-      expect(output.forestRoot.toString()).toBe(nftData.forestRoot.toString());
+      expect(output.forestRoot.toString()).toBe(credentialData.forestRoot.toString());
       expect(output.coverageType.toString()).toBe(COVERAGE_PHARMACY.toString());
     });
 
@@ -334,13 +343,13 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const { index: planIndex } = planRegistry.addPlan(eligData);
 
       const forest = createTestForest(eligData);
-      const nftData = createTestEligibilityNft(forest);
+      const credentialData = createTestEligibilityCredential(forest);
       const forestRoots = ForestRoots.fromForest(forest);
       const forestWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
       const planWitness = planRegistry.getPlanWitness(planIndex);
 
       const result = await EligibilityProgram.proveEligibility(
-        nftData, eligData, forestRoots, forestWitness,
+        credentialData, eligData, forestRoots, forestWitness,
         planWitness, planRegistry.getRoot(), Field(20260601),
       );
 
@@ -348,15 +357,15 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       expect(isValid).toBe(true);
     });
 
-    test('rejects wrong NFT type', async () => {
+    test('rejects wrong credential type', async () => {
       const eligData = createTestEligibilityData();
       const planRegistry = new BenefitPlanRegistry();
       const { index: planIndex } = planRegistry.addPlan(eligData);
 
       const forest = createTestForest(eligData);
-      // Create a PRESCRIPTION NFT instead of ELIGIBILITY
-      const wrongNft = new NftData({
-        nftType: NFT_TYPE_PRESCRIPTION,
+      // Create a PRESCRIPTION credential instead of ELIGIBILITY
+      const wrongCredential = new CredentialData({
+        credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
         forestRoot: forest.getForestRoot(),
         issuerWalletId: prescriberWalletId,
         subjectWalletId: pharmacyWalletId,
@@ -371,20 +380,20 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
 
       await expect(
         EligibilityProgram.proveEligibility(
-          wrongNft, eligData, forestRoots, forestWitness,
+          wrongCredential, eligData, forestRoots, forestWitness,
           planWitness, planRegistry.getRoot(), Field(20260601),
         ),
       ).rejects.toThrow();
     });
 
-    test('rejects revoked NFT', async () => {
+    test('rejects revoked credential', async () => {
       const eligData = createTestEligibilityData();
       const planRegistry = new BenefitPlanRegistry();
       const { index: planIndex } = planRegistry.addPlan(eligData);
 
       const forest = createTestForest(eligData);
-      const revokedNft = new NftData({
-        nftType: NFT_TYPE_ELIGIBILITY,
+      const revokedCredential = new CredentialData({
+        credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
         forestRoot: forest.getForestRoot(),
         issuerWalletId: prescriberWalletId,
         subjectWalletId: memberWalletId,
@@ -399,7 +408,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
 
       await expect(
         EligibilityProgram.proveEligibility(
-          revokedNft, eligData, forestRoots, forestWitness,
+          revokedCredential, eligData, forestRoots, forestWitness,
           planWitness, planRegistry.getRoot(), Field(20260601),
         ),
       ).rejects.toThrow();
@@ -411,7 +420,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const { index: planIndex } = planRegistry.addPlan(eligData);
 
       const forest = createTestForest(eligData);
-      const nftData = createTestEligibilityNft(forest);
+      const credentialData = createTestEligibilityCredential(forest);
       const forestRoots = ForestRoots.fromForest(forest);
       const forestWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
       const planWitness = planRegistry.getPlanWitness(planIndex);
@@ -420,7 +429,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
 
       await expect(
         EligibilityProgram.proveEligibility(
-          nftData, eligData, forestRoots, forestWitness,
+          credentialData, eligData, forestRoots, forestWitness,
           planWitness, planRegistry.getRoot(), expiredDate,
         ),
       ).rejects.toThrow();
@@ -432,7 +441,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const planRegistry = new BenefitPlanRegistry();
 
       const forest = createTestForest(eligData);
-      const nftData = createTestEligibilityNft(forest);
+      const credentialData = createTestEligibilityCredential(forest);
       const forestRoots = ForestRoots.fromForest(forest);
       const forestWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
       // Witness for index 0 in empty tree
@@ -440,7 +449,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
 
       await expect(
         EligibilityProgram.proveEligibility(
-          nftData, eligData, forestRoots, forestWitness,
+          credentialData, eligData, forestRoots, forestWitness,
           planWitness, planRegistry.getRoot(), Field(20260601),
         ),
       ).rejects.toThrow();
@@ -479,12 +488,15 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
         LIFECYCLE_ELIGIBLE,
         witness,
         tree.getRoot(),
+        Field(0),
+        dummyNetworkWitness(),
       );
 
       expect(result.proof).toBeDefined();
       const output = result.proof.publicOutput as unknown as InNetworkOutput;
       expect(output.walletId.toString()).toBe(prescriberWalletId.toString());
       expect(output.lifecycleRoot.toString()).toBe(tree.getRoot().toString());
+      expect(output.networkRoot.toString()).toBe('0');
     });
 
     test('ACTIVE lifecycle generates valid proof', async () => {
@@ -502,6 +514,8 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
         LIFECYCLE_ACTIVE,
         witness,
         tree.getRoot(),
+        Field(0),
+        dummyNetworkWitness(),
       );
 
       const isValid = await InNetworkProgram.verify(result.proof);
@@ -524,6 +538,8 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
           LIFECYCLE_REGISTERED,
           witness,
           tree.getRoot(),
+          Field(0),
+          dummyNetworkWitness(),
         ),
       ).rejects.toThrow();
     });
@@ -544,6 +560,8 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
           LIFECYCLE_REVOKED,
           witness,
           tree.getRoot(),
+          Field(0),
+          dummyNetworkWitness(),
         ),
       ).rejects.toThrow();
     });
@@ -552,7 +570,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
   // ─── EligibilityService ────────────────────────────────
 
   describe('EligibilityService', () => {
-    test('buildEligibilityNft creates correct NftData', () => {
+    test('buildEligibilityCredential creates correct CredentialData', () => {
       const store = new InMemoryStore();
       const registry = new WalletRegistry();
       const lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
@@ -564,19 +582,19 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const eligData = createTestEligibilityData();
       const forest = new MerkleForest();
 
-      const nftData = service.buildEligibilityNft(
+      const credentialData = service.buildEligibilityCredential(
         memberWalletId, eligData, forest, 0n, Field(20260201),
       );
 
-      expect(nftData.nftType.toString()).toBe(NFT_TYPE_ELIGIBILITY.toString());
-      expect(nftData.subjectWalletId.toString()).toBe(memberWalletId.toString());
-      expect(nftData.issuerWalletId.toString()).toBe(prescriberWalletId.toString());
-      expect(nftData.revoked.toString()).toBe('0');
+      expect(credentialData.credentialType.toString()).toBe(CREDENTIAL_TYPE_ELIGIBILITY.toString());
+      expect(credentialData.subjectWalletId.toString()).toBe(memberWalletId.toString());
+      expect(credentialData.issuerWalletId.toString()).toBe(prescriberWalletId.toString());
+      expect(credentialData.revoked.toString()).toBe('0');
       // Forest root should have the eligibility data in it now
-      expect(nftData.forestRoot.toString()).toBe(forest.getForestRoot().toString());
+      expect(credentialData.forestRoot.toString()).toBe(forest.getForestRoot().toString());
     });
 
-    test('mintEligibilityNft updates inventory and registry', async () => {
+    test('mintEligibilityCredential updates inventory and registry', async () => {
       const store = new InMemoryStore();
       const registry = new WalletRegistry();
       const lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
@@ -589,18 +607,18 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const service = new EligibilityService(
         store, registry, lifecycleTree, planRegistry, prescriberWalletId,
       );
-      const inventory = new NftInventory();
+      const inventory = new CredentialInventory();
       const forest = new MerkleForest();
 
-      const result = await service.mintEligibilityNft(
+      const result = await service.mintEligibilityCredential(
         memberWalletId, eligData, forest, inventory,
         0n, 0n, Field(20260601), Field(20260201),
       );
 
-      expect(result.nftIndex).toBe(0n);
+      expect(result.credentialIndex).toBe(0n);
       expect(inventory.count).toBe(1);
       expect(result.newInventoryRoot.toString()).toBe(inventory.getRoot().toString());
-      expect(result.nftData.nftType.toString()).toBe(NFT_TYPE_ELIGIBILITY.toString());
+      expect(result.credentialData.credentialType.toString()).toBe(CREDENTIAL_TYPE_ELIGIBILITY.toString());
     });
 
     test('proveEligibility generates verifiable proof', async () => {
@@ -616,10 +634,10 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       );
 
       const forest = createTestForest(eligData);
-      const nftData = createTestEligibilityNft(forest);
+      const credentialData = createTestEligibilityCredential(forest);
 
       const proof = await service.proveEligibility(
-        nftData, eligData, forest, 0n, planIndex, Field(20260601),
+        credentialData, eligData, forest, 0n, planIndex, Field(20260601),
       );
 
       const isValid = await EligibilityProgram.verify(proof);
@@ -650,7 +668,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       expect(isValid).toBe(true);
     });
 
-    test('full flow: determine eligibility → mint NFT → verify', async () => {
+    test('full flow: determine eligibility → mint credential → verify', async () => {
       const store = new InMemoryStore();
       const registry = new WalletRegistry();
       const lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
@@ -664,11 +682,11 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const service = new EligibilityService(
         store, registry, lifecycleTree, planRegistry, prescriberWalletId,
       );
-      const inventory = new NftInventory();
+      const inventory = new CredentialInventory();
       const forest = new MerkleForest();
 
-      // Insurer mints eligibility NFT
-      const mintResult = await service.mintEligibilityNft(
+      // Insurer mints eligibility credential
+      const mintResult = await service.mintEligibilityCredential(
         memberWalletId, eligData, forest, inventory,
         0n, 0n, Field(20260601), Field(20260201),
       );
@@ -677,10 +695,10 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const isValid = await EligibilityProgram.verify(mintResult.eligibilityProof);
       expect(isValid).toBe(true);
 
-      // Verify NFT is in inventory
-      const storedNft = inventory.getNft(mintResult.nftIndex);
-      expect(storedNft).toBeDefined();
-      expect(storedNft!.nftType.toString()).toBe(NFT_TYPE_ELIGIBILITY.toString());
+      // Verify credential is in inventory
+      const storedCredential = inventory.getCredential(mintResult.credentialIndex);
+      expect(storedCredential).toBeDefined();
+      expect(storedCredential!.credentialType.toString()).toBe(CREDENTIAL_TYPE_ELIGIBILITY.toString());
     });
   });
 
@@ -695,13 +713,13 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       planRegistry.addPlan(eligData);
 
       const forest = createTestForest(eligData);
-      const nftData = createTestEligibilityNft(forest);
+      const credentialData = createTestEligibilityCredential(forest);
       const forestRoots = ForestRoots.fromForest(forest);
       const forestWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
       const planWitness = planRegistry.getPlanWitness(0n);
 
       const result = await EligibilityProgram.proveEligibility(
-        nftData, eligData, forestRoots, forestWitness,
+        credentialData, eligData, forestRoots, forestWitness,
         planWitness, planRegistry.getRoot(), Field(20260601),
       );
 
@@ -724,6 +742,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
 
       const result = await InNetworkProgram.proveInNetwork(
         pgResult.proof, LIFECYCLE_ELIGIBLE, witness, tree.getRoot(),
+        Field(0), dummyNetworkWitness(),
       );
 
       const isValid = await verificationService.verifyInNetwork(result.proof);
@@ -737,21 +756,21 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       planRegistry.addPlan(eligData);
 
       const forest = createTestForest(eligData);
-      const nftData = createTestEligibilityNft(forest);
+      const credentialData = createTestEligibilityCredential(forest);
       const forestRoots = ForestRoots.fromForest(forest);
       const forestWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
       const planWitness = planRegistry.getPlanWitness(0n);
 
       const eligResult = await EligibilityProgram.proveEligibility(
-        nftData, eligData, forestRoots, forestWitness,
+        credentialData, eligData, forestRoots, forestWitness,
         planWitness, planRegistry.getRoot(), Field(20260601),
       );
 
-      // 2. Build NFT holding proof (need NftProgram compiled)
-      await NftProgram.compile();
+      // 2. Build credential holding proof (need CredentialProgram compiled)
+      await CredentialProgram.compile();
 
-      const inventory = new NftInventory();
-      inventory.mint(nftData);
+      const inventory = new CredentialInventory();
+      inventory.mint(credentialData);
       const memberPreimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
@@ -759,14 +778,14 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
         memberPreimage[3]!, memberPreimage[4]!,
       );
       const invWitness = inventory.getWitness(0n);
-      const holdingResult = await NftProgram.proveHolding(
-        pgResult.proof, nftData, invWitness, inventory.getRoot(),
+      const holdingResult = await CredentialProgram.proveHolding(
+        pgResult.proof, credentialData, invWitness, inventory.getRoot(),
       );
 
       // 3. Serialize holding proof as PortableCredential
       const credential = serializeCredential(
         holdingResult.proof,
-        'nft-holding',
+        'credential-holding',
         Field(12345),
       );
 
@@ -789,25 +808,25 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       planRegistry.addPlan(eligData);
 
       const forest = createTestForest(eligData);
-      const nftData = createTestEligibilityNft(forest);
+      const credentialData = createTestEligibilityCredential(forest);
       const forestRoots = ForestRoots.fromForest(forest);
       const forestWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
       const planWitness = planRegistry.getPlanWitness(0n);
 
       const eligResult = await EligibilityProgram.proveEligibility(
-        nftData, eligData, forestRoots, forestWitness,
+        credentialData, eligData, forestRoots, forestWitness,
         planWitness, planRegistry.getRoot(), Field(20260601),
       );
 
       // Use an expired credential for the holding proof
       const expiredCredential = {
         version: 1 as const,
-        proofType: 'nft-holding' as const,
+        proofType: 'credential-holding' as const,
         proofJson: {} as any,
         publicOutput: {
           walletId: '0',
           operationType: '0',
-          nftCommitment: '0',
+          credentialCommitment: '0',
           oldInventoryRoot: '0',
           newInventoryRoot: '0',
         },
@@ -824,7 +843,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       expect(result.holdingValid).toBe(false);
       expect(result.eligibilityValid).toBe(true);
       expect(result.overallValid).toBe(false);
-      expect(result.details).toContain('NFT holding: FAILED');
+      expect(result.details).toContain('Credential holding: FAILED');
     });
   });
 
@@ -840,7 +859,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
     let adminPkHash: Field;
     let registryTree: MerkleTree;
     let lifecycleTree: MerkleTree;
-    let nftRegistryTree: MerkleTree;
+    let credentialRegistryTree: MerkleTree;
 
     beforeAll(async () => {
       local = await Mina.LocalBlockchain({ proofsEnabled: false });
@@ -853,7 +872,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
 
       registryTree = new MerkleTree(WALLET_TREE_HEIGHT);
       lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
-      nftRegistryTree = new MerkleTree(WALLET_TREE_HEIGHT);
+      credentialRegistryTree = new MerkleTree(WALLET_TREE_HEIGHT);
 
       // Deploy + init core state
       const deployTx = await Mina.transaction(deployer, async () => {
@@ -881,7 +900,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const tx = await Mina.transaction(admin, async () => {
         await contract.initEligibilityState(
           planRegistry.getRoot(),
-          nftRegistryTree.getRoot(),
+          credentialRegistryTree.getRoot(),
           vkHash,
         );
       });
@@ -890,8 +909,8 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
 
       expect(contract.benefitPlanRoot.get().toString())
         .toBe(planRegistry.getRoot().toString());
-      expect(contract.nftRegistryRoot.get().toString())
-        .toBe(nftRegistryTree.getRoot().toString());
+      expect(contract.credentialRegistryRoot.get().toString())
+        .toBe(credentialRegistryTree.getRoot().toString());
       expect(contract.eligibilityVkHash.get().toString())
         .toBe(vkHash.toString());
     });
@@ -901,9 +920,10 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const eligData = createTestEligibilityData();
       planRegistry.addPlan(eligData);
       const newRoot = planRegistry.getRoot();
+      const oldRoot = contract.benefitPlanRoot.get();
 
       const tx = await Mina.transaction(admin, async () => {
-        await contract.updateBenefitPlan(newRoot);
+        await contract.updateBenefitPlan(oldRoot, newRoot);
       });
       await tx.prove();
       await tx.sign([admin.key]).send();
@@ -912,25 +932,25 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
         .toBe(newRoot.toString());
     });
 
-    test('registerGlobalNft adds NFT to global registry', async () => {
+    test('registerGlobalCredential adds credential to global registry', async () => {
       const eligData = createTestEligibilityData();
       const forest = createTestForest(eligData);
-      const nftData = createTestEligibilityNft(forest);
-      const nftCommitment = nftData.commitment();
+      const credentialData = createTestEligibilityCredential(forest);
+      const credentialCommitment = credentialData.commitment();
 
-      const witness = new NftRegistryWitness(nftRegistryTree.getWitness(0n));
+      const witness = new CredentialRegistryWitness(credentialRegistryTree.getWitness(0n));
 
       const tx = await Mina.transaction(admin, async () => {
-        await contract.registerGlobalNft(nftCommitment, witness);
+        await contract.registerGlobalCredential(credentialCommitment, witness);
       });
       await tx.prove();
       await tx.sign([admin.key]).send();
 
       // Update off-chain tree
-      nftRegistryTree.setLeaf(0n, nftCommitment);
+      credentialRegistryTree.setLeaf(0n, credentialCommitment);
 
-      expect(contract.nftRegistryRoot.get().toString())
-        .toBe(nftRegistryTree.getRoot().toString());
+      expect(contract.credentialRegistryRoot.get().toString())
+        .toBe(credentialRegistryTree.getRoot().toString());
     });
 
     test('non-admin rejected for all new methods', async () => {
@@ -938,17 +958,17 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       // Test updateBenefitPlan with non-admin
       await expect(async () => {
         const tx = await Mina.transaction(nonAdmin, async () => {
-          await contract.updateBenefitPlan(Field(0));
+          await contract.updateBenefitPlan(contract.benefitPlanRoot.get(), Field(0));
         });
         await tx.prove();
         await tx.sign([nonAdmin.key]).send();
       }).rejects.toThrow();
 
-      // Test registerGlobalNft with non-admin
+      // Test registerGlobalCredential with non-admin
       await expect(async () => {
-        const witness = new NftRegistryWitness(nftRegistryTree.getWitness(1n));
+        const witness = new CredentialRegistryWitness(credentialRegistryTree.getWitness(1n));
         const tx = await Mina.transaction(nonAdmin, async () => {
-          await contract.registerGlobalNft(Field(123), witness);
+          await contract.registerGlobalCredential(Field(123), witness);
         });
         await tx.prove();
         await tx.sign([nonAdmin.key]).send();

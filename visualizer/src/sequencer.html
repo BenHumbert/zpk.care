@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>zkpCare -- Sequencer Console</title>
+  <link rel="stylesheet" href="css/node-dashboard.css">
+</head>
+<body>
+
+  <!-- Fixed Header -->
+  <header class="node-header theme-sequencer">
+    <h1 style="color: var(--color-sequencer);">Sequencer Console</h1>
+    <div class="node-identity">
+      <span id="header-status-text" style="font-size: 13px; color: var(--text-secondary);">Connecting...</span>
+      <span class="health-dot disconnected" id="header-health" title="Sequencer connection"></span>
+    </div>
+  </header>
+
+  <!-- Two-Panel Layout -->
+  <main class="sequencer-layout">
+    <!-- Left: Live Console -->
+    <div class="console-panel-wrapper">
+      <div class="console-toolbar">
+        <div class="console-filters">
+          <button class="console-filter active" data-filter="all">All</button>
+          <button class="console-filter" data-filter="compile">Compile</button>
+          <button class="console-filter" data-filter="proof">Proof</button>
+          <button class="console-filter" data-filter="offchain">Offchain</button>
+          <button class="console-filter" data-filter="info">Info</button>
+          <button class="console-filter" data-filter="error">Error</button>
+          <button class="console-filter" data-filter="timing">Timing</button>
+          <button class="console-filter" data-filter="memory">Memory</button>
+          <button class="console-filter" data-filter="phase">Phase</button>
+        </div>
+        <button class="console-clear-btn" id="btn-console-clear">Clear</button>
+      </div>
+      <div class="console-output" id="console-output"></div>
+    </div>
+
+    <!-- Right: L2 Status Panels -->
+    <div class="status-panel-wrapper">
+      <div id="section-status"></div>
+      <div id="section-actions"></div>
+      <div id="section-receipts"></div>
+      <div id="section-batches"></div>
+      <div id="section-audit"></div>
+    </div>
+  </main>
+
+  <script type="module" src="js/sequencer-dashboard.js"></script>
+</body>
+</html>

@@ -63,7 +63,7 @@ import { EnrollmentService } from '../src/onboarding/enrollment-service.js';
 // ─── Dependencies from existing layers ─────────────────────
 import { WalletRegistry, WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
 import { BenefitPlanRegistry } from '../src/eligibility/benefit-plan-registry.js';
-import { NFT_TYPE_ELIGIBILITY } from '../src/nft/nft-data.js';
+import { CREDENTIAL_TYPE_ELIGIBILITY } from '../src/credentials/credential-data.js';
 import { MerkleForest, ForestDomain, TREE_HEIGHT } from '../src/zkp/merkle-forest.js';
 import { ACCUMULATOR_LEAF_INDEX } from '../src/access-control/accumulator-data.js';
 import {
@@ -78,6 +78,7 @@ const TEST_TOKEN_LOCAL: GroupEnrollmentTokenLocalData = {
   groupId: 'ACME-CORP-001',
   planId: 'PLAN-GOLD-2026',
   employeeId: 'EMP-12345',
+  familyId: 'FAM-TEST-001',
   validUntil: '20260228',
   issuer: 'ACME Corporation',
   nonce: 0,
@@ -358,6 +359,7 @@ describe('Onboarding — OpaqueRoster', () => {
     const entry = buildRosterEntry(testWalletId, {
       planId: 'PLAN-GOLD-2026',
       groupId: 'ACME-CORP-001',
+      familyId: 'FAM-TEST-001',
       enrolledDate: '20260115',
       tokenId: 'TOKEN-001',
     });
@@ -372,12 +374,14 @@ describe('Onboarding — OpaqueRoster', () => {
     const entry1 = buildRosterEntry(testWalletId, {
       planId: 'PLAN-GOLD-2026',
       groupId: 'ACME-CORP-001',
+      familyId: 'FAM-TEST-001',
       enrolledDate: '20260115',
       tokenId: 'TOKEN-001',
     });
     const entry2 = buildRosterEntry(testWalletId, {
       planId: 'PLAN-GOLD-2026',
       groupId: 'ACME-CORP-001',
+      familyId: 'FAM-TEST-001',
       enrolledDate: '20260115',
       tokenId: 'TOKEN-001',
     });
@@ -391,6 +395,7 @@ describe('Onboarding — OpaqueRoster', () => {
     const entry = buildRosterEntry(testWalletId, {
       planId: 'PLAN-GOLD-2026',
       groupId: 'ACME-CORP-001',
+      familyId: 'FAM-TEST-001',
       enrolledDate: '20260115',
       tokenId: 'TOKEN-001',
     });
@@ -406,6 +411,7 @@ describe('Onboarding — OpaqueRoster', () => {
     const entry = buildRosterEntry(testWalletId, {
       planId: 'PLAN-GOLD-2026',
       groupId: 'ACME-CORP-001',
+      familyId: 'FAM-TEST-001',
       enrolledDate: '20260115',
       tokenId: 'TOKEN-001',
     });
@@ -419,6 +425,7 @@ describe('Onboarding — OpaqueRoster', () => {
     const entry = buildRosterEntry(testWalletId, {
       planId: 'PLAN-GOLD-2026',
       groupId: 'ACME-CORP-001',
+      familyId: 'FAM-TEST-001',
       enrolledDate: '20260115',
       tokenId: 'TOKEN-001',
     });
@@ -444,6 +451,7 @@ describe('Onboarding — OpaqueRoster', () => {
       buildRosterEntry(wallet1, {
         planId: 'PLAN-GOLD',
         groupId: 'ACME',
+        familyId: 'FAM-ACME-001',
         enrolledDate: '20260101',
         tokenId: 'T1',
       }),
@@ -452,6 +460,7 @@ describe('Onboarding — OpaqueRoster', () => {
       buildRosterEntry(wallet2, {
         planId: 'PLAN-GOLD',
         groupId: 'ACME',
+        familyId: 'FAM-ACME-002',
         enrolledDate: '20260102',
         tokenId: 'T2',
       }),
@@ -460,6 +469,7 @@ describe('Onboarding — OpaqueRoster', () => {
       buildRosterEntry(wallet3, {
         planId: 'PLAN-SILVER',
         groupId: 'BETA-CORP',
+        familyId: 'FAM-BETA-001',
         enrolledDate: '20260103',
         tokenId: 'T3',
       }),
@@ -476,6 +486,7 @@ describe('Onboarding — OpaqueRoster', () => {
     const entry = buildRosterEntry(testWalletId, {
       planId: 'PLAN-GOLD-2026',
       groupId: 'ACME-CORP-001',
+      familyId: 'FAM-TEST-001',
       enrolledDate: '20260115',
       tokenId: 'TOKEN-001',
     });
@@ -493,6 +504,7 @@ describe('Onboarding — TokenAuthority', () => {
       'ACME-CORP-001',
       'PLAN-GOLD-2026',
       'EMP-12345',
+      'FAM-TEST-001',
       '20260228',
     );
 
@@ -509,6 +521,7 @@ describe('Onboarding — TokenAuthority', () => {
       'ACME-CORP-001',
       'PLAN-GOLD-2026',
       'EMP-12345',
+      'FAM-TEST-001',
       '20260228',
       'CUSTOM-TOKEN-001',
     );
@@ -521,6 +534,7 @@ describe('Onboarding — TokenAuthority', () => {
       'ACME-CORP-001',
       'PLAN-GOLD-2026',
       'EMP-12345',
+      'FAM-TEST-001',
       '20260228',
       'TOKEN-A',
     );
@@ -544,6 +558,7 @@ describe('Onboarding — TokenAuthority', () => {
       'ACME-CORP-001',
       'PLAN-GOLD-2026',
       'EMP-12345',
+      'FAM-TEST-001',
       '20260228',
       'TOKEN-B',
     );
@@ -559,6 +574,7 @@ describe('Onboarding — TokenAuthority', () => {
       'ACME-CORP-001',
       'PLAN-GOLD-2026',
       'EMP-12345',
+      'FAM-TEST-001',
       '20260228',
       'TOKEN-C',
     );
@@ -576,6 +592,7 @@ describe('Onboarding — TokenAuthority', () => {
       'ACME-CORP-001',
       'PLAN-GOLD-2026',
       'EMP-12345',
+      'FAM-TEST-001',
       '20260228',
       'TOKEN-D',
     );
@@ -593,6 +610,7 @@ describe('Onboarding — TokenAuthority', () => {
       'ACME-CORP-001',
       'PLAN-GOLD-2026',
       'EMP-12345',
+      'FAM-TEST-001',
       '20260228',
       'TOKEN-E',
     );
@@ -609,6 +627,7 @@ describe('Onboarding — TokenAuthority', () => {
       'ACME-CORP-001',
       'PLAN-GOLD-2026',
       'EMP-12345',
+      'FAM-TEST-001',
       '20260228',
       'TOKEN-F',
     );
@@ -675,6 +694,7 @@ describe('Onboarding — EnrollmentService', () => {
       'ACME-CORP-001',
       'PLAN-GOLD-2026',
       'EMP-12345',
+      'FAM-TEST-001',
       '20260228',
       'TOKEN-001',
     );
@@ -693,20 +713,20 @@ describe('Onboarding — EnrollmentService', () => {
     expect(result.walletId.toString()).toBe(walletId.toString());
     expect(result.groupId).toBe('ACME-CORP-001');
     expect(result.planId).toBe('PLAN-GOLD-2026');
-    expect(result.nftIndex).toBe(0n);
+    expect(result.credentialIndex).toBe(0n);
     expect(result.rosterIndex).toBe(0n);
 
-    // Verify NFT
-    expect(result.nftData.nftType.toString()).toBe(
-      NFT_TYPE_ELIGIBILITY.toString(),
+    // Verify credential
+    expect(result.credentialData.credentialType.toString()).toBe(
+      CREDENTIAL_TYPE_ELIGIBILITY.toString(),
     );
-    expect(result.nftData.subjectWalletId.toString()).toBe(
+    expect(result.credentialData.subjectWalletId.toString()).toBe(
       walletId.toString(),
     );
-    expect(result.nftData.issuerWalletId.toString()).toBe(
+    expect(result.credentialData.issuerWalletId.toString()).toBe(
       ctx.adminWalletId.toString(),
     );
-    expect(result.nftData.revoked.toString()).toBe('0');
+    expect(result.credentialData.revoked.toString()).toBe('0');
 
     // Verify wallet is registered
     expect(ctx.walletRegistry.isRegistered(walletId)).toBe(true);
@@ -727,12 +747,13 @@ describe('Onboarding — EnrollmentService', () => {
     expect(group.config.enrolledCount.toString()).toBe('1');
   });
 
-  test('processEnrollment: NFT has correct forest structure', () => {
+  test('processEnrollment: credential has correct forest structure', () => {
     const ctx = setupService();
     ctx.tokenAuthority.generateToken(
       'ACME-CORP-001',
       'PLAN-GOLD-2026',
       'EMP-12345',
+      'FAM-TEST-001',
       '20260228',
       'TOKEN-002',
     );
@@ -747,7 +768,7 @@ describe('Onboarding — EnrollmentService', () => {
     // Verify the forest root was computed from eligibility + accumulator data
     const forest = ctx.service.getMemberForest(walletId);
     expect(forest).toBeDefined();
-    expect(result.nftData.forestRoot.toString()).toBe(
+    expect(result.credentialData.forestRoot.toString()).toBe(
       forest!.getForestRoot().toString(),
     );
 
@@ -778,6 +799,7 @@ describe('Onboarding — EnrollmentService', () => {
       'ACME-CORP-001',
       'PLAN-GOLD-2026',
       'EMP-12345',
+      'FAM-TEST-001',
       '20260228',
       'TOKEN-EXPIRED',
     );
@@ -796,6 +818,7 @@ describe('Onboarding — EnrollmentService', () => {
       'ACME-CORP-001',
       'PLAN-GOLD-2026',
       'EMP-001',
+      'FAM-TEST-001',
       '20260228',
       'TOKEN-DUP1',
     );
@@ -803,6 +826,7 @@ describe('Onboarding — EnrollmentService', () => {
       'ACME-CORP-001',
       'PLAN-GOLD-2026',
       'EMP-002',
+      'FAM-TEST-001',
       '20260228',
       'TOKEN-DUP2',
     );
@@ -837,6 +861,7 @@ describe('Onboarding — EnrollmentService', () => {
       'BETA-CORP',
       'PLAN-PLATINUM',
       'EMP-999',
+      'FAM-BETA-001',
       '20260228',
       'TOKEN-NO-PLAN',
     );
@@ -893,6 +918,7 @@ describe('Onboarding — EnrollmentService', () => {
         'TINY-CORP',
         'PLAN-GOLD-2026',
         `EMP-${i}`,
+        `FAM-TINY-${i}`,
         '20260228',
         `TINY-TOKEN-${i}`,
       );
@@ -908,6 +934,7 @@ describe('Onboarding — EnrollmentService', () => {
       'TINY-CORP',
       'PLAN-GOLD-2026',
       'EMP-3',
+      'FAM-TINY-3',
       '20260228',
       'TINY-TOKEN-3',
     );
@@ -920,12 +947,13 @@ describe('Onboarding — EnrollmentService', () => {
     ).toThrow('Group enrollment cap reached');
   });
 
-  test('terminateMember: revokes NFT and updates lifecycle', () => {
+  test('terminateMember: revokes credential and updates lifecycle', () => {
     const ctx = setupService();
     ctx.tokenAuthority.generateToken(
       'ACME-CORP-001',
       'PLAN-GOLD-2026',
       'EMP-12345',
+      'FAM-TEST-001',
       '20260228',
       'TOKEN-TERM',
     );
@@ -945,10 +973,10 @@ describe('Onboarding — EnrollmentService', () => {
 
     expect(termResult.walletId.toString()).toBe(walletId.toString());
 
-    // Verify NFT revoked
+    // Verify credential revoked
     const inventory = ctx.service.getMemberInventory(walletId);
-    const nft = inventory!.getNft(0n);
-    expect(nft!.revoked.toString()).toBe('1');
+    const credential = inventory!.getCredential(0n);
+    expect(credential!.revoked.toString()).toBe('1');
 
     // Verify roster updated
     const rosterEntry = ctx.opaqueRoster.getEntryByWallet(walletId)!;
@@ -974,6 +1002,7 @@ describe('Onboarding — EnrollmentService', () => {
         'ACME-CORP-001',
         'PLAN-GOLD-2026',
         `EMP-${i}`,
+        `FAM-ACME-${i}`,
         '20260228',
         `TOKEN-GRP-${i}`,
       );
@@ -1034,6 +1063,7 @@ describe('Onboarding — EnrollmentService', () => {
         'ACME-CORP-001',
         'PLAN-GOLD-2026',
         `EMP-${i}`,
+        `FAM-ACME-${i}`,
         '20260228',
         `TOKEN-MULTI-${i}`,
       );
@@ -1043,12 +1073,12 @@ describe('Onboarding — EnrollmentService', () => {
       );
     }
 
-    // All NFTs should be ELIGIBILITY type with same issuer
+    // All credentials should be ELIGIBILITY type with same issuer
     for (const r of results) {
-      expect(r.nftData.nftType.toString()).toBe(
-        NFT_TYPE_ELIGIBILITY.toString(),
+      expect(r.credentialData.credentialType.toString()).toBe(
+        CREDENTIAL_TYPE_ELIGIBILITY.toString(),
       );
-      expect(r.nftData.issuerWalletId.toString()).toBe(
+      expect(r.credentialData.issuerWalletId.toString()).toBe(
         ctx.adminWalletId.toString(),
       );
       expect(r.planId).toBe('PLAN-GOLD-2026');
@@ -1057,11 +1087,11 @@ describe('Onboarding — EnrollmentService', () => {
 
     // Forest roots should be identical (same plan, same data)
     // because each member gets the same eligibility + accumulator config
-    expect(results[0]!.nftData.forestRoot.toString()).toBe(
-      results[1]!.nftData.forestRoot.toString(),
+    expect(results[0]!.credentialData.forestRoot.toString()).toBe(
+      results[1]!.credentialData.forestRoot.toString(),
     );
-    expect(results[1]!.nftData.forestRoot.toString()).toBe(
-      results[2]!.nftData.forestRoot.toString(),
+    expect(results[1]!.credentialData.forestRoot.toString()).toBe(
+      results[2]!.credentialData.forestRoot.toString(),
     );
   });
 
@@ -1071,6 +1101,7 @@ describe('Onboarding — EnrollmentService', () => {
       'ACME-CORP-001',
       'PLAN-GOLD-2026',
       'EMP-12345',
+      'FAM-TEST-001',
       '20260228',
       'TOKEN-OPAQUE',
     );

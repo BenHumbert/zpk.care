@@ -1,6 +1,6 @@
 import { Field, Struct, Poseidon, ZkProgram, Provable } from 'o1js';
 import { ProofGateProof } from '../wallets/proof-gate.js';
-import { NftData, NFT_TYPE_ELIGIBILITY } from '../nft/nft-data.js';
+import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY } from '../credentials/credential-data.js';
 import { ForestMerkleWitness } from '../zkp/merkle-forest.js';
 import {
   LifecycleWitness,
@@ -11,24 +11,25 @@ import {
 import { EligibilityData } from './eligibility-data.js';
 import { ForestRoots } from './forest-roots.js';
 import { BenefitPlanWitness } from './benefit-plan-registry.js';
+import { NetworkMerkleWitness } from './provider-network-registry.js';
 
 // ─── EligibilityProgram ──────────────────────────────────────
 
 /**
  * EligibilityOutput — public output of EligibilityProgram.proveEligibility.
  *
- * Contains the NFT commitment, benefit plan commitment, forest root,
+ * Contains the credential commitment, benefit plan commitment, forest root,
  * and coverage type. A verifier can confirm that:
- *   1. The NFT contains valid eligibility data
+ *   1. The credential contains valid eligibility data
  *   2. The benefit plan exists in the insurer's registry
  *   3. The coverage dates are valid
  */
 export class EligibilityOutput extends Struct({
-  /** Commitment of the ELIGIBILITY NFT */
-  nftCommitment: Field,
+  /** Commitment of the ELIGIBILITY credential */
+  credentialCommitment: Field,
   /** Commitment of the eligibility/benefit plan data */
   benefitPlanCommitment: Field,
-  /** Forest root from the NFT (links to on-chain NFT data) */
+  /** Forest root from the credential (links to on-chain credential data) */
   forestRoot: Field,
   /** Coverage type for quick inspection */
   coverageType: Field,
@@ -37,15 +38,15 @@ export class EligibilityOutput extends Struct({
 /**
  * EligibilityProgram — ZkProgram for eligibility rule verification.
  *
- * STANDALONE (no recursive proof) — proves that an ELIGIBILITY NFT
+ * STANDALONE (no recursive proof) — proves that an ELIGIBILITY credential
  * contains valid eligibility data according to the insurer's benefit
  * plan registry and date constraints.
  *
- * This is NOT about wallet ownership (that's ProofGateProgram/NftProgram).
- * It's about verifying the RULES embedded in the NFT are valid.
+ * This is NOT about wallet ownership (that's ProofGateProgram/CredentialProgram).
+ * It's about verifying the RULES embedded in the credential are valid.
  *
- * Used at pharmacy: member generates this proof alongside NftOperationProof
- * to prove both "I hold this NFT" AND "the NFT contains valid eligibility."
+ * Used at pharmacy: member generates this proof alongside CredentialOperationProof
+ * to prove both "I hold this credential" AND "the credential contains valid eligibility."
  */
 export const EligibilityProgram = ZkProgram({
   name: 'Eligibility',
@@ -53,19 +54,19 @@ export const EligibilityProgram = ZkProgram({
 
   methods: {
     /**
-     * Prove that an ELIGIBILITY NFT contains valid benefit plan data.
+     * Prove that an ELIGIBILITY credential contains valid benefit plan data.
      *
      * Verifies:
-     *   1. NFT type is ELIGIBILITY
-     *   2. NFT is not revoked
-     *   3. Forest root integrity (6 tree roots hash to NFT's forestRoot)
+     *   1. Credential type is ELIGIBILITY
+     *   2. Credential is not revoked
+     *   3. Forest root integrity (6 tree roots hash to credential's forestRoot)
      *   4. Eligibility data exists in the ACCESS_CONTROL tree
      *   5. Benefit plan exists in the insurer's registry
      *   6. Current date is within effective/termination date range
      */
     proveEligibility: {
       privateInputs: [
-        NftData,
+        CredentialData,
         EligibilityData,
         ForestRoots,
         ForestMerkleWitness,  // witness for eligibility data in ACCESS_CONTROL tree
@@ -74,7 +75,7 @@ export const EligibilityProgram = ZkProgram({
         Field,                // currentDate (CCYYMMDD as number)
       ],
       async method(
-        nftData: NftData,
+        credentialData: CredentialData,
         eligibilityData: EligibilityData,
         forestRoots: ForestRoots,
         forestWitness: ForestMerkleWitness,
@@ -82,22 +83,28 @@ export const EligibilityProgram = ZkProgram({
         benefitPlanRoot: Field,
         currentDate: Field,
       ) {
-        // 1. Verify NFT type is ELIGIBILITY
-        nftData.nftType.assertEquals(
-          NFT_TYPE_ELIGIBILITY,
-          'NFT type must be ELIGIBILITY',
+        // 1. Verify credential type is ELIGIBILITY
+        credentialData.credentialType.assertEquals(
+          CREDENTIAL_TYPE_ELIGIBILITY,
+          'Credential type must be ELIGIBILITY',
         );
 
-        // 2. Verify NFT is not revoked
-        nftData.revoked.assertEquals(Field(0), 'NFT is revoked');
+        // 2. Verify credential is not revoked
+        credentialData.revoked.assertEquals(Field(0), 'Credential is revoked');
+
+        // 2b. M1 fix: Verify credential is not expired
+        //     expiresAt == 0 means never expires; otherwise currentDate <= expiresAt
+        const credentialNoExpiry = credentialData.expiresAt.equals(Field(0));
+        const credentialNotExpired = currentDate.lessThanOrEqual(credentialData.expiresAt);
+        credentialNoExpiry.or(credentialNotExpired).assertTrue('Credential has expired');
 
         // 3. Verify forest root integrity
         //    Reconstruct forest root from 6 individual tree roots
-        //    and verify it matches the NFT's embedded forestRoot.
+        //    and verify it matches the credential's embedded forestRoot.
         const computedForestRoot = forestRoots.computeForestRoot();
         computedForestRoot.assertEquals(
-          nftData.forestRoot,
-          'Forest root mismatch — tree roots do not compose to NFT forestRoot',
+          credentialData.forestRoot,
+          'Forest root mismatch — tree roots do not compose to credential forestRoot',
         );
 
         // 4. Verify eligibility data exists in the ACCESS_CONTROL tree
@@ -129,9 +136,9 @@ export const EligibilityProgram = ZkProgram({
 
         return {
           publicOutput: new EligibilityOutput({
-            nftCommitment: nftData.commitment(),
+            credentialCommitment: credentialData.commitment(),
             benefitPlanCommitment: eligCommitment,
-            forestRoot: nftData.forestRoot,
+            forestRoot: credentialData.forestRoot,
             coverageType: eligibilityData.coverageType,
           }),
         };
@@ -148,15 +155,18 @@ export class EligibilityProof extends ZkProgram.Proof(EligibilityProgram) {}
 /**
  * InNetworkOutput — public output of InNetworkProgram.proveInNetwork.
  *
- * Contains the wallet ID and lifecycle root used for verification.
+ * Contains the wallet ID, lifecycle root, and network root used for verification.
  * A verifier can confirm that the wallet owner's lifecycle state
- * indicates they are in-network (ELIGIBLE or ACTIVE).
+ * indicates they are in-network (ELIGIBLE or ACTIVE) AND they are
+ * in the plan's provider network tree.
  */
 export class InNetworkOutput extends Struct({
   /** The wallet proven to be in-network */
   walletId: Field,
   /** The lifecycle root used for verification (anchors to on-chain state) */
   lifecycleRoot: Field,
+  /** The network root verified against (anchors to plan's provider network) */
+  networkRoot: Field,
 }) {}
 
 /**
@@ -166,8 +176,11 @@ export class InNetworkOutput extends Struct({
  * the in-network status check. This prevents anyone from claiming
  * another wallet is in-network.
  *
- * In-network = lifecycle state is ELIGIBLE(2) or ACTIVE(3).
- * The insurer (admin) sets these states via CareContract.updateLifecycle.
+ * In-network = lifecycle state is ELIGIBLE(2) or ACTIVE(3)
+ *   AND wallet exists in the plan's provider network tree.
+ *
+ * When networkRoot == Field(0), the network check is skipped (all providers accepted).
+ * This preserves backward compatibility for plans without explicit networks.
  *
  * Used by prescribers/pharmacies to prove their in-network status
  * at point-of-care or during eligibility verification.
@@ -184,19 +197,24 @@ export const InNetworkProgram = ZkProgram({
      *   1. Wallet ownership (recursive ProofGateProof)
      *   2. Lifecycle state matches the lifecycle tree
      *   3. Lifecycle is ELIGIBLE or ACTIVE (in-network)
+     *   4. Wallet exists in plan's network tree (if networkRoot != 0)
      */
     proveInNetwork: {
       privateInputs: [
         ProofGateProof,
-        Field,             // lifecycle value
-        LifecycleWitness,  // witness for lifecycle tree
-        Field,             // lifecycleRoot (on-chain state)
+        Field,                // lifecycle value
+        LifecycleWitness,     // witness for lifecycle tree
+        Field,                // lifecycleRoot (on-chain state)
+        Field,                // networkRoot (from EligibilityData)
+        NetworkMerkleWitness, // witness for network tree
       ],
       async method(
         ownershipProof: InstanceType<typeof ProofGateProof>,
         lifecycle: Field,
         lifecycleWitness: LifecycleWitness,
         lifecycleRoot: Field,
+        networkRoot: Field,
+        networkWitness: NetworkMerkleWitness,
       ) {
         // 1. Recursively verify wallet ownership
         ownershipProof.verify();
@@ -217,10 +235,21 @@ export const InNetworkProgram = ZkProgram({
           'Wallet is not in-network (requires ELIGIBLE or ACTIVE)',
         );
 
+        // 4. Verify provider is in plan's network tree (if network is defined)
+        //    networkRoot == 0 means "all providers accepted" (no network restriction)
+        const hasNetwork = networkRoot.equals(Field(0)).not();
+        const computedNetworkRoot = networkWitness.calculateRoot(walletId);
+        const networkValid = computedNetworkRoot.equals(networkRoot);
+        // Must be valid if network is defined; always passes if no network
+        hasNetwork.implies(networkValid).assertTrue(
+          'Provider not in plan network',
+        );
+
         return {
           publicOutput: new InNetworkOutput({
             walletId,
             lifecycleRoot,
+            networkRoot,
           }),
         };
       },

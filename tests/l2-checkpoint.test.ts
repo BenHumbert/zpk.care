@@ -108,6 +108,9 @@ function makeCheckpoint(overrides?: Partial<L2Checkpoint>): L2Checkpoint {
       currentRegistryRoot: Field(200).toString(),
       currentLifecycleRoot: Field(400).toString(),
       currentWalletCount: Field(2).toString(),
+      lastSettledRegistryRoot: Field(200).toString(),
+      lastSettledLifecycleRoot: Field(400).toString(),
+      lastSettledWalletCount: Field(2).toString(),
       nextSequenceNumber: 3n,
       nextBlockNumber: 1n,
       nextBatchNumber: 1n,
@@ -357,6 +360,9 @@ describe('L2SequencerService — Export / Restore', () => {
     expect(state.currentRegistryRoot).toBe(INITIAL_REG_ROOT.toString());
     expect(state.currentLifecycleRoot).toBe(INITIAL_LC_ROOT.toString());
     expect(state.currentWalletCount).toBe('0');
+    expect(state.lastSettledRegistryRoot).toBe(INITIAL_REG_ROOT.toString());
+    expect(state.lastSettledLifecycleRoot).toBe(INITIAL_LC_ROOT.toString());
+    expect(state.lastSettledWalletCount).toBe('0');
     expect(state.nextSequenceNumber).toBe(0n);
     expect(state.nextBlockNumber).toBe(0n);
     expect(state.nextBatchNumber).toBe(0n);
@@ -375,14 +381,14 @@ describe('L2SequencerService — Export / Restore', () => {
     );
   });
 
-  test('restoreState overwrites roots and counters', () => {
-    const customRoot = Field(12345);
-    const customLcRoot = Field(67890);
+  test('restoreState uses lastSettled roots when no in-flight batch', () => {
+    const settledRegRoot = Field(12345);
+    const settledLcRoot = Field(67890);
 
     service.restoreState({
-      currentRegistryRoot: customRoot.toString(),
-      currentLifecycleRoot: customLcRoot.toString(),
-      currentWalletCount: '42',
+      currentRegistryRoot: Field(99999).toString(), // Advanced (stale)
+      currentLifecycleRoot: Field(88888).toString(), // Advanced (stale)
+      currentWalletCount: '50', // Advanced (stale)
       nextSequenceNumber: 10n,
       nextBlockNumber: 5n,
       nextBatchNumber: 3n,
@@ -393,10 +399,14 @@ describe('L2SequencerService — Export / Restore', () => {
       batches: [],
       auditLog: [],
       adminQueue: [],
+      lastSettledRegistryRoot: settledRegRoot.toString(),
+      lastSettledLifecycleRoot: settledLcRoot.toString(),
+      lastSettledWalletCount: '42',
     });
 
-    expect(service.getCurrentRegistryRoot().toString()).toBe(customRoot.toString());
-    expect(service.getCurrentLifecycleRoot().toString()).toBe(customLcRoot.toString());
+    // Current roots should match lastSettled, NOT the stale advanced values
+    expect(service.getCurrentRegistryRoot().toString()).toBe(settledRegRoot.toString());
+    expect(service.getCurrentLifecycleRoot().toString()).toBe(settledLcRoot.toString());
     expect(service.getCurrentWalletCount().toString()).toBe('42');
     expect(service.getInFlightBatchNumber()).toBeNull();
     expect(service.getPendingCount()).toBe(0);
@@ -409,6 +419,9 @@ describe('L2SequencerService — Export / Restore', () => {
       currentRegistryRoot: INITIAL_REG_ROOT.toString(),
       currentLifecycleRoot: INITIAL_LC_ROOT.toString(),
       currentWalletCount: '0',
+      lastSettledRegistryRoot: INITIAL_REG_ROOT.toString(),
+      lastSettledLifecycleRoot: INITIAL_LC_ROOT.toString(),
+      lastSettledWalletCount: '0',
       nextSequenceNumber: 2n,
       nextBlockNumber: 0n,
       nextBatchNumber: 0n,
@@ -434,6 +447,9 @@ describe('L2SequencerService — Export / Restore', () => {
       currentRegistryRoot: INITIAL_REG_ROOT.toString(),
       currentLifecycleRoot: INITIAL_LC_ROOT.toString(),
       currentWalletCount: '0',
+      lastSettledRegistryRoot: INITIAL_REG_ROOT.toString(),
+      lastSettledLifecycleRoot: INITIAL_LC_ROOT.toString(),
+      lastSettledWalletCount: '0',
       nextSequenceNumber: 1n,
       nextBlockNumber: 1n,
       nextBatchNumber: 1n,
@@ -458,6 +474,9 @@ describe('L2SequencerService — Export / Restore', () => {
       currentRegistryRoot: INITIAL_REG_ROOT.toString(),
       currentLifecycleRoot: INITIAL_LC_ROOT.toString(),
       currentWalletCount: '0',
+      lastSettledRegistryRoot: INITIAL_REG_ROOT.toString(),
+      lastSettledLifecycleRoot: INITIAL_LC_ROOT.toString(),
+      lastSettledWalletCount: '0',
       nextSequenceNumber: 0n,
       nextBlockNumber: 0n,
       nextBatchNumber: 0n,
@@ -474,11 +493,15 @@ describe('L2SequencerService — Export / Restore', () => {
   });
 
   test('export → restore → export round-trip preserves state', () => {
-    // Set up non-default state
+    // Set up non-default state with lastSettled roots matching current
+    // (simulates checkpoint taken right after settlement — no pending proofs)
     service.restoreState({
       currentRegistryRoot: Field(111).toString(),
       currentLifecycleRoot: Field(222).toString(),
       currentWalletCount: '5',
+      lastSettledRegistryRoot: Field(111).toString(),
+      lastSettledLifecycleRoot: Field(222).toString(),
+      lastSettledWalletCount: '5',
       nextSequenceNumber: 10n,
       nextBlockNumber: 3n,
       nextBatchNumber: 2n,
@@ -507,6 +530,9 @@ describe('L2SequencerService — Export / Restore', () => {
     expect(state2.currentRegistryRoot).toBe(state1.currentRegistryRoot);
     expect(state2.currentLifecycleRoot).toBe(state1.currentLifecycleRoot);
     expect(state2.currentWalletCount).toBe(state1.currentWalletCount);
+    expect(state2.lastSettledRegistryRoot).toBe(state1.lastSettledRegistryRoot);
+    expect(state2.lastSettledLifecycleRoot).toBe(state1.lastSettledLifecycleRoot);
+    expect(state2.lastSettledWalletCount).toBe(state1.lastSettledWalletCount);
     expect(state2.nextSequenceNumber).toBe(state1.nextSequenceNumber);
     expect(state2.nextBlockNumber).toBe(state1.nextBlockNumber);
     expect(state2.nextBatchNumber).toBe(state1.nextBatchNumber);
@@ -529,6 +555,9 @@ describe('L2SequencerService — Export / Restore', () => {
       currentRegistryRoot: INITIAL_REG_ROOT.toString(),
       currentLifecycleRoot: INITIAL_LC_ROOT.toString(),
       currentWalletCount: '0',
+      lastSettledRegistryRoot: INITIAL_REG_ROOT.toString(),
+      lastSettledLifecycleRoot: INITIAL_LC_ROOT.toString(),
+      lastSettledWalletCount: '0',
       nextSequenceNumber: 0n,
       nextBlockNumber: 0n,
       nextBatchNumber: 0n,
@@ -924,6 +953,191 @@ describe('Full Crash Recovery', () => {
 });
 
 // ═══════════════════════════════════════════════════════════
+// C6 Fix: Crash Recovery Root Consistency
+// ═══════════════════════════════════════════════════════════
+
+describe('C6 Fix: Crash Recovery Root Consistency', () => {
+  test('recovery resets current roots to lastSettled when no in-flight batch', () => {
+    const store = new InMemoryStore();
+    const service = new L2SequencerService(
+      store,
+      INITIAL_REG_ROOT,
+      INITIAL_LC_ROOT,
+      Field(0),
+    );
+
+    // Simulate: checkpoint was taken during graceful shutdown with
+    // proofs accepted (current roots advanced) but not yet batched.
+    // lastSettled roots are behind current roots.
+    service.restoreState({
+      currentRegistryRoot: Field(9999).toString(), // Advanced past L1
+      currentLifecycleRoot: Field(8888).toString(), // Advanced past L1
+      currentWalletCount: '10',                     // Advanced past L1
+      lastSettledRegistryRoot: Field(1111).toString(), // Matches L1
+      lastSettledLifecycleRoot: Field(2222).toString(), // Matches L1
+      lastSettledWalletCount: '5',                     // Matches L1
+      nextSequenceNumber: 5n,
+      nextBlockNumber: 1n,
+      nextBatchNumber: 1n,
+      latestChainHash: Field(BigInt(AuditService.GENESIS_HASH)).toString(),
+      inFlightBatchNumber: null,
+      receipts: [],
+      blocks: [],
+      batches: [],
+      auditLog: [],
+      adminQueue: [],
+    });
+
+    // After recovery, current roots should be at lastSettled (matching L1)
+    expect(service.getCurrentRegistryRoot().toString()).toBe(Field(1111).toString());
+    expect(service.getCurrentLifecycleRoot().toString()).toBe(Field(2222).toString());
+    expect(service.getCurrentWalletCount().toString()).toBe('5');
+    // Pending pool is empty — clients will resubmit proofs against these roots
+    expect(service.getPendingCount()).toBe(0);
+  });
+
+  test('recovery uses in-flight batch new roots when batch exists', () => {
+    const store = new InMemoryStore();
+    const service = new L2SequencerService(
+      store,
+      INITIAL_REG_ROOT,
+      INITIAL_LC_ROOT,
+      Field(0),
+    );
+
+    // In-flight batch transitions from lastSettled to batch.newRoots
+    const inFlightBatch = mockBatch(1n, [0n]);
+    inFlightBatch.l1Status = 'batched';
+    inFlightBatch.newRegistryRoot = Field(5555).toString();
+    inFlightBatch.newLifecycleRoot = Field(6666).toString();
+    inFlightBatch.registrationCount = 2;
+    delete inFlightBatch.l1TxHash;
+
+    service.restoreState({
+      currentRegistryRoot: Field(9999).toString(), // Stale advanced
+      currentLifecycleRoot: Field(8888).toString(), // Stale advanced
+      currentWalletCount: '20',                     // Stale advanced
+      lastSettledRegistryRoot: Field(1111).toString(),
+      lastSettledLifecycleRoot: Field(2222).toString(),
+      lastSettledWalletCount: '3',
+      nextSequenceNumber: 5n,
+      nextBlockNumber: 2n,
+      nextBatchNumber: 2n,
+      latestChainHash: Field(BigInt(AuditService.GENESIS_HASH)).toString(),
+      inFlightBatchNumber: 1n,
+      receipts: [],
+      blocks: [mockBlock(0n, [])],
+      batches: [mockBatch(0n, [0n]), inFlightBatch],
+      auditLog: [],
+      adminQueue: [],
+    });
+
+    // Current roots should be at in-flight batch's new roots
+    expect(service.getCurrentRegistryRoot().toString()).toBe(Field(5555).toString());
+    expect(service.getCurrentLifecycleRoot().toString()).toBe(Field(6666).toString());
+    // Wallet count = lastSettled + in-flight registrations
+    expect(service.getCurrentWalletCount().toString()).toBe('5'); // 3 + 2
+    // In-flight batch preserved for retry
+    expect(service.getInFlightBatchNumber()).toBe(1n);
+  });
+
+  test('backward compat: restoreState without lastSettled fields uses current roots', () => {
+    const store = new InMemoryStore();
+    const service = new L2SequencerService(
+      store,
+      INITIAL_REG_ROOT,
+      INITIAL_LC_ROOT,
+      Field(0),
+    );
+
+    // Old checkpoint format — no lastSettled fields
+    service.restoreState({
+      currentRegistryRoot: Field(7777).toString(),
+      currentLifecycleRoot: Field(8888).toString(),
+      currentWalletCount: '15',
+      nextSequenceNumber: 0n,
+      nextBlockNumber: 0n,
+      nextBatchNumber: 0n,
+      latestChainHash: Field(BigInt(AuditService.GENESIS_HASH)).toString(),
+      inFlightBatchNumber: null,
+      receipts: [],
+      blocks: [],
+      batches: [],
+      auditLog: [],
+      adminQueue: [],
+      // No lastSettled* fields — simulates old checkpoint format
+    });
+
+    // Should fall back to current roots (backward compatible)
+    expect(service.getCurrentRegistryRoot().toString()).toBe(Field(7777).toString());
+    expect(service.getCurrentLifecycleRoot().toString()).toBe(Field(8888).toString());
+    expect(service.getCurrentWalletCount().toString()).toBe('15');
+  });
+
+  test('exportState includes lastSettled fields', () => {
+    const store = new InMemoryStore();
+    const service = new L2SequencerService(
+      store,
+      Field(1000),
+      Field(2000),
+      Field(5),
+    );
+
+    const state = service.exportState();
+
+    // Initially lastSettled matches constructor values
+    expect(state.lastSettledRegistryRoot).toBe(Field(1000).toString());
+    expect(state.lastSettledLifecycleRoot).toBe(Field(2000).toString());
+    expect(state.lastSettledWalletCount).toBe('5');
+  });
+
+  test('markBatchSettled updates lastSettled roots', () => {
+    const store = new InMemoryStore();
+    const service = new L2SequencerService(
+      store,
+      INITIAL_REG_ROOT,
+      INITIAL_LC_ROOT,
+      Field(0),
+    );
+
+    // Restore with a batched (in-flight) batch
+    const batch = mockBatch(0n, [0n]);
+    batch.l1Status = 'batched';
+    batch.newRegistryRoot = Field(4444).toString();
+    batch.newLifecycleRoot = Field(5555).toString();
+    batch.registrationCount = 3;
+    delete batch.l1TxHash;
+
+    service.restoreState({
+      currentRegistryRoot: Field(4444).toString(),
+      currentLifecycleRoot: Field(5555).toString(),
+      currentWalletCount: '3',
+      lastSettledRegistryRoot: INITIAL_REG_ROOT.toString(),
+      lastSettledLifecycleRoot: INITIAL_LC_ROOT.toString(),
+      lastSettledWalletCount: '0',
+      nextSequenceNumber: 3n,
+      nextBlockNumber: 1n,
+      nextBatchNumber: 1n,
+      latestChainHash: Field(BigInt(AuditService.GENESIS_HASH)).toString(),
+      inFlightBatchNumber: 0n,
+      receipts: [mockReceipt(0n)],
+      blocks: [mockBlock(0n, ['l2-00000000'])],
+      batches: [batch],
+      auditLog: [],
+      adminQueue: [],
+    });
+
+    // Settle the batch
+    service.markBatchSettled(0n, 'sim-l1-tx-0001');
+
+    // lastSettled should now reflect the settled batch's new roots
+    expect(service.getLastSettledRegistryRoot().toString()).toBe(Field(4444).toString());
+    expect(service.getLastSettledLifecycleRoot().toString()).toBe(Field(5555).toString());
+    expect(service.getLastSettledWalletCount().toString()).toBe('3');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════
 // Edge Cases
 // ═══════════════════════════════════════════════════════════
 
@@ -964,6 +1178,9 @@ describe('Checkpoint Edge Cases', () => {
         currentRegistryRoot: INITIAL_REG_ROOT.toString(),
         currentLifecycleRoot: INITIAL_LC_ROOT.toString(),
         currentWalletCount: '0',
+        lastSettledRegistryRoot: INITIAL_REG_ROOT.toString(),
+        lastSettledLifecycleRoot: INITIAL_LC_ROOT.toString(),
+        lastSettledWalletCount: '0',
         nextSequenceNumber: 0n,
         nextBlockNumber: 0n,
         nextBatchNumber: 0n,

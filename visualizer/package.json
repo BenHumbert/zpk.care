@@ -1,0 +1,18 @@
+{
+  "name": "zkpcare-visualizer",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Interactive step-by-step demo for zkpCare — real ZK proof generation",
+  "scripts": {
+    "prestart": "powershell -File kill-ports.ps1",
+    "start": "concurrently -n SEQ,UI -c blue,green \"npm run sequencer\" \"npm run dev\"",
+    "sequencer": "npx tsx demo/start-interactive.ts",
+    "dev": "parcel src/index.html src/interactive.html src/member.html src/prescriber.html src/pharmacy.html src/insurer.html src/sequencer.html --port 1234",
+    "start:old": "concurrently -n SEQ,VIZ,DEMO -c blue,green,yellow \"npx tsx demo/start-sequencer.ts\" \"parcel src/index.html --port 1234\" \"npx tsx demo/scenario-runner.ts\""
+  },
+  "devDependencies": {
+    "parcel": "^2.12.0",
+    "concurrently": "^9.0.0",
+    "tsx": "^4.19.0"
+  }
+}

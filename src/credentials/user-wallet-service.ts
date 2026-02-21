@@ -13,10 +13,15 @@ import {
 import {
   StateTransitionProgram,
 } from '../engine/state-transition.js';
+import {
+  DOMAIN_TAG_MEMBER,
+  DOMAIN_TAG_PRESCRIBER,
+  DOMAIN_TAG_PHARMACY,
+} from '../wallets/wallet-derivation.js';
 import type { ILocalStore } from '../storage/local-store.js';
-import { NftData } from './nft-data.js';
-import { NftInventory } from './nft-inventory.js';
-import { NftProgram, NftOperationOutput } from './nft-program.js';
+import { CredentialData } from './credential-data.js';
+import { CredentialInventory } from './credential-inventory.js';
+import { CredentialProgram, CredentialOperationOutput } from './credential-program.js';
 import {
   PortableCredential,
   serializeCredential,
@@ -31,41 +36,41 @@ export type EntityType = 'member' | 'prescriber' | 'pharmacy';
  * Result of a mint operation — contains all proofs and metadata.
  */
 export interface MintResult {
-  /** Proof that the NFT was correctly minted into the inventory */
-  nftProof: Awaited<ReturnType<typeof NftProgram.proveMint>>['proof'];
+  /** Proof that the credential was correctly issued into the inventory */
+  credentialProof: Awaited<ReturnType<typeof CredentialProgram.proveMint>>['proof'];
   /** Proof that the wallet state was correctly updated (for on-chain settlement) */
   stateProof: Awaited<ReturnType<typeof StateTransitionProgram.proveWalletUpdate>>['proof'];
-  /** The slot index where the NFT was minted */
-  nftIndex: bigint;
+  /** The slot index where the credential was issued */
+  credentialIndex: bigint;
 }
 
 /**
- * UserWalletService — orchestrates the user path for NFT operations.
+ * UserWalletService — orchestrates the user path for credential operations.
  *
  * This is the main entry point for client applications. It combines
  * all the ZK pieces into high-level operations:
  *
- *   mintNft()         — mint an NFT + generate proofs for on-chain settlement
- *   proveNftHolding() — prove you hold a specific NFT (offline-capable)
- *   proveNftByType()  — prove you hold an NFT of a specific type (selective disclosure)
- *   exportCredential() — serialize a proof for NFC/RFID/QR transport
+ *   mintCredential()         — issue a credential + generate proofs for on-chain settlement
+ *   proveCredentialHolding() — prove you hold a specific credential (offline-capable)
+ *   proveCredentialByType()  — prove you hold a credential of a specific type (selective disclosure)
+ *   exportCredential()       — serialize a proof for NFC/RFID/QR transport
  *
  * Precondition: All ZkPrograms must be compiled before using this service.
  *   await ProofGateProgram.compile();
- *   await NftProgram.compile();
- *   await StateTransitionProgram.compile();  // only needed for mintNft
+ *   await CredentialProgram.compile();
+ *   await StateTransitionProgram.compile();  // only needed for mintCredential
  */
 export class UserWalletService {
   private store: ILocalStore;
   private walletId: Field;
-  private inventory: NftInventory;
+  private inventory: CredentialInventory;
   private registry: WalletRegistry;
   private lifecycleTree: MerkleTree;
 
   constructor(
     store: ILocalStore,
     walletId: Field,
-    inventory: NftInventory,
+    inventory: CredentialInventory,
     registry: WalletRegistry,
     lifecycleTree: MerkleTree,
   ) {
@@ -106,26 +111,27 @@ export class UserWalletService {
   }
 
   /**
-   * Mint an NFT into this wallet's inventory and generate all proofs
+   * Issue a credential into this wallet's inventory and generate all proofs
    * needed for on-chain settlement.
    *
    * Flow:
-   *   1. Generate ProofGateProof (proves wallet ownership)
-   *   2. NftProgram.proveMint (proves correct NFT insertion)
-   *   3. Update local NftInventory
-   *   4. StateTransitionProgram.proveWalletUpdate (proves wallet state change)
+   *   1. Generate ProofGateProof (proves wallet ownership for CredentialProgram)
+   *   2. CredentialProgram.proveMint (proves correct credential insertion)
+   *   3. Update local CredentialInventory
+   *   4. StateTransitionProgram.proveWalletUpdate (proves wallet state change,
+   *      wallet verification inlined — no ProofGateProof needed)
    *   5. Update local WalletRegistry
    *   6. Store proof metadata via ILocalStore
    *
    * @param preimage — private Fields for ProofGateProgram
    * @param entityType — member/prescriber/pharmacy
-   * @param nftData — the NFT to mint
+   * @param credentialData — the credential to issue
    * @param currentLifecycle — current lifecycle value for this wallet
    */
-  async mintNft(
+  async mintCredential(
     preimage: Field[],
     entityType: EntityType,
-    nftData: NftData,
+    credentialData: CredentialData,
     currentLifecycle: Field,
   ): Promise<MintResult> {
     // 1. Generate ownership proof
@@ -135,20 +141,20 @@ export class UserWalletService {
     const oldInventoryRoot = this.inventory.getRoot();
     const oldNonce = this.registry.getState(this.walletId).nonce;
 
-    // 3. Find next empty slot and generate witness BEFORE minting
-    const nftIndex = BigInt(this.inventory.count);
-    const inventoryWitness = this.inventory.getWitness(nftIndex);
+    // 3. Find next empty slot and generate witness BEFORE issuing
+    const credentialIndex = BigInt(this.inventory.count);
+    const inventoryWitness = this.inventory.getWitness(credentialIndex);
 
     // 4. Prove the mint operation
-    const nftResult = await NftProgram.proveMint(
+    const credentialResult = await CredentialProgram.proveMint(
       pgResult.proof,
-      nftData,
+      credentialData,
       inventoryWitness,
       oldInventoryRoot,
     );
 
     // 5. Actually update local inventory
-    this.inventory.mint(nftData);
+    this.inventory.mint(credentialData);
     const newInventoryRoot = this.inventory.getRoot();
 
     // 6. Generate wallet state update proof
@@ -156,13 +162,34 @@ export class UserWalletService {
     const registryWitness = this.registry.getWitness(this.walletId);
 
     const lifecycleLeaf = lifecycleLeafCommitment(this.walletId, currentLifecycle);
+
+    // H6 fix: Validate caller's lifecycle matches current tree state.
+    const currentLeaf = this.lifecycleTree.getNode(0, walletIndex);
+    if (currentLeaf.toString() !== lifecycleLeaf.toString()) {
+      throw new Error(
+        `Lifecycle tree mismatch at index ${walletIndex}: caller's currentLifecycle ` +
+        `does not match tree state. Tree may be out of sync.`,
+      );
+    }
+
     this.lifecycleTree.setLeaf(walletIndex, lifecycleLeaf);
     const lifecycleWitness = new LifecycleWitness(
       this.lifecycleTree.getWitness(walletIndex),
     );
 
+    // Derive domain tag from entityType for multi-entity support
+    const domainTag = entityType === 'prescriber' ? DOMAIN_TAG_PRESCRIBER
+      : entityType === 'pharmacy' ? DOMAIN_TAG_PHARMACY
+      : DOMAIN_TAG_MEMBER;
+    // Pad preimage to 5 fields (prescriber/pharmacy have 3, member has 5)
+    const p0 = preimage[0] ?? Field(0);
+    const p1 = preimage[1] ?? Field(0);
+    const p2 = preimage[2] ?? Field(0);
+    const p3 = preimage[3] ?? Field(0);
+    const p4 = preimage[4] ?? Field(0);
+
     const stResult = await StateTransitionProgram.proveWalletUpdate(
-      pgResult.proof,
+      domainTag, p0, p1, p2, p3, p4,
       oldInventoryRoot,
       oldNonce,
       newInventoryRoot,
@@ -177,48 +204,48 @@ export class UserWalletService {
     const newNonce = Field(BigInt(oldNonce.toString()) + 1n);
     const newWalletState = new WalletState({
       walletId: this.walletId,
-      nftInventoryRoot: newInventoryRoot,
+      credentialInventoryRoot: newInventoryRoot,
       nonce: newNonce,
     });
     this.registry.updateState(this.walletId, newWalletState);
 
     // 8. Store proof metadata
-    const proofId = `mint-${nftIndex}-${Date.now()}`;
-    await this.store.saveProof(proofId, JSON.stringify(nftResult.proof.toJSON()));
+    const proofId = `mint-${credentialIndex}-${Date.now()}`;
+    await this.store.saveProof(proofId, JSON.stringify(credentialResult.proof.toJSON()));
 
     return {
-      nftProof: nftResult.proof,
+      credentialProof: credentialResult.proof,
       stateProof: stResult.proof,
-      nftIndex,
+      credentialIndex,
     };
   }
 
   /**
-   * Prove that this wallet holds a specific NFT.
-   * Produces a portable NftOperationProof for offline verification.
+   * Prove that this wallet holds a specific credential.
+   * Produces a portable CredentialOperationProof for offline verification.
    *
    * Use case: member proves eligibility at pharmacy, or pharmacy proves eScript.
    *
    * @param preimage — private Fields for ProofGateProgram
    * @param entityType — member/prescriber/pharmacy
-   * @param nftIndex — slot index of the NFT to prove
+   * @param credentialIndex — slot index of the credential to prove
    */
-  async proveNftHolding(
+  async proveCredentialHolding(
     preimage: Field[],
     entityType: EntityType,
-    nftIndex: bigint,
+    credentialIndex: bigint,
   ) {
     const pgResult = await this.generateOwnershipProof(preimage, entityType);
 
-    const nft = this.inventory.getNft(nftIndex);
-    if (!nft) throw new Error(`No NFT at index ${nftIndex}`);
+    const credential = this.inventory.getCredential(credentialIndex);
+    if (!credential) throw new Error(`No credential at index ${credentialIndex}`);
 
-    const inventoryWitness = this.inventory.getWitness(nftIndex);
+    const inventoryWitness = this.inventory.getWitness(credentialIndex);
     const inventoryRoot = this.inventory.getRoot();
 
-    const result = await NftProgram.proveHolding(
+    const result = await CredentialProgram.proveHolding(
       pgResult.proof,
-      nft,
+      credential,
       inventoryWitness,
       inventoryRoot,
     );
@@ -227,32 +254,32 @@ export class UserWalletService {
   }
 
   /**
-   * Prove that this wallet holds an NFT of a specific type (selective disclosure).
+   * Prove that this wallet holds a credential of a specific type (selective disclosure).
    *
-   * Use case: "I have an ELIGIBILITY NFT" without revealing which one.
+   * Use case: "I have an ELIGIBILITY credential" without revealing which one.
    *
    * @param preimage — private Fields for ProofGateProgram
    * @param entityType — member/prescriber/pharmacy
-   * @param nftIndex — slot index of the NFT to prove
-   * @param requiredType — NFT_TYPE_ELIGIBILITY or NFT_TYPE_PRESCRIPTION
+   * @param credentialIndex — slot index of the credential to prove
+   * @param requiredType — CREDENTIAL_TYPE_ELIGIBILITY or CREDENTIAL_TYPE_PRESCRIPTION
    */
-  async proveNftByType(
+  async proveCredentialByType(
     preimage: Field[],
     entityType: EntityType,
-    nftIndex: bigint,
+    credentialIndex: bigint,
     requiredType: Field,
   ) {
     const pgResult = await this.generateOwnershipProof(preimage, entityType);
 
-    const nft = this.inventory.getNft(nftIndex);
-    if (!nft) throw new Error(`No NFT at index ${nftIndex}`);
+    const credential = this.inventory.getCredential(credentialIndex);
+    if (!credential) throw new Error(`No credential at index ${credentialIndex}`);
 
-    const inventoryWitness = this.inventory.getWitness(nftIndex);
+    const inventoryWitness = this.inventory.getWitness(credentialIndex);
     const inventoryRoot = this.inventory.getRoot();
 
-    const result = await NftProgram.proveHoldingByType(
+    const result = await CredentialProgram.proveHoldingByType(
       pgResult.proof,
-      nft,
+      credential,
       inventoryWitness,
       inventoryRoot,
       requiredType,
@@ -264,13 +291,13 @@ export class UserWalletService {
   /**
    * Export a proof as a PortableCredential for NFC/RFID/QR transport.
    *
-   * @param proof — any NftOperationProof
+   * @param proof — any CredentialOperationProof
    * @param proofType — the type of credential
    * @param vkHash — verification key hash (for offline verifier confirmation)
    * @param expiresAt — optional expiration timestamp
    */
   exportCredential(
-    proof: { toJSON(): any; publicOutput: NftOperationOutput },
+    proof: { toJSON(): any; publicOutput: CredentialOperationOutput },
     proofType: PortableCredential['proofType'],
     vkHash: Field,
     expiresAt?: number,
@@ -278,13 +305,13 @@ export class UserWalletService {
     return serializeCredential(proof, proofType, vkHash, expiresAt);
   }
 
-  /** Get the NftInventory for direct access */
-  getInventory(): NftInventory {
+  /** Get the CredentialInventory for direct access */
+  getInventory(): CredentialInventory {
     return this.inventory;
   }
 
-  /** Get the number of NFTs in this wallet */
-  getNftCount(): number {
+  /** Get the number of credentials in this wallet */
+  getCredentialCount(): number {
     return this.inventory.count;
   }
 }

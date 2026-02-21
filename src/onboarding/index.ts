@@ -50,6 +50,15 @@ export {
 } from './rep-enrollment-token.js';
 export type { RepEnrollmentTokenLocalData } from './rep-enrollment-token.js';
 
+// Family Accumulator Service (family-level pooling)
+export { FamilyAccumulatorService } from './family-accumulator-service.js';
+export type {
+  FamilyLimits,
+  FamilyTotals,
+  FamilyAdjustedPay,
+  MemberAccumulator,
+} from './family-accumulator-service.js';
+
 // Enrollment Service (insurer-side ceremony orchestration)
 export { EnrollmentService } from './enrollment-service.js';
 export type {

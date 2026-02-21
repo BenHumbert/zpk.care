@@ -18,10 +18,10 @@ export const COVERAGE_DENTAL = Field(3);
  *
  * Each EligibilityData represents a specific coverage configuration.
  * The commitment is stored as a leaf in:
- *   1. The MerkleForest ACCESS_CONTROL tree (inside an NFT's forest)
+ *   1. The MerkleForest ACCESS_CONTROL tree (inside a credential's forest)
  *   2. The BenefitPlanRegistry (insurer's master plan list)
  *
- * The commitment links an NFT to a specific, auditable benefit plan.
+ * The commitment links a credential to a specific, auditable benefit plan.
  * No PHI/PII — only hashes, dates-as-numbers, and coverage codes.
  */
 export class EligibilityData extends Struct({
@@ -39,6 +39,8 @@ export class EligibilityData extends Struct({
   coverageType: Field,
   /** Merkle root of covered medications (formulary) */
   formularyRoot: Field,
+  /** Merkle root of in-network providers (Field(0) = all providers accepted) */
+  networkRoot: Field,
 }) {
   /**
    * Produces a single commitment representing this eligibility configuration.
@@ -53,6 +55,7 @@ export class EligibilityData extends Struct({
       this.copayAmountCents,
       this.coverageType,
       this.formularyRoot,
+      this.networkRoot,
     ]);
   }
 }
@@ -76,6 +79,8 @@ export interface EligibilityLocalData {
   coverageType: number;
   /** Formulary Merkle root as string (pre-computed from medication list) */
   formularyRoot: string;
+  /** Network Merkle root as string (pre-computed from provider list, "0" = all accepted) */
+  networkRoot?: string;
 }
 
 /**
@@ -93,5 +98,6 @@ export function buildEligibilityData(local: EligibilityLocalData): EligibilityDa
     copayAmountCents: centsToField(local.copayAmount),
     coverageType: codeToField(local.coverageType),
     formularyRoot: Field(BigInt(local.formularyRoot)),
+    networkRoot: local.networkRoot ? Field(BigInt(local.networkRoot)) : Field(0),
   });
 }

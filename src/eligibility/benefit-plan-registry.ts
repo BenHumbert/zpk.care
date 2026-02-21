@@ -20,9 +20,9 @@ export class BenefitPlanWitness extends MerkleWitness(BENEFIT_PLAN_TREE_HEIGHT) 
  * The root is stored on-chain in CareContract.benefitPlanRoot.
  *
  * Used in EligibilityProgram.proveEligibility to verify that the eligibility
- * data in an NFT corresponds to a legitimate, registered benefit plan.
+ * data in a credential corresponds to a legitimate, registered benefit plan.
  *
- * Pattern: modeled after NftInventory in src/nft/nft-inventory.ts
+ * Pattern: modeled after CredentialInventory in src/credentials/credential-inventory.ts
  */
 export class BenefitPlanRegistry {
   private tree: MerkleTree;

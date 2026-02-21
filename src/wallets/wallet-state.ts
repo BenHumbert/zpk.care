@@ -9,7 +9,7 @@ import { Field, Struct, Poseidon, MerkleTree, MerkleWitness } from 'o1js';
  *
  * A wallet holds:
  *   - Its identity (the wallet "address")
- *   - An NFT inventory root (Merkle root of NFTs owned by this wallet)
+ *   - A credential inventory root (Merkle root of credentials owned by this wallet)
  *   - A nonce (prevents replay attacks on wallet operations)
  */
 
@@ -19,11 +19,11 @@ export const WALLET_TREE_HEIGHT = 11;
 /** Circuit-compatible witness for the wallet registry tree */
 export class WalletRegistryWitness extends MerkleWitness(WALLET_TREE_HEIGHT) {}
 
-/** Height of per-wallet NFT inventory tree (supports 64 NFTs per wallet) */
-export const NFT_INVENTORY_HEIGHT = 7;
+/** Height of per-wallet credential inventory tree (supports 64 credentials per wallet) */
+export const CREDENTIAL_INVENTORY_HEIGHT = 7;
 
-/** Circuit-compatible witness for a wallet's NFT inventory */
-export class NftInventoryWitness extends MerkleWitness(NFT_INVENTORY_HEIGHT) {}
+/** Circuit-compatible witness for a wallet's credential inventory */
+export class CredentialInventoryWitness extends MerkleWitness(CREDENTIAL_INVENTORY_HEIGHT) {}
 
 /**
  * WalletState — on-chain representation of a single wallet.
@@ -33,8 +33,8 @@ export class NftInventoryWitness extends MerkleWitness(NFT_INVENTORY_HEIGHT) {}
 export class WalletState extends Struct({
   /** The wallet identity (derived from entity data + domain tag) */
   walletId: Field,
-  /** Merkle root of NFTs held by this wallet */
-  nftInventoryRoot: Field,
+  /** Merkle root of credentials held by this wallet */
+  credentialInventoryRoot: Field,
   /** Monotonically increasing nonce — prevents replay of wallet operations */
   nonce: Field,
 }) {
@@ -42,18 +42,18 @@ export class WalletState extends Struct({
   commitment(): Field {
     return Poseidon.hash([
       this.walletId,
-      this.nftInventoryRoot,
+      this.credentialInventoryRoot,
       this.nonce,
     ]);
   }
 
-  /** Create a new wallet with an empty NFT inventory for a given identity */
+  /** Create a new wallet with an empty credential inventory for a given identity */
   static init(walletId: Field): WalletState {
-    // Empty NFT inventory tree root (all leaves are Field(0))
-    const emptyTree = new MerkleTree(NFT_INVENTORY_HEIGHT);
+    // Empty credential inventory tree root (all leaves are Field(0))
+    const emptyTree = new MerkleTree(CREDENTIAL_INVENTORY_HEIGHT);
     return new WalletState({
       walletId,
-      nftInventoryRoot: emptyTree.getRoot(),
+      credentialInventoryRoot: emptyTree.getRoot(),
       nonce: Field(0),
     });
   }
@@ -107,7 +107,7 @@ export class WalletRegistry {
     return state;
   }
 
-  /** Update wallet state (e.g., after receiving an NFT) */
+  /** Update wallet state (e.g., after receiving a credential) */
   updateState(walletId: Field, newState: WalletState): void {
     const key = walletId.toString();
     const index = this.walletIndices.get(key);
@@ -133,6 +133,16 @@ export class WalletRegistry {
   /** Get the registry Merkle root (this is what goes on-chain) */
   getRoot(): Field {
     return this.tree.getRoot();
+  }
+
+  /** Get witness for the next available (empty) slot — for proveRegistration */
+  getNextSlotWitness(): WalletRegistryWitness {
+    return new WalletRegistryWitness(this.tree.getWitness(this.nextIndex));
+  }
+
+  /** Get witness by raw index — for proveWalletUpdate */
+  getWitnessByIndex(index: bigint): WalletRegistryWitness {
+    return new WalletRegistryWitness(this.tree.getWitness(index));
   }
 
   /** Get total number of registered wallets */

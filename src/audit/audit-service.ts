@@ -40,8 +40,10 @@ export class AuditService {
   /**
    * Compute the event commitment from an AuditEvent's core state fields.
    *
-   * Hashes 7 Fields: walletId, oldRegistryRoot, newRegistryRoot,
-   * oldLifecycleRoot, newLifecycleRoot, sequenceNumber, isRegistration.
+   * Hashes 10 Fields: walletId, oldRegistryRoot, newRegistryRoot,
+   * oldLifecycleRoot, newLifecycleRoot, sequenceNumber, isRegistration,
+   * ndcHash, patientPayCents, planPayCents.
+   * Non-claim events use 0 for ndcHash, patientPayCents, and planPayCents.
    */
   static computeEventCommitment(event: AuditEvent): Field {
     return Poseidon.hash([
@@ -52,6 +54,9 @@ export class AuditService {
       Field(BigInt(event.newLifecycleRoot)),
       Field(BigInt(event.sequenceNumber)),
       Field(BigInt(event.isRegistration ? 1 : 0)),
+      Field(BigInt(event.ndcHash ?? '0')),
+      Field(BigInt(event.patientPayCents ?? 0)),
+      Field(BigInt(event.planPayCents ?? 0)),
     ]);
   }
 

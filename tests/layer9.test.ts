@@ -1,4 +1,5 @@
 import { Field, Poseidon } from 'o1js';
+import { DOMAIN_TAG_PHARMACY } from '../src/wallets/wallet-derivation.js';
 import {
   FulfillmentData,
   buildFulfillmentData,
@@ -26,8 +27,8 @@ import {
   RX_STATUS_PARTIALLY_FILLED,
 } from '../src/prescription/prescription-data.js';
 import { PrescriptionService } from '../src/prescription/prescription-service.js';
-import { NftData, NFT_TYPE_PRESCRIPTION } from '../src/nft/nft-data.js';
-import { NftInventory } from '../src/nft/nft-inventory.js';
+import { CredentialData, CREDENTIAL_TYPE_PRESCRIPTION } from '../src/credentials/credential-data.js';
+import { CredentialInventory } from '../src/credentials/credential-inventory.js';
 import { MerkleForest, ForestDomain } from '../src/zkp/merkle-forest.js';
 import { ForestRoots } from '../src/eligibility/forest-roots.js';
 import { FormularyEntry } from '../src/access-control/formulary-entry.js';
@@ -44,12 +45,16 @@ import {
   WalletState,
   WALLET_TREE_HEIGHT,
 } from '../src/wallets/wallet-state.js';
-import { EMPTY_NFT_ROOT } from '../src/engine/state-transition.js';
+import { EMPTY_CREDENTIAL_ROOT } from '../src/engine/state-transition.js';
 import { MerkleTree } from 'o1js';
 
 // ─── Test Data ──────────────────────────────────────────────
 
-const pharmacyWalletId = Field(777666555444333222n);
+// Pharmacy wallet preimage Fields (H2 fix)
+const PHARM_QUAL = Field(2);
+const PHARM_ID_HASH = Field(555);
+const PHARM_EK_HASH = Field(666);
+const pharmacyWalletId = Poseidon.hash([DOMAIN_TAG_PHARMACY, PHARM_QUAL, PHARM_ID_HASH, PHARM_EK_HASH]);
 const prescriberWalletId = Field(111222333444555666n);
 const memberWalletId = Field(999888777666555444n);
 const adminWalletId = Field(100200300400500600n);
@@ -117,26 +122,26 @@ function createTestWalletRegistry(): {
     pharmacyWalletId,
     new WalletState({
       walletId: pharmacyWalletId,
-      nftInventoryRoot: EMPTY_NFT_ROOT,
+      credentialInventoryRoot: EMPTY_CREDENTIAL_ROOT,
       nonce: Field(0),
     }),
   );
   return { registry, lifecycleTree };
 }
 
-/** Set up a prescription NFT that's been FILLED (ready for claim) */
+/** Set up a prescription credential that's been FILLED (ready for claim) */
 function setupFilledPrescription(): {
   rxData: PrescriptionData;
-  nftData: NftData;
+  credentialData: CredentialData;
   forest: MerkleForest;
   filledStatus: PrescriptionStatusData;
-  inventory: NftInventory;
-  nftSlotIndex: bigint;
+  inventory: CredentialInventory;
+  credentialSlotIndex: bigint;
   registry: WalletRegistry;
 } {
   const rxData = createTestPrescriptionData();
   const forest = new MerkleForest();
-  const inventory = new NftInventory();
+  const inventory = new CredentialInventory();
 
   // Insert prescription into MEDICATION tree
   forest.setLeaf(ForestDomain.MEDICATION, 0n, rxData.commitment());
@@ -165,9 +170,9 @@ function setupFilledPrescription(): {
   });
   forest.setLeaf(ForestDomain.TRANSACTION, 1n, filledStatus.commitment());
 
-  // Build NFT
-  const nftData = new NftData({
-    nftType: NFT_TYPE_PRESCRIPTION,
+  // Build credential
+  const credentialData = new CredentialData({
+    credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
     forestRoot: forest.getForestRoot(),
     issuerWalletId: prescriberWalletId,
     subjectWalletId: pharmacyWalletId,
@@ -177,12 +182,12 @@ function setupFilledPrescription(): {
   });
 
   // Mint into inventory
-  const { index: nftSlotIndex } = inventory.mint(nftData);
+  const { index: credentialSlotIndex } = inventory.mint(credentialData);
 
   // Register pharmacy
   const { registry } = createTestWalletRegistry();
 
-  return { rxData, nftData, forest, filledStatus, inventory, nftSlotIndex, registry };
+  return { rxData, credentialData, forest, filledStatus, inventory, credentialSlotIndex, registry };
 }
 
 // ─── Tests ──────────────────────────────────────────────────
@@ -416,8 +421,8 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
       });
       forest.setLeaf(ForestDomain.TRANSACTION, 0n, activeStatus.commitment());
 
-      const nftData = new NftData({
-        nftType: NFT_TYPE_PRESCRIPTION,
+      const credentialData = new CredentialData({
+        credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
         forestRoot: forest.getForestRoot(),
         issuerWalletId: prescriberWalletId,
         subjectWalletId: pharmacyWalletId,
@@ -426,15 +431,15 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
         revoked: Field(0),
       });
 
-      const inventory = new NftInventory();
-      const { index: nftSlotIndex } = inventory.mint(nftData);
+      const inventory = new CredentialInventory();
+      const { index: credentialSlotIndex } = inventory.mint(credentialData);
 
       const fulfillment = createTestFulfillmentData(rxData.commitment());
 
       await expect(
         service.submitFulfillment(
           pharmacyWalletId,
-          nftData,
+          credentialData,
           rxData,
           activeStatus,
           fulfillment,
@@ -443,7 +448,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
           0n,
           0n,
           inventory,
-          nftSlotIndex,
+          credentialSlotIndex,
         ),
       ).rejects.toThrow('FILLED or PARTIALLY_FILLED');
     });
@@ -553,7 +558,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
 
     describe('proveFulfillment', () => {
       it('valid fulfillment generates proof with correct amounts', async () => {
-        const { rxData, nftData, forest, filledStatus } = setupFilledPrescription();
+        const { rxData, credentialData, forest, filledStatus } = setupFilledPrescription();
 
         const fulfillment = createTestFulfillmentData(rxData.commitment());
         const formularyRegistry = createTestFormularyRegistry();
@@ -567,7 +572,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
         const newSlotWitness = forest.getWitness(ForestDomain.TRANSACTION, 2n);
 
         const result = await FulfillmentProgram.proveFulfillment(
-          nftData,
+          credentialData,
           rxData,
           filledStatus,
           fulfillment,
@@ -578,6 +583,9 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
           newSlotWitness,
           formularyWitness,
           formularyRoot,
+          PHARM_QUAL,
+          PHARM_ID_HASH,
+          PHARM_EK_HASH,
         );
 
         const output = result.proof.publicOutput;
@@ -589,12 +597,12 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
         expect(output.planPayCents.toString()).toBe('4500');
 
         // Forest root changed
-        expect(output.oldForestRoot.toString()).toBe(nftData.forestRoot.toString());
-        expect(output.newForestRoot.toString()).not.toBe(nftData.forestRoot.toString());
+        expect(output.oldForestRoot.toString()).toBe(credentialData.forestRoot.toString());
+        expect(output.newForestRoot.toString()).not.toBe(credentialData.forestRoot.toString());
       }, 120_000);
 
       it('rejects NDC mismatch', async () => {
-        const { rxData, nftData, forest, filledStatus } = setupFilledPrescription();
+        const { rxData, credentialData, forest, filledStatus } = setupFilledPrescription();
 
         // Wrong NDC in fulfillment
         const wrongFulfillment = new FulfillmentData({
@@ -619,7 +627,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
 
         await expect(
           FulfillmentProgram.proveFulfillment(
-            nftData,
+            credentialData,
             rxData,
             filledStatus,
             wrongFulfillment,
@@ -630,12 +638,15 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
             newSlotWitness,
             formularyWitness,
             formularyRoot,
+            PHARM_QUAL,
+            PHARM_ID_HASH,
+            PHARM_EK_HASH,
           ),
         ).rejects.toThrow();
       }, 120_000);
 
       it('rejects quantity exceeding max per fill', async () => {
-        const { rxData, nftData, forest, filledStatus } = setupFilledPrescription();
+        const { rxData, credentialData, forest, filledStatus } = setupFilledPrescription();
 
         // Quantity exceeds max (90 units max, claiming 100)
         const tooMuchFulfillment = new FulfillmentData({
@@ -660,7 +671,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
 
         await expect(
           FulfillmentProgram.proveFulfillment(
-            nftData,
+            credentialData,
             rxData,
             filledStatus,
             tooMuchFulfillment,
@@ -671,6 +682,9 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
             newSlotWitness,
             formularyWitness,
             formularyRoot,
+            PHARM_QUAL,
+            PHARM_ID_HASH,
+            PHARM_EK_HASH,
           ),
         ).rejects.toThrow();
       }, 120_000);
@@ -692,8 +706,8 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
         });
         forest.setLeaf(ForestDomain.TRANSACTION, 0n, activeStatus.commitment());
 
-        const nftData = new NftData({
-          nftType: NFT_TYPE_PRESCRIPTION,
+        const credentialData = new CredentialData({
+          credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
           forestRoot: forest.getForestRoot(),
           issuerWalletId: prescriberWalletId,
           subjectWalletId: pharmacyWalletId,
@@ -715,7 +729,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
 
         await expect(
           FulfillmentProgram.proveFulfillment(
-            nftData,
+            credentialData,
             rxData,
             activeStatus,
             fulfillment,
@@ -726,6 +740,9 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
             newSlotWitness,
             formularyWitness,
             formularyRoot,
+            PHARM_QUAL,
+            PHARM_ID_HASH,
+            PHARM_EK_HASH,
           ),
         ).rejects.toThrow();
       }, 120_000);
@@ -744,9 +761,9 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
         );
         forest.setLeaf(ForestDomain.TRANSACTION, 2n, settlementLeaf);
 
-        // Update NftData with new forest root
-        const nftDataPostFulfill = new NftData({
-          nftType: NFT_TYPE_PRESCRIPTION,
+        // Update CredentialData with new forest root
+        const credentialDataPostFulfill = new CredentialData({
+          credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
           forestRoot: forest.getForestRoot(),
           issuerWalletId: prescriberWalletId,
           subjectWalletId: pharmacyWalletId,
@@ -777,7 +794,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
         const reversalSlotWitness = forest.getWitness(ForestDomain.TRANSACTION, 3n);
 
         const result = await FulfillmentProgram.proveReversal(
-          nftDataPostFulfill,
+          credentialDataPostFulfill,
           rxData,
           fulfillment,
           reversalData,
@@ -788,6 +805,9 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
           reversalSlotWitness,
           formularyWitness,
           formularyRoot,
+          PHARM_QUAL,
+          PHARM_ID_HASH,
+          PHARM_EK_HASH,
         );
 
         const output = result.proof.publicOutput;
@@ -806,8 +826,8 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
         );
         forest.setLeaf(ForestDomain.TRANSACTION, 2n, settlementLeaf);
 
-        const nftDataPostFulfill = new NftData({
-          nftType: NFT_TYPE_PRESCRIPTION,
+        const credentialDataPostFulfill = new CredentialData({
+          credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
           forestRoot: forest.getForestRoot(),
           issuerWalletId: prescriberWalletId,
           subjectWalletId: pharmacyWalletId,
@@ -839,7 +859,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
 
         await expect(
           FulfillmentProgram.proveReversal(
-            nftDataPostFulfill,
+            credentialDataPostFulfill,
             rxData,
             fulfillment,
             wrongReversal,
@@ -850,6 +870,9 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
             reversalSlotWitness,
             formularyWitness,
             formularyRoot,
+            PHARM_QUAL,
+            PHARM_ID_HASH,
+            PHARM_EK_HASH,
           ),
         ).rejects.toThrow();
       }, 120_000);
@@ -871,8 +894,8 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
         });
         forest.setLeaf(ForestDomain.TRANSACTION, 0n, filledStatus.commitment());
 
-        const nftData = new NftData({
-          nftType: NFT_TYPE_PRESCRIPTION,
+        const credentialData = new CredentialData({
+          credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
           forestRoot: forest.getForestRoot(),
           issuerWalletId: prescriberWalletId,
           subjectWalletId: pharmacyWalletId,
@@ -906,7 +929,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
 
         await expect(
           FulfillmentProgram.proveReversal(
-            nftData,
+            credentialData,
             rxData,
             fulfillment,
             reversalData,
@@ -917,6 +940,9 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
             reversalSlotWitness,
             formularyWitness,
             formularyRoot,
+            PHARM_QUAL,
+            PHARM_ID_HASH,
+            PHARM_EK_HASH,
           ),
         ).rejects.toThrow();
       }, 120_000);
@@ -938,7 +964,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
     }, 180_000);
 
     it('full claim lifecycle: fill → submit fulfillment → verify amounts', async () => {
-      const { rxData, nftData, forest, filledStatus, inventory, nftSlotIndex, registry } =
+      const { rxData, credentialData, forest, filledStatus, inventory, credentialSlotIndex, registry } =
         setupFilledPrescription();
 
       const formularyRegistry = createTestFormularyRegistry();
@@ -952,7 +978,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
 
       const result = await service.submitFulfillment(
         pharmacyWalletId,
-        nftData,
+        credentialData,
         rxData,
         filledStatus,
         fulfillment,
@@ -961,7 +987,8 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
         1n,  // latestStatusIndex (FILLED at index 1)
         0n,  // formularyEntryIndex
         inventory,
-        nftSlotIndex,
+        credentialSlotIndex,
+        [PHARM_QUAL, PHARM_ID_HASH, PHARM_EK_HASH],
       );
 
       // Verify amounts
@@ -971,9 +998,9 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
       // Verify fulfillment was appended at index 2
       expect(result.fulfillmentIndex).toBe(2n);
 
-      // Verify NFT forestRoot changed
-      expect(result.newNftData.forestRoot.toString())
-        .not.toBe(nftData.forestRoot.toString());
+      // Verify credential forestRoot changed
+      expect(result.newCredentialData.forestRoot.toString())
+        .not.toBe(credentialData.forestRoot.toString());
 
       // Verify the settlement commitment (not raw fulfillment) is in the TRANSACTION tree
       const storedLeaf = forest.getLeaf(ForestDomain.TRANSACTION, 2n);
@@ -984,7 +1011,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
     }, 120_000);
 
     it('full reversal lifecycle: fulfill → reverse → verify refund', async () => {
-      const { rxData, nftData, forest, filledStatus, inventory, nftSlotIndex, registry } =
+      const { rxData, credentialData, forest, filledStatus, inventory, credentialSlotIndex, registry } =
         setupFilledPrescription();
 
       const formularyRegistry = createTestFormularyRegistry();
@@ -999,7 +1026,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
       // Step 1: Submit fulfillment
       const fulfillResult = await service.submitFulfillment(
         pharmacyWalletId,
-        nftData,
+        credentialData,
         rxData,
         filledStatus,
         fulfillment,
@@ -1008,7 +1035,8 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
         1n,
         0n,
         inventory,
-        nftSlotIndex,
+        credentialSlotIndex,
+        [PHARM_QUAL, PHARM_ID_HASH, PHARM_EK_HASH],
       );
 
       // Step 2: Reverse fulfillment
@@ -1024,7 +1052,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
 
       const reversalResult = await service.reverseFulfillment(
         pharmacyWalletId,
-        fulfillResult.newNftData,
+        fulfillResult.newCredentialData,
         rxData,
         fulfillment,
         reversalData,
@@ -1033,7 +1061,8 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
         2n,  // fulfillment at index 2
         0n,  // formularyEntryIndex
         inventory,
-        nftSlotIndex,
+        credentialSlotIndex,
+        [PHARM_QUAL, PHARM_ID_HASH, PHARM_EK_HASH],
       );
 
       // Verify refund amounts match original

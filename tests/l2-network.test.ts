@@ -235,7 +235,8 @@ describe('L2RpcServer', () => {
 
   test('CORS headers are set on responses', async () => {
     const res = await rawGet(port, '/health');
-    expect(res.headers['access-control-allow-origin']).toBe('*');
+    // Default restrictive CORS: no matching origin → 'null'
+    expect(res.headers['access-control-allow-origin']).toBe('null');
   });
 
   test('404 for unknown paths', async () => {
@@ -264,6 +265,65 @@ describe('L2RpcServer', () => {
     const bigBody = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getStatus', extra: 'x'.repeat(100) });
     // Server destroys the socket when body is too large, causing a connection error
     await expect(rawRpc(port, bigBody)).rejects.toThrow();
+  });
+
+  // ─── State-Serving RPC Methods (P4) ─────────────────────
+
+  test('RPC l2_getChainState returns chain state with correct roots', async () => {
+    const rpcReq: RpcRequest = { jsonrpc: '2.0', id: 1, method: 'l2_getChainState' };
+    const res = await rawRpc(port, l2Stringify(rpcReq));
+    const rpcRes = l2Parse<RpcResponse>(res.body);
+    expect(rpcRes.error).toBeUndefined();
+    const state = rpcRes.result as Record<string, unknown>;
+    expect(state.registryRoot).toBe(INITIAL_REG_ROOT.toString());
+    expect(state.lifecycleRoot).toBe(INITIAL_LC_ROOT.toString());
+    expect(state.walletCount).toBe('0');
+    expect(state.chainProofEnabled).toBe(false);
+    expect(state.pendingProofs).toBe(0);
+    expect(state.latestBatchNumber).toBeNull();
+    expect(state.latestBatchStatus).toBeNull();
+    expect(typeof state.auditChainHash).toBe('string');
+    expect(typeof state.globalStateRoot).toBe('string');
+    expect(typeof state.blockHeight).toBe('string');
+  });
+
+  test('RPC l2_getReceiptsByWallet returns empty array for unknown wallet', async () => {
+    const rpcReq: RpcRequest = {
+      jsonrpc: '2.0', id: 1, method: 'l2_getReceiptsByWallet',
+      params: { walletId: 'nonexistent-wallet' },
+    };
+    const res = await rawRpc(port, l2Stringify(rpcReq));
+    const rpcRes = l2Parse<RpcResponse>(res.body);
+    expect(rpcRes.error).toBeUndefined();
+    expect(rpcRes.result).toEqual([]);
+  });
+
+  test('RPC l2_getAllReceipts returns empty array initially', async () => {
+    const rpcReq: RpcRequest = { jsonrpc: '2.0', id: 1, method: 'l2_getAllReceipts' };
+    const res = await rawRpc(port, l2Stringify(rpcReq));
+    const rpcRes = l2Parse<RpcResponse>(res.body);
+    expect(rpcRes.error).toBeUndefined();
+    expect(rpcRes.result).toEqual([]);
+  });
+
+  test('RPC l2_getAllBatches returns empty array initially', async () => {
+    const rpcReq: RpcRequest = { jsonrpc: '2.0', id: 1, method: 'l2_getAllBatches' };
+    const res = await rawRpc(port, l2Stringify(rpcReq));
+    const rpcRes = l2Parse<RpcResponse>(res.body);
+    expect(rpcRes.error).toBeUndefined();
+    expect(rpcRes.result).toEqual([]);
+  });
+
+  test('RPC l2_getChainProof returns enabled:false when no admin state set', async () => {
+    const rpcReq: RpcRequest = { jsonrpc: '2.0', id: 1, method: 'l2_getChainProof' };
+    const res = await rawRpc(port, l2Stringify(rpcReq));
+    const rpcRes = l2Parse<RpcResponse>(res.body);
+    expect(rpcRes.error).toBeUndefined();
+    const proof = rpcRes.result as Record<string, unknown>;
+    expect(proof.enabled).toBe(false);
+    expect(proof.proofJson).toBeNull();
+    expect(typeof proof.globalStateRoot).toBe('string');
+    expect(typeof proof.blockHeight).toBe('string');
   });
 });
 
@@ -332,6 +392,42 @@ describe('L2Client', () => {
       const c = client as unknown as { rpcCall: (m: string) => Promise<unknown> };
       await c.rpcCall('l2_nonexistent');
     }).rejects.toThrow('RPC error');
+  });
+
+  // ─── State-Serving SDK Methods (P4) ─────────────────────
+
+  test('getChainState returns chain state over HTTP', async () => {
+    const state = await client.getChainState();
+    expect(state.registryRoot).toBe(INITIAL_REG_ROOT.toString());
+    expect(state.lifecycleRoot).toBe(INITIAL_LC_ROOT.toString());
+    expect(state.walletCount).toBe('0');
+    expect(state.chainProofEnabled).toBe(false);
+    expect(state.pendingProofs).toBe(0);
+    expect(state.latestBatchNumber).toBeNull();
+    expect(state.latestBatchStatus).toBeNull();
+  });
+
+  test('getReceiptsByWallet returns empty for unknown wallet', async () => {
+    const receipts = await client.getReceiptsByWallet('unknown-wallet-id');
+    expect(receipts).toEqual([]);
+  });
+
+  test('getAllReceipts returns empty initially', async () => {
+    const receipts = await client.getAllReceipts();
+    expect(receipts).toEqual([]);
+  });
+
+  test('getAllBatches returns empty initially', async () => {
+    const batches = await client.getAllBatches();
+    expect(batches).toEqual([]);
+  });
+
+  test('getChainProof returns chain proof state over HTTP', async () => {
+    const proof = await client.getChainProof();
+    expect(proof.enabled).toBe(false);
+    expect(proof.proofJson).toBeNull();
+    expect(typeof proof.globalStateRoot).toBe('string');
+    expect(typeof proof.blockHeight).toBe('string');
   });
 });
 

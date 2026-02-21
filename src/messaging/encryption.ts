@@ -1,4 +1,4 @@
-import { createHash, createCipheriv, createDecipheriv, diffieHellman } from 'crypto';
+import { createHash, createCipheriv, createDecipheriv, diffieHellman, hkdfSync } from 'crypto';
 import { generateKeyPairSync, createPublicKey, createPrivateKey } from 'crypto';
 import { Field, Poseidon, Encoding } from 'o1js';
 
@@ -45,22 +45,26 @@ export function deriveEncryptionKeyPair(enrollmentKey: string): {
   ]);
   const pkcs8Der = Buffer.concat([pkcs8Prefix, seed]);
 
-  const privateKeyObj = createPrivateKey({
-    key: pkcs8Der,
-    format: 'der',
-    type: 'pkcs8',
-  });
-  const publicKeyObj = createPublicKey(privateKeyObj);
+  try {
+    const privateKeyObj = createPrivateKey({
+      key: pkcs8Der,
+      format: 'der',
+      type: 'pkcs8',
+    });
+    const publicKeyObj = createPublicKey(privateKeyObj);
 
-  // Export raw key bytes (32 bytes each)
-  const privateKey = Buffer.from(
-    privateKeyObj.export({ type: 'pkcs8', format: 'der' }).subarray(pkcs8Prefix.length),
-  );
-  const publicKey = Buffer.from(
-    publicKeyObj.export({ type: 'spki', format: 'der' }).subarray(12), // skip SPKI header
-  );
+    // Copy seed before scrubbing — returned as the private key
+    const privateKeyCopy = Buffer.from(seed);
+    const publicKey = Buffer.from(
+      publicKeyObj.export({ type: 'spki', format: 'der' }).subarray(12), // skip SPKI header
+    );
 
-  return { publicKey, privateKey: seed };
+    return { publicKey, privateKey: privateKeyCopy };
+  } finally {
+    // Scrub key material from intermediate buffers
+    seed.fill(0);
+    pkcs8Der.fill(0);
+  }
 }
 
 /**
@@ -106,6 +110,21 @@ export function deriveSharedSecret(
   });
 }
 
+// ─── Key Derivation (HKDF) ──────────────────────────────────
+
+/**
+ * H1 fix: Derive a proper AES-256 key from an ECDH shared secret via HKDF.
+ *
+ * Raw ECDH outputs should NEVER be used directly as cipher keys — they
+ * have non-uniform entropy distribution. HKDF-SHA256 produces a
+ * cryptographically proper key with uniform distribution.
+ */
+function deriveAesKey(sharedSecret: Buffer): Buffer {
+  return Buffer.from(
+    hkdfSync('sha256', sharedSecret, Buffer.alloc(0), 'zkpcare-msg-aes256gcm', 32),
+  );
+}
+
 // ─── Message Encryption / Decryption ────────────────────────
 
 /** Encrypted message payload */
@@ -129,8 +148,8 @@ export function encryptMessage(
   plaintext: string,
   sharedSecret: Buffer,
 ): EncryptedPayload {
-  // Use first 32 bytes of shared secret as AES-256 key
-  const key = sharedSecret.subarray(0, 32);
+  // H1 fix: derive AES key via HKDF instead of using raw shared secret
+  const key = deriveAesKey(sharedSecret);
   // 12-byte random IV for GCM
   const iv = Buffer.from(
     globalThis.crypto.getRandomValues(new Uint8Array(12)),
@@ -161,7 +180,8 @@ export function decryptMessage(
   tag: Buffer,
   sharedSecret: Buffer,
 ): string {
-  const key = sharedSecret.subarray(0, 32);
+  // H1 fix: derive AES key via HKDF instead of using raw shared secret
+  const key = deriveAesKey(sharedSecret);
   const decipher = createDecipheriv('aes-256-gcm', key, iv);
   decipher.setAuthTag(tag);
   const decrypted = Buffer.concat([
@@ -176,16 +196,17 @@ export function decryptMessage(
 /**
  * Compute a Poseidon hash of encrypted content for on-chain commitment.
  *
- * The hash covers both the ciphertext and IV to ensure integrity.
+ * The hash covers ciphertext, IV, and GCM auth tag to ensure full integrity.
  * This hash is stored in MessageData.contentHash.
  *
  * @param ciphertext — encrypted message bytes
  * @param iv — 12-byte initialization vector
+ * @param tag — 16-byte GCM authentication tag
  * @returns Field — Poseidon hash for on-chain storage
  */
-export function computeContentHash(ciphertext: Buffer, iv: Buffer): Field {
-  // Convert ciphertext + iv to a combined string for hashing
-  const combined = Buffer.concat([ciphertext, iv]).toString('hex');
+export function computeContentHash(ciphertext: Buffer, iv: Buffer, tag: Buffer): Field {
+  // H2 fix: include GCM auth tag in the commitment to prevent tag substitution
+  const combined = Buffer.concat([ciphertext, iv, tag]).toString('hex');
   const fields = Encoding.stringToFields(combined);
   return Poseidon.hash(fields);
 }

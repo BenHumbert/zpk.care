@@ -1,7 +1,8 @@
 import { Field, Struct, Poseidon, ZkProgram } from 'o1js';
-import { NftData, NFT_TYPE_PRESCRIPTION } from '../nft/nft-data.js';
+import { CredentialData, CREDENTIAL_TYPE_PRESCRIPTION } from '../credentials/credential-data.js';
 import { ForestRoots } from '../eligibility/forest-roots.js';
 import { ForestMerkleWitness } from '../zkp/merkle-forest.js';
+import { DOMAIN_TAG_PRESCRIBER } from '../wallets/wallet-derivation.js';
 import {
   PrescriptionData,
   PrescriptionStatusData,
@@ -42,12 +43,12 @@ export class PrescriptionOutput extends Struct({
  * STANDALONE (no recursion) — proves prescription status transitions
  * and pharmacy-to-pharmacy transfers. Two methods:
  *
- *   1. proveStatusUpdate — valid status transition on a prescription NFT
+ *   1. proveStatusUpdate — valid status transition on a prescription credential
  *   2. proveTransfer — valid pharmacy-to-pharmacy transfer
  *
  * The forest's TRANSACTION tree stores append-only status entries.
  * Each status change adds a new leaf; the forest root changes,
- * which changes the NFT commitment in the wallet inventory.
+ * which changes the credential commitment in the wallet inventory.
  */
 export const PrescriptionProgram = ZkProgram({
   name: 'Prescription',
@@ -55,10 +56,10 @@ export const PrescriptionProgram = ZkProgram({
 
   methods: {
     /**
-     * Prove a valid status transition on a prescription NFT.
+     * Prove a valid status transition on a prescription credential.
      *
      * Verification chain:
-     *   1. NFT type is PRESCRIPTION, not revoked
+     *   1. Credential type is PRESCRIPTION, not revoked
      *   2. Forest root integrity (6 roots → forestRoot)
      *   3. PrescriptionData in MEDICATION tree
      *   4. Old status entry in TRANSACTION tree
@@ -69,7 +70,7 @@ export const PrescriptionProgram = ZkProgram({
      */
     proveStatusUpdate: {
       privateInputs: [
-        NftData,
+        CredentialData,
         PrescriptionData,
         PrescriptionStatusData,      // old status entry
         PrescriptionStatusData,      // new status entry
@@ -77,9 +78,12 @@ export const PrescriptionProgram = ZkProgram({
         ForestMerkleWitness,         // MEDICATION: prescription at leaf
         ForestMerkleWitness,         // TRANSACTION: old status at leaf N
         ForestMerkleWitness,         // TRANSACTION: new slot N+1 (empty)
+        Field,                        // M4: prescriber qualifier
+        Field,                        // M4: prescriber serviceProviderIdHash
+        Field,                        // M4: prescriber enrollmentKeyHash
       ],
       async method(
-        nftData: NftData,
+        credentialData: CredentialData,
         prescriptionData: PrescriptionData,
         oldStatus: PrescriptionStatusData,
         newStatus: PrescriptionStatusData,
@@ -87,20 +91,35 @@ export const PrescriptionProgram = ZkProgram({
         medicationWitness: ForestMerkleWitness,
         oldStatusWitness: ForestMerkleWitness,
         newSlotWitness: ForestMerkleWitness,
+        prescriberQualifier: Field,
+        prescriberServiceProviderIdHash: Field,
+        prescriberEnrollmentKeyHash: Field,
       ) {
-        // 1. NFT type is PRESCRIPTION
-        nftData.nftType.assertEquals(
-          NFT_TYPE_PRESCRIPTION,
-          'NFT type must be PRESCRIPTION',
+        // 1. Credential type is PRESCRIPTION
+        credentialData.credentialType.assertEquals(
+          CREDENTIAL_TYPE_PRESCRIPTION,
+          'Credential type must be PRESCRIPTION',
         );
 
-        // 2. NFT is not revoked
-        nftData.revoked.assertEquals(Field(0), 'NFT is revoked');
+        // 2. Credential is not revoked
+        credentialData.revoked.assertEquals(Field(0), 'Credential is revoked');
+
+        // 2b. M4 fix: Verify prescriber wallet identity binding
+        const computedPrescriberWalletId = Poseidon.hash([
+          DOMAIN_TAG_PRESCRIBER,
+          prescriberQualifier,
+          prescriberServiceProviderIdHash,
+          prescriberEnrollmentKeyHash,
+        ]);
+        computedPrescriberWalletId.assertEquals(
+          prescriptionData.prescriberWalletId,
+          'Prescriber wallet identity binding failed',
+        );
 
         // 3. Forest root integrity
         const computedForestRoot = forestRoots.computeForestRoot();
         computedForestRoot.assertEquals(
-          nftData.forestRoot,
+          credentialData.forestRoot,
           'Forest root mismatch',
         );
 
@@ -154,7 +173,7 @@ export const PrescriptionProgram = ZkProgram({
         return {
           publicOutput: new PrescriptionOutput({
             prescriptionHash: rxCommitment,
-            oldForestRoot: nftData.forestRoot,
+            oldForestRoot: credentialData.forestRoot,
             newForestRoot,
             pharmacyWalletId: newStatus.pharmacyWalletId,
             statusCode: newStatus.status,
@@ -174,7 +193,7 @@ export const PrescriptionProgram = ZkProgram({
      */
     proveTransfer: {
       privateInputs: [
-        NftData,
+        CredentialData,
         PrescriptionData,
         PrescriptionStatusData,      // old status entry
         PrescriptionStatusData,      // transfer status entry
@@ -183,9 +202,12 @@ export const PrescriptionProgram = ZkProgram({
         ForestMerkleWitness,         // TRANSACTION: old status
         ForestMerkleWitness,         // TRANSACTION: transfer entry slot
         Field,                        // destination pharmacy wallet ID
+        Field,                        // M4: prescriber qualifier
+        Field,                        // M4: prescriber serviceProviderIdHash
+        Field,                        // M4: prescriber enrollmentKeyHash
       ],
       async method(
-        nftData: NftData,
+        credentialData: CredentialData,
         prescriptionData: PrescriptionData,
         oldStatus: PrescriptionStatusData,
         transferStatus: PrescriptionStatusData,
@@ -194,20 +216,35 @@ export const PrescriptionProgram = ZkProgram({
         oldStatusWitness: ForestMerkleWitness,
         transferSlotWitness: ForestMerkleWitness,
         destPharmacyWalletId: Field,
+        prescriberQualifier: Field,
+        prescriberServiceProviderIdHash: Field,
+        prescriberEnrollmentKeyHash: Field,
       ) {
-        // 1. NFT type is PRESCRIPTION
-        nftData.nftType.assertEquals(
-          NFT_TYPE_PRESCRIPTION,
-          'NFT type must be PRESCRIPTION',
+        // 1. Credential type is PRESCRIPTION
+        credentialData.credentialType.assertEquals(
+          CREDENTIAL_TYPE_PRESCRIPTION,
+          'Credential type must be PRESCRIPTION',
         );
 
-        // 2. NFT is not revoked
-        nftData.revoked.assertEquals(Field(0), 'NFT is revoked');
+        // 2. Credential is not revoked
+        credentialData.revoked.assertEquals(Field(0), 'Credential is revoked');
+
+        // 2b. M4 fix: Verify prescriber wallet identity binding
+        const computedPrescriberWalletId = Poseidon.hash([
+          DOMAIN_TAG_PRESCRIBER,
+          prescriberQualifier,
+          prescriberServiceProviderIdHash,
+          prescriberEnrollmentKeyHash,
+        ]);
+        computedPrescriberWalletId.assertEquals(
+          prescriptionData.prescriberWalletId,
+          'Prescriber wallet identity binding failed',
+        );
 
         // 3. Forest root integrity
         const computedForestRoot = forestRoots.computeForestRoot();
         computedForestRoot.assertEquals(
-          nftData.forestRoot,
+          credentialData.forestRoot,
           'Forest root mismatch',
         );
 
@@ -273,7 +310,7 @@ export const PrescriptionProgram = ZkProgram({
         return {
           publicOutput: new PrescriptionOutput({
             prescriptionHash: rxCommitment,
-            oldForestRoot: nftData.forestRoot,
+            oldForestRoot: credentialData.forestRoot,
             newForestRoot,
             pharmacyWalletId: destPharmacyWalletId,
             statusCode: RX_STATUS_TRANSFERRED,

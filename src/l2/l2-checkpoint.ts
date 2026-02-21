@@ -65,6 +65,68 @@ export interface L2SequencerState {
   auditLog: AuditEvent[];
   /** Queued admin operations */
   adminQueue: AdminStateDelta[];
+
+  // ── Chain proof state (optional — present when ChainProgram is enabled) ──
+
+  /** Admin state config for GlobalState computation (decimal strings) */
+  adminState?: {
+    adminPublicKeyHash: string;
+    benefitPlanRoot: string;
+    credentialRegistryRoot: string;
+    eligibilityVkHash: string;
+    messagingRoot: string;
+  };
+  /** Latest ChainProof JSON for advance() input (null before first batch) */
+  latestChainProofJson?: string | null;
+  /** Current block height (decimal string) */
+  currentBlockHeight?: string;
+  /** Current global state root (decimal string) */
+  currentGlobalStateRoot?: string;
+
+  // ── Formulary state (optional — present when formularies are published) ──
+
+  /** Published formularies indexed by planIdHash */
+  formularyStore?: Record<string, {
+    formularyRoot: string;
+    entriesJson: string;
+    publishedAt: number;
+    version: number;
+  }>;
+
+  // ── Claim Accumulator state (optional — present when claims have been submitted) ──
+
+  /** Serialized claim accumulator state for crash recovery */
+  claimAccumulatorState?: import('./claim-accumulator-types.js').ClaimAccumulatorState;
+
+  // ── Last-settled roots (crash recovery safe point) ──
+
+  /** Registry root at last settled batch (decimal string). Optional for backward compat. */
+  lastSettledRegistryRoot?: string;
+  /** Lifecycle root at last settled batch (decimal string). Optional for backward compat. */
+  lastSettledLifecycleRoot?: string;
+  /** Wallet count at last settled batch (decimal string). Optional for backward compat. */
+  lastSettledWalletCount?: string;
+
+  // ── L2-only mode flag ──
+
+  /** Whether the sequencer was in L2-only mode (no L1 settlement). Optional for backward compat. */
+  l2Only?: boolean;
+
+  // ── Proof fingerprint deduplication ──
+
+  /** Seen proof fingerprints for replay prevention. Optional for backward compat. */
+  seenProofFingerprints?: string[];
+
+  // ── Pre-batch rollback snapshots (H5 fix) ──
+
+  /** Audit log length at last settlement — truncation point for batch failure rollback */
+  preBatchAuditLogLength?: number;
+  /** Chain hash at last settlement — restore point for batch failure rollback (decimal string) */
+  preBatchChainHash?: string;
+  /** Claim accumulator leaf count at last settlement — rollback point for batch failure */
+  preBatchClaimLeafCount?: bigint;
+  /** Proof fingerprints at last settlement — rollback set for batch failure */
+  preBatchFingerprints?: string[];
 }
 
 /**
@@ -100,6 +162,33 @@ export interface L2Checkpoint {
   sequencerState: L2SequencerState;
   /** Node-level statistics */
   nodeStats: L2NodeStats;
+}
+
+/**
+ * LeviathanCheckpoint — multi-partition checkpoint for leviathan nodes.
+ *
+ * Captures per-partition sequencer states, the leader map, and
+ * leviathan configuration for crash recovery of partitioned nodes.
+ */
+export interface LeviathanCheckpoint {
+  /** Schema version for forward compatibility */
+  version: number;
+  /** Timestamp when checkpoint was created */
+  createdAt: number;
+  /** What triggered this checkpoint */
+  trigger: L2CheckpointTrigger;
+  /** Per-partition sequencer states (partitionIndex → L2SequencerState) */
+  partitionStates: Record<number, L2SequencerState>;
+  /** Leader map at checkpoint time (partitionIndex → leader nodeId) */
+  leaderMap: Record<number, string>;
+  /** Per-partition node stats (partitionIndex → L2NodeStats) */
+  partitionNodeStats: Record<number, L2NodeStats>;
+  /** Leviathan configuration for recovery */
+  leviathanConfig: {
+    partitionCount: number;
+    primaryPartition: number;
+    failoverChain: Record<number, string[]>;
+  };
 }
 
 // ─── Constants ──────────────────────────────────────────────

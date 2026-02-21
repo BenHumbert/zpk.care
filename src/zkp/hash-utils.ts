@@ -36,10 +36,28 @@ export function dateToField(dateStr: string): Field {
 }
 
 /**
+ * H4 fix: Hash a numeric date string (CCYYMMDD) through Poseidon.
+ *
+ * Unlike dateToField() which stores dates as plain integers (reversible
+ * via ~36,500 brute-force attempts), hashDate() produces a Poseidon hash
+ * that is computationally irreversible. Used for sensitive dates like DOB
+ * in wallet derivation where the date must not be recoverable from on-chain data.
+ */
+export function hashDate(dateStr: string): Field {
+  return Poseidon.hash([Field(BigInt(dateStr))]);
+}
+
+/**
  * Convert a dollar amount (as number in cents) to a Field.
  * All monetary values are stored as integer cents to avoid decimals.
  */
 export function centsToField(cents: number): Field {
+  // M11 fix: Reject negative values. Negative cents would wrap modularly
+  // in the finite field, producing an astronomically large value instead
+  // of an error. All monetary values must be non-negative.
+  if (cents < 0) {
+    throw new Error(`centsToField: negative value not allowed (${cents})`);
+  }
   return Field(BigInt(cents));
 }
 

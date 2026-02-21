@@ -34,6 +34,8 @@ export interface TokenValidationResult {
   groupId?: string;
   /** The plan ID from the token (if valid) */
   planId?: string;
+  /** The family ID from the token (if valid) */
+  familyId?: string;
 }
 
 /**
@@ -73,6 +75,7 @@ export class TokenAuthority {
    * @param groupId — employer group ID
    * @param planId — benefit plan ID
    * @param employeeId — employee's internal ID (opaque to insurer)
+   * @param familyId — family identifier (groups subscriber + dependents)
    * @param validUntil — expiration date as CCYYMMDD
    * @param tokenId — optional custom token ID (auto-generated if omitted)
    */
@@ -80,6 +83,7 @@ export class TokenAuthority {
     groupId: string,
     planId: string,
     employeeId: string,
+    familyId: string,
     validUntil: string,
     tokenId?: string,
   ): { token: GroupEnrollmentToken; tokenId: string } {
@@ -91,6 +95,7 @@ export class TokenAuthority {
       groupId,
       planId,
       employeeId,
+      familyId,
       validUntil,
       issuer: this.issuer,
       nonce,
@@ -144,6 +149,7 @@ export class TokenAuthority {
       valid: true,
       groupId: record.localData.groupId,
       planId: record.localData.planId,
+      familyId: record.localData.familyId,
     };
   }
 

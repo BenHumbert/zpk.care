@@ -1,7 +1,7 @@
 import { Field } from 'o1js';
 import type { ILocalStore } from '../storage/local-store.js';
 import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
-import { NftData } from '../nft/nft-data.js';
+import { CredentialData } from '../credentials/credential-data.js';
 import { EligibilityData } from '../eligibility/eligibility-data.js';
 import { ForestRoots } from '../eligibility/forest-roots.js';
 import { FormularyEntry } from './formulary-entry.js';
@@ -66,7 +66,7 @@ export class AccessControlService {
    * quantity/day supply is within the plan's limits.
    */
   async proveFormularyAccess(
-    nftData: NftData,
+    credentialData: CredentialData,
     eligibilityData: EligibilityData,
     forest: MerkleForest,
     eligLeafIndex: bigint,
@@ -74,6 +74,7 @@ export class AccessControlService {
     ndcHash: Field,
     requestedQuantity: Field,
     requestedDaySupply: Field,
+    currentDate: Field = Field(0),
   ) {
     const forestRoots = ForestRoots.fromForest(forest);
     const eligForestWitness = forest.getWitness(
@@ -88,7 +89,7 @@ export class AccessControlService {
       this.formularyRegistry.getEntryWitness(formularyEntryIndex);
 
     const result = await AccessControlProgram.proveFormularyAccess(
-      nftData,
+      credentialData,
       eligibilityData,
       forestRoots,
       eligForestWitness,
@@ -97,6 +98,7 @@ export class AccessControlService {
       ndcHash,
       requestedQuantity,
       requestedDaySupply,
+      currentDate,
     );
 
     const proofId = `formulary-access-${Date.now()}`;
@@ -113,7 +115,7 @@ export class AccessControlService {
    * and have sufficient approved quantity.
    */
   async provePriorAuth(
-    nftData: NftData,
+    credentialData: CredentialData,
     eligibilityData: EligibilityData,
     forest: MerkleForest,
     eligLeafIndex: bigint,
@@ -140,7 +142,7 @@ export class AccessControlService {
       this.formularyRegistry.getEntryWitness(formularyEntryIndex);
 
     const result = await AccessControlProgram.provePriorAuth(
-      nftData,
+      credentialData,
       eligibilityData,
       forestRoots,
       eligForestWitness,

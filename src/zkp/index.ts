@@ -2,6 +2,7 @@ export {
   hashString,
   hashStrings,
   dateToField,
+  hashDate,
   centsToField,
   codeToField,
   quantityToField,

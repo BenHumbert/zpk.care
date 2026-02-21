@@ -15,7 +15,7 @@ import type { ClaimContext } from '../reporting/report-types.js';
  * AuditEvent — DA record emitted per L2 state transition.
  *
  * Each event carries a Poseidon hash chain: chainHash = Poseidon.hash([prevChainHash, eventCommitment]).
- * The eventCommitment is a Poseidon hash of the 7 core state-transition fields.
+ * The eventCommitment is a Poseidon hash of the 8 core state-transition fields (including ndcHash).
  * Tampering with any event breaks the chain from that point forward.
  */
 export interface AuditEvent {
@@ -35,7 +35,7 @@ export interface AuditEvent {
   oldLifecycleRoot: string;
   /** Lifecycle root after this transition */
   newLifecycleRoot: string;
-  /** Poseidon hash of 7 core state fields */
+  /** Poseidon hash of 10 core state fields (including ndcHash, patientPayCents, planPayCents) */
   eventCommitment: string;
   /** Poseidon.hash([prevChainHash, eventCommitment]) — tamper-evident chain */
   chainHash: string;
@@ -53,6 +53,8 @@ export interface AuditEvent {
   patientPayCents?: number;
   /** ZK-computed plan pay in cents (from proof output) */
   planPayCents?: number;
+  /** Poseidon hash of NDC code — drug identity from FulfillmentProof output (optional for non-claim events) */
+  ndcHash?: string;
 }
 
 // ─── AuditLog ───────────────────────────────────────────────

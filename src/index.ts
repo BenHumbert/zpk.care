@@ -68,39 +68,39 @@ export {
   lifecycleLeafCommitment,
   assertValidTransition,
   isValidTransition,
-  EMPTY_NFT_ROOT,
+  EMPTY_CREDENTIAL_ROOT,
   TransitionOutput,
   StateTransitionProgram,
   StateTransitionProof,
   CareContract,
-  NftRegistryWitness,
+  CredentialRegistryWitness,
 } from './engine/index.js';
 
-// NFT System — User Path (L4)
+// Credential System — User Path (L4)
 export {
-  NFT_TYPE_ELIGIBILITY,
-  NFT_TYPE_PRESCRIPTION,
-  NftData,
-  NftInventory,
-  NFT_OP_MINT,
-  NFT_OP_VERIFY,
-  NftOperationOutput,
-  NftProgram,
-  NftOperationProof,
+  CREDENTIAL_TYPE_ELIGIBILITY,
+  CREDENTIAL_TYPE_PRESCRIPTION,
+  CredentialData,
+  CredentialInventory,
+  CREDENTIAL_OP_MINT,
+  CREDENTIAL_OP_VERIFY,
+  CredentialOperationOutput,
+  CredentialProgram,
+  CredentialOperationProof,
   serializeCredential,
   deserializeCredential,
   verifyCredentialOffline,
   serializeDelegationCredential,
   deserializeDelegationCredential,
   UserWalletService,
-} from './nft/index.js';
+} from './credentials/index.js';
 export type {
-  NftLocalMetadata,
+  CredentialLocalMetadata,
   PortableCredential,
   PortableDelegationCredential,
   EntityType,
   MintResult,
-} from './nft/index.js';
+} from './credentials/index.js';
 
 // Eligibility Flow — Use Cases A + C (L5)
 export {
@@ -255,6 +255,7 @@ export {
   RX_STATUS_REJECTED,
   RX_STATUS_REVERSED,
   RX_STATUS_TRANSFERRED,
+  RX_STATUS_DISPENSED,
   EMERGENCY_FILL_HASH,
   PrescriptionData,
   buildPrescriptionData,
@@ -383,6 +384,12 @@ export {
   L2SequencerService,
   DEFAULT_BATCH_INTERVAL_MS,
   MAX_TRANSITIONS_PER_BATCH,
+  GLOBAL_STATE_FIELD_COUNT,
+  computeGlobalStateRoot,
+  GlobalState,
+  ChainOutput,
+  ChainProgram,
+  ChainProof,
 } from './l2/index.js';
 export type {
   L1Status,
@@ -394,6 +401,7 @@ export type {
   AdminOperationType,
   AdminOpStatus,
   AdminStateDelta,
+  AdminStateConfig,
 } from './l2/index.js';
 
 // Audit — Data Availability & Audit Trail

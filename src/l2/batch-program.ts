@@ -38,7 +38,9 @@ export class BatchOutput extends Struct({
  *   For 16 transitions: 4 sequential rounds instead of 15 sequential appends.
  *
  * Proof chain:
- *   ProofGateProof → StateTransitionProof → BatchProof → CareContract.settleBatch
+ *   StateTransitionProof → BatchProof → CareContract.settleBatch
+ *
+ * Note: StateTransitionProgram inlines wallet verification — no ProofGateProof needed.
  */
 export const BatchProgram = ZkProgram({
   name: 'BatchSettlement',

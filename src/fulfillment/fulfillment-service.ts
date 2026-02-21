@@ -1,8 +1,8 @@
 import { Field, Poseidon } from 'o1js';
 import type { ILocalStore } from '../storage/local-store.js';
 import { WalletRegistry, WalletState } from '../wallets/wallet-state.js';
-import { NftData } from '../nft/nft-data.js';
-import { NftInventory } from '../nft/nft-inventory.js';
+import { CredentialData } from '../credentials/credential-data.js';
+import { CredentialInventory } from '../credentials/credential-inventory.js';
 import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
 import { ForestRoots } from '../eligibility/forest-roots.js';
 import { FormularyEntry } from '../access-control/formulary-entry.js';
@@ -23,7 +23,7 @@ import { FulfillmentProgram } from './fulfillment-program.js';
  */
 export interface FulfillmentResult {
   proof: Awaited<ReturnType<typeof FulfillmentProgram.proveFulfillment>>['proof'];
-  newNftData: NftData;
+  newCredentialData: CredentialData;
   newInventoryRoot: Field;
   fulfillmentEntry: FulfillmentData;
   fulfillmentIndex: bigint;
@@ -36,7 +36,7 @@ export interface FulfillmentResult {
  */
 export interface ReversalResult {
   proof: Awaited<ReturnType<typeof FulfillmentProgram.proveReversal>>['proof'];
-  newNftData: NftData;
+  newCredentialData: CredentialData;
   newInventoryRoot: Field;
   reversalEntry: ReversalData;
   reversalIndex: bigint;
@@ -75,8 +75,8 @@ export class FulfillmentService {
   /**
    * Submit a fulfillment claim with ZK-enforced settlement.
    *
-   * @param pharmacyWalletId — the pharmacy holding the prescription NFT
-   * @param nftData — the current prescription NFT
+   * @param pharmacyWalletId — the pharmacy holding the prescription credential
+   * @param credentialData — the current prescription credential
    * @param prescriptionData — the prescription in MEDICATION tree
    * @param latestStatus — latest status (must be FILLED or PARTIALLY_FILLED)
    * @param fulfillmentData — the claim being submitted
@@ -84,12 +84,12 @@ export class FulfillmentService {
    * @param rxLeafIndex — prescription leaf in MEDICATION tree
    * @param latestStatusIndex — latest status leaf in TRANSACTION tree
    * @param formularyEntryIndex — formulary entry index in formulary tree
-   * @param pharmacyInventory — the pharmacy's NFT inventory
-   * @param nftSlotIndex — the NFT's slot in the inventory
+   * @param pharmacyInventory — the pharmacy's credential inventory
+   * @param credentialSlotIndex — the credential's slot in the inventory
    */
   async submitFulfillment(
     pharmacyWalletId: Field,
-    nftData: NftData,
+    credentialData: CredentialData,
     prescriptionData: PrescriptionData,
     latestStatus: PrescriptionStatusData,
     fulfillmentData: FulfillmentData,
@@ -97,8 +97,9 @@ export class FulfillmentService {
     rxLeafIndex: bigint,
     latestStatusIndex: bigint,
     formularyEntryIndex: bigint,
-    pharmacyInventory: NftInventory,
-    nftSlotIndex: bigint,
+    pharmacyInventory: CredentialInventory,
+    credentialSlotIndex: bigint,
+    pharmacyPreimage: Field[] = [],
   ): Promise<FulfillmentResult> {
     // Off-chain validation: status must be FILLED or PARTIALLY_FILLED
     const statusVal = BigInt(latestStatus.status.toString());
@@ -136,7 +137,7 @@ export class FulfillmentService {
 
     // 2. Generate FulfillmentProgram.proveFulfillment proof
     const result = await FulfillmentProgram.proveFulfillment(
-      nftData,
+      credentialData,
       prescriptionData,
       latestStatus,
       fulfillmentData,
@@ -147,6 +148,10 @@ export class FulfillmentService {
       newSlotWitness,
       formularyWitness,
       formularyRoot,
+      // H2: pharmacy wallet identity preimage (qualifier, serviceProviderIdHash, enrollmentKeyHash)
+      pharmacyPreimage[0] ?? Field(0),
+      pharmacyPreimage[1] ?? Field(0),
+      pharmacyPreimage[2] ?? Field(0),
     );
 
     // 3. Compute settlement commitment (matches what the circuit stored)
@@ -164,19 +169,19 @@ export class FulfillmentService {
       settlementCommitment,
     );
 
-    // 5. Create new NftData with updated forestRoot
-    const newNftData = new NftData({
-      nftType: nftData.nftType,
+    // 5. Create new CredentialData with updated forestRoot
+    const newCredentialData = new CredentialData({
+      credentialType: credentialData.credentialType,
       forestRoot: forest.getForestRoot(),
-      issuerWalletId: nftData.issuerWalletId,
-      subjectWalletId: nftData.subjectWalletId,
-      issuedAt: nftData.issuedAt,
-      expiresAt: nftData.expiresAt,
-      revoked: nftData.revoked,
+      issuerWalletId: credentialData.issuerWalletId,
+      subjectWalletId: credentialData.subjectWalletId,
+      issuedAt: credentialData.issuedAt,
+      expiresAt: credentialData.expiresAt,
+      revoked: credentialData.revoked,
     });
 
-    // 6. Replace NFT in pharmacy inventory (same slot)
-    const newInventoryRoot = pharmacyInventory.updateNft(nftSlotIndex, newNftData);
+    // 6. Replace credential in pharmacy inventory (same slot)
+    const newInventoryRoot = pharmacyInventory.updateCredential(credentialSlotIndex, newCredentialData);
 
     // 7. Update wallet registry nonce
     const oldState = this.registry.getState(pharmacyWalletId);
@@ -185,7 +190,7 @@ export class FulfillmentService {
       pharmacyWalletId,
       new WalletState({
         walletId: pharmacyWalletId,
-        nftInventoryRoot: newInventoryRoot,
+        credentialInventoryRoot: newInventoryRoot,
         nonce: newNonce,
       }),
     );
@@ -196,7 +201,7 @@ export class FulfillmentService {
 
     return {
       proof: result.proof,
-      newNftData,
+      newCredentialData,
       newInventoryRoot,
       fulfillmentEntry: fulfillmentData,
       fulfillmentIndex: fulfillmentSlotIndex,
@@ -210,8 +215,8 @@ export class FulfillmentService {
   /**
    * Reverse a previously fulfilled claim.
    *
-   * @param pharmacyWalletId — the pharmacy holding the prescription NFT
-   * @param nftData — the current prescription NFT (post-fulfillment)
+   * @param pharmacyWalletId — the pharmacy holding the prescription credential
+   * @param credentialData — the current prescription credential (post-fulfillment)
    * @param prescriptionData — the prescription in MEDICATION tree
    * @param originalFulfillment — the original fulfillment entry
    * @param reversalData — the reversal entry
@@ -219,12 +224,12 @@ export class FulfillmentService {
    * @param rxLeafIndex — prescription leaf in MEDICATION tree
    * @param originalFulfillmentIndex — fulfillment leaf in TRANSACTION tree
    * @param formularyEntryIndex — formulary entry index in formulary tree
-   * @param pharmacyInventory — the pharmacy's NFT inventory
-   * @param nftSlotIndex — the NFT's slot in the inventory
+   * @param pharmacyInventory — the pharmacy's credential inventory
+   * @param credentialSlotIndex — the credential's slot in the inventory
    */
   async reverseFulfillment(
     pharmacyWalletId: Field,
-    nftData: NftData,
+    credentialData: CredentialData,
     prescriptionData: PrescriptionData,
     originalFulfillment: FulfillmentData,
     reversalData: ReversalData,
@@ -232,8 +237,9 @@ export class FulfillmentService {
     rxLeafIndex: bigint,
     originalFulfillmentIndex: bigint,
     formularyEntryIndex: bigint,
-    pharmacyInventory: NftInventory,
-    nftSlotIndex: bigint,
+    pharmacyInventory: CredentialInventory,
+    credentialSlotIndex: bigint,
+    pharmacyPreimage: Field[] = [],
   ): Promise<ReversalResult> {
     // 1. Build ALL witnesses BEFORE any mutation
     const forestRoots = ForestRoots.fromForest(forest);
@@ -261,7 +267,7 @@ export class FulfillmentService {
 
     // 2. Generate FulfillmentProgram.proveReversal proof
     const result = await FulfillmentProgram.proveReversal(
-      nftData,
+      credentialData,
       prescriptionData,
       originalFulfillment,
       reversalData,
@@ -272,6 +278,10 @@ export class FulfillmentService {
       reversalSlotWitness,
       formularyWitness,
       formularyRoot,
+      // H2: pharmacy wallet identity preimage
+      pharmacyPreimage[0] ?? Field(0),
+      pharmacyPreimage[1] ?? Field(0),
+      pharmacyPreimage[2] ?? Field(0),
     );
 
     // 3. Append reversal to TRANSACTION tree
@@ -281,19 +291,19 @@ export class FulfillmentService {
       reversalData.commitment(),
     );
 
-    // 4. Create new NftData with updated forestRoot
-    const newNftData = new NftData({
-      nftType: nftData.nftType,
+    // 4. Create new CredentialData with updated forestRoot
+    const newCredentialData = new CredentialData({
+      credentialType: credentialData.credentialType,
       forestRoot: forest.getForestRoot(),
-      issuerWalletId: nftData.issuerWalletId,
-      subjectWalletId: nftData.subjectWalletId,
-      issuedAt: nftData.issuedAt,
-      expiresAt: nftData.expiresAt,
-      revoked: nftData.revoked,
+      issuerWalletId: credentialData.issuerWalletId,
+      subjectWalletId: credentialData.subjectWalletId,
+      issuedAt: credentialData.issuedAt,
+      expiresAt: credentialData.expiresAt,
+      revoked: credentialData.revoked,
     });
 
-    // 5. Replace NFT in pharmacy inventory
-    const newInventoryRoot = pharmacyInventory.updateNft(nftSlotIndex, newNftData);
+    // 5. Replace credential in pharmacy inventory
+    const newInventoryRoot = pharmacyInventory.updateCredential(credentialSlotIndex, newCredentialData);
 
     // 6. Update wallet registry nonce
     const oldState = this.registry.getState(pharmacyWalletId);
@@ -302,7 +312,7 @@ export class FulfillmentService {
       pharmacyWalletId,
       new WalletState({
         walletId: pharmacyWalletId,
-        nftInventoryRoot: newInventoryRoot,
+        credentialInventoryRoot: newInventoryRoot,
         nonce: newNonce,
       }),
     );
@@ -316,7 +326,7 @@ export class FulfillmentService {
 
     return {
       proof: result.proof,
-      newNftData,
+      newCredentialData,
       newInventoryRoot,
       reversalEntry: reversalData,
       reversalIndex: reversalSlotIndex,

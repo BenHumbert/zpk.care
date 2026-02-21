@@ -1,0 +1,83 @@
+/* ─── Insurer View ───────────────────────────────────── */
+
+#tab-insurer .table td {
+  font-size: 0.78rem;
+}
+
+.wallet-id-cell {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #78909c;
+}
+
+.financial-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #2a2a4a;
+}
+
+.financial-label {
+  color: #b0b0b0;
+  font-size: 0.85rem;
+}
+
+.financial-value {
+  font-size: 1.2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.financial-value.patient {
+  color: #4fc3f7;
+}
+
+.financial-value.plan {
+  color: #ffa726;
+}
+
+.financial-value.total {
+  color: #66bb6a;
+}
+
+/* Privacy notice banner */
+.privacy-notice {
+  background: #2a1a3e;
+  border: 1px solid #4a2a6e;
+  border-radius: 8px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.privacy-notice-icon {
+  font-size: 1.5rem;
+}
+
+.privacy-notice-text {
+  color: #b0a0c0;
+  font-size: 0.85rem;
+}
+
+/* Hash display */
+.hash-value {
+  font-family: 'Courier New', monospace;
+  font-size: 0.75rem;
+  color: #78909c;
+  letter-spacing: 0.5px;
+}
+
+/* Message type badge */
+.msg-type-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  background: #2a2a4a;
+  color: #b0b0b0;
+}

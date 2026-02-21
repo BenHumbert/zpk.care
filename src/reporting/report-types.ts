@@ -53,6 +53,24 @@ export interface VerifiedClaim {
   quantityDispensed: string;
   /** Date of service as CCYYMMDD numeric */
   dateOfService: number;
+
+  // Drug enrichment (propagated from ClaimContext)
+  /** 11-digit NDC code */
+  ndc?: string;
+  /** 14-digit GPI code */
+  gpi?: string;
+  /** Days supply */
+  daysSupply?: number;
+  /** Fill number: 0=original, 1+=refill */
+  fillNumber?: number;
+  /** Drug brand or generic name */
+  brandName?: string;
+  /** Therapeutic classification */
+  therapeuticClass?: string;
+  /** Formulary tier level (1-4) */
+  tierLevel?: number;
+  /** DAW/product selection code */
+  dawCode?: number;
 }
 
 // ─── ClaimContext ──────────────────────────────────────────
@@ -72,6 +90,25 @@ export interface ClaimContext {
   dispensingFeeCents: number;
   quantityDispensed: string;
   dateOfService: number;
+
+  // Drug enrichment — NOT PHI/PII (identifies drugs, not people).
+  // Pharmacy provides these alongside the claim. Verifiable: hashString(ndc) == ndcHash.
+  /** 11-digit NDC code (e.g., "00071015523") */
+  ndc?: string;
+  /** 14-digit GPI code */
+  gpi?: string;
+  /** Days supply */
+  daysSupply?: number;
+  /** Fill number: 0=original, 1+=refill */
+  fillNumber?: number;
+  /** Drug brand or generic name */
+  brandName?: string;
+  /** Therapeutic classification */
+  therapeuticClass?: string;
+  /** Formulary tier level (1=Generic, 2=Preferred, 3=NonPreferred, 4=Specialty) */
+  tierLevel?: number;
+  /** DAW/product selection code */
+  dawCode?: number;
 }
 
 // ─── PriorAuthContext ──────────────────────────────────────
@@ -200,4 +237,111 @@ export interface ReversalReport {
   totalPatientRefundCents: number;
   totalPlanRefundCents: number;
   dateRange?: DateRange;
+}
+
+// ─── Multi-Dimensional Filtering (GAP 4) ─────────────────
+
+/**
+ * Multi-dimensional filter for QLIK-style reporting.
+ *
+ * All dimensions are optional — unset dimensions pass all claims.
+ * Array dimensions use OR semantics (claim matches if it's in the array).
+ */
+export interface ReportFilter {
+  dateRange?: DateRange;
+  pharmacyWalletIds?: string[];
+  memberWalletIds?: string[];
+  prescriberWalletIds?: string[];
+  ndcs?: string[];
+  gpis?: string[];
+  tierLevels?: number[];
+  therapeuticClasses?: string[];
+  operationTypes?: ('fulfillment' | 'reversal')[];
+}
+
+// ─── Dimensional Reports (GAP 4) ─────────────────────────
+
+/** Per-tier analysis entry. */
+export interface TierAnalysisEntry {
+  tierLevel: number;
+  tierLabel: string;
+  claimCount: number;
+  reversalCount: number;
+  uniqueMembers: number;
+  uniqueMedications: number;
+  costBreakdown: CostBreakdown;
+}
+
+/** 9. Tier analysis report — breakdown by formulary tier. */
+export interface TierAnalysisReport {
+  tiers: TierAnalysisEntry[];
+  filter?: ReportFilter;
+}
+
+/** Per-therapeutic-class entry. */
+export interface TherapeuticClassEntry {
+  therapeuticClass: string;
+  claimCount: number;
+  reversalCount: number;
+  uniqueMembers: number;
+  uniqueMedications: number;
+  costBreakdown: CostBreakdown;
+}
+
+/** 10. Therapeutic class report — breakdown by therapeutic classification. */
+export interface TherapeuticClassReport {
+  classes: TherapeuticClassEntry[];
+  filter?: ReportFilter;
+}
+
+/** Time bucket granularity for time series reports. */
+export type TimeBucket = 'daily' | 'weekly' | 'monthly';
+
+/** Per-time-bucket entry. */
+export interface TimeSeriesEntry {
+  bucketKey: string;
+  claimCount: number;
+  reversalCount: number;
+  costBreakdown: CostBreakdown;
+}
+
+/** 11. Time series report — claims aggregated by time bucket. */
+export interface TimeSeriesReport {
+  bucket: TimeBucket;
+  entries: TimeSeriesEntry[];
+  filter?: ReportFilter;
+}
+
+/** Dimensions available for cross-tab pivoting. */
+export type CrossTabDimension =
+  | 'pharmacyWalletId'
+  | 'memberWalletId'
+  | 'prescriberWalletId'
+  | 'tierLevel'
+  | 'therapeuticClass'
+  | 'operationType'
+  | 'ndc'
+  | 'gpi';
+
+/** Measures available for cross-tab aggregation. */
+export type CrossTabMeasure =
+  | 'claimCount'
+  | 'totalPatientPayCents'
+  | 'totalPlanPayCents'
+  | 'totalGrossCostCents';
+
+/** A single row in a cross-tab report. */
+export interface CrossTabRow {
+  rowKey: string;
+  values: number[];
+}
+
+/** 12. Cross-tab (pivot table) report — any two dimensions against any measure. */
+export interface CrossTabReport {
+  rowDimension: CrossTabDimension;
+  colDimension: CrossTabDimension;
+  measure: CrossTabMeasure;
+  columnHeaders: string[];
+  rows: CrossTabRow[];
+  filter?: ReportFilter;
 }

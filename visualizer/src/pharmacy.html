@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>zkpCare -- Pharmacy Node</title>
+  <link rel="stylesheet" href="css/node-dashboard.css">
+</head>
+<body>
+
+  <!-- Fixed Header -->
+  <header class="node-header theme-pharmacy">
+    <h1 style="color: var(--color-pharmacy);">Pharmacy Node</h1>
+    <div id="header-selector"></div>
+    <div class="node-identity">
+      <span class="wallet-id-display" id="header-wallet-id">--</span>
+      <span class="lifecycle-pill lifecycle-registered" id="header-lifecycle">--</span>
+      <span class="health-dot disconnected" id="header-health" title="Sequencer connection"></span>
+    </div>
+  </header>
+
+  <!-- Dashboard Grid -->
+  <main class="dashboard-grid">
+    <div id="section-rx-queue"></div>
+    <div id="section-identity"></div>
+    <div id="section-dur"></div>
+    <div id="section-history"></div>
+    <div id="section-activity"></div>
+    <div id="section-patients"></div>
+    <div id="section-prescribers"></div>
+    <div id="section-medications"></div>
+    <div id="section-formulary"></div>
+    <div id="section-receipts"></div>
+    <div id="section-info"></div>
+  </main>
+
+  <script type="module" src="js/pharmacy-dashboard.js"></script>
+</body>
+</html>

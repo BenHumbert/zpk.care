@@ -4,11 +4,12 @@ import { AccumulatorData, buildAccumulatorData } from '../access-control/accumul
 import { FormularyEntry, buildFormularyEntry } from '../access-control/formulary-entry.js';
 import type { FormularyEntryLocalData } from '../access-control/formulary-entry.js';
 import { FormularyRegistry } from '../access-control/formulary-registry.js';
+import { ProviderNetworkRegistry } from '../eligibility/provider-network-registry.js';
 
 /**
  * Plan template configuration — the insurer's definition of a benefit plan.
  *
- * Contains all the parameters needed to mint eligibility NFTs for members.
+ * Contains all the parameters needed to mint eligibility credentials for members.
  * One PlanTemplate serves N members in the same plan (same copay, deductible, etc.).
  */
 export interface PlanTemplateConfig {
@@ -24,8 +25,16 @@ export interface PlanTemplateConfig {
   oopMaxCents: number;
   /** Annual benefit maximum in cents (0 = no limit) */
   annualBenefitMaxCents: number;
+  /** Family annual deductible in cents (0 = individual only, no family pooling) */
+  familyDeductibleAmountCents?: number;
+  /** Family out-of-pocket maximum in cents (0 = individual only) */
+  familyOopMaxCents?: number;
+  /** Family annual benefit maximum in cents (0 = no family limit) */
+  familyAnnualBenefitMaxCents?: number;
   /** Medications covered by this plan */
   formularyEntries: FormularyEntryLocalData[];
+  /** In-network provider wallet IDs (optional — omit for "all providers accepted") */
+  providerWalletIds?: Field[];
 }
 
 /**
@@ -46,6 +55,8 @@ export class PlanTemplate {
   readonly formularyRegistry: FormularyRegistry;
   readonly formularyRoot: Field;
   readonly formularyEntries: FormularyEntry[];
+  readonly networkRegistry: ProviderNetworkRegistry;
+  readonly networkRoot: Field;
 
   constructor(config: PlanTemplateConfig) {
     this.config = config;
@@ -59,6 +70,18 @@ export class PlanTemplate {
     }
 
     this.formularyRoot = this.formularyRegistry.getRoot();
+
+    // Build provider network registry (if provider list is specified)
+    this.networkRegistry = new ProviderNetworkRegistry();
+    if (config.providerWalletIds) {
+      for (const walletId of config.providerWalletIds) {
+        this.networkRegistry.addProvider(walletId);
+      }
+    }
+    // Field(0) means "all providers accepted" when no providers specified
+    this.networkRoot = config.providerWalletIds && config.providerWalletIds.length > 0
+      ? this.networkRegistry.getRoot()
+      : Field(0);
   }
 
   /**
@@ -80,6 +103,7 @@ export class PlanTemplate {
       copayAmount: this.config.copayAmountCents,
       coverageType: this.config.coverageType,
       formularyRoot: this.formularyRoot.toString(),
+      networkRoot: this.networkRoot.toString(),
     });
   }
 

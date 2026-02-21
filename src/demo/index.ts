@@ -35,6 +35,7 @@ export type { DemoMedication } from './medications.js';
 export {
   DEMO_MEMBERS,
   MEMBER_BY_CARDHOLDER_ID,
+  getMembersByFamily,
   getMembersByEmployee,
   getSubscribers,
   getAcmeMembers,

@@ -21,3 +21,5 @@ export {
 } from './enrollment-backup.js';
 
 export type { EnrollmentBackup } from './enrollment-backup.js';
+
+export { ObfuscatedKey } from './obfuscated-key.js';

@@ -1,6 +1,6 @@
 import { Field, Poseidon } from 'o1js';
-import { NftData, NFT_TYPE_PRESCRIPTION } from '../nft/nft-data.js';
-import { NftProgram, NftOperationProof, NFT_OP_VERIFY } from '../nft/nft-program.js';
+import { CredentialData, CREDENTIAL_TYPE_PRESCRIPTION } from '../credentials/credential-data.js';
+import { CredentialProgram, CredentialOperationProof, CREDENTIAL_OP_VERIFY } from '../credentials/credential-program.js';
 import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
 import { hashString } from '../zkp/hash-utils.js';
 import {
@@ -13,13 +13,13 @@ import { PrescriptionProgram, PrescriptionProof } from './prescription-program.j
 // ─── Result Types ───────────────────────────────────────────────
 
 /**
- * Result of verifying pharmacy NFT holding.
+ * Result of verifying pharmacy credential holding.
  */
 export interface PrescriptionHoldingResult {
   isValid: boolean;
   reason?: string;
   walletId?: Field;
-  nftCommitment?: Field;
+  credentialCommitment?: Field;
 }
 
 /**
@@ -71,8 +71,8 @@ export interface FullPrescriptionCheckResult {
  * PrescriptionVerificationService — pharmacy-side + member prescription verification.
  *
  * Verifies:
- *   1. Pharmacy holds a valid PRESCRIPTION NFT (NftProgram proof)
- *   2. Prescription data matches the NFT's forest root
+ *   1. Pharmacy holds a valid PRESCRIPTION credential (CredentialProgram proof)
+ *   2. Prescription data matches the credential's forest root
  *   3. Status proof transitions are valid
  *   4. Emergency flag detection
  *   5. Status history extraction from TRANSACTION tree
@@ -80,35 +80,35 @@ export interface FullPrescriptionCheckResult {
  * All verification is OFFLINE — no internet required.
  *
  * Preconditions:
- *   await NftProgram.compile();           // for holding verification
+ *   await CredentialProgram.compile();           // for holding verification
  *   await PrescriptionProgram.compile();  // for status proof verification
  */
 export class PrescriptionVerificationService {
   /**
-   * Verify that a pharmacy holds a valid PRESCRIPTION NFT.
+   * Verify that a pharmacy holds a valid PRESCRIPTION credential.
    *
-   * Checks: NftProgram proof is valid, operation type is VERIFY.
+   * Checks: CredentialProgram proof is valid, operation type is VERIFY.
    */
   async verifyPharmacyHolding(
-    holdingProof: InstanceType<typeof NftOperationProof>,
+    holdingProof: InstanceType<typeof CredentialOperationProof>,
   ): Promise<PrescriptionHoldingResult> {
     try {
-      const ok = await NftProgram.verify(holdingProof);
+      const ok = await CredentialProgram.verify(holdingProof);
       if (!ok) {
-        return { isValid: false, reason: 'NftProgram proof verification failed' };
+        return { isValid: false, reason: 'CredentialProgram proof verification failed' };
       }
 
       const output = holdingProof.publicOutput;
 
       // Check operation type is VERIFY
-      if (output.operationType.toString() !== NFT_OP_VERIFY.toString()) {
+      if (output.operationType.toString() !== CREDENTIAL_OP_VERIFY.toString()) {
         return { isValid: false, reason: 'Expected VERIFY operation type' };
       }
 
       return {
         isValid: true,
         walletId: output.walletId,
-        nftCommitment: output.nftCommitment,
+        credentialCommitment: output.credentialCommitment,
       };
     } catch (e) {
       return {
@@ -119,34 +119,34 @@ export class PrescriptionVerificationService {
   }
 
   /**
-   * Verify prescription data against the NFT's forest.
+   * Verify prescription data against the credential's forest.
    *
    * Off-chain checks:
-   *   1. NFT type is PRESCRIPTION
-   *   2. NFT is not revoked
+   *   1. Credential type is PRESCRIPTION
+   *   2. Credential is not revoked
    *   3. Prescription not expired (currentDate <= expirationDate)
    *   4. Prescription commitment at correct leaf in MEDICATION tree
-   *   5. Forest root matches NftData.forestRoot
+   *   5. Forest root matches CredentialData.forestRoot
    */
   verifyPrescriptionData(
-    nftData: NftData,
+    credentialData: CredentialData,
     prescriptionData: PrescriptionData,
     forest: MerkleForest,
     rxLeafIndex: bigint,
     currentDate: Field,
   ): PrescriptionDataResult {
-    // 1. Check NFT type
-    if (nftData.nftType.toString() !== NFT_TYPE_PRESCRIPTION.toString()) {
-      return { isValid: false, reason: 'NFT type is not PRESCRIPTION' };
+    // 1. Check credential type
+    if (credentialData.credentialType.toString() !== CREDENTIAL_TYPE_PRESCRIPTION.toString()) {
+      return { isValid: false, reason: 'Credential type is not PRESCRIPTION' };
     }
 
     // 2. Check not revoked
-    if (nftData.revoked.toString() !== '0') {
-      return { isValid: false, reason: 'NFT is revoked' };
+    if (credentialData.revoked.toString() !== '0') {
+      return { isValid: false, reason: 'Credential is revoked' };
     }
 
     // 3. Check prescription not expired
-    const expiration = BigInt(nftData.expiresAt.toString());
+    const expiration = BigInt(credentialData.expiresAt.toString());
     const current = BigInt(currentDate.toString());
     if (expiration > 0n && current > expiration) {
       return { isValid: false, reason: 'Prescription has expired' };
@@ -158,10 +158,10 @@ export class PrescriptionVerificationService {
       return { isValid: false, reason: 'Prescription not found in MEDICATION tree' };
     }
 
-    // 5. Forest root matches NFT
+    // 5. Forest root matches credential
     const forestRoot = forest.getForestRoot();
-    if (forestRoot.toString() !== nftData.forestRoot.toString()) {
-      return { isValid: false, reason: 'Forest root does not match NFT' };
+    if (forestRoot.toString() !== credentialData.forestRoot.toString()) {
+      return { isValid: false, reason: 'Forest root does not match credential' };
     }
 
     return {
@@ -261,11 +261,11 @@ export class PrescriptionVerificationService {
   /**
    * Full prescription verification check.
    *
-   * Combines NFT holding verification + prescription data verification.
+   * Combines credential holding verification + prescription data verification.
    */
   async fullPrescriptionCheck(
-    holdingProof: InstanceType<typeof NftOperationProof>,
-    nftData: NftData,
+    holdingProof: InstanceType<typeof CredentialOperationProof>,
+    credentialData: CredentialData,
     prescriptionData: PrescriptionData,
     forest: MerkleForest,
     rxLeafIndex: bigint,
@@ -273,17 +273,17 @@ export class PrescriptionVerificationService {
   ): Promise<FullPrescriptionCheckResult> {
     const details: string[] = [];
 
-    // 1. Verify NFT holding
+    // 1. Verify credential holding
     const holdingResult = await this.verifyPharmacyHolding(holdingProof);
     details.push(
       holdingResult.isValid
-        ? 'NFT holding: verified'
-        : `NFT holding: FAILED (${holdingResult.reason})`,
+        ? 'Credential holding: verified'
+        : `Credential holding: FAILED (${holdingResult.reason})`,
     );
 
     // 2. Verify prescription data
     const dataResult = this.verifyPrescriptionData(
-      nftData,
+      credentialData,
       prescriptionData,
       forest,
       rxLeafIndex,

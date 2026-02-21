@@ -1,0 +1,461 @@
+/* ─── Batch/Settlement Panel ───────────────────────── */
+.nv-batch-panel {
+  background: #0d1b2a;
+  border: 1px solid #1a3a5c;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  overflow: hidden;
+}
+
+.nv-batch-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #112240;
+  border-bottom: 1px solid #1a3a5c;
+}
+
+.nv-batch-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #e0e0e0;
+}
+
+.nv-batch-icon {
+  font-size: 1.2rem;
+}
+
+.nv-batch-actor {
+  font-size: 0.75rem;
+  color: #ab47bc;
+  background: rgba(171, 71, 188, 0.15);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.nv-batch-proof {
+  font-size: 0.8rem;
+  color: #6a8a9a;
+  font-family: 'Courier New', monospace;
+}
+
+.nv-batch-list {
+  padding: 0;
+}
+
+.nv-batch-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  border-bottom: 1px solid #0d1b2a;
+  font-size: 0.8rem;
+  transition: background 0.3s;
+}
+
+.nv-batch-row:last-child {
+  border-bottom: none;
+}
+
+.nv-batch-settled {
+  background: rgba(76, 175, 80, 0.08);
+}
+
+.nv-batch-building {
+  background: rgba(255, 167, 38, 0.08);
+}
+
+.nv-batch-num {
+  font-weight: 600;
+  color: #b0c0d0;
+  min-width: 70px;
+}
+
+.nv-batch-info {
+  color: #7a8a9a;
+  min-width: 110px;
+}
+
+.nv-batch-status {
+  font-weight: 700;
+  font-size: 0.7rem;
+  letter-spacing: 0.5px;
+  min-width: 90px;
+}
+
+.nv-batch-status-settled {
+  color: #4caf50;
+}
+
+.nv-batch-status-building {
+  color: #ffa726;
+  animation: batch-pulse 1s ease-in-out infinite;
+}
+
+.nv-batch-status-pending {
+  color: #5a6a7a;
+}
+
+@keyframes batch-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.nv-batch-hash {
+  font-family: 'Courier New', monospace;
+  font-size: 0.75rem;
+  color: #4a6a8a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── Grid Section Headers ───────────────────────── */
+.nv-grid-section {
+  margin-bottom: 24px;
+}
+
+.nv-grid-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #1a2a3a;
+}
+
+.nv-grid-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.nv-grid-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #8a9aaa;
+}
+
+.nv-grid-count {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #5a6a7a;
+  background: #0d1b2a;
+  padding: 1px 8px;
+  border-radius: 10px;
+  margin-left: auto;
+}
+
+/* Section-specific header accents */
+.nv-grid-header-member { border-bottom-color: rgba(79, 195, 247, 0.3); }
+.nv-grid-header-prescriber { border-bottom-color: rgba(102, 187, 106, 0.3); }
+.nv-grid-header-pharmacy { border-bottom-color: rgba(255, 167, 38, 0.3); }
+
+/* ─── Member Grid ─────────────────────────────────── */
+.nv-member-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 16px;
+}
+
+/* ─── Card Base ──────────────────────────────────── */
+.nv-card {
+  background: #112240;
+  border: 1px solid #1a3a5c;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.3s;
+}
+
+.nv-card:hover {
+  border-color: #2a5a8c;
+}
+
+/* Card type accents */
+.nv-card-member { border-top: 2px solid #4fc3f7; }
+.nv-card-prescriber { border-top: 2px solid #66bb6a; }
+.nv-card-pharmacy { border-top: 2px solid #ffa726; }
+
+.nv-card-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #0d1b2a;
+  border-bottom: 1px solid #1a3a5c;
+}
+
+.nv-card-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #4fc3f7;
+}
+
+.nv-card-hash {
+  font-family: 'Courier New', monospace;
+  font-size: 0.7rem;
+  color: #4a5a6a;
+  letter-spacing: 0.3px;
+}
+
+.nv-card-body {
+  padding: 8px 0;
+}
+
+/* ─── Wallet Derivation Animation ────────────────── */
+.nv-derive {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  padding: 0 14px;
+  background: rgba(13, 27, 42, 0.8);
+  border-bottom: 1px solid transparent;
+  transition: max-height 0.6s ease-out, opacity 0.6s ease-out, padding 0.6s ease-out;
+  font-family: 'Courier New', monospace;
+  font-size: 0.7rem;
+}
+
+.nv-derive-visible {
+  max-height: 120px;
+  opacity: 1;
+  padding: 8px 14px;
+  border-bottom-color: #1a3a5c;
+}
+
+.nv-derive-line {
+  line-height: 1.6;
+  color: #5a7a8a;
+}
+
+.nv-derive-computing {
+  color: #4fc3f7;
+  animation: derive-blink 0.6s ease-in-out 3;
+}
+
+@keyframes derive-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.nv-derive-tag {
+  color: #ffa726;
+  font-weight: 600;
+}
+
+.nv-derive-desc {
+  color: #3a5a6a;
+  font-style: italic;
+  margin-left: 6px;
+  font-size: 0.65rem;
+}
+
+.nv-derive-fields {
+  color: #81c784;
+  word-break: break-all;
+}
+
+.nv-derive-hash-line {
+  color: #5a7a8a;
+}
+
+.nv-derive-result {
+  color: #4fc3f7;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+/* ─── Lifecycle Section (Member Cards) ───────────── */
+.nv-section {
+  padding: 6px 14px;
+  border-bottom: 1px solid #0d1b2a;
+  transition: background 0.4s;
+}
+
+.nv-section:last-child {
+  border-bottom: none;
+}
+
+.nv-section-complete {
+  background: rgba(76, 175, 80, 0.06);
+}
+
+.nv-section-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #5a6a7a;
+  font-weight: 600;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.nv-section-icon {
+  font-size: 0.8rem;
+}
+
+/* Section-specific left border accents */
+.nv-section-enrollment { border-left: 3px solid #1565c0; }
+.nv-section-eligibility { border-left: 3px solid #2e7d32; }
+.nv-section-prescription { border-left: 3px solid #e65100; }
+.nv-section-fulfillment { border-left: 3px solid #ad1457; }
+.nv-section-messaging { border-left: 3px solid #6a1b9a; }
+
+/* ─── Stage Badges ────────────────────────────────── */
+.nv-stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.nv-stage {
+  display: inline-block;
+  font-size: 0.65rem;
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: #1a2a3a;
+  color: #4a5a6a;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  border: 1px solid transparent;
+}
+
+.nv-stage-active {
+  background: #1a3a2a;
+  color: #66bb6a;
+  border-color: #2e7d32;
+  font-weight: 600;
+}
+
+/* Completed section checkmarks */
+.nv-section-complete .nv-stage-active {
+  background: #1a3a2a;
+  color: #81c784;
+}
+
+/* ─── Message Count Badge ─────────────────────────── */
+.nv-msg-count {
+  font-size: 0.65rem;
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: rgba(106, 27, 154, 0.2);
+  color: #ce93d8;
+  font-weight: 600;
+  margin-left: 4px;
+}
+
+/* ─── Event Detail Annotation ─────────────────────── */
+.nv-detail {
+  font-size: 0.7rem;
+  color: #5a7a9a;
+  margin-top: 3px;
+  font-family: 'Courier New', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── Provider Activity Rows ─────────────────────── */
+.nv-activity-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px;
+  border-bottom: 1px solid #0d1b2a;
+  font-size: 0.8rem;
+}
+
+.nv-activity-row:last-child {
+  border-bottom: none;
+}
+
+.nv-activity-icon {
+  font-size: 0.9rem;
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.nv-activity-label {
+  color: #7a8a9a;
+  flex: 1;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+}
+
+.nv-activity-count {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #b0c0d0;
+  min-width: 24px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  transition: color 0.3s;
+}
+
+.nv-counter-pulse {
+  animation: counter-pop 0.4s ease-out;
+}
+
+@keyframes counter-pop {
+  0% { color: #66bb6a; transform: scale(1.3); }
+  100% { color: #b0c0d0; transform: scale(1); }
+}
+
+/* ─── Patients / Serving Section ─────────────────── */
+.nv-patients {
+  padding: 6px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-height: 0;
+}
+
+.nv-patients:empty {
+  display: none;
+}
+
+.nv-patients-label {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #5a6a7a;
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.nv-patient-chip {
+  font-size: 0.6rem;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(79, 195, 247, 0.12);
+  color: #4fc3f7;
+  font-weight: 500;
+}
+
+/* ─── Recent Activity ────────────────────────────── */
+.nv-recent {
+  padding: 0 14px 6px;
+  font-size: 0.7rem;
+  color: #5a7a9a;
+  font-family: 'Courier New', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nv-recent:empty {
+  display: none;
+}

@@ -4,25 +4,25 @@ import {
   MerkleTree,
 } from 'o1js';
 import {
-  NftData,
-  NFT_TYPE_ELIGIBILITY,
-  NFT_TYPE_PRESCRIPTION,
-} from '../src/nft/nft-data.js';
-import { NftInventory } from '../src/nft/nft-inventory.js';
+  CredentialData,
+  CREDENTIAL_TYPE_ELIGIBILITY,
+  CREDENTIAL_TYPE_PRESCRIPTION,
+} from '../src/credentials/credential-data.js';
+import { CredentialInventory } from '../src/credentials/credential-inventory.js';
 import {
-  NftProgram,
-  NftOperationOutput,
-  NFT_OP_MINT,
-  NFT_OP_VERIFY,
-} from '../src/nft/nft-program.js';
+  CredentialProgram,
+  CredentialOperationOutput,
+  CREDENTIAL_OP_MINT,
+  CREDENTIAL_OP_VERIFY,
+} from '../src/credentials/credential-program.js';
 import {
   serializeCredential,
   deserializeCredential,
-} from '../src/nft/portable-credential.js';
-import type { PortableCredential } from '../src/nft/portable-credential.js';
-import { UserWalletService } from '../src/nft/user-wallet-service.js';
+} from '../src/credentials/portable-credential.js';
+import type { PortableCredential } from '../src/credentials/portable-credential.js';
+import { UserWalletService } from '../src/credentials/user-wallet-service.js';
 import {
-  EMPTY_NFT_ROOT,
+  EMPTY_CREDENTIAL_ROOT,
   StateTransitionProgram,
 } from '../src/engine/state-transition.js';
 import {
@@ -43,7 +43,7 @@ import {
 import {
   WalletRegistry,
   WalletState,
-  NFT_INVENTORY_HEIGHT,
+  CREDENTIAL_INVENTORY_HEIGHT,
   WALLET_TREE_HEIGHT,
 } from '../src/wallets/wallet-state.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
@@ -84,14 +84,14 @@ const sampleForest = new MerkleForest();
 sampleForest.setLeaf(ForestDomain.MEMBER, 0n, Poseidon.hash([Field(42)]));
 const sampleForestRoot = sampleForest.getForestRoot();
 
-/** Helper: create an eligibility NFT for a member */
-function createEligibilityNft(
+/** Helper: create an eligibility credential for a member */
+function createEligibilityCredential(
   issuer: Field,
   subject: Field,
   forestRoot: Field = sampleForestRoot,
-): NftData {
-  return new NftData({
-    nftType: NFT_TYPE_ELIGIBILITY,
+): CredentialData {
+  return new CredentialData({
+    credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
     forestRoot,
     issuerWalletId: issuer,
     subjectWalletId: subject,
@@ -101,14 +101,14 @@ function createEligibilityNft(
   });
 }
 
-/** Helper: create an eScript (prescription) NFT for a pharmacy */
-function createPrescriptionNft(
+/** Helper: create an eScript (prescription) credential for a pharmacy */
+function createPrescriptionCredential(
   issuer: Field,
   subject: Field,
   forestRoot: Field = sampleForestRoot,
-): NftData {
-  return new NftData({
-    nftType: NFT_TYPE_PRESCRIPTION,
+): CredentialData {
+  return new CredentialData({
+    credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
     forestRoot,
     issuerWalletId: issuer,
     subjectWalletId: subject,
@@ -120,40 +120,40 @@ function createPrescriptionNft(
 
 // ─── Tests ───────────────────────────────────────────────
 
-describe('Layer 4 — NFT System / User Path', () => {
-  // ─── NFT Data Model ──────────────────────────────────
+describe('Layer 4 — Credential System / User Path', () => {
+  // ─── Credential Data Model ──────────────────────────────────
 
-  describe('NFT Data Model', () => {
-    test('NftData commitment is deterministic', () => {
-      const nft1 = createEligibilityNft(prescriberWalletId, memberWalletId);
-      const nft2 = createEligibilityNft(prescriberWalletId, memberWalletId);
-      expect(nft1.commitment().toString()).toBe(nft2.commitment().toString());
+  describe('Credential Data Model', () => {
+    test('CredentialData commitment is deterministic', () => {
+      const credential1 = createEligibilityCredential(prescriberWalletId, memberWalletId);
+      const credential2 = createEligibilityCredential(prescriberWalletId, memberWalletId);
+      expect(credential1.commitment().toString()).toBe(credential2.commitment().toString());
     });
 
     test('commitment changes when any field changes', () => {
-      const baseNft = createEligibilityNft(prescriberWalletId, memberWalletId);
-      const baseCommitment = baseNft.commitment().toString();
+      const baseCredential = createEligibilityCredential(prescriberWalletId, memberWalletId);
+      const baseCommitment = baseCredential.commitment().toString();
 
-      // Change nftType
-      const nft2 = new NftData({ ...baseNft, nftType: NFT_TYPE_PRESCRIPTION });
-      expect(nft2.commitment().toString()).not.toBe(baseCommitment);
+      // Change credentialType
+      const credential2 = new CredentialData({ ...baseCredential, credentialType: CREDENTIAL_TYPE_PRESCRIPTION });
+      expect(credential2.commitment().toString()).not.toBe(baseCommitment);
 
       // Change forestRoot
-      const nft3 = new NftData({ ...baseNft, forestRoot: Field(999) });
-      expect(nft3.commitment().toString()).not.toBe(baseCommitment);
+      const credential3 = new CredentialData({ ...baseCredential, forestRoot: Field(999) });
+      expect(credential3.commitment().toString()).not.toBe(baseCommitment);
 
       // Change issuerWalletId
-      const nft4 = new NftData({ ...baseNft, issuerWalletId: Field(888) });
-      expect(nft4.commitment().toString()).not.toBe(baseCommitment);
+      const credential4 = new CredentialData({ ...baseCredential, issuerWalletId: Field(888) });
+      expect(credential4.commitment().toString()).not.toBe(baseCommitment);
 
       // Change revoked
-      const nft5 = new NftData({ ...baseNft, revoked: Field(1) });
-      expect(nft5.commitment().toString()).not.toBe(baseCommitment);
+      const credential5 = new CredentialData({ ...baseCredential, revoked: Field(1) });
+      expect(credential5.commitment().toString()).not.toBe(baseCommitment);
     });
 
-    test('NFT type constants have correct values', () => {
-      expect(NFT_TYPE_ELIGIBILITY.toString()).toBe('1');
-      expect(NFT_TYPE_PRESCRIPTION.toString()).toBe('2');
+    test('credential type constants have correct values', () => {
+      expect(CREDENTIAL_TYPE_ELIGIBILITY.toString()).toBe('1');
+      expect(CREDENTIAL_TYPE_PRESCRIPTION.toString()).toBe('2');
     });
 
     test('different forestRoots produce different commitments', () => {
@@ -161,75 +161,75 @@ describe('Layer 4 — NFT System / User Path', () => {
       forest2.setLeaf(ForestDomain.MEDICATION, 0n, Poseidon.hash([Field(99)]));
       const otherRoot = forest2.getForestRoot();
 
-      const nft1 = createEligibilityNft(prescriberWalletId, memberWalletId, sampleForestRoot);
-      const nft2 = createEligibilityNft(prescriberWalletId, memberWalletId, otherRoot);
+      const credential1 = createEligibilityCredential(prescriberWalletId, memberWalletId, sampleForestRoot);
+      const credential2 = createEligibilityCredential(prescriberWalletId, memberWalletId, otherRoot);
 
-      expect(nft1.commitment().toString()).not.toBe(nft2.commitment().toString());
+      expect(credential1.commitment().toString()).not.toBe(credential2.commitment().toString());
     });
 
     test('commitment matches manual Poseidon.hash of all 7 fields', () => {
-      const nft = createEligibilityNft(prescriberWalletId, memberWalletId);
+      const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
       const manual = Poseidon.hash([
-        nft.nftType,
-        nft.forestRoot,
-        nft.issuerWalletId,
-        nft.subjectWalletId,
-        nft.issuedAt,
-        nft.expiresAt,
-        nft.revoked,
+        credential.credentialType,
+        credential.forestRoot,
+        credential.issuerWalletId,
+        credential.subjectWalletId,
+        credential.issuedAt,
+        credential.expiresAt,
+        credential.revoked,
       ]);
-      expect(nft.commitment().toString()).toBe(manual.toString());
+      expect(credential.commitment().toString()).toBe(manual.toString());
     });
   });
 
-  // ─── NFT Inventory Manager ───────────────────────────
+  // ─── Credential Inventory Manager ───────────────────────────
 
-  describe('NFT Inventory Manager', () => {
-    test('empty inventory has EMPTY_NFT_ROOT', () => {
-      const inventory = new NftInventory();
-      expect(inventory.getRoot().toString()).toBe(EMPTY_NFT_ROOT.toString());
+  describe('Credential Inventory Manager', () => {
+    test('empty inventory has EMPTY_CREDENTIAL_ROOT', () => {
+      const inventory = new CredentialInventory();
+      expect(inventory.getRoot().toString()).toBe(EMPTY_CREDENTIAL_ROOT.toString());
     });
 
-    test('mint inserts eligibility NFT and changes root', () => {
-      const inventory = new NftInventory();
+    test('mint inserts eligibility credential and changes root', () => {
+      const inventory = new CredentialInventory();
       const oldRoot = inventory.getRoot();
-      const nft = createEligibilityNft(prescriberWalletId, memberWalletId);
+      const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
 
-      const { index, newRoot } = inventory.mint(nft);
+      const { index, newRoot } = inventory.mint(credential);
 
       expect(index).toBe(0n);
       expect(newRoot.toString()).not.toBe(oldRoot.toString());
       expect(inventory.getRoot().toString()).toBe(newRoot.toString());
     });
 
-    test('getWitness validates inclusion of minted NFT', () => {
-      const inventory = new NftInventory();
-      const nft = createEligibilityNft(prescriberWalletId, memberWalletId);
-      const { index } = inventory.mint(nft);
+    test('getWitness validates inclusion of minted credential', () => {
+      const inventory = new CredentialInventory();
+      const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
+      const { index } = inventory.mint(credential);
 
       const witness = inventory.getWitness(index);
-      const computedRoot = witness.calculateRoot(nft.commitment());
+      const computedRoot = witness.calculateRoot(credential.commitment());
       expect(computedRoot.toString()).toBe(inventory.getRoot().toString());
     });
 
     test('mint increments count', () => {
-      const inventory = new NftInventory();
+      const inventory = new CredentialInventory();
       expect(inventory.count).toBe(0);
 
-      inventory.mint(createEligibilityNft(prescriberWalletId, memberWalletId));
+      inventory.mint(createEligibilityCredential(prescriberWalletId, memberWalletId));
       expect(inventory.count).toBe(1);
 
-      inventory.mint(createPrescriptionNft(prescriberWalletId, pharmacyWalletId));
+      inventory.mint(createPrescriptionCredential(prescriberWalletId, pharmacyWalletId));
       expect(inventory.count).toBe(2);
     });
 
-    test('cannot exceed 64 NFT capacity', () => {
-      const inventory = new NftInventory();
+    test('cannot exceed 64 credential capacity', () => {
+      const inventory = new CredentialInventory();
       // Fill all 64 slots
       for (let i = 0; i < 64; i++) {
         inventory.mint(
-          new NftData({
-            nftType: NFT_TYPE_ELIGIBILITY,
+          new CredentialData({
+            credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
             forestRoot: Field(i),
             issuerWalletId: prescriberWalletId,
             subjectWalletId: memberWalletId,
@@ -243,42 +243,42 @@ describe('Layer 4 — NFT System / User Path', () => {
 
       // 65th should throw
       expect(() =>
-        inventory.mint(createEligibilityNft(prescriberWalletId, memberWalletId)),
-      ).toThrow('NFT inventory full');
+        inventory.mint(createEligibilityCredential(prescriberWalletId, memberWalletId)),
+      ).toThrow('Credential inventory full');
     });
 
-    test('revoke marks NFT revoked and changes root', () => {
-      const inventory = new NftInventory();
-      const nft = createEligibilityNft(prescriberWalletId, memberWalletId);
-      const { index } = inventory.mint(nft);
+    test('revoke marks credential revoked and changes root', () => {
+      const inventory = new CredentialInventory();
+      const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
+      const { index } = inventory.mint(credential);
       const rootBeforeRevoke = inventory.getRoot();
 
       const newRoot = inventory.revoke(index);
       expect(newRoot.toString()).not.toBe(rootBeforeRevoke.toString());
 
-      // Verify the revoked NFT has revoked=1
-      const revokedNft = inventory.getNft(index)!;
-      expect(revokedNft.revoked.toString()).toBe('1');
+      // Verify the revoked credential has revoked=1
+      const revokedCredential = inventory.getCredential(index)!;
+      expect(revokedCredential.revoked.toString()).toBe('1');
 
       // Verify the revoked commitment is in the tree
       const witness = inventory.getWitness(index);
-      const computedRoot = witness.calculateRoot(revokedNft.commitment());
+      const computedRoot = witness.calculateRoot(revokedCredential.commitment());
       expect(computedRoot.toString()).toBe(inventory.getRoot().toString());
     });
   });
 
-  // ─── NftProgram — proveMint ──────────────────────────
+  // ─── CredentialProgram — proveMint ──────────────────────────
 
-  describe('NftProgram — proveMint', () => {
+  describe('CredentialProgram — proveMint', () => {
     beforeAll(async () => {
-      // Compile ProofGateProgram first (NftProgram depends on it for recursive verification)
+      // Compile ProofGateProgram first (CredentialProgram depends on it for recursive verification)
       await ProofGateProgram.compile();
-      await NftProgram.compile();
+      await CredentialProgram.compile();
     });
 
-    test('generates valid proof when minting eligibility NFT into member wallet', async () => {
-      const inventory = new NftInventory();
-      const nft = createEligibilityNft(prescriberWalletId, memberWalletId);
+    test('generates valid proof when minting eligibility credential into member wallet', async () => {
+      const inventory = new CredentialInventory();
+      const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
       const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
 
       // Generate ownership proof
@@ -292,26 +292,26 @@ describe('Layer 4 — NFT System / User Path', () => {
       const oldRoot = inventory.getRoot();
 
       // Prove the mint
-      const result = await NftProgram.proveMint(
+      const result = await CredentialProgram.proveMint(
         pgResult.proof,
-        nft,
+        credential,
         witness,
         oldRoot,
       );
 
       expect(result.proof).toBeDefined();
 
-      const output = result.proof.publicOutput as unknown as NftOperationOutput;
+      const output = result.proof.publicOutput as unknown as CredentialOperationOutput;
       expect(output.walletId.toString()).toBe(memberWalletId.toString());
-      expect(output.operationType.toString()).toBe(NFT_OP_MINT.toString());
-      expect(output.nftCommitment.toString()).toBe(nft.commitment().toString());
+      expect(output.operationType.toString()).toBe(CREDENTIAL_OP_MINT.toString());
+      expect(output.credentialCommitment.toString()).toBe(credential.commitment().toString());
       expect(output.oldInventoryRoot.toString()).toBe(oldRoot.toString());
       expect(output.newInventoryRoot.toString()).not.toBe(oldRoot.toString());
     });
 
     test('proof verifies standalone (simulates offline verification)', async () => {
-      const inventory = new NftInventory();
-      const nft = createEligibilityNft(prescriberWalletId, memberWalletId);
+      const inventory = new CredentialInventory();
+      const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
       const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
 
       const pgResult = await ProofGateProgram.verifyMember(
@@ -320,29 +320,29 @@ describe('Layer 4 — NFT System / User Path', () => {
       );
 
       const witness = inventory.getWitness(0n);
-      const result = await NftProgram.proveMint(
+      const result = await CredentialProgram.proveMint(
         pgResult.proof,
-        nft,
+        credential,
         witness,
         inventory.getRoot(),
       );
 
       // Standalone verification (simulates offline NFC/RFID check)
-      const isValid = await NftProgram.verify(result.proof);
+      const isValid = await CredentialProgram.verify(result.proof);
       expect(isValid).toBe(true);
     });
 
     test('rejects insertion at occupied slot', async () => {
-      const inventory = new NftInventory();
-      const nft1 = createEligibilityNft(prescriberWalletId, memberWalletId);
-      const nft2 = new NftData({
-        ...nft1,
+      const inventory = new CredentialInventory();
+      const credential1 = createEligibilityCredential(prescriberWalletId, memberWalletId);
+      const credential2 = new CredentialData({
+        ...credential1,
         forestRoot: Field(999),
       });
       const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
 
-      // Mint first NFT at slot 0
-      inventory.mint(nft1);
+      // Mint first credential at slot 0
+      inventory.mint(credential1);
 
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
@@ -351,13 +351,13 @@ describe('Layer 4 — NFT System / User Path', () => {
 
       // Try to mint at slot 0 using witness from BEFORE mint — root won't match
       // The inventory root has changed, so using the old empty root will fail
-      const emptyInventory = new NftInventory();
+      const emptyInventory = new CredentialInventory();
       const witnessForSlot0 = emptyInventory.getWitness(0n);
 
       await expect(
-        NftProgram.proveMint(
+        CredentialProgram.proveMint(
           pgResult.proof,
-          nft2,
+          credential2,
           witnessForSlot0,
           inventory.getRoot(), // current root (with slot 0 occupied)
         ),
@@ -365,9 +365,9 @@ describe('Layer 4 — NFT System / User Path', () => {
     });
 
     test('rejects subjectWalletId != walletId (wrong recipient)', async () => {
-      const inventory = new NftInventory();
-      // NFT with pharmacy as subject, but member proves ownership
-      const wrongNft = createEligibilityNft(prescriberWalletId, pharmacyWalletId);
+      const inventory = new CredentialInventory();
+      // Credential with pharmacy as subject, but member proves ownership
+      const wrongCredential = createEligibilityCredential(prescriberWalletId, pharmacyWalletId);
       const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
 
       const pgResult = await ProofGateProgram.verifyMember(
@@ -378,9 +378,9 @@ describe('Layer 4 — NFT System / User Path', () => {
       const witness = inventory.getWitness(0n);
 
       await expect(
-        NftProgram.proveMint(
+        CredentialProgram.proveMint(
           pgResult.proof,
-          wrongNft,
+          wrongCredential,
           witness,
           inventory.getRoot(),
         ),
@@ -388,13 +388,13 @@ describe('Layer 4 — NFT System / User Path', () => {
     });
   });
 
-  // ─── NftProgram — proveHolding ───────────────────────
+  // ─── CredentialProgram — proveHolding ───────────────────────
 
-  describe('NftProgram — proveHolding', () => {
-    test('member proves holding eligibility NFT — valid proof', async () => {
-      const inventory = new NftInventory();
-      const nft = createEligibilityNft(prescriberWalletId, memberWalletId);
-      inventory.mint(nft);
+  describe('CredentialProgram — proveHolding', () => {
+    test('member proves holding eligibility credential — valid proof', async () => {
+      const inventory = new CredentialInventory();
+      const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
+      inventory.mint(credential);
 
       const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
       const pgResult = await ProofGateProgram.verifyMember(
@@ -403,24 +403,24 @@ describe('Layer 4 — NFT System / User Path', () => {
       );
 
       const witness = inventory.getWitness(0n);
-      const result = await NftProgram.proveHolding(
+      const result = await CredentialProgram.proveHolding(
         pgResult.proof,
-        nft,
+        credential,
         witness,
         inventory.getRoot(),
       );
 
-      const output = result.proof.publicOutput as unknown as NftOperationOutput;
+      const output = result.proof.publicOutput as unknown as CredentialOperationOutput;
       expect(output.walletId.toString()).toBe(memberWalletId.toString());
-      expect(output.operationType.toString()).toBe(NFT_OP_VERIFY.toString());
+      expect(output.operationType.toString()).toBe(CREDENTIAL_OP_VERIFY.toString());
       // Root unchanged for verification
       expect(output.oldInventoryRoot.toString()).toBe(output.newInventoryRoot.toString());
     });
 
     test('proof verifies standalone (offline at pharmacy)', async () => {
-      const inventory = new NftInventory();
-      const nft = createEligibilityNft(prescriberWalletId, memberWalletId);
-      inventory.mint(nft);
+      const inventory = new CredentialInventory();
+      const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
+      inventory.mint(credential);
 
       const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
       const pgResult = await ProofGateProgram.verifyMember(
@@ -429,21 +429,21 @@ describe('Layer 4 — NFT System / User Path', () => {
       );
 
       const witness = inventory.getWitness(0n);
-      const result = await NftProgram.proveHolding(
+      const result = await CredentialProgram.proveHolding(
         pgResult.proof,
-        nft,
+        credential,
         witness,
         inventory.getRoot(),
       );
 
-      const isValid = await NftProgram.verify(result.proof);
+      const isValid = await CredentialProgram.verify(result.proof);
       expect(isValid).toBe(true);
     });
 
-    test('rejects proof for NFT not in inventory', async () => {
-      const inventory = new NftInventory();
+    test('rejects proof for credential not in inventory', async () => {
+      const inventory = new CredentialInventory();
       // Don't mint — inventory is empty
-      const nft = createEligibilityNft(prescriberWalletId, memberWalletId);
+      const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
 
       const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
       const pgResult = await ProofGateProgram.verifyMember(
@@ -454,23 +454,23 @@ describe('Layer 4 — NFT System / User Path', () => {
       const witness = inventory.getWitness(0n);
 
       await expect(
-        NftProgram.proveHolding(
+        CredentialProgram.proveHolding(
           pgResult.proof,
-          nft,
+          credential,
           witness,
           inventory.getRoot(),
         ),
       ).rejects.toThrow();
     });
 
-    test('rejects revoked NFT', async () => {
-      const inventory = new NftInventory();
-      const nft = createEligibilityNft(prescriberWalletId, memberWalletId);
-      const { index } = inventory.mint(nft);
+    test('rejects revoked credential', async () => {
+      const inventory = new CredentialInventory();
+      const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
+      const { index } = inventory.mint(credential);
 
-      // Revoke the NFT
+      // Revoke the credential
       inventory.revoke(index);
-      const revokedNft = inventory.getNft(index)!;
+      const revokedCredential = inventory.getCredential(index)!;
 
       const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
       const pgResult = await ProofGateProgram.verifyMember(
@@ -481,9 +481,9 @@ describe('Layer 4 — NFT System / User Path', () => {
       const witness = inventory.getWitness(index);
 
       await expect(
-        NftProgram.proveHolding(
+        CredentialProgram.proveHolding(
           pgResult.proof,
-          revokedNft,
+          revokedCredential,
           witness,
           inventory.getRoot(),
         ),
@@ -491,13 +491,13 @@ describe('Layer 4 — NFT System / User Path', () => {
     });
   });
 
-  // ─── NftProgram — proveHoldingByType ─────────────────
+  // ─── CredentialProgram — proveHoldingByType ─────────────────
 
-  describe('NftProgram — proveHoldingByType', () => {
+  describe('CredentialProgram — proveHoldingByType', () => {
     test('pharmacy proves holding PRESCRIPTION type — succeeds', async () => {
-      const inventory = new NftInventory();
-      const nft = createPrescriptionNft(prescriberWalletId, pharmacyWalletId);
-      inventory.mint(nft);
+      const inventory = new CredentialInventory();
+      const credential = createPrescriptionCredential(prescriberWalletId, pharmacyWalletId);
+      inventory.mint(credential);
 
       const preimage = pharmacyWalletPreimage(testPharmacy, TEST_ENROLLMENT_KEY);
       const pgResult = await ProofGateProgram.verifyPharmacy(
@@ -506,24 +506,24 @@ describe('Layer 4 — NFT System / User Path', () => {
       );
 
       const witness = inventory.getWitness(0n);
-      const result = await NftProgram.proveHoldingByType(
+      const result = await CredentialProgram.proveHoldingByType(
         pgResult.proof,
-        nft,
+        credential,
         witness,
         inventory.getRoot(),
-        NFT_TYPE_PRESCRIPTION,
+        CREDENTIAL_TYPE_PRESCRIPTION,
       );
 
-      const output = result.proof.publicOutput as unknown as NftOperationOutput;
+      const output = result.proof.publicOutput as unknown as CredentialOperationOutput;
       expect(output.walletId.toString()).toBe(pharmacyWalletId.toString());
-      expect(output.operationType.toString()).toBe(NFT_OP_VERIFY.toString());
+      expect(output.operationType.toString()).toBe(CREDENTIAL_OP_VERIFY.toString());
     });
 
     test('rejects when type does not match', async () => {
-      const inventory = new NftInventory();
-      // NFT is ELIGIBILITY type
-      const nft = createEligibilityNft(prescriberWalletId, memberWalletId);
-      inventory.mint(nft);
+      const inventory = new CredentialInventory();
+      // Credential is ELIGIBILITY type
+      const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
+      inventory.mint(credential);
 
       const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
       const pgResult = await ProofGateProgram.verifyMember(
@@ -535,20 +535,20 @@ describe('Layer 4 — NFT System / User Path', () => {
 
       // Try to prove it's a PRESCRIPTION type — should fail
       await expect(
-        NftProgram.proveHoldingByType(
+        CredentialProgram.proveHoldingByType(
           pgResult.proof,
-          nft,
+          credential,
           witness,
           inventory.getRoot(),
-          NFT_TYPE_PRESCRIPTION, // wrong type!
+          CREDENTIAL_TYPE_PRESCRIPTION, // wrong type!
         ),
       ).rejects.toThrow();
     });
 
     test('proof verifies standalone (offline)', async () => {
-      const inventory = new NftInventory();
-      const nft = createPrescriptionNft(prescriberWalletId, pharmacyWalletId);
-      inventory.mint(nft);
+      const inventory = new CredentialInventory();
+      const credential = createPrescriptionCredential(prescriberWalletId, pharmacyWalletId);
+      inventory.mint(credential);
 
       const preimage = pharmacyWalletPreimage(testPharmacy, TEST_ENROLLMENT_KEY);
       const pgResult = await ProofGateProgram.verifyPharmacy(
@@ -557,15 +557,15 @@ describe('Layer 4 — NFT System / User Path', () => {
       );
 
       const witness = inventory.getWitness(0n);
-      const result = await NftProgram.proveHoldingByType(
+      const result = await CredentialProgram.proveHoldingByType(
         pgResult.proof,
-        nft,
+        credential,
         witness,
         inventory.getRoot(),
-        NFT_TYPE_PRESCRIPTION,
+        CREDENTIAL_TYPE_PRESCRIPTION,
       );
 
-      const isValid = await NftProgram.verify(result.proof);
+      const isValid = await CredentialProgram.verify(result.proof);
       expect(isValid).toBe(true);
     });
   });
@@ -575,12 +575,12 @@ describe('Layer 4 — NFT System / User Path', () => {
   describe('Portable Credential Serialization', () => {
     test('serializeCredential produces valid JSON', () => {
       // Create a mock proof-like object for serialization
-      const mockOutput = new NftOperationOutput({
+      const mockOutput = new CredentialOperationOutput({
         walletId: memberWalletId,
-        operationType: NFT_OP_VERIFY,
-        nftCommitment: Poseidon.hash([Field(1)]),
-        oldInventoryRoot: EMPTY_NFT_ROOT,
-        newInventoryRoot: EMPTY_NFT_ROOT,
+        operationType: CREDENTIAL_OP_VERIFY,
+        credentialCommitment: Poseidon.hash([Field(1)]),
+        oldInventoryRoot: EMPTY_CREDENTIAL_ROOT,
+        newInventoryRoot: EMPTY_CREDENTIAL_ROOT,
       });
 
       const mockProof = {
@@ -595,14 +595,14 @@ describe('Layer 4 — NFT System / User Path', () => {
 
       const credential = serializeCredential(
         mockProof,
-        'nft-holding',
+        'credential-holding',
         Field(12345),
       );
 
       expect(credential.version).toBe(1);
-      expect(credential.proofType).toBe('nft-holding');
+      expect(credential.proofType).toBe('credential-holding');
       expect(credential.publicOutput.walletId).toBe(memberWalletId.toString());
-      expect(credential.publicOutput.operationType).toBe(NFT_OP_VERIFY.toString());
+      expect(credential.publicOutput.operationType).toBe(CREDENTIAL_OP_VERIFY.toString());
       expect(credential.verificationKeyHash).toBe('12345');
       expect(credential.expiresAt).toBe(0);
       expect(credential.createdAt).toBeGreaterThan(0);
@@ -611,7 +611,7 @@ describe('Layer 4 — NFT System / User Path', () => {
     test('deserializeCredential reconstructs credential', () => {
       const original: PortableCredential = {
         version: 1,
-        proofType: 'nft-holding',
+        proofType: 'credential-holding',
         proofJson: {
           publicInput: [],
           publicOutput: ['1', '2'],
@@ -621,7 +621,7 @@ describe('Layer 4 — NFT System / User Path', () => {
         publicOutput: {
           walletId: '123',
           operationType: '2',
-          nftCommitment: '456',
+          credentialCommitment: '456',
           oldInventoryRoot: '789',
           newInventoryRoot: '789',
         },
@@ -641,11 +641,11 @@ describe('Layer 4 — NFT System / User Path', () => {
     });
 
     test('round-trip serialize → deserialize preserves data', () => {
-      const mockOutput = new NftOperationOutput({
+      const mockOutput = new CredentialOperationOutput({
         walletId: pharmacyWalletId,
-        operationType: NFT_OP_MINT,
-        nftCommitment: Poseidon.hash([Field(42)]),
-        oldInventoryRoot: EMPTY_NFT_ROOT,
+        operationType: CREDENTIAL_OP_MINT,
+        credentialCommitment: Poseidon.hash([Field(42)]),
+        oldInventoryRoot: EMPTY_CREDENTIAL_ROOT,
         newInventoryRoot: Poseidon.hash([Field(100)]),
       });
 
@@ -661,7 +661,7 @@ describe('Layer 4 — NFT System / User Path', () => {
 
       const credential = serializeCredential(
         mockProof,
-        'nft-mint',
+        'credential-mint',
         Field(777),
         1800000000000,
       );
@@ -672,7 +672,7 @@ describe('Layer 4 — NFT System / User Path', () => {
       expect(restored.version).toBe(credential.version);
       expect(restored.proofType).toBe(credential.proofType);
       expect(restored.publicOutput.walletId).toBe(credential.publicOutput.walletId);
-      expect(restored.publicOutput.nftCommitment).toBe(credential.publicOutput.nftCommitment);
+      expect(restored.publicOutput.credentialCommitment).toBe(credential.publicOutput.credentialCommitment);
       expect(restored.verificationKeyHash).toBe(credential.verificationKeyHash);
       expect(restored.expiresAt).toBe(1800000000000);
     });
@@ -682,18 +682,18 @@ describe('Layer 4 — NFT System / User Path', () => {
 
   describe('User Wallet Service', () => {
     let store: InMemoryStore;
-    let memberInventory: NftInventory;
+    let memberInventory: CredentialInventory;
     let registry: WalletRegistry;
     let lifecycleTree: MerkleTree;
 
     beforeAll(async () => {
-      // Compile StateTransitionProgram (ProofGate + NftProgram already compiled above)
+      // Compile StateTransitionProgram (ProofGate + CredentialProgram already compiled above)
       await StateTransitionProgram.compile();
     });
 
     beforeEach(() => {
       store = new InMemoryStore();
-      memberInventory = new NftInventory();
+      memberInventory = new CredentialInventory();
       registry = new WalletRegistry();
       lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
 
@@ -705,7 +705,7 @@ describe('Layer 4 — NFT System / User Path', () => {
       lifecycleTree.setLeaf(memberIndex, lifecycleLeaf);
     });
 
-    test('mintNft orchestrates full proof chain (ProofGate → NftProgram → StateTransition)', async () => {
+    test('mintCredential orchestrates full proof chain (ProofGate → CredentialProgram → StateTransition)', async () => {
       const service = new UserWalletService(
         store,
         memberWalletId,
@@ -714,30 +714,30 @@ describe('Layer 4 — NFT System / User Path', () => {
         lifecycleTree,
       );
 
-      const nft = createEligibilityNft(prescriberWalletId, memberWalletId);
+      const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
       const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
 
-      const result = await service.mintNft(
+      const result = await service.mintCredential(
         preimage,
         'member',
-        nft,
+        credential,
         LIFECYCLE_ELIGIBLE,
       );
 
-      // NftOperationProof exists
-      expect(result.nftProof).toBeDefined();
+      // CredentialOperationProof exists
+      expect(result.credentialProof).toBeDefined();
 
       // StateTransitionProof exists
       expect(result.stateProof).toBeDefined();
 
-      // NFT index assigned
-      expect(result.nftIndex).toBe(0n);
+      // Credential index assigned
+      expect(result.credentialIndex).toBe(0n);
 
       // Inventory updated
-      expect(service.getNftCount()).toBe(1);
+      expect(service.getCredentialCount()).toBe(1);
     });
 
-    test('proveNftHolding returns verifiable portable proof', async () => {
+    test('proveCredentialHolding returns verifiable portable proof', async () => {
       const service = new UserWalletService(
         store,
         memberWalletId,
@@ -746,18 +746,18 @@ describe('Layer 4 — NFT System / User Path', () => {
         lifecycleTree,
       );
 
-      // First mint an NFT
-      const nft = createEligibilityNft(prescriberWalletId, memberWalletId);
+      // First mint a credential
+      const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
       const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
-      const mintResult = await service.mintNft(preimage, 'member', nft, LIFECYCLE_ELIGIBLE);
+      const mintResult = await service.mintCredential(preimage, 'member', credential, LIFECYCLE_ELIGIBLE);
 
       // Now prove holding
-      const holdingProof = await service.proveNftHolding(preimage, 'member', mintResult.nftIndex);
+      const holdingProof = await service.proveCredentialHolding(preimage, 'member', mintResult.credentialIndex);
 
       expect(holdingProof).toBeDefined();
 
       // Verify the proof standalone
-      const isValid = await NftProgram.verify(holdingProof);
+      const isValid = await CredentialProgram.verify(holdingProof);
       expect(isValid).toBe(true);
     });
 
@@ -770,28 +770,28 @@ describe('Layer 4 — NFT System / User Path', () => {
         lifecycleTree,
       );
 
-      const nft = createEligibilityNft(prescriberWalletId, memberWalletId);
+      const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
       const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
-      const mintResult = await service.mintNft(preimage, 'member', nft, LIFECYCLE_ELIGIBLE);
+      const mintResult = await service.mintCredential(preimage, 'member', credential, LIFECYCLE_ELIGIBLE);
 
-      const holdingProof = await service.proveNftHolding(preimage, 'member', mintResult.nftIndex);
+      const holdingProof = await service.proveCredentialHolding(preimage, 'member', mintResult.credentialIndex);
 
-      const credential = service.exportCredential(
+      const portableCredential = service.exportCredential(
         holdingProof as any,
-        'nft-holding',
+        'credential-holding',
         Field(12345),
       );
 
-      expect(credential.version).toBe(1);
-      expect(credential.proofType).toBe('nft-holding');
-      expect(credential.publicOutput.walletId).toBe(memberWalletId.toString());
+      expect(portableCredential.version).toBe(1);
+      expect(portableCredential.proofType).toBe('credential-holding');
+      expect(portableCredential.publicOutput.walletId).toBe(memberWalletId.toString());
 
       // Should be JSON serializable
-      const json = JSON.stringify(credential);
+      const json = JSON.stringify(portableCredential);
       expect(json.length).toBeGreaterThan(0);
     });
 
-    test('tracks NFT count and inventory state', async () => {
+    test('tracks credential count and inventory state', async () => {
       const service = new UserWalletService(
         store,
         memberWalletId,
@@ -800,19 +800,19 @@ describe('Layer 4 — NFT System / User Path', () => {
         lifecycleTree,
       );
 
-      expect(service.getNftCount()).toBe(0);
+      expect(service.getCredentialCount()).toBe(0);
 
       const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
 
-      // Mint first NFT
-      const nft1 = createEligibilityNft(prescriberWalletId, memberWalletId);
-      await service.mintNft(preimage, 'member', nft1, LIFECYCLE_ELIGIBLE);
-      expect(service.getNftCount()).toBe(1);
+      // Mint first credential
+      const credential1 = createEligibilityCredential(prescriberWalletId, memberWalletId);
+      await service.mintCredential(preimage, 'member', credential1, LIFECYCLE_ELIGIBLE);
+      expect(service.getCredentialCount()).toBe(1);
 
       // Verify inventory is accessible
       const inventory = service.getInventory();
-      expect(inventory.getNft(0n)).toBeDefined();
-      expect(inventory.getNft(0n)!.nftType.toString()).toBe(NFT_TYPE_ELIGIBILITY.toString());
+      expect(inventory.getCredential(0n)).toBeDefined();
+      expect(inventory.getCredential(0n)!.credentialType.toString()).toBe(CREDENTIAL_TYPE_ELIGIBILITY.toString());
     });
   });
 });

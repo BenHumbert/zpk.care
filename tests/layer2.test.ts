@@ -244,7 +244,7 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
       const s1 = WalletState.init(walletId);
       const s2 = new WalletState({
         walletId,
-        nftInventoryRoot: s1.nftInventoryRoot,
+        credentialInventoryRoot: s1.credentialInventoryRoot,
         nonce: Field(1),
       });
       expect(s1.commitment().toString()).not.toBe(s2.commitment().toString());
@@ -307,7 +307,7 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
       const currentState = registry.getState(walletId);
       const newState = new WalletState({
         walletId,
-        nftInventoryRoot: currentState.nftInventoryRoot,
+        credentialInventoryRoot: currentState.credentialInventoryRoot,
         nonce: Field(1),
       });
       registry.updateState(walletId, newState);
@@ -336,7 +336,7 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
       const currentState = registry.getState(walletId);
       const newState = new WalletState({
         walletId,
-        nftInventoryRoot: currentState.nftInventoryRoot,
+        credentialInventoryRoot: currentState.credentialInventoryRoot,
         nonce: Field(1),
       });
       registry.updateState(walletId, newState);

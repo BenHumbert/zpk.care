@@ -1,8 +1,8 @@
 import { Field, Poseidon } from 'o1js';
 import type { ILocalStore } from '../storage/local-store.js';
 import { WalletRegistry, WalletState } from '../wallets/wallet-state.js';
-import { NftData } from '../nft/nft-data.js';
-import { NftInventory } from '../nft/nft-inventory.js';
+import { CredentialData } from '../credentials/credential-data.js';
+import { CredentialInventory } from '../credentials/credential-inventory.js';
 import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
 import { ForestRoots } from '../eligibility/forest-roots.js';
 import { FormularyEntry } from '../access-control/formulary-entry.js';
@@ -24,14 +24,15 @@ import { AccumulatorFulfillmentProgram } from './accumulator-fulfillment-program
  */
 export interface AccumulatorFulfillmentResult {
   proof: Awaited<ReturnType<typeof AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator>>['proof'];
-  newPrescriptionNftData: NftData;
-  newEligibilityNftData: NftData;
+  newPrescriptionCredentialData: CredentialData;
+  newEligibilityCredentialData: CredentialData;
   newPharmacyInventoryRoot: Field;
   newMemberInventoryRoot: Field;
   fulfillmentEntry: FulfillmentData;
   fulfillmentIndex: bigint;
   patientPayCents: Field;
   planPayCents: Field;
+  deductibleCreditCents: Field;
   newAccumulatorData: AccumulatorData;
 }
 
@@ -40,8 +41,8 @@ export interface AccumulatorFulfillmentResult {
  */
 export interface AccumulatorReversalResult {
   proof: Awaited<ReturnType<typeof AccumulatorFulfillmentProgram.proveReversalWithAccumulator>>['proof'];
-  newPrescriptionNftData: NftData;
-  newEligibilityNftData: NftData;
+  newPrescriptionCredentialData: CredentialData;
+  newEligibilityCredentialData: CredentialData;
   newPharmacyInventoryRoot: Field;
   newMemberInventoryRoot: Field;
   reversalEntry: ReversalData;
@@ -56,9 +57,9 @@ export interface AccumulatorReversalResult {
 /**
  * AccumulatorFulfillmentService — orchestration for accumulator-aware claims.
  *
- * Operates on TWO NFTs:
- *   - Prescription NFT (pharmacy wallet): claim data + TRANSACTION tree
- *   - Eligibility NFT (member wallet): accumulator at ACCESS_CONTROL leaf 127
+ * Operates on TWO credentials:
+ *   - Prescription credential (pharmacy wallet): claim data + TRANSACTION tree
+ *   - Eligibility credential (member wallet): accumulator at ACCESS_CONTROL leaf 127
  *
  * Preconditions:
  *   await AccumulatorFulfillmentProgram.compile();
@@ -83,8 +84,8 @@ export class AccumulatorFulfillmentService {
   async submitFulfillmentWithAccumulator(
     pharmacyWalletId: Field,
     memberWalletId: Field,
-    prescriptionNft: NftData,
-    eligibilityNft: NftData,
+    prescriptionCredential: CredentialData,
+    eligibilityCredential: CredentialData,
     prescriptionData: PrescriptionData,
     latestStatus: PrescriptionStatusData,
     fulfillmentData: FulfillmentData,
@@ -95,10 +96,11 @@ export class AccumulatorFulfillmentService {
     formularyEntryIndex: bigint,
     accumulatorData: AccumulatorData,
     accumulatorLeafIndex: bigint,
-    pharmacyInventory: NftInventory,
-    memberInventory: NftInventory,
-    prescriptionNftSlot: bigint,
-    eligibilityNftSlot: bigint,
+    pharmacyInventory: CredentialInventory,
+    memberInventory: CredentialInventory,
+    prescriptionCredentialSlot: bigint,
+    eligibilityCredentialSlot: bigint,
+    pharmacyPreimage: Field[] = [],
   ): Promise<AccumulatorFulfillmentResult> {
     // 1. Pre-flight validation (circuit also enforces — fail-fast only)
     const statusVal = BigInt(latestStatus.status.toString());
@@ -141,7 +143,7 @@ export class AccumulatorFulfillmentService {
 
     // 3. Generate proof
     const result = await AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(
-      prescriptionNft,
+      prescriptionCredential,
       prescriptionData,
       latestStatus,
       fulfillmentData,
@@ -152,10 +154,14 @@ export class AccumulatorFulfillmentService {
       newSlotWitness,
       formularyWitness,
       formularyRoot,
-      eligibilityNft,
+      eligibilityCredential,
       eligForestRoots,
       accumulatorData,
       accumulatorWitness,
+      // H2: pharmacy wallet identity preimage
+      pharmacyPreimage[0] ?? Field(0),
+      pharmacyPreimage[1] ?? Field(0),
+      pharmacyPreimage[2] ?? Field(0),
     );
 
     const output = result.proof.publicOutput;
@@ -165,6 +171,7 @@ export class AccumulatorFulfillmentService {
       fulfillmentData.commitment(),
       output.patientPayCents,
       output.planPayCents,
+      output.deductibleCreditCents,
     ]);
     prescriptionForest.setLeaf(
       ForestDomain.TRANSACTION,
@@ -172,31 +179,32 @@ export class AccumulatorFulfillmentService {
       settlementCommitment,
     );
 
-    // 5. Create new prescription NftData
-    const newPrescriptionNftData = new NftData({
-      nftType: prescriptionNft.nftType,
+    // 5. Create new prescription CredentialData
+    const newPrescriptionCredentialData = new CredentialData({
+      credentialType: prescriptionCredential.credentialType,
       forestRoot: prescriptionForest.getForestRoot(),
-      issuerWalletId: prescriptionNft.issuerWalletId,
-      subjectWalletId: prescriptionNft.subjectWalletId,
-      issuedAt: prescriptionNft.issuedAt,
-      expiresAt: prescriptionNft.expiresAt,
-      revoked: prescriptionNft.revoked,
+      issuerWalletId: prescriptionCredential.issuerWalletId,
+      subjectWalletId: prescriptionCredential.subjectWalletId,
+      issuedAt: prescriptionCredential.issuedAt,
+      expiresAt: prescriptionCredential.expiresAt,
+      revoked: prescriptionCredential.revoked,
     });
 
-    // 6. Update prescription NFT in pharmacy inventory
-    const newPharmacyInventoryRoot = pharmacyInventory.updateNft(
-      prescriptionNftSlot,
-      newPrescriptionNftData,
+    // 6. Update prescription credential in pharmacy inventory
+    const newPharmacyInventoryRoot = pharmacyInventory.updateCredential(
+      prescriptionCredentialSlot,
+      newPrescriptionCredentialData,
     );
 
-    // 7. Compute new accumulator data off-chain
+    // 7. Compute new accumulator data off-chain (C4 fix: deductibleCredit, not patientPay)
     const patientPayBig = BigInt(output.patientPayCents.toString());
     const planPayBig = BigInt(output.planPayCents.toString());
+    const deductibleCreditBig = BigInt(output.deductibleCreditCents.toString());
     const newAccumulatorData = new AccumulatorData({
       planYear: accumulatorData.planYear,
       deductibleAmountCents: accumulatorData.deductibleAmountCents,
       deductiblePaidCents: Field(
-        BigInt(accumulatorData.deductiblePaidCents.toString()) + patientPayBig,
+        BigInt(accumulatorData.deductiblePaidCents.toString()) + deductibleCreditBig,
       ),
       oopMaxCents: accumulatorData.oopMaxCents,
       oopPaidCents: Field(
@@ -215,21 +223,21 @@ export class AccumulatorFulfillmentService {
       newAccumulatorData.commitment(),
     );
 
-    // 9. Create new eligibility NftData
-    const newEligibilityNftData = new NftData({
-      nftType: eligibilityNft.nftType,
+    // 9. Create new eligibility CredentialData
+    const newEligibilityCredentialData = new CredentialData({
+      credentialType: eligibilityCredential.credentialType,
       forestRoot: eligibilityForest.getForestRoot(),
-      issuerWalletId: eligibilityNft.issuerWalletId,
-      subjectWalletId: eligibilityNft.subjectWalletId,
-      issuedAt: eligibilityNft.issuedAt,
-      expiresAt: eligibilityNft.expiresAt,
-      revoked: eligibilityNft.revoked,
+      issuerWalletId: eligibilityCredential.issuerWalletId,
+      subjectWalletId: eligibilityCredential.subjectWalletId,
+      issuedAt: eligibilityCredential.issuedAt,
+      expiresAt: eligibilityCredential.expiresAt,
+      revoked: eligibilityCredential.revoked,
     });
 
-    // 10. Update eligibility NFT in member inventory
-    const newMemberInventoryRoot = memberInventory.updateNft(
-      eligibilityNftSlot,
-      newEligibilityNftData,
+    // 10. Update eligibility credential in member inventory
+    const newMemberInventoryRoot = memberInventory.updateCredential(
+      eligibilityCredentialSlot,
+      newEligibilityCredentialData,
     );
 
     // 11. Update wallet registry for both wallets
@@ -238,7 +246,7 @@ export class AccumulatorFulfillmentService {
       pharmacyWalletId,
       new WalletState({
         walletId: pharmacyWalletId,
-        nftInventoryRoot: newPharmacyInventoryRoot,
+        credentialInventoryRoot: newPharmacyInventoryRoot,
         nonce: Field(BigInt(oldPharmacyState.nonce.toString()) + 1n),
       }),
     );
@@ -248,7 +256,7 @@ export class AccumulatorFulfillmentService {
       memberWalletId,
       new WalletState({
         walletId: memberWalletId,
-        nftInventoryRoot: newMemberInventoryRoot,
+        credentialInventoryRoot: newMemberInventoryRoot,
         nonce: Field(BigInt(oldMemberState.nonce.toString()) + 1n),
       }),
     );
@@ -259,14 +267,15 @@ export class AccumulatorFulfillmentService {
 
     return {
       proof: result.proof,
-      newPrescriptionNftData,
-      newEligibilityNftData,
+      newPrescriptionCredentialData,
+      newEligibilityCredentialData,
       newPharmacyInventoryRoot,
       newMemberInventoryRoot,
       fulfillmentEntry: fulfillmentData,
       fulfillmentIndex: fulfillmentSlotIndex,
       patientPayCents: output.patientPayCents,
       planPayCents: output.planPayCents,
+      deductibleCreditCents: output.deductibleCreditCents,
       newAccumulatorData,
     };
   }
@@ -276,8 +285,8 @@ export class AccumulatorFulfillmentService {
   async reverseFulfillmentWithAccumulator(
     pharmacyWalletId: Field,
     memberWalletId: Field,
-    prescriptionNft: NftData,
-    eligibilityNft: NftData,
+    prescriptionCredential: CredentialData,
+    eligibilityCredential: CredentialData,
     prescriptionData: PrescriptionData,
     originalFulfillment: FulfillmentData,
     reversalData: ReversalData,
@@ -287,12 +296,14 @@ export class AccumulatorFulfillmentService {
     originalFulfillmentIndex: bigint,
     originalPatientPay: Field,
     originalPlanPay: Field,
+    originalDeductibleCredit: Field,
     accumulatorData: AccumulatorData,
     accumulatorLeafIndex: bigint,
-    pharmacyInventory: NftInventory,
-    memberInventory: NftInventory,
-    prescriptionNftSlot: bigint,
-    eligibilityNftSlot: bigint,
+    pharmacyInventory: CredentialInventory,
+    memberInventory: CredentialInventory,
+    prescriptionCredentialSlot: bigint,
+    eligibilityCredentialSlot: bigint,
+    pharmacyPreimage: Field[] = [],
   ): Promise<AccumulatorReversalResult> {
     // 1. Build ALL witnesses BEFORE mutation
     const rxForestRoots = ForestRoots.fromForest(prescriptionForest);
@@ -318,7 +329,7 @@ export class AccumulatorFulfillmentService {
 
     // 2. Generate proof
     const result = await AccumulatorFulfillmentProgram.proveReversalWithAccumulator(
-      prescriptionNft,
+      prescriptionCredential,
       prescriptionData,
       originalFulfillment,
       reversalData,
@@ -328,10 +339,15 @@ export class AccumulatorFulfillmentService {
       reversalSlotWitness,
       originalPatientPay,
       originalPlanPay,
-      eligibilityNft,
+      originalDeductibleCredit,
+      eligibilityCredential,
       eligForestRoots,
       accumulatorData,
       accumulatorWitness,
+      // H2: pharmacy wallet identity preimage
+      pharmacyPreimage[0] ?? Field(0),
+      pharmacyPreimage[1] ?? Field(0),
+      pharmacyPreimage[2] ?? Field(0),
     );
 
     const output = result.proof.publicOutput;
@@ -343,39 +359,43 @@ export class AccumulatorFulfillmentService {
       reversalData.commitment(),
     );
 
-    // 4. Create new prescription NftData
-    const newPrescriptionNftData = new NftData({
-      nftType: prescriptionNft.nftType,
+    // 4. Create new prescription CredentialData
+    const newPrescriptionCredentialData = new CredentialData({
+      credentialType: prescriptionCredential.credentialType,
       forestRoot: prescriptionForest.getForestRoot(),
-      issuerWalletId: prescriptionNft.issuerWalletId,
-      subjectWalletId: prescriptionNft.subjectWalletId,
-      issuedAt: prescriptionNft.issuedAt,
-      expiresAt: prescriptionNft.expiresAt,
-      revoked: prescriptionNft.revoked,
+      issuerWalletId: prescriptionCredential.issuerWalletId,
+      subjectWalletId: prescriptionCredential.subjectWalletId,
+      issuedAt: prescriptionCredential.issuedAt,
+      expiresAt: prescriptionCredential.expiresAt,
+      revoked: prescriptionCredential.revoked,
     });
 
-    // 5. Update prescription NFT in pharmacy inventory
-    const newPharmacyInventoryRoot = pharmacyInventory.updateNft(
-      prescriptionNftSlot,
-      newPrescriptionNftData,
+    // 5. Update prescription credential in pharmacy inventory
+    const newPharmacyInventoryRoot = pharmacyInventory.updateCredential(
+      prescriptionCredentialSlot,
+      newPrescriptionCredentialData,
     );
 
-    // 6. Compute reversed accumulator off-chain
+    // 6. Compute reversed accumulator off-chain (C1 fix: safe sub, C4 fix: deductibleCredit)
     const origPatBig = BigInt(originalPatientPay.toString());
     const origPlanBig = BigInt(originalPlanPay.toString());
+    const origDeductBig = BigInt(originalDeductibleCredit.toString());
+    const curDeductPaid = BigInt(accumulatorData.deductiblePaidCents.toString());
+    const curOopPaid = BigInt(accumulatorData.oopPaidCents.toString());
+    const curBenefitUsed = BigInt(accumulatorData.annualBenefitUsedCents.toString());
     const newAccumulatorData = new AccumulatorData({
       planYear: accumulatorData.planYear,
       deductibleAmountCents: accumulatorData.deductibleAmountCents,
       deductiblePaidCents: Field(
-        BigInt(accumulatorData.deductiblePaidCents.toString()) - origPatBig,
+        curDeductPaid >= origDeductBig ? curDeductPaid - origDeductBig : 0n,
       ),
       oopMaxCents: accumulatorData.oopMaxCents,
       oopPaidCents: Field(
-        BigInt(accumulatorData.oopPaidCents.toString()) - origPatBig,
+        curOopPaid >= origPatBig ? curOopPaid - origPatBig : 0n,
       ),
       annualBenefitMaxCents: accumulatorData.annualBenefitMaxCents,
       annualBenefitUsedCents: Field(
-        BigInt(accumulatorData.annualBenefitUsedCents.toString()) - origPlanBig,
+        curBenefitUsed >= origPlanBig ? curBenefitUsed - origPlanBig : 0n,
       ),
     });
 
@@ -386,21 +406,21 @@ export class AccumulatorFulfillmentService {
       newAccumulatorData.commitment(),
     );
 
-    // 8. Create new eligibility NftData
-    const newEligibilityNftData = new NftData({
-      nftType: eligibilityNft.nftType,
+    // 8. Create new eligibility CredentialData
+    const newEligibilityCredentialData = new CredentialData({
+      credentialType: eligibilityCredential.credentialType,
       forestRoot: eligibilityForest.getForestRoot(),
-      issuerWalletId: eligibilityNft.issuerWalletId,
-      subjectWalletId: eligibilityNft.subjectWalletId,
-      issuedAt: eligibilityNft.issuedAt,
-      expiresAt: eligibilityNft.expiresAt,
-      revoked: eligibilityNft.revoked,
+      issuerWalletId: eligibilityCredential.issuerWalletId,
+      subjectWalletId: eligibilityCredential.subjectWalletId,
+      issuedAt: eligibilityCredential.issuedAt,
+      expiresAt: eligibilityCredential.expiresAt,
+      revoked: eligibilityCredential.revoked,
     });
 
-    // 9. Update eligibility NFT in member inventory
-    const newMemberInventoryRoot = memberInventory.updateNft(
-      eligibilityNftSlot,
-      newEligibilityNftData,
+    // 9. Update eligibility credential in member inventory
+    const newMemberInventoryRoot = memberInventory.updateCredential(
+      eligibilityCredentialSlot,
+      newEligibilityCredentialData,
     );
 
     // 10. Update wallet registry for both wallets
@@ -409,7 +429,7 @@ export class AccumulatorFulfillmentService {
       pharmacyWalletId,
       new WalletState({
         walletId: pharmacyWalletId,
-        nftInventoryRoot: newPharmacyInventoryRoot,
+        credentialInventoryRoot: newPharmacyInventoryRoot,
         nonce: Field(BigInt(oldPharmacyState.nonce.toString()) + 1n),
       }),
     );
@@ -419,7 +439,7 @@ export class AccumulatorFulfillmentService {
       memberWalletId,
       new WalletState({
         walletId: memberWalletId,
-        nftInventoryRoot: newMemberInventoryRoot,
+        credentialInventoryRoot: newMemberInventoryRoot,
         nonce: Field(BigInt(oldMemberState.nonce.toString()) + 1n),
       }),
     );
@@ -430,8 +450,8 @@ export class AccumulatorFulfillmentService {
 
     return {
       proof: result.proof,
-      newPrescriptionNftData,
-      newEligibilityNftData,
+      newPrescriptionCredentialData,
+      newEligibilityCredentialData,
       newPharmacyInventoryRoot,
       newMemberInventoryRoot,
       reversalEntry: reversalData,
@@ -448,16 +468,16 @@ export class AccumulatorFulfillmentService {
    * Calculate accumulator-aware settlement amounts off-chain.
    *
    * Mirrors the in-circuit logic exactly:
-   *   1. OOPM met → patient $0
-   *   2. Benefit exhausted → patient pays total
-   *   3. In deductible → patient pays min(total, remaining deductible)
-   *   4. Normal → patient pays min(total, formulary copay)
+   *   1. Deductible phase: patient pays deductible portion + copay on remainder (C5)
+   *   2. Benefit max: cap plan pay at remaining benefit (C2)
+   *   3. OOPM: cap patient pay at remaining OOPM (C3)
+   *   4. Track deductible credit separately (C4)
    */
   calculateAccumulatorAwareAmounts(
     fulfillmentData: FulfillmentData,
     formularyEntry: FormularyEntry,
     accumulatorData: AccumulatorData,
-  ): { patientPayCents: Field; planPayCents: Field } {
+  ): { patientPayCents: Field; planPayCents: Field; deductibleCreditCents: Field } {
     const total = BigInt(fulfillmentData.ingredientCostCents.toString())
       + BigInt(fulfillmentData.dispensingFeeCents.toString());
     const copay = BigInt(formularyEntry.copayAmountCents.toString());
@@ -468,28 +488,45 @@ export class AccumulatorFulfillmentService {
     const benefitMax = BigInt(accumulatorData.annualBenefitMaxCents.toString());
     const benefitUsed = BigInt(accumulatorData.annualBenefitUsedCents.toString());
 
-    // OOPM met → patient pays $0 (highest priority)
-    if (oopMax > 0n && oopPaid >= oopMax) {
-      return { patientPayCents: Field(0), planPayCents: Field(total) };
+    // 16a: Deductible calculation
+    const inDeductiblePhase = deductibleLimit > 0n && deductiblePaid < deductibleLimit;
+    const remainingDeductible = inDeductiblePhase ? deductibleLimit - deductiblePaid : 0n;
+    const deductiblePay = total < remainingDeductible ? total : remainingDeductible;
+    const afterDeductible = total - deductiblePay;
+
+    // 16b: Copay on post-deductible amount (C5 fix: split payment)
+    const copayOnRemainder = afterDeductible < copay ? afterDeductible : copay;
+    const normalPay = total < copay ? total : copay;
+    const basePay = inDeductiblePhase ? deductiblePay + copayOnRemainder : normalPay;
+
+    // 16c: Benefit maximum mid-claim cap (C2 fix)
+    const basePlanPay = total - basePay;
+    let cappedPlanPay = basePlanPay;
+    if (benefitMax > 0n) {
+      const remainingBenefit = benefitUsed >= benefitMax ? 0n : benefitMax - benefitUsed;
+      if (basePlanPay > remainingBenefit) {
+        cappedPlanPay = remainingBenefit;
+      }
     }
+    let patientPay = total - cappedPlanPay;
 
-    // Benefit exhausted → patient pays total
-    if (benefitMax > 0n && benefitUsed >= benefitMax) {
-      return { patientPayCents: Field(total), planPayCents: Field(0) };
-    }
-
-    let patientPay: bigint;
-
-    // Deductible phase
-    if (deductibleLimit > 0n && deductiblePaid < deductibleLimit) {
-      const remaining = deductibleLimit - deductiblePaid;
-      patientPay = total < remaining ? total : remaining;
-    } else {
-      // Normal copay phase
-      patientPay = total < copay ? total : copay;
+    // 16d: OOPM mid-claim cap (C3 fix)
+    if (oopMax > 0n) {
+      const remainingOopm = oopPaid >= oopMax ? 0n : oopMax - oopPaid;
+      if (patientPay > remainingOopm) {
+        patientPay = remainingOopm;
+      }
     }
 
     const planPay = total - patientPay;
-    return { patientPayCents: Field(patientPay), planPayCents: Field(planPay) };
+
+    // 16e: Deductible credit (C4 fix)
+    const deductibleCredit = patientPay < deductiblePay ? patientPay : deductiblePay;
+
+    return {
+      patientPayCents: Field(patientPay),
+      planPayCents: Field(planPay),
+      deductibleCreditCents: Field(deductibleCredit),
+    };
   }
 }

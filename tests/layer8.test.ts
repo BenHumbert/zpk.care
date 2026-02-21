@@ -11,6 +11,7 @@ import {
   RX_STATUS_REJECTED,
   RX_STATUS_REVERSED,
   RX_STATUS_TRANSFERRED,
+  RX_STATUS_DISPENSED,
   EMERGENCY_FILL_HASH,
   isValidStatusTransition,
   assertValidStatusTransition,
@@ -26,10 +27,11 @@ import {
 } from '../src/prescription/prescription-program.js';
 import { PrescriptionService } from '../src/prescription/prescription-service.js';
 import { PrescriptionVerificationService } from '../src/prescription/prescription-verification-service.js';
-import { NftData, NFT_TYPE_PRESCRIPTION, NFT_TYPE_ELIGIBILITY } from '../src/nft/nft-data.js';
-import { NftInventory } from '../src/nft/nft-inventory.js';
-import { NftProgram, NftOperationProof, NFT_OP_VERIFY } from '../src/nft/nft-program.js';
+import { CredentialData, CREDENTIAL_TYPE_PRESCRIPTION, CREDENTIAL_TYPE_ELIGIBILITY } from '../src/credentials/credential-data.js';
+import { CredentialInventory } from '../src/credentials/credential-inventory.js';
+import { CredentialProgram, CredentialOperationProof, CREDENTIAL_OP_VERIFY } from '../src/credentials/credential-program.js';
 import { ProofGateProgram } from '../src/wallets/proof-gate.js';
+import { DOMAIN_TAG_PRESCRIBER } from '../src/wallets/wallet-derivation.js';
 import { MerkleForest, ForestDomain } from '../src/zkp/merkle-forest.js';
 import { ForestRoots } from '../src/eligibility/forest-roots.js';
 import { hashString, dateToField, quantityToField } from '../src/zkp/hash-utils.js';
@@ -39,7 +41,7 @@ import {
   WalletState,
   WALLET_TREE_HEIGHT,
 } from '../src/wallets/wallet-state.js';
-import { EMPTY_NFT_ROOT } from '../src/engine/state-transition.js';
+import { EMPTY_CREDENTIAL_ROOT } from '../src/engine/state-transition.js';
 import {
   deriveEncryptionKeyPair,
   deriveSharedSecret,
@@ -79,8 +81,13 @@ const sampleStatusLocal: PrescriptionStatusLocalData = {
   notes: '',
 };
 
+// Prescriber wallet preimage constants (M4 fix: identity binding)
+const PRESCRIBER_QUAL = Field(1);
+const PRESCRIBER_ID_HASH = Field(333);
+const PRESCRIBER_EK_HASH = Field(444);
+
 // Wallet IDs as Fields
-const prescriberWalletId = Field(111222333444555666n);
+const prescriberWalletId = Poseidon.hash([DOMAIN_TAG_PRESCRIBER, PRESCRIBER_QUAL, PRESCRIBER_ID_HASH, PRESCRIBER_EK_HASH]);
 const memberWalletId = Field(999888777666555444n);
 const pharmacyWalletId = Field(777666555444333222n);
 const pharmacy2WalletId = Field(888777666555444333n);
@@ -116,7 +123,7 @@ function createTestWalletRegistry(): {
     pharmacyWalletId,
     new WalletState({
       walletId: pharmacyWalletId,
-      nftInventoryRoot: EMPTY_NFT_ROOT,
+      credentialInventoryRoot: EMPTY_CREDENTIAL_ROOT,
       nonce: Field(0),
     }),
   );
@@ -126,7 +133,7 @@ function createTestWalletRegistry(): {
     pharmacy2WalletId,
     new WalletState({
       walletId: pharmacy2WalletId,
-      nftInventoryRoot: EMPTY_NFT_ROOT,
+      credentialInventoryRoot: EMPTY_CREDENTIAL_ROOT,
       nonce: Field(0),
     }),
   );
@@ -276,11 +283,42 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
     it('terminal states block further transitions', () => {
       // CANCELLED, REJECTED, TRANSFERRED are terminal
-      for (let to = 1n; to <= 7n; to++) {
+      for (let to = 1n; to <= 8n; to++) {
         expect(isValidStatusTransition(4n, to)).toBe(false); // CANCELLED → *
         expect(isValidStatusTransition(5n, to)).toBe(false); // REJECTED → *
         expect(isValidStatusTransition(7n, to)).toBe(false); // TRANSFERRED → *
       }
+    });
+
+    it('DISPENSED transitions accepted', () => {
+      expect(isValidStatusTransition(1n, 8n)).toBe(true);  // ACTIVE → DISPENSED
+      expect(isValidStatusTransition(8n, 3n)).toBe(true);  // DISPENSED → FILLED
+      expect(isValidStatusTransition(8n, 4n)).toBe(true);  // DISPENSED → CANCELLED
+      expect(isValidStatusTransition(8n, 5n)).toBe(true);  // DISPENSED → REJECTED
+    });
+
+    it('invalid DISPENSED transitions rejected', () => {
+      expect(isValidStatusTransition(8n, 1n)).toBe(false); // DISPENSED → ACTIVE
+      expect(isValidStatusTransition(8n, 2n)).toBe(false); // DISPENSED → PARTIALLY_FILLED
+      expect(isValidStatusTransition(8n, 6n)).toBe(false); // DISPENSED → REVERSED
+      expect(isValidStatusTransition(8n, 7n)).toBe(false); // DISPENSED → TRANSFERRED
+      expect(isValidStatusTransition(8n, 8n)).toBe(false); // DISPENSED → DISPENSED
+      expect(isValidStatusTransition(2n, 8n)).toBe(false); // PARTIALLY_FILLED → DISPENSED
+      expect(isValidStatusTransition(3n, 8n)).toBe(false); // FILLED → DISPENSED
+    });
+
+    it('assertValidStatusTransition accepts DISPENSED transitions in circuit', () => {
+      expect(() => assertValidStatusTransition(RX_STATUS_ACTIVE, RX_STATUS_DISPENSED)).not.toThrow();
+      expect(() => assertValidStatusTransition(RX_STATUS_DISPENSED, RX_STATUS_FILLED)).not.toThrow();
+      expect(() => assertValidStatusTransition(RX_STATUS_DISPENSED, RX_STATUS_CANCELLED)).not.toThrow();
+      expect(() => assertValidStatusTransition(RX_STATUS_DISPENSED, RX_STATUS_REJECTED)).not.toThrow();
+    });
+
+    it('assertValidStatusTransition rejects invalid DISPENSED transitions in circuit', () => {
+      expect(() => assertValidStatusTransition(RX_STATUS_DISPENSED, RX_STATUS_ACTIVE)).toThrow();
+      expect(() => assertValidStatusTransition(RX_STATUS_DISPENSED, RX_STATUS_REVERSED)).toThrow();
+      expect(() => assertValidStatusTransition(RX_STATUS_DISPENSED, RX_STATUS_DISPENSED)).toThrow();
+      expect(() => assertValidStatusTransition(RX_STATUS_PARTIALLY_FILLED, RX_STATUS_DISPENSED)).toThrow();
     });
   });
 
@@ -302,10 +340,10 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       );
     });
 
-    it('buildPrescriptionNft creates correct NftData', () => {
+    it('buildPrescriptionCredential creates correct CredentialData', () => {
       const rxData = createTestPrescriptionData();
       const forest = createTestForest();
-      const { nftData, initialStatus } = service.buildPrescriptionNft(
+      const { credentialData, initialStatus } = service.buildPrescriptionCredential(
         prescriberWalletId,
         memberWalletId,
         pharmacyWalletId,
@@ -316,17 +354,17 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         dateToField('20270201'),
       );
 
-      expect(nftData.nftType.toString()).toBe(NFT_TYPE_PRESCRIPTION.toString());
-      expect(nftData.issuerWalletId.toString()).toBe(prescriberWalletId.toString());
-      expect(nftData.subjectWalletId.toString()).toBe(pharmacyWalletId.toString());
-      expect(nftData.revoked.toString()).toBe('0');
+      expect(credentialData.credentialType.toString()).toBe(CREDENTIAL_TYPE_PRESCRIPTION.toString());
+      expect(credentialData.issuerWalletId.toString()).toBe(prescriberWalletId.toString());
+      expect(credentialData.subjectWalletId.toString()).toBe(pharmacyWalletId.toString());
+      expect(credentialData.revoked.toString()).toBe('0');
       expect(initialStatus.status.toString()).toBe(RX_STATUS_ACTIVE.toString());
     });
 
-    it('buildPrescriptionNft inserts prescription + initial status into forest', () => {
+    it('buildPrescriptionCredential inserts prescription + initial status into forest', () => {
       const rxData = createTestPrescriptionData();
       const forest = createTestForest();
-      service.buildPrescriptionNft(
+      service.buildPrescriptionCredential(
         prescriberWalletId,
         memberWalletId,
         pharmacyWalletId,
@@ -348,7 +386,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
     it('mintPrescriptionToPharmacy updates inventory + registry', () => {
       const rxData = createTestPrescriptionData();
       const forest = createTestForest();
-      const { nftData } = service.buildPrescriptionNft(
+      const { credentialData } = service.buildPrescriptionCredential(
         prescriberWalletId,
         memberWalletId,
         pharmacyWalletId,
@@ -358,23 +396,23 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         dateToField('20260201'),
       );
 
-      const inventory = new NftInventory();
-      const { nftIndex, newInventoryRoot, newRegistryRoot } =
-        service.mintPrescriptionToPharmacy(pharmacyWalletId, nftData, inventory);
+      const inventory = new CredentialInventory();
+      const { credentialIndex, newInventoryRoot, newRegistryRoot } =
+        service.mintPrescriptionToPharmacy(pharmacyWalletId, credentialData, inventory);
 
-      expect(nftIndex).toBe(0n);
-      expect(newInventoryRoot.toString()).not.toBe(EMPTY_NFT_ROOT.toString());
+      expect(credentialIndex).toBe(0n);
+      expect(newInventoryRoot.toString()).not.toBe(EMPTY_CREDENTIAL_ROOT.toString());
 
       // Wallet registry updated
       const state = registry.getState(pharmacyWalletId);
       expect(state.nonce.toString()).toBe('1');
-      expect(state.nftInventoryRoot.toString()).toBe(newInventoryRoot.toString());
+      expect(state.credentialInventoryRoot.toString()).toBe(newInventoryRoot.toString());
     });
 
     it('issuePrescription full flow returns correct result', async () => {
       const rxData = createTestPrescriptionData();
       const forest = createTestForest();
-      const inventory = new NftInventory();
+      const inventory = new CredentialInventory();
 
       const result = await service.issuePrescription(
         prescriberWalletId,
@@ -388,8 +426,8 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         dateToField('20270201'),
       );
 
-      expect(result.nftData.nftType.toString()).toBe(NFT_TYPE_PRESCRIPTION.toString());
-      expect(result.nftIndex).toBe(0n);
+      expect(result.credentialData.credentialType.toString()).toBe(CREDENTIAL_TYPE_PRESCRIPTION.toString());
+      expect(result.credentialIndex).toBe(0n);
       expect(result.prescriptionData.commitment().toString()).toBe(rxData.commitment().toString());
       expect(result.initialStatus.status.toString()).toBe(RX_STATUS_ACTIVE.toString());
     });
@@ -397,7 +435,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
     it('cross-wallet: subjectWalletId = pharmacyWalletId', () => {
       const rxData = createTestPrescriptionData();
       const forest = createTestForest();
-      const { nftData } = service.buildPrescriptionNft(
+      const { credentialData } = service.buildPrescriptionCredential(
         prescriberWalletId,
         memberWalletId,
         pharmacyWalletId,
@@ -408,15 +446,15 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       );
 
       // issuer = prescriber, subject = pharmacy (NOT prescriber)
-      expect(nftData.issuerWalletId.toString()).toBe(prescriberWalletId.toString());
-      expect(nftData.subjectWalletId.toString()).toBe(pharmacyWalletId.toString());
-      expect(nftData.subjectWalletId.toString()).not.toBe(prescriberWalletId.toString());
+      expect(credentialData.issuerWalletId.toString()).toBe(prescriberWalletId.toString());
+      expect(credentialData.subjectWalletId.toString()).toBe(pharmacyWalletId.toString());
+      expect(credentialData.subjectWalletId.toString()).not.toBe(prescriberWalletId.toString());
     });
 
     it('verifyPrescriptionForest succeeds with valid data', () => {
       const rxData = createTestPrescriptionData();
       const forest = createTestForest();
-      const { nftData } = service.buildPrescriptionNft(
+      const { credentialData } = service.buildPrescriptionCredential(
         prescriberWalletId,
         memberWalletId,
         pharmacyWalletId,
@@ -426,13 +464,13 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         dateToField('20260201'),
       );
 
-      expect(service.verifyPrescriptionForest(nftData, rxData, forest, 0n)).toBe(true);
+      expect(service.verifyPrescriptionForest(credentialData, rxData, forest, 0n)).toBe(true);
     });
 
     it('verifyPrescriptionForest rejects tampered data', () => {
       const rxData = createTestPrescriptionData();
       const forest = createTestForest();
-      const { nftData } = service.buildPrescriptionNft(
+      const { credentialData } = service.buildPrescriptionCredential(
         prescriberWalletId,
         memberWalletId,
         pharmacyWalletId,
@@ -453,7 +491,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         refillsAuthorized: rxData.refillsAuthorized,
       });
 
-      expect(service.verifyPrescriptionForest(nftData, tampered, forest, 0n)).toBe(false);
+      expect(service.verifyPrescriptionForest(credentialData, tampered, forest, 0n)).toBe(false);
     });
   });
 
@@ -471,7 +509,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       );
 
       // Build and mint initial prescription
-      const { nftData, initialStatus } = service.buildPrescriptionNft(
+      const { credentialData, initialStatus } = service.buildPrescriptionCredential(
         prescriberWalletId,
         memberWalletId,
         pharmacyWalletId,
@@ -529,7 +567,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         registry,
         lifecycleTree,
       );
-      const { nftData } = service.buildPrescriptionNft(
+      const { credentialData } = service.buildPrescriptionCredential(
         prescriberWalletId,
         memberWalletId,
         pharmacyWalletId,
@@ -540,7 +578,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       );
 
       const result = verifier.verifyPrescriptionData(
-        nftData,
+        credentialData,
         rxData,
         forest,
         0n,
@@ -559,7 +597,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         registry,
         lifecycleTree,
       );
-      const { nftData } = service.buildPrescriptionNft(
+      const { credentialData } = service.buildPrescriptionCredential(
         prescriberWalletId,
         memberWalletId,
         pharmacyWalletId,
@@ -571,23 +609,23 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       );
 
       // Wrong type
-      const wrongType = new NftData({
-        ...nftData,
-        nftType: NFT_TYPE_ELIGIBILITY,
+      const wrongType = new CredentialData({
+        ...credentialData,
+        credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
       });
       expect(verifier.verifyPrescriptionData(
         wrongType, rxData, forest, 0n, dateToField('20260601'),
       ).isValid).toBe(false);
 
       // Revoked
-      const revoked = new NftData({ ...nftData, revoked: Field(1) });
+      const revoked = new CredentialData({ ...credentialData, revoked: Field(1) });
       expect(verifier.verifyPrescriptionData(
         revoked, rxData, forest, 0n, dateToField('20260601'),
       ).isValid).toBe(false);
 
       // Expired (date past expiresAt)
       expect(verifier.verifyPrescriptionData(
-        nftData, rxData, forest, 0n, dateToField('20280601'),
+        credentialData, rxData, forest, 0n, dateToField('20280601'),
       ).isValid).toBe(false);
     });
 
@@ -634,7 +672,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       );
 
       // Standard prescription
-      const { initialStatus: stdStatus } = service.buildPrescriptionNft(
+      const { initialStatus: stdStatus } = service.buildPrescriptionCredential(
         prescriberWalletId,
         memberWalletId,
         pharmacyWalletId,
@@ -649,7 +687,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
       // Emergency prescription (new forest)
       const forest2 = createTestForest();
-      const { initialStatus: emgStatus } = service.buildPrescriptionNft(
+      const { initialStatus: emgStatus } = service.buildPrescriptionCredential(
         prescriberWalletId,
         memberWalletId,
         pharmacyWalletId,
@@ -694,9 +732,9 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         });
         forest.setLeaf(ForestDomain.TRANSACTION, 0n, oldStatus.commitment());
 
-        // Build NftData
-        const nftData = new NftData({
-          nftType: NFT_TYPE_PRESCRIPTION,
+        // Build CredentialData
+        const credentialData = new CredentialData({
+          credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
           forestRoot: forest.getForestRoot(),
           issuerWalletId: prescriberWalletId,
           subjectWalletId: pharmacyWalletId,
@@ -723,7 +761,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         const newSlotWitness = forest.getWitness(ForestDomain.TRANSACTION, 1n);
 
         const result = await PrescriptionProgram.proveStatusUpdate(
-          nftData,
+          credentialData,
           rxData,
           oldStatus,
           newStatus,
@@ -731,6 +769,9 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
           medWitness,
           oldStatusWitness,
           newSlotWitness,
+          PRESCRIBER_QUAL,
+          PRESCRIBER_ID_HASH,
+          PRESCRIBER_EK_HASH,
         );
 
         const output = result.proof.publicOutput;
@@ -755,8 +796,8 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         });
         forest.setLeaf(ForestDomain.TRANSACTION, 0n, oldStatus.commitment());
 
-        const nftData = new NftData({
-          nftType: NFT_TYPE_PRESCRIPTION,
+        const credentialData = new CredentialData({
+          credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
           forestRoot: forest.getForestRoot(),
           issuerWalletId: prescriberWalletId,
           subjectWalletId: pharmacyWalletId,
@@ -777,10 +818,13 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
         const forestRoots = ForestRoots.fromForest(forest);
         const result = await PrescriptionProgram.proveStatusUpdate(
-          nftData, rxData, oldStatus, newStatus, forestRoots,
+          credentialData, rxData, oldStatus, newStatus, forestRoots,
           forest.getWitness(ForestDomain.MEDICATION, 0n),
           forest.getWitness(ForestDomain.TRANSACTION, 0n),
           forest.getWitness(ForestDomain.TRANSACTION, 1n),
+          PRESCRIBER_QUAL,
+          PRESCRIBER_ID_HASH,
+          PRESCRIBER_EK_HASH,
         );
 
         const ok = await PrescriptionProgram.verify(result.proof);
@@ -804,8 +848,8 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         });
         forest.setLeaf(ForestDomain.TRANSACTION, 0n, oldStatus.commitment());
 
-        const nftData = new NftData({
-          nftType: NFT_TYPE_PRESCRIPTION,
+        const credentialData = new CredentialData({
+          credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
           forestRoot: forest.getForestRoot(),
           issuerWalletId: prescriberWalletId,
           subjectWalletId: pharmacyWalletId,
@@ -827,10 +871,13 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
         const forestRoots = ForestRoots.fromForest(forest);
         await expect(PrescriptionProgram.proveStatusUpdate(
-          nftData, rxData, oldStatus, newStatus, forestRoots,
+          credentialData, rxData, oldStatus, newStatus, forestRoots,
           forest.getWitness(ForestDomain.MEDICATION, 0n),
           forest.getWitness(ForestDomain.TRANSACTION, 0n),
           forest.getWitness(ForestDomain.TRANSACTION, 1n),
+          PRESCRIBER_QUAL,
+          PRESCRIBER_ID_HASH,
+          PRESCRIBER_EK_HASH,
         )).rejects.toThrow();
       }, 60_000);
 
@@ -850,8 +897,8 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         });
         forest.setLeaf(ForestDomain.TRANSACTION, 0n, oldStatus.commitment());
 
-        const nftData = new NftData({
-          nftType: NFT_TYPE_PRESCRIPTION,
+        const credentialData = new CredentialData({
+          credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
           forestRoot: forest.getForestRoot(),
           issuerWalletId: prescriberWalletId,
           subjectWalletId: pharmacyWalletId,
@@ -873,10 +920,13 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
         const forestRoots = ForestRoots.fromForest(forest);
         await expect(PrescriptionProgram.proveStatusUpdate(
-          nftData, rxData, oldStatus, newStatus, forestRoots,
+          credentialData, rxData, oldStatus, newStatus, forestRoots,
           forest.getWitness(ForestDomain.MEDICATION, 0n),
           forest.getWitness(ForestDomain.TRANSACTION, 0n),
           forest.getWitness(ForestDomain.TRANSACTION, 1n),
+          PRESCRIBER_QUAL,
+          PRESCRIBER_ID_HASH,
+          PRESCRIBER_EK_HASH,
         )).rejects.toThrow();
       }, 60_000);
 
@@ -899,8 +949,8 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         // Put something in slot 1 (it should be empty)
         forest.setLeaf(ForestDomain.TRANSACTION, 1n, Field(42));
 
-        const nftData = new NftData({
-          nftType: NFT_TYPE_PRESCRIPTION,
+        const credentialData = new CredentialData({
+          credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
           forestRoot: forest.getForestRoot(),
           issuerWalletId: prescriberWalletId,
           subjectWalletId: pharmacyWalletId,
@@ -921,10 +971,13 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
         const forestRoots = ForestRoots.fromForest(forest);
         await expect(PrescriptionProgram.proveStatusUpdate(
-          nftData, rxData, oldStatus, newStatus, forestRoots,
+          credentialData, rxData, oldStatus, newStatus, forestRoots,
           forest.getWitness(ForestDomain.MEDICATION, 0n),
           forest.getWitness(ForestDomain.TRANSACTION, 0n),
           forest.getWitness(ForestDomain.TRANSACTION, 1n),
+          PRESCRIBER_QUAL,
+          PRESCRIBER_ID_HASH,
+          PRESCRIBER_EK_HASH,
         )).rejects.toThrow();
       }, 60_000);
     });
@@ -948,8 +1001,8 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         });
         forest.setLeaf(ForestDomain.TRANSACTION, 0n, oldStatus.commitment());
 
-        const nftData = new NftData({
-          nftType: NFT_TYPE_PRESCRIPTION,
+        const credentialData = new CredentialData({
+          credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
           forestRoot: forest.getForestRoot(),
           issuerWalletId: prescriberWalletId,
           subjectWalletId: pharmacyWalletId,
@@ -970,11 +1023,14 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
         const forestRoots = ForestRoots.fromForest(forest);
         const result = await PrescriptionProgram.proveTransfer(
-          nftData, rxData, oldStatus, transferStatus, forestRoots,
+          credentialData, rxData, oldStatus, transferStatus, forestRoots,
           forest.getWitness(ForestDomain.MEDICATION, 0n),
           forest.getWitness(ForestDomain.TRANSACTION, 0n),
           forest.getWitness(ForestDomain.TRANSACTION, 1n),
           pharmacy2WalletId,
+          PRESCRIBER_QUAL,
+          PRESCRIBER_ID_HASH,
+          PRESCRIBER_EK_HASH,
         );
 
         const output = result.proof.publicOutput;
@@ -1000,8 +1056,8 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         });
         forest.setLeaf(ForestDomain.TRANSACTION, 0n, oldStatus.commitment());
 
-        const nftData = new NftData({
-          nftType: NFT_TYPE_PRESCRIPTION,
+        const credentialData = new CredentialData({
+          credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
           forestRoot: forest.getForestRoot(),
           issuerWalletId: prescriberWalletId,
           subjectWalletId: pharmacyWalletId,
@@ -1022,11 +1078,14 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
         const forestRoots = ForestRoots.fromForest(forest);
         await expect(PrescriptionProgram.proveTransfer(
-          nftData, rxData, oldStatus, transferStatus, forestRoots,
+          credentialData, rxData, oldStatus, transferStatus, forestRoots,
           forest.getWitness(ForestDomain.MEDICATION, 0n),
           forest.getWitness(ForestDomain.TRANSACTION, 0n),
           forest.getWitness(ForestDomain.TRANSACTION, 1n),
           pharmacy2WalletId,
+          PRESCRIBER_QUAL,
+          PRESCRIBER_ID_HASH,
+          PRESCRIBER_EK_HASH,
         )).rejects.toThrow();
       }, 60_000);
 
@@ -1046,8 +1105,8 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         });
         forest.setLeaf(ForestDomain.TRANSACTION, 0n, oldStatus.commitment());
 
-        const nftData = new NftData({
-          nftType: NFT_TYPE_PRESCRIPTION,
+        const credentialData = new CredentialData({
+          credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
           forestRoot: forest.getForestRoot(),
           issuerWalletId: prescriberWalletId,
           subjectWalletId: pharmacyWalletId,
@@ -1070,25 +1129,28 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         const forestRoots = ForestRoots.fromForest(forest);
         // Pass wrong dest wallet ID (Field(999))
         await expect(PrescriptionProgram.proveTransfer(
-          nftData, rxData, oldStatus, transferStatus, forestRoots,
+          credentialData, rxData, oldStatus, transferStatus, forestRoots,
           forest.getWitness(ForestDomain.MEDICATION, 0n),
           forest.getWitness(ForestDomain.TRANSACTION, 0n),
           forest.getWitness(ForestDomain.TRANSACTION, 1n),
           Field(999),
+          PRESCRIBER_QUAL,
+          PRESCRIBER_ID_HASH,
+          PRESCRIBER_EK_HASH,
         )).rejects.toThrow();
       }, 60_000);
     });
   });
 
-  // ── NftProgram holding proofs ───────────────────────────
+  // ── CredentialProgram holding proofs ───────────────────────────
 
-  describe('NftProgram holding proofs', () => {
+  describe('CredentialProgram holding proofs', () => {
     beforeAll(async () => {
       await ProofGateProgram.compile();
-      await NftProgram.compile();
+      await CredentialProgram.compile();
     }, 300_000);
 
-    it('pharmacy proveHolding on prescription NFT', async () => {
+    it('pharmacy proveHolding on prescription credential', async () => {
       // Set up pharmacy wallet
       const enrollmentKey = 'pharmacy-enroll-key-123';
       const { hashString: hs } = await import('../src/zkp/hash-utils.js');
@@ -1099,7 +1161,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       ];
       const pharmacyId = Poseidon.hash([Field(2), ...pharmacyPreimage]);
 
-      // Build prescription NFT
+      // Build prescription credential
       const rxData = createTestPrescriptionData();
       const forest = createTestForest();
       forest.setLeaf(ForestDomain.MEDICATION, 0n, rxData.commitment());
@@ -1114,8 +1176,8 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       });
       forest.setLeaf(ForestDomain.TRANSACTION, 0n, initStatus.commitment());
 
-      const nftData = new NftData({
-        nftType: NFT_TYPE_PRESCRIPTION,
+      const credentialData = new CredentialData({
+        credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
         forestRoot: forest.getForestRoot(),
         issuerWalletId: prescriberWalletId,
         subjectWalletId: pharmacyId,
@@ -1125,8 +1187,8 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       });
 
       // Mint into inventory
-      const inventory = new NftInventory();
-      inventory.mint(nftData);
+      const inventory = new CredentialInventory();
+      inventory.mint(credentialData);
 
       // Generate ProofGateProof for pharmacy
       const pgResult = await ProofGateProgram.verifyPharmacy(
@@ -1137,19 +1199,19 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       );
 
       // Prove holding
-      const holdingResult = await NftProgram.proveHolding(
+      const holdingResult = await CredentialProgram.proveHolding(
         pgResult.proof,
-        nftData,
+        credentialData,
         inventory.getWitness(0n),
         inventory.getRoot(),
       );
 
       const output = holdingResult.proof.publicOutput;
       expect(output.walletId.toString()).toBe(pharmacyId.toString());
-      expect(output.operationType.toString()).toBe(NFT_OP_VERIFY.toString());
+      expect(output.operationType.toString()).toBe(CREDENTIAL_OP_VERIFY.toString());
     }, 120_000);
 
-    it('pharmacy proveHoldingByType for NFT_TYPE_PRESCRIPTION', async () => {
+    it('pharmacy proveHoldingByType for CREDENTIAL_TYPE_PRESCRIPTION', async () => {
       const enrollmentKey = 'pharmacy-enroll-key-456';
       const { hashString: hs } = await import('../src/zkp/hash-utils.js');
       const pharmacyPreimage = [
@@ -1173,8 +1235,8 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       });
       forest.setLeaf(ForestDomain.TRANSACTION, 0n, initStatus.commitment());
 
-      const nftData = new NftData({
-        nftType: NFT_TYPE_PRESCRIPTION,
+      const credentialData = new CredentialData({
+        credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
         forestRoot: forest.getForestRoot(),
         issuerWalletId: prescriberWalletId,
         subjectWalletId: pharmacyId,
@@ -1183,8 +1245,8 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         revoked: Field(0),
       });
 
-      const inventory = new NftInventory();
-      inventory.mint(nftData);
+      const inventory = new CredentialInventory();
+      inventory.mint(credentialData);
 
       const pgResult = await ProofGateProgram.verifyPharmacy(
         pharmacyId,
@@ -1193,16 +1255,16 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         pharmacyPreimage[2]!,
       );
 
-      const result = await NftProgram.proveHoldingByType(
+      const result = await CredentialProgram.proveHoldingByType(
         pgResult.proof,
-        nftData,
+        credentialData,
         inventory.getWitness(0n),
         inventory.getRoot(),
-        NFT_TYPE_PRESCRIPTION,
+        CREDENTIAL_TYPE_PRESCRIPTION,
       );
 
-      expect(result.proof.publicOutput.nftCommitment.toString())
-        .toBe(nftData.commitment().toString());
+      expect(result.proof.publicOutput.credentialCommitment.toString())
+        .toBe(credentialData.commitment().toString());
     }, 120_000);
 
     it('fullPrescriptionCheck end-to-end with real proofs', async () => {
@@ -1229,8 +1291,8 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       });
       forest.setLeaf(ForestDomain.TRANSACTION, 0n, initStatus.commitment());
 
-      const nftData = new NftData({
-        nftType: NFT_TYPE_PRESCRIPTION,
+      const credentialData = new CredentialData({
+        credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
         forestRoot: forest.getForestRoot(),
         issuerWalletId: prescriberWalletId,
         subjectWalletId: pharmacyId,
@@ -1239,8 +1301,8 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         revoked: Field(0),
       });
 
-      const inventory = new NftInventory();
-      inventory.mint(nftData);
+      const inventory = new CredentialInventory();
+      inventory.mint(credentialData);
 
       const pgResult = await ProofGateProgram.verifyPharmacy(
         pharmacyId,
@@ -1249,9 +1311,9 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         pharmacyPreimage[2]!,
       );
 
-      const holdingResult = await NftProgram.proveHolding(
+      const holdingResult = await CredentialProgram.proveHolding(
         pgResult.proof,
-        nftData,
+        credentialData,
         inventory.getWitness(0n),
         inventory.getRoot(),
       );
@@ -1259,7 +1321,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       const verifier = new PrescriptionVerificationService();
       const check = await verifier.fullPrescriptionCheck(
         holdingResult.proof,
-        nftData,
+        credentialData,
         rxData,
         forest,
         0n,

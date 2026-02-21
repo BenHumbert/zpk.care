@@ -45,6 +45,8 @@ export interface L2Receipt {
   l1BatchNumber?: bigint;
   /** Links receipt to AuditEvent chain hash (set by DA emission) */
   auditEventHash?: string;
+  /** Leaf index in the Claim Accumulator Tree (set when claim metadata is provided) */
+  claimLeafIndex?: bigint;
 }
 
 // ─── L2 Block ───────────────────────────────────────────────
@@ -106,6 +108,12 @@ export interface L2Batch {
   newLifecycleRoot: string;
   /** Serialized BatchProof JSON for L1 submission */
   batchProofJson: string;
+  /** Serialized ChainProof JSON (set when ChainProgram is enabled) */
+  chainProofJson?: string;
+  /** Global state root after this batch (Poseidon hash of 10 fields) */
+  globalStateRoot?: string;
+  /** L2 block height after this batch */
+  blockHeight?: bigint;
   /** Timestamp when batch was created */
   createdAt: number;
   /** Current L1 settlement status */
@@ -114,6 +122,8 @@ export interface L2Batch {
   l1TxHash?: string;
   /** Reason for failure (set by markBatchFailed) */
   failureReason?: string;
+  /** Claim Accumulator Tree root at the time this batch was created */
+  claimAccumulatorRoot?: string;
 }
 
 // ─── L2 Node Config ─────────────────────────────────────────
@@ -142,6 +152,14 @@ export interface L2NodeConfig {
   l1FallbackMode: boolean;
   /** Maximum retries before falling back to L1 */
   maxL2Retries: number;
+  /**
+   * L2-only mode: no MINA L1 settlement.
+   *
+   * When true, batches are finalized immediately at L2 (no L1 tx needed).
+   * All audit chain, batch building, and proof verification still applies.
+   * syncFromL1() is rejected. Settlement strategies are skipped.
+   */
+  l2Only?: boolean;
 }
 
 // ─── Admin State Delta ──────────────────────────────────────
@@ -149,12 +167,14 @@ export interface L2NodeConfig {
 /** Type of admin operation */
 export type AdminOperationType =
   | 'updateBenefitPlan'
-  | 'registerGlobalNft'
+  | 'registerGlobalCredential'
   | 'initEligibilityState'
   | 'initMessaging'
   | 'submitMessage'
   | 'registerDelegation'
-  | 'registerEncryptionKey';
+  | 'registerEncryptionKey'
+  | 'updateFormulary'
+  | 'updateNetwork';
 
 /** Status of a queued admin operation */
 export type AdminOpStatus = 'queued' | 'submitted' | 'confirmed' | 'failed';
@@ -175,4 +195,96 @@ export interface AdminStateDelta {
   queuedAt: number;
   /** Current status */
   status: AdminOpStatus;
+}
+
+// ─── Claim Submission Metadata ────────────────────────────────
+
+/**
+ * ClaimSubmissionMetadata — optional drug/claim context submitted alongside a proof.
+ *
+ * When a pharmacy submits a StateTransitionProof for a fulfillment or reversal,
+ * it can include this metadata. The sequencer uses it to:
+ *   1. Set ndcHash on the AuditEvent (committed in Poseidon hash chain)
+ *   2. Append a ClaimLeaf to the Claim Accumulator Tree
+ *   3. Attach display metadata (brand name, tier, etc.) for query results
+ */
+export interface ClaimSubmissionMetadata {
+  /** Poseidon hash of NDC code (from FulfillmentProof.ndcHash) */
+  ndcHash: string;
+  /** Member wallet ID involved in the claim */
+  memberWalletId: string;
+  /** Pharmacy wallet ID that dispensed */
+  pharmacyWalletId: string;
+  /** Prescriber wallet ID that prescribed */
+  prescriberWalletId: string;
+  /** Date of service as CCYYMMDD numeric string */
+  dateOfService: string;
+  /** Patient pay in cents (from proof output) */
+  patientPayCents: string;
+  /** Plan pay in cents (from proof output) */
+  planPayCents: string;
+  /** Operation type: '1' = fulfillment, '2' = reversal */
+  operationType: string;
+  /** Plaintext 11-digit NDC code (optional, for display) */
+  ndc?: string;
+  /** Drug brand or generic name (optional, for display) */
+  brandName?: string;
+  /** Formulary tier level (optional, for display) */
+  tierLevel?: number;
+  /** 14-digit GPI code (optional, for display) */
+  gpi?: string;
+  /** Therapeutic classification (optional, for display) */
+  therapeuticClass?: string;
+  /** Days supply (optional, for display) */
+  daysSupply?: number;
+  /** Fill number: 0=original, 1+=refill (optional, for display) */
+  fillNumber?: number;
+}
+
+// ─── L2 Chain State Query ────────────────────────────────────
+
+/**
+ * L2ChainState — compact chain state snapshot for proof building.
+ *
+ * Contains all roots and metadata a client node needs to construct
+ * new StateTransitionProofs. Returned by `l2_getChainState`.
+ */
+export interface L2ChainState {
+  /** Current wallet registry Merkle root */
+  registryRoot: string;
+  /** Current lifecycle tree Merkle root */
+  lifecycleRoot: string;
+  /** Total registered wallets */
+  walletCount: string;
+  /** Poseidon hash of all 10 GlobalState fields (zero if chain proof not enabled) */
+  globalStateRoot: string;
+  /** L2 block height from ChainProgram (zero if not enabled) */
+  blockHeight: string;
+  /** Whether ChainProgram integration is active */
+  chainProofEnabled: boolean;
+  /** Current Poseidon hash chain anchor (audit/DA) */
+  auditChainHash: string;
+  /** Number of proofs queued for next batch */
+  pendingProofs: number;
+  /** Most recent batch number (null if no batches yet) */
+  latestBatchNumber: string | null;
+  /** Most recent batch L1 status (null if no batches yet) */
+  latestBatchStatus: L1Status | null;
+}
+
+/**
+ * L2ChainProofResponse — chain proof data for offline verification.
+ *
+ * Contains the latest ChainProof JSON (22kb), which certifies the
+ * entire chain state. Can be verified offline via NFC/RFID.
+ */
+export interface L2ChainProofResponse {
+  /** Whether ChainProgram is enabled */
+  enabled: boolean;
+  /** Serialized ChainProof JSON, or null if not yet produced */
+  proofJson: string | null;
+  /** GlobalState root certified by this proof */
+  globalStateRoot: string;
+  /** L2 block height certified by this proof */
+  blockHeight: string;
 }

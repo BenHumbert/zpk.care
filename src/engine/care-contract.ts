@@ -21,14 +21,14 @@ import {
   assertValidTransition,
 } from './lifecycle.js';
 import {
-  EMPTY_NFT_ROOT,
+  EMPTY_CREDENTIAL_ROOT,
   TransitionOutput,
   StateTransitionProof,
 } from './state-transition.js';
 import { BatchProof, BatchOutput } from '../l2/batch-program.js';
 
-/** Merkle witness for the global NFT registry (same height as wallet registry) */
-export class NftRegistryWitness extends MerkleWitness(WALLET_TREE_HEIGHT) {}
+/** Merkle witness for the global credential registry (same height as wallet registry) */
+export class CredentialRegistryWitness extends MerkleWitness(WALLET_TREE_HEIGHT) {}
 
 /**
  * CareContract — The on-chain zkApp for ZKP Claim Adjudication.
@@ -46,7 +46,7 @@ export class NftRegistryWitness extends MerkleWitness(WALLET_TREE_HEIGHT) {}
  *   - adminPublicKeyHash: Poseidon hash of insurer's PublicKey
  *   - lifecycleRoot: Merkle root of per-wallet lifecycle states
  *   - benefitPlanRoot: Merkle root of valid benefit plans (L5)
- *   - nftRegistryRoot: Global registry of all issued NFTs (L5)
+ *   - credentialRegistryRoot: Global registry of all issued credentials (L5)
  *   - eligibilityVkHash: EligibilityProgram verification key hash (L5)
  *   - messagingRoot: Packed root of message/delegation/key registries (L7)
  */
@@ -58,7 +58,7 @@ export class CareContract extends SmartContract {
 
   // L5 — Eligibility Flow
   @state(Field) benefitPlanRoot = State<Field>();
-  @state(Field) nftRegistryRoot = State<Field>();
+  @state(Field) credentialRegistryRoot = State<Field>();
   @state(Field) eligibilityVkHash = State<Field>();
 
   // L7 — Messaging & Delegation
@@ -71,7 +71,7 @@ export class CareContract extends SmartContract {
     'transition-settled': Field,
     'eligibility-initialized': Field,
     'benefit-plan-updated': Field,
-    'nft-registered': Field,
+    'credential-registered': Field,
     'messaging-initialized': Field,
     'message-submitted': Field,
     'delegation-registered': Field,
@@ -104,6 +104,9 @@ export class CareContract extends SmartContract {
     initialRegistryRoot: Field,
     initialLifecycleRoot: Field,
   ) {
+    // Require sender signature — deployer must sign the init transaction
+    this.sender.getAndRequireSignature();
+
     const currentRoot = this.walletRegistryRoot.getAndRequireEquals();
     currentRoot.assertEquals(Field(0), 'Contract already initialized');
 
@@ -169,11 +172,11 @@ export class CareContract extends SmartContract {
       'Lifecycle slot is not empty',
     );
 
-    // Compute WalletState commitment: Poseidon.hash([walletId, nftRoot, nonce])
+    // Compute WalletState commitment: Poseidon.hash([walletId, credentialRoot, nonce])
     // Matches WalletState.commitment() exactly
     const walletCommitment = Poseidon.hash([
       walletId,
-      EMPTY_NFT_ROOT,
+      EMPTY_CREDENTIAL_ROOT,
       Field(0),
     ]);
     const newRegistryRoot = registryWitness.calculateRoot(walletCommitment);
@@ -240,9 +243,9 @@ export class CareContract extends SmartContract {
    * At L3, all operations go through the admin for safety.
    *
    * @param walletId — the wallet identity
-   * @param oldNftRoot — current NFT inventory root
+   * @param oldCredentialRoot — current credential inventory root
    * @param oldNonce — current nonce
-   * @param newNftRoot — updated NFT inventory root
+   * @param newCredentialRoot — updated credential inventory root
    * @param newNonce — must equal oldNonce + 1
    * @param registryWitness — Merkle witness for the wallet's registry slot
    * @param lifecycleWitness — Merkle witness for lifecycle (revocation check)
@@ -250,9 +253,9 @@ export class CareContract extends SmartContract {
    */
   @method async updateWalletState(
     walletId: Field,
-    oldNftRoot: Field,
+    oldCredentialRoot: Field,
     oldNonce: Field,
-    newNftRoot: Field,
+    newCredentialRoot: Field,
     newNonce: Field,
     registryWitness: WalletRegistryWitness,
     lifecycleWitness: LifecycleWitness,
@@ -276,7 +279,7 @@ export class CareContract extends SmartContract {
     // Verify old wallet state matches the registry
     const currentRegistryRoot =
       this.walletRegistryRoot.getAndRequireEquals();
-    const oldCommitment = Poseidon.hash([walletId, oldNftRoot, oldNonce]);
+    const oldCommitment = Poseidon.hash([walletId, oldCredentialRoot, oldNonce]);
     registryWitness
       .calculateRoot(oldCommitment)
       .assertEquals(currentRegistryRoot, 'Old wallet state mismatch');
@@ -285,7 +288,7 @@ export class CareContract extends SmartContract {
     newNonce.assertEquals(oldNonce.add(1), 'Nonce must increment by 1');
 
     // Compute and apply new state
-    const newCommitment = Poseidon.hash([walletId, newNftRoot, newNonce]);
+    const newCommitment = Poseidon.hash([walletId, newCredentialRoot, newNonce]);
     const newRegistryRoot = registryWitness.calculateRoot(newCommitment);
     this.walletRegistryRoot.set(newRegistryRoot);
 
@@ -403,12 +406,12 @@ export class CareContract extends SmartContract {
    * Must be called after initState and before any eligibility operations.
    *
    * @param initialBenefitPlanRoot — root of empty MerkleTree(BENEFIT_PLAN_TREE_HEIGHT)
-   * @param initialNftRegistryRoot — root of empty MerkleTree(WALLET_TREE_HEIGHT)
+   * @param initialCredentialRegistryRoot — root of empty MerkleTree(WALLET_TREE_HEIGHT)
    * @param vkHash — EligibilityProgram verification key hash
    */
   @method async initEligibilityState(
     initialBenefitPlanRoot: Field,
-    initialNftRegistryRoot: Field,
+    initialCredentialRegistryRoot: Field,
     vkHash: Field,
   ) {
     // Admin gating
@@ -424,7 +427,7 @@ export class CareContract extends SmartContract {
     );
 
     this.benefitPlanRoot.set(initialBenefitPlanRoot);
-    this.nftRegistryRoot.set(initialNftRegistryRoot);
+    this.credentialRegistryRoot.set(initialCredentialRegistryRoot);
     this.eligibilityVkHash.set(vkHash);
 
     this.emitEvent('eligibility-initialized', vkHash);
@@ -438,6 +441,7 @@ export class CareContract extends SmartContract {
    * @param newBenefitPlanRoot — the updated benefit plan tree root
    */
   @method async updateBenefitPlan(
+    expectedOldBenefitPlanRoot: Field,
     newBenefitPlanRoot: Field,
   ) {
     // Admin gating
@@ -445,8 +449,9 @@ export class CareContract extends SmartContract {
     const adminHash = this.adminPublicKeyHash.getAndRequireEquals();
     Poseidon.hash(sender.toFields()).assertEquals(adminHash, 'Not admin');
 
-    // Require eligibility state initialized
-    this.benefitPlanRoot.getAndRequireEquals();
+    // H5 fix: Explicit old-root check (defense-in-depth over getAndRequireEquals CAS)
+    const currentRoot = this.benefitPlanRoot.getAndRequireEquals();
+    currentRoot.assertEquals(expectedOldBenefitPlanRoot, 'Stale benefit plan root');
 
     this.benefitPlanRoot.set(newBenefitPlanRoot);
 
@@ -454,17 +459,17 @@ export class CareContract extends SmartContract {
   }
 
   /**
-   * Register an NFT in the global registry (admin-only).
+   * Register a credential in the global registry (admin-only).
    *
-   * Inserts the NFT commitment into the global registry tree.
+   * Inserts the credential commitment into the global registry tree.
    * Prevents duplicate registration and provides an audit trail.
    *
-   * @param nftCommitment — the NFT commitment to register
-   * @param nftRegistryWitness — Merkle witness proving the slot is empty
+   * @param credentialCommitment — the credential commitment to register
+   * @param credentialRegistryWitness — Merkle witness proving the slot is empty
    */
-  @method async registerGlobalNft(
-    nftCommitment: Field,
-    nftRegistryWitness: NftRegistryWitness,
+  @method async registerGlobalCredential(
+    credentialCommitment: Field,
+    credentialRegistryWitness: CredentialRegistryWitness,
   ) {
     // Admin gating
     const sender = this.sender.getAndRequireSignature();
@@ -472,16 +477,16 @@ export class CareContract extends SmartContract {
     Poseidon.hash(sender.toFields()).assertEquals(adminHash, 'Not admin');
 
     // Verify the slot is empty
-    const currentRoot = this.nftRegistryRoot.getAndRequireEquals();
-    nftRegistryWitness
+    const currentRoot = this.credentialRegistryRoot.getAndRequireEquals();
+    credentialRegistryWitness
       .calculateRoot(Field(0))
-      .assertEquals(currentRoot, 'NFT registry slot is not empty');
+      .assertEquals(currentRoot, 'Credential registry slot is not empty');
 
-    // Insert NFT commitment
-    const newRoot = nftRegistryWitness.calculateRoot(nftCommitment);
-    this.nftRegistryRoot.set(newRoot);
+    // Insert credential commitment
+    const newRoot = credentialRegistryWitness.calculateRoot(credentialCommitment);
+    this.credentialRegistryRoot.set(newRoot);
 
-    this.emitEvent('nft-registered', nftCommitment);
+    this.emitEvent('credential-registered', credentialCommitment);
   }
 
   // ─── L7 — Messaging & Delegation Admin Methods ────────────
@@ -524,6 +529,7 @@ export class CareContract extends SmartContract {
    * @param messageCommitment — the message commitment being added
    */
   @method async submitMessage(
+    expectedOldMessagingRoot: Field,
     newMessagingRoot: Field,
     messageCommitment: Field,
   ) {
@@ -532,8 +538,9 @@ export class CareContract extends SmartContract {
     const adminHash = this.adminPublicKeyHash.getAndRequireEquals();
     Poseidon.hash(sender.toFields()).assertEquals(adminHash, 'Not admin');
 
-    // Require messaging initialized
-    this.messagingRoot.getAndRequireEquals();
+    // H5 fix: Explicit old-root check
+    const currentRoot = this.messagingRoot.getAndRequireEquals();
+    currentRoot.assertEquals(expectedOldMessagingRoot, 'Stale messaging root');
 
     this.messagingRoot.set(newMessagingRoot);
 
@@ -547,6 +554,7 @@ export class CareContract extends SmartContract {
    * @param delegationCommitment — the delegation commitment being added
    */
   @method async registerDelegation(
+    expectedOldMessagingRoot: Field,
     newMessagingRoot: Field,
     delegationCommitment: Field,
   ) {
@@ -555,8 +563,9 @@ export class CareContract extends SmartContract {
     const adminHash = this.adminPublicKeyHash.getAndRequireEquals();
     Poseidon.hash(sender.toFields()).assertEquals(adminHash, 'Not admin');
 
-    // Require messaging initialized
-    this.messagingRoot.getAndRequireEquals();
+    // H5 fix: Explicit old-root check
+    const currentRoot = this.messagingRoot.getAndRequireEquals();
+    currentRoot.assertEquals(expectedOldMessagingRoot, 'Stale messaging root');
 
     this.messagingRoot.set(newMessagingRoot);
 
@@ -573,6 +582,7 @@ export class CareContract extends SmartContract {
    * @param revokedDelegationCommitment — the commitment of the delegation that was revoked
    */
   @method async revokeDelegation(
+    expectedOldMessagingRoot: Field,
     newMessagingRoot: Field,
     revokedDelegationCommitment: Field,
   ) {
@@ -581,8 +591,9 @@ export class CareContract extends SmartContract {
     const adminHash = this.adminPublicKeyHash.getAndRequireEquals();
     Poseidon.hash(sender.toFields()).assertEquals(adminHash, 'Not admin');
 
-    // Require messaging initialized
-    this.messagingRoot.getAndRequireEquals();
+    // H5 fix: Explicit old-root check
+    const currentRoot = this.messagingRoot.getAndRequireEquals();
+    currentRoot.assertEquals(expectedOldMessagingRoot, 'Stale messaging root');
 
     this.messagingRoot.set(newMessagingRoot);
 
@@ -599,6 +610,7 @@ export class CareContract extends SmartContract {
    * @param encryptionPubKeyHash — Poseidon.hash([walletId, pubKeyX, pubKeyY])
    */
   @method async registerEncryptionKey(
+    expectedOldMessagingRoot: Field,
     newMessagingRoot: Field,
     encryptionPubKeyHash: Field,
   ) {
@@ -607,8 +619,9 @@ export class CareContract extends SmartContract {
     const adminHash = this.adminPublicKeyHash.getAndRequireEquals();
     Poseidon.hash(sender.toFields()).assertEquals(adminHash, 'Not admin');
 
-    // Require messaging initialized
-    this.messagingRoot.getAndRequireEquals();
+    // H5 fix: Explicit old-root check
+    const currentRoot = this.messagingRoot.getAndRequireEquals();
+    currentRoot.assertEquals(expectedOldMessagingRoot, 'Stale messaging root');
 
     this.messagingRoot.set(newMessagingRoot);
 

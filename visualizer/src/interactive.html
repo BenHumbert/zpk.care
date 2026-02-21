@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>zkpCare — Interactive Demo</title>
+
+  <!-- Metro 4 (dark theme) -->
+  <link rel="stylesheet" href="https://cdn.metroui.org.ua/current/css/metro-all.min.css">
+  <link rel="stylesheet" href="https://cdn.metroui.org.ua/current/css/schemes/darcula.css">
+
+  <!-- Chart.js (for accumulator progress bars) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+
+  <!-- Our styles -->
+  <link rel="stylesheet" href="./css/interactive.css">
+</head>
+<body class="scheme-darcula">
+
+  <!-- App Bar -->
+  <header class="app-bar" data-role="appbar">
+    <div class="app-bar-container">
+      <span class="app-bar-item brand">
+        <span class="title">zkpCare</span>
+        <span class="subtitle">Interactive Demo — Full Proof Mode</span>
+      </span>
+      <div class="app-bar-item ml-auto">
+        <span id="status-indicator" class="status-dot compiling"></span>
+        <span id="status-text" class="status-text">Compiling...</span>
+        <button id="btn-reset" class="button warning outline ml-4" disabled>Reset</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Chain State Panel (collapsible, below app bar) -->
+  <div id="chain-state-panel" class="chain-state-panel collapsed">
+    <div class="chain-state-header" id="chain-state-toggle">
+      <span>On-Chain State (CareContract — 8 Slots)</span>
+      <span class="chain-state-arrow">&#9660;</span>
+    </div>
+    <div class="chain-state-body" id="chain-state-body">
+      <div class="chain-state-grid">
+        <div class="cs-label">Status</div>
+        <div class="cs-value" style="color: var(--text-muted);">Not initialized — enroll a member to populate</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Layout -->
+  <div class="main-layout">
+
+    <!-- Tab Bar -->
+    <nav id="tab-bar" class="tab-bar">
+      <button class="tab-item active" data-tab="member">
+        <span class="tab-icon" style="color: var(--color-member);">&#9679;</span>
+        <span class="tab-label">Member</span>
+      </button>
+      <button class="tab-item" data-tab="prescriber">
+        <span class="tab-icon" style="color: var(--color-prescriber);">&#9679;</span>
+        <span class="tab-label">Prescriber</span>
+      </button>
+      <button class="tab-item" data-tab="insurer">
+        <span class="tab-icon" style="color: var(--color-insurer);">&#9679;</span>
+        <span class="tab-label">Insurer</span>
+      </button>
+      <button class="tab-item" data-tab="pharmacy">
+        <span class="tab-icon" style="color: var(--color-pharmacy);">&#9679;</span>
+        <span class="tab-label">Pharmacy</span>
+      </button>
+      <button class="tab-item" data-tab="reports">
+        <span class="tab-icon" style="color: var(--color-insurer);">&#9679;</span>
+        <span class="tab-label">Reports</span>
+      </button>
+      <button class="tab-item" data-tab="l2chain">
+        <span class="tab-icon" style="color: #10b981;">&#9906;</span>
+        <span class="tab-label">L2 Chain</span>
+      </button>
+    </nav>
+
+    <!-- Main Content -->
+    <main id="main-content" class="main-content">
+      <!-- Tab content is injected here by JS -->
+      <div id="tab-member" class="tab-panel active"></div>
+      <div id="tab-prescriber" class="tab-panel"></div>
+      <div id="tab-insurer" class="tab-panel"></div>
+      <div id="tab-pharmacy" class="tab-panel"></div>
+      <div id="tab-reports" class="tab-panel"></div>
+      <div id="tab-l2chain" class="tab-panel"></div>
+    </main>
+
+  </div>
+
+  <!-- Console Panel (bottom, always visible) -->
+  <div id="console-panel" class="console-panel">
+    <div class="console-header">
+      <span class="console-title">Console</span>
+      <div class="console-filters">
+        <button class="console-filter active" data-filter="all">All</button>
+        <button class="console-filter" data-filter="compile">Compile</button>
+        <button class="console-filter" data-filter="proof">Proofs</button>
+        <button class="console-filter" data-filter="offchain">Steps</button>
+        <button class="console-filter" data-filter="error">Errors</button>
+      </div>
+      <button id="btn-console-clear" class="console-btn">Clear</button>
+      <div id="console-resize-handle" class="console-resize-handle"></div>
+    </div>
+    <div id="console-output" class="console-output"></div>
+  </div>
+
+  <!-- JS Modules -->
+  <script type="module" src="./js/interactive-app.js"></script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 import { Field, Struct, Poseidon, ZkProgram } from 'o1js';
-import { NftData, NFT_TYPE_ELIGIBILITY } from '../nft/nft-data.js';
+import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY } from '../credentials/credential-data.js';
 import { EligibilityData } from '../eligibility/eligibility-data.js';
 import { ForestRoots } from '../eligibility/forest-roots.js';
 import { ForestMerkleWitness } from '../zkp/merkle-forest.js';
@@ -19,8 +19,8 @@ import { PriorAuthData } from './prior-auth-data.js';
  *   3. Prior auth exists if required
  */
 export class AccessControlOutput extends Struct({
-  /** Commitment of the ELIGIBILITY NFT */
-  nftCommitment: Field,
+  /** Commitment of the ELIGIBILITY credential */
+  credentialCommitment: Field,
   /** NDC hash of the medication being accessed */
   medicationHash: Field,
   /** Formulary tree root (links to insurer's drug list) */
@@ -45,7 +45,7 @@ export class AccessControlOutput extends Struct({
  *   2. provePriorAuth — valid prior authorization exists for PA-required medication
  *
  * Independent of ProofGateProgram chain — pharmacy verifies this
- * alongside EligibilityProof and NftOperationProof.
+ * alongside EligibilityProof and CredentialOperationProof.
  */
 export const AccessControlProgram = ZkProgram({
   name: 'AccessControl',
@@ -56,7 +56,7 @@ export const AccessControlProgram = ZkProgram({
      * Prove a medication is on the formulary with valid quantity limits.
      *
      * Verification chain:
-     *   1. NFT type is ELIGIBILITY, not revoked
+     *   1. Credential type is ELIGIBILITY, not revoked
      *   2. Forest root integrity (6 roots → forestRoot)
      *   3. EligibilityData in ACCESS_CONTROL tree
      *   4. FormularyEntry in formulary tree (pointed to by eligData.formularyRoot)
@@ -66,7 +66,7 @@ export const AccessControlProgram = ZkProgram({
      */
     proveFormularyAccess: {
       privateInputs: [
-        NftData,
+        CredentialData,
         EligibilityData,
         ForestRoots,
         ForestMerkleWitness,        // elig in ACCESS_CONTROL tree
@@ -75,9 +75,10 @@ export const AccessControlProgram = ZkProgram({
         Field,                       // ndcHash (medication being requested)
         Field,                       // requestedQuantity (scaled x1000)
         Field,                       // requestedDaySupply
+        Field,                       // currentDate (CCYYMMDD) — M3 fix
       ],
       async method(
-        nftData: NftData,
+        credentialData: CredentialData,
         eligibilityData: EligibilityData,
         forestRoots: ForestRoots,
         eligForestWitness: ForestMerkleWitness,
@@ -86,20 +87,26 @@ export const AccessControlProgram = ZkProgram({
         ndcHash: Field,
         requestedQuantity: Field,
         requestedDaySupply: Field,
+        currentDate: Field,
       ) {
-        // 1. NFT type is ELIGIBILITY
-        nftData.nftType.assertEquals(
-          NFT_TYPE_ELIGIBILITY,
-          'NFT type must be ELIGIBILITY',
+        // 1. Credential type is ELIGIBILITY
+        credentialData.credentialType.assertEquals(
+          CREDENTIAL_TYPE_ELIGIBILITY,
+          'Credential type must be ELIGIBILITY',
         );
 
-        // 2. NFT is not revoked
-        nftData.revoked.assertEquals(Field(0), 'NFT is revoked');
+        // 2. Credential is not revoked
+        credentialData.revoked.assertEquals(Field(0), 'Credential is revoked');
+
+        // 2b. M3 fix: Verify credential is not expired
+        const credentialNoExpiry = credentialData.expiresAt.equals(Field(0));
+        const credentialNotExpired = currentDate.lessThanOrEqual(credentialData.expiresAt);
+        credentialNoExpiry.or(credentialNotExpired).assertTrue('Credential has expired');
 
         // 3. Forest root integrity
         const computedForestRoot = forestRoots.computeForestRoot();
         computedForestRoot.assertEquals(
-          nftData.forestRoot,
+          credentialData.forestRoot,
           'Forest root mismatch',
         );
 
@@ -137,7 +144,7 @@ export const AccessControlProgram = ZkProgram({
 
         return {
           publicOutput: new AccessControlOutput({
-            nftCommitment: nftData.commitment(),
+            credentialCommitment: credentialData.commitment(),
             medicationHash: ndcHash,
             formularyRoot: eligibilityData.formularyRoot,
             tierLevel: formularyEntry.tierLevel,
@@ -157,7 +164,7 @@ export const AccessControlProgram = ZkProgram({
      */
     provePriorAuth: {
       privateInputs: [
-        NftData,
+        CredentialData,
         EligibilityData,
         ForestRoots,
         ForestMerkleWitness,       // elig in ACCESS_CONTROL tree
@@ -169,7 +176,7 @@ export const AccessControlProgram = ZkProgram({
         Field,                      // requestedQuantity (scaled x1000)
       ],
       async method(
-        nftData: NftData,
+        credentialData: CredentialData,
         eligibilityData: EligibilityData,
         forestRoots: ForestRoots,
         eligForestWitness: ForestMerkleWitness,
@@ -180,19 +187,24 @@ export const AccessControlProgram = ZkProgram({
         currentDate: Field,
         requestedQuantity: Field,
       ) {
-        // 1. NFT type is ELIGIBILITY
-        nftData.nftType.assertEquals(
-          NFT_TYPE_ELIGIBILITY,
-          'NFT type must be ELIGIBILITY',
+        // 1. Credential type is ELIGIBILITY
+        credentialData.credentialType.assertEquals(
+          CREDENTIAL_TYPE_ELIGIBILITY,
+          'Credential type must be ELIGIBILITY',
         );
 
-        // 2. NFT is not revoked
-        nftData.revoked.assertEquals(Field(0), 'NFT is revoked');
+        // 2. Credential is not revoked
+        credentialData.revoked.assertEquals(Field(0), 'Credential is revoked');
+
+        // 2b. M3 fix: Verify credential is not expired
+        const paNoExpiry = credentialData.expiresAt.equals(Field(0));
+        const paNotExpired = currentDate.lessThanOrEqual(credentialData.expiresAt);
+        paNoExpiry.or(paNotExpired).assertTrue('Credential has expired');
 
         // 3. Forest root integrity
         const computedForestRoot = forestRoots.computeForestRoot();
         computedForestRoot.assertEquals(
-          nftData.forestRoot,
+          credentialData.forestRoot,
           'Forest root mismatch',
         );
 
@@ -251,7 +263,7 @@ export const AccessControlProgram = ZkProgram({
 
         return {
           publicOutput: new AccessControlOutput({
-            nftCommitment: nftData.commitment(),
+            credentialCommitment: credentialData.commitment(),
             medicationHash: formularyEntry.ndcHash,
             formularyRoot: eligibilityData.formularyRoot,
             tierLevel: formularyEntry.tierLevel,

@@ -1,0 +1,263 @@
+/* ─── Horse-Race Lane Layout ─────────────────────────── */
+
+.lane-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lane {
+  background: #16213e;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 12px 16px;
+  position: relative;
+}
+
+.lane-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.lane-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  margin-right: 10px;
+  flex-shrink: 0;
+}
+
+.lane-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: #b0b0b0;
+}
+
+/* ─── Stage Track ────────────────────────────────────── */
+
+.lane-track {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-bottom: 8px;
+  position: relative;
+}
+
+.stage-marker {
+  flex: 1;
+  text-align: center;
+  font-size: 0.7rem;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  position: relative;
+  padding: 4px 0;
+}
+
+.stage-marker::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-left: 6px solid #333;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+}
+
+.stage-marker:last-child::after {
+  display: none;
+}
+
+/* ─── Chip Track (horses) ───────────────────────────── */
+
+.lane-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 32px;
+}
+
+/* ─── Individual Chip (horse) ────────────────────────── */
+
+.chip {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  position: relative;
+  transition: all 0.6s ease;
+}
+
+.chip-progress {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.6s ease;
+  opacity: 0.2;
+}
+
+.chip-content {
+  display: flex;
+  align-items: center;
+  position: relative;
+  z-index: 1;
+  padding: 0 8px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  transition: left 0.6s ease;
+}
+
+.chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+.chip-actor {
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.chip-detail {
+  color: #888;
+  font-size: 0.7rem;
+}
+
+.chip-status {
+  margin-left: 8px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+/* ─── Chip States ────────────────────────────────────── */
+
+.chip.active .chip-dot {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.chip.completed {
+  opacity: 0.5;
+}
+
+.chip.completed .chip-status {
+  color: #66bb6a;
+}
+
+/* ─── Actor Colors ───────────────────────────────────── */
+
+.chip-member .chip-dot,
+.chip-member .chip-progress { background: #4fc3f7; }
+.chip-member .chip-actor { color: #4fc3f7; }
+
+.chip-prescriber .chip-dot,
+.chip-prescriber .chip-progress { background: #66bb6a; }
+.chip-prescriber .chip-actor { color: #66bb6a; }
+
+.chip-pharmacy .chip-dot,
+.chip-pharmacy .chip-progress { background: #ffa726; }
+.chip-pharmacy .chip-actor { color: #ffa726; }
+
+.chip-insurer .chip-dot,
+.chip-insurer .chip-progress { background: #ab47bc; }
+.chip-insurer .chip-actor { color: #ab47bc; }
+
+.chip-employer .chip-dot,
+.chip-employer .chip-progress { background: #78909c; }
+.chip-employer .chip-actor { color: #78909c; }
+
+/* ─── Lane Icon Colors ───────────────────────────────── */
+
+.lane-enrollment .lane-icon { background: #1565c0; color: #fff; }
+.lane-eligibility .lane-icon { background: #2e7d32; color: #fff; }
+.lane-prescription .lane-icon { background: #e65100; color: #fff; }
+.lane-fulfillment .lane-icon { background: #ad1457; color: #fff; }
+.lane-messaging .lane-icon { background: #6a1b9a; color: #fff; }
+.lane-batch .lane-icon { background: #37474f; color: #fff; }
+
+/* ─── Animations ─────────────────────────────────────── */
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.3); }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.chip {
+  animation: slideIn 0.3s ease;
+}
+
+/* ─── Event Log ──────────────────────────────────────── */
+
+.event-log-container {
+  max-height: 600px;
+  overflow-y: auto;
+  font-family: 'Courier New', monospace;
+  font-size: 0.8rem;
+}
+
+.event-entry {
+  display: flex;
+  align-items: flex-start;
+  padding: 6px 8px;
+  border-bottom: 1px solid #2a2a4a;
+  gap: 8px;
+  animation: slideIn 0.2s ease;
+}
+
+.event-time {
+  color: #666;
+  min-width: 80px;
+  flex-shrink: 0;
+}
+
+.event-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  min-width: 80px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.event-badge-enrollment { background: #1565c0; color: #fff; }
+.event-badge-eligibility { background: #2e7d32; color: #fff; }
+.event-badge-prescription { background: #e65100; color: #fff; }
+.event-badge-fulfillment { background: #ad1457; color: #fff; }
+.event-badge-messaging { background: #6a1b9a; color: #fff; }
+.event-badge-batch { background: #37474f; color: #fff; }
+
+.event-text {
+  color: #ccc;
+  flex: 1;
+}
+
+.event-text strong {
+  font-weight: 600;
+}
+
+.event-actor-member { color: #4fc3f7; }
+.event-actor-prescriber { color: #66bb6a; }
+.event-actor-pharmacy { color: #ffa726; }
+.event-actor-insurer { color: #ab47bc; }
+.event-actor-employer { color: #78909c; }

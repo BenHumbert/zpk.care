@@ -10,11 +10,12 @@ import {
   LIFECYCLE_ELIGIBLE,
   LIFECYCLE_REVOKED,
 } from '../engine/lifecycle.js';
-import { NftData, NFT_TYPE_ELIGIBILITY } from '../nft/nft-data.js';
-import { NftInventory } from '../nft/nft-inventory.js';
+import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY } from '../credentials/credential-data.js';
+import { CredentialInventory } from '../credentials/credential-inventory.js';
 import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
 import { ACCUMULATOR_LEAF_INDEX } from '../access-control/accumulator-data.js';
 import { BenefitPlanRegistry } from '../eligibility/benefit-plan-registry.js';
+import { EligibilityData } from '../eligibility/eligibility-data.js';
 import { hashString, dateToField } from '../zkp/hash-utils.js';
 import { TokenAuthority } from './token-authority.js';
 import {
@@ -38,10 +39,10 @@ import { PlanTemplate } from './plan-template.js';
 export interface EnrollmentResult {
   /** The member's wallet ID */
   walletId: Field;
-  /** The minted eligibility NFT */
-  nftData: NftData;
-  /** NFT slot index in the member's inventory */
-  nftIndex: bigint;
+  /** The minted eligibility credential */
+  credentialData: CredentialData;
+  /** Credential slot index in the member's inventory */
+  credentialIndex: bigint;
   /** New wallet registry Merkle root */
   newRegistryRoot: Field;
   /** New lifecycle tree Merkle root */
@@ -52,6 +53,8 @@ export interface EnrollmentResult {
   groupId: string;
   /** Plan ID (cleartext) */
   planId: string;
+  /** Family ID (cleartext) */
+  familyId: string;
 }
 
 /**
@@ -91,7 +94,7 @@ export interface GroupTerminationResult {
  *      a. Validates the token
  *      b. Looks up the group and plan
  *      c. Registers the wallet
- *      d. Builds and mints the eligibility NFT
+ *      d. Builds and mints the eligibility credential
  *      e. Records in the opaque roster
  *      f. Advances lifecycle to ELIGIBLE
  *
@@ -113,7 +116,7 @@ export interface GroupTerminationResult {
  *
  * Note: This service does NOT generate ZkProgram proofs.
  * Eligibility proofs are generated separately via EligibilityService
- * after the wallet is registered and the NFT is minted.
+ * after the wallet is registered and the credential is minted.
  * The admin path (CareContract.updateWalletState) is signature-gated,
  * not proof-gated, so no compilation is needed for enrollment.
  */
@@ -126,7 +129,7 @@ export class EnrollmentService {
   private opaqueRoster: OpaqueRoster;
   private benefitPlanRegistry: BenefitPlanRegistry;
   private adminWalletId: Field;
-  private memberInventories: Map<string, NftInventory>;
+  private memberInventories: Map<string, CredentialInventory>;
   private memberForests: Map<string, MerkleForest>;
 
   constructor(
@@ -165,8 +168,8 @@ export class EnrollmentService {
    *   5. Set lifecycle to ELIGIBLE
    *   6. Build eligibility data + accumulator from plan template
    *   7. Build MerkleForest with eligibility data
-   *   8. Create and mint eligibility NFT
-   *   9. Update wallet state with new NFT inventory root
+   *   8. Create and mint eligibility credential
+   *   9. Update wallet state with new credential inventory root
    *  10. Consume token
    *  11. Add to opaque roster
    *  12. Increment group enrolled count
@@ -180,6 +183,8 @@ export class EnrollmentService {
     tokenId: string,
     currentDate: string,
   ): EnrollmentResult {
+    // ──── Phase 1: Validate (no mutations) ────────────────────
+
     // 1. Validate token
     const validation = this.tokenAuthority.validateToken(tokenId, currentDate);
     if (!validation.valid) {
@@ -188,6 +193,7 @@ export class EnrollmentService {
 
     const groupId = validation.groupId!;
     const planId = validation.planId!;
+    const familyId = validation.familyId!;
 
     // 2. Look up group — must exist and be active
     const groupIdHash = hashString(groupId);
@@ -224,17 +230,8 @@ export class EnrollmentService {
       throw new Error(`Plan template not found: ${planId}`);
     }
 
-    // 6. Register wallet in registry
-    const walletIndex = this.walletRegistry.register(walletId);
+    // ──── Phase 2: Prepare (compute all data, no mutations) ───
 
-    // 7. Set lifecycle: EMPTY → REGISTERED → ELIGIBLE
-    //    (Insurer validates token = attestation of eligibility)
-    const regLeaf = lifecycleLeafCommitment(walletId, LIFECYCLE_REGISTERED);
-    this.lifecycleTree.setLeaf(walletIndex, regLeaf);
-    const eligLeaf = lifecycleLeafCommitment(walletId, LIFECYCLE_ELIGIBLE);
-    this.lifecycleTree.setLeaf(walletIndex, eligLeaf);
-
-    // 8. Build eligibility data from plan template
     const effectiveDate = groupResult.config.effectiveDate.toString();
     const terminationDate = groupResult.config.terminationDate.toString();
     const eligibilityData = planTemplate.buildEligibilityData(
@@ -243,11 +240,9 @@ export class EnrollmentService {
       terminationDate === '0' ? '' : terminationDate,
     );
 
-    // 9. Build accumulator data (fresh — all running totals at zero)
     const planYearStart = effectiveDate.slice(0, 4) + '0101';
     const accumulatorData = planTemplate.buildAccumulatorData(planYearStart);
 
-    // 10. Build MerkleForest for the eligibility NFT
     const forest = new MerkleForest();
     forest.setLeaf(
       ForestDomain.ACCESS_CONTROL,
@@ -260,9 +255,8 @@ export class EnrollmentService {
       accumulatorData.commitment(),
     );
 
-    // 11. Create the eligibility NFT
-    const nftData = new NftData({
-      nftType: NFT_TYPE_ELIGIBILITY,
+    const credentialData = new CredentialData({
+      credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
       forestRoot: forest.getForestRoot(),
       issuerWalletId: this.adminWalletId,
       subjectWalletId: walletId,
@@ -271,36 +265,24 @@ export class EnrollmentService {
       revoked: Field(0),
     });
 
-    // 12. Create NftInventory and mint
-    const inventory = new NftInventory();
-    const { index: nftIndex, newRoot: newInventoryRoot } =
-      inventory.mint(nftData);
+    const inventory = new CredentialInventory();
+    const { index: credentialIndex, newRoot: newInventoryRoot } =
+      inventory.mint(credentialData);
 
-    // Store inventory and forest for later operations
-    this.memberInventories.set(walletId.toString(), inventory);
-    this.memberForests.set(walletId.toString(), forest);
-
-    // 13. Update wallet state with NFT
     const newWalletState = new WalletState({
       walletId,
-      nftInventoryRoot: newInventoryRoot,
+      credentialInventoryRoot: newInventoryRoot,
       nonce: Field(1),
     });
-    this.walletRegistry.updateState(walletId, newWalletState);
 
-    // 14. Consume the enrollment token
-    this.tokenAuthority.consumeToken(tokenId, walletId);
-
-    // 15. Add to opaque roster
     const rosterEntry = buildRosterEntry(walletId, {
       planId,
       groupId,
+      familyId,
       enrolledDate: currentDate,
       tokenId,
     });
-    const { index: rosterIndex } = this.opaqueRoster.addEntry(rosterEntry);
 
-    // 16. Increment group enrolled count
     const updatedGroupConfig = new GroupConfig({
       groupIdHash: groupResult.config.groupIdHash,
       planIdHash: groupResult.config.planIdHash,
@@ -310,24 +292,96 @@ export class EnrollmentService {
       enrolledCount: Field(currentCount + 1n),
       status: groupResult.config.status,
     });
-    this.groupRegistry.updateGroup(groupResult.index, updatedGroupConfig);
+
+    // ──── Phase 3: Commit (all mutations, guarded) ────────────
+    // Snapshot Merkle roots for rollback on failure.
+    const prevRegistryRoot = this.walletRegistry.getRoot();
+    const walletKey = walletId.toString();
+    let walletRegistered = false;
+    let lifecycleSet = false;
+    let stateStored = false;
+    let walletStateUpdated = false;
+    let rosterAdded = false;
+    let rosterIndex = 0n;
+
+    try {
+      // 6. Register wallet in registry
+      const walletIndex = this.walletRegistry.register(walletId);
+      walletRegistered = true;
+
+      // 7. Set lifecycle: EMPTY → REGISTERED → ELIGIBLE
+      const regLeaf = lifecycleLeafCommitment(walletId, LIFECYCLE_REGISTERED);
+      this.lifecycleTree.setLeaf(walletIndex, regLeaf);
+      const eligLeaf = lifecycleLeafCommitment(walletId, LIFECYCLE_ELIGIBLE);
+      this.lifecycleTree.setLeaf(walletIndex, eligLeaf);
+      lifecycleSet = true;
+
+      // 8. Store inventory and forest for later operations
+      this.memberInventories.set(walletKey, inventory);
+      this.memberForests.set(walletKey, forest);
+      stateStored = true;
+
+      // 9. Update wallet state with credential
+      this.walletRegistry.updateState(walletId, newWalletState);
+      walletStateUpdated = true;
+
+      // 10. Add to opaque roster
+      const rosterResult = this.opaqueRoster.addEntry(rosterEntry);
+      rosterIndex = rosterResult.index;
+      rosterAdded = true;
+
+      // 11. Increment group enrolled count
+      this.groupRegistry.updateGroup(groupResult.index, updatedGroupConfig);
+
+      // 12. Consume token — LAST mutation (commit point).
+      // If everything above succeeded, this finalizes the enrollment.
+      // The token is the external coordination mechanism; once consumed,
+      // the enrollment is considered complete.
+      this.tokenAuthority.consumeToken(tokenId, walletId);
+    } catch (err) {
+      // Rollback: undo mutations in reverse order.
+      // Group count and token are idempotent-safe (only reached if they succeeded).
+      if (stateStored) {
+        this.memberInventories.delete(walletKey);
+        this.memberForests.delete(walletKey);
+      }
+      if (walletRegistered) {
+        // Reset the wallet's tree leaf to zero (empty) to restore registry integrity.
+        // The WalletRegistry index counter cannot be decremented (monotonic),
+        // but the leaf is cleared so it doesn't affect lookups.
+        const idx = this.walletRegistry.getIndex(walletId);
+        this.walletRegistry.updateState(
+          walletId,
+          new WalletState({ walletId, credentialInventoryRoot: Field(0), nonce: Field(0) }),
+        );
+      }
+      if (lifecycleSet) {
+        // Reset lifecycle leaf to zero (EMPTY)
+        const idx = this.walletRegistry.getIndex(walletId);
+        this.lifecycleTree.setLeaf(idx, Field(0));
+      }
+      throw new Error(
+        `Enrollment failed (rolled back): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
 
     return {
       walletId,
-      nftData,
-      nftIndex,
+      credentialData,
+      credentialIndex,
       newRegistryRoot: this.walletRegistry.getRoot(),
       newLifecycleRoot: this.lifecycleTree.getRoot(),
       rosterIndex,
       groupId,
       planId,
+      familyId,
     };
   }
 
   /**
    * Terminate a single member's enrollment.
    *
-   * Revokes the eligibility NFT, advances lifecycle to REVOKED,
+   * Revokes the eligibility credential, advances lifecycle to REVOKED,
    * and updates the roster entry to TERMINATED.
    *
    * @param walletId — the member's wallet ID
@@ -347,9 +401,9 @@ export class EnrollmentService {
       throw new Error('Wallet not in roster');
     }
 
-    // 2. Revoke eligibility NFT (if inventory is managed)
+    // 2. Revoke eligibility credential (if inventory is managed)
     const inventory = this.memberInventories.get(walletId.toString());
-    if (inventory && inventory.getNft(0n)) {
+    if (inventory && inventory.getCredential(0n)) {
       const newInventoryRoot = inventory.revoke(0n);
       const currentState = this.walletRegistry.getState(walletId);
       const newNonce = Field(
@@ -359,7 +413,7 @@ export class EnrollmentService {
         walletId,
         new WalletState({
           walletId,
-          nftInventoryRoot: newInventoryRoot,
+          credentialInventoryRoot: newInventoryRoot,
           nonce: newNonce,
         }),
       );
@@ -375,6 +429,7 @@ export class EnrollmentService {
       walletId: rosterResult.entry.walletId,
       planIdHash: rosterResult.entry.planIdHash,
       groupIdHash: rosterResult.entry.groupIdHash,
+      familyIdHash: rosterResult.entry.familyIdHash,
       enrolledDate: rosterResult.entry.enrolledDate,
       terminatedDate: dateToField(terminationDate),
       status: ENROLLMENT_STATUS_TERMINATED,
@@ -467,13 +522,136 @@ export class EnrollmentService {
     };
   }
 
-  /** Get the member's NftInventory (if managed by this service) */
-  getMemberInventory(walletId: Field): NftInventory | undefined {
+  /** Get the member's CredentialInventory (if managed by this service) */
+  getMemberInventory(walletId: Field): CredentialInventory | undefined {
     return this.memberInventories.get(walletId.toString());
   }
 
   /** Get the member's MerkleForest (if managed by this service) */
   getMemberForest(walletId: Field): MerkleForest | undefined {
     return this.memberForests.get(walletId.toString());
+  }
+
+  /**
+   * Bulk update formulary for all active members on a given plan.
+   *
+   * This is a demo/admin convenience method. In production, each member
+   * would rebuild their forest and submit a wallet update proof individually.
+   *
+   * Steps for each active member on this plan:
+   *   1. Get their current forest
+   *   2. Build new EligibilityData with updated formularyRoot
+   *   3. Replace ACCESS_CONTROL leaf 0
+   *   4. Update CredentialData forest root in inventory
+   *   5. Update wallet state with new credential inventory root
+   *
+   * @param planId — the plan ID to update
+   * @param newFormularyRoot — the new formulary Merkle root
+   * @returns Number of members updated
+   */
+  updateFormularyForPlan(
+    planId: string,
+    newFormularyRoot: Field,
+  ): { updatedCount: number; updatedWalletIds: string[] } {
+    const planIdHash = hashString(planId);
+    const updatedWalletIds: string[] = [];
+
+    // Find all roster entries for this plan
+    for (const entry of this.opaqueRoster.getAllEntries()) {
+      // Skip terminated members
+      if (entry.entry.status.toString() !== ENROLLMENT_STATUS_ACTIVE.toString()) {
+        continue;
+      }
+      // Skip members on different plans
+      if (entry.entry.planIdHash.toString() !== planIdHash.toString()) {
+        continue;
+      }
+
+      const walletId = entry.entry.walletId;
+      const walletStr = walletId.toString();
+
+      // Get managed forest
+      const forest = this.memberForests.get(walletStr);
+      if (!forest) continue;
+
+      // Get managed inventory
+      const inventory = this.memberInventories.get(walletStr);
+      if (!inventory) continue;
+
+      // Get current credential to extract existing eligibility data fields
+      const currentCredential = inventory.getCredential(0n);
+      if (!currentCredential) continue;
+
+      // Get plan template to rebuild eligibility data with new formulary root
+      const planTemplate = this.planTemplates.get(planId);
+      if (!planTemplate) continue;
+
+      // Get group config for this member's group
+      const groupResult = this.groupRegistry.getGroupByHash(entry.entry.groupIdHash);
+      if (!groupResult) continue;
+
+      // Rebuild eligibility data with new formulary root
+      const effectiveDate = groupResult.config.effectiveDate.toString();
+      const terminationDate = groupResult.config.terminationDate.toString();
+      const newEligData = planTemplate.buildEligibilityData(
+        // We need the group ID; since we only have the hash, use the template
+        // In practice the insurer knows the groupId
+        '', // groupId is hashed anyway — we can rebuild from the stored hash
+        effectiveDate,
+        terminationDate === '0' ? '' : terminationDate,
+      );
+
+      // Override with the specific formulary root and preserve groupIdHash
+      const updatedEligData = new EligibilityData({
+        planIdHash: newEligData.planIdHash,
+        groupIdHash: entry.entry.groupIdHash,
+        effectiveDate: newEligData.effectiveDate,
+        terminationDate: newEligData.terminationDate,
+        copayAmountCents: newEligData.copayAmountCents,
+        coverageType: newEligData.coverageType,
+        formularyRoot: newFormularyRoot,
+        networkRoot: newEligData.networkRoot,
+      });
+
+      // Update ACCESS_CONTROL tree leaf 0
+      forest.setLeaf(
+        ForestDomain.ACCESS_CONTROL,
+        0n,
+        updatedEligData.commitment(),
+      );
+
+      // Rebuild credential with new forest root
+      const newCredential = new CredentialData({
+        credentialType: currentCredential.credentialType,
+        forestRoot: forest.getForestRoot(),
+        issuerWalletId: currentCredential.issuerWalletId,
+        subjectWalletId: currentCredential.subjectWalletId,
+        issuedAt: currentCredential.issuedAt,
+        expiresAt: currentCredential.expiresAt,
+        revoked: currentCredential.revoked,
+      });
+
+      // Update inventory slot 0
+      inventory.updateCredential(0n, newCredential);
+
+      // Update wallet state
+      const currentState = this.walletRegistry.getState(walletId);
+      const newNonce = Field(BigInt(currentState.nonce.toString()) + 1n);
+      this.walletRegistry.updateState(
+        walletId,
+        new WalletState({
+          walletId,
+          credentialInventoryRoot: inventory.getRoot(),
+          nonce: newNonce,
+        }),
+      );
+
+      updatedWalletIds.push(walletStr);
+    }
+
+    return {
+      updatedCount: updatedWalletIds.length,
+      updatedWalletIds,
+    };
   }
 }

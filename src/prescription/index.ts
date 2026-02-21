@@ -8,6 +8,7 @@ export {
   RX_STATUS_REJECTED,
   RX_STATUS_REVERSED,
   RX_STATUS_TRANSFERRED,
+  RX_STATUS_DISPENSED,
   EMERGENCY_FILL_HASH,
   PrescriptionData,
   buildPrescriptionData,

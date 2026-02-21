@@ -1,5 +1,5 @@
 import { Field, Struct, Poseidon, Provable, ZkProgram } from 'o1js';
-import { NftData, NFT_TYPE_PRESCRIPTION, NFT_TYPE_ELIGIBILITY } from '../nft/nft-data.js';
+import { CredentialData, CREDENTIAL_TYPE_PRESCRIPTION, CREDENTIAL_TYPE_ELIGIBILITY } from '../credentials/credential-data.js';
 import { ForestRoots } from '../eligibility/forest-roots.js';
 import { ForestMerkleWitness } from '../zkp/merkle-forest.js';
 import { FormularyEntry } from '../access-control/formulary-entry.js';
@@ -13,6 +13,7 @@ import {
 } from '../prescription/prescription-data.js';
 import { FulfillmentData, ReversalData } from './fulfillment-data.js';
 import { FULFILL_OP_CLAIM, FULFILL_OP_REVERSAL } from './fulfillment-program.js';
+import { DOMAIN_TAG_PHARMACY } from '../wallets/wallet-derivation.js';
 
 // ─── AccumulatorFulfillmentOutput ─────────────────────────────
 
@@ -20,14 +21,14 @@ import { FULFILL_OP_CLAIM, FULFILL_OP_REVERSAL } from './fulfillment-program.js'
  * AccumulatorFulfillmentOutput — public output with accumulator support.
  *
  * Extends FulfillmentOutput pattern with newEligibilityForestRoot
- * to track the eligibility NFT's forest root after accumulator update.
+ * to track the eligibility credential's forest root after accumulator update.
  */
 export class AccumulatorFulfillmentOutput extends Struct({
   /** Links to PrescriptionData.commitment() */
   prescriptionHash: Field,
-  /** Prescription NFT's forest root before the update */
+  /** Prescription credential's forest root before the update */
   oldForestRoot: Field,
-  /** Prescription NFT's forest root after the update */
+  /** Prescription credential's forest root after the update */
   newForestRoot: Field,
   /** FulfillmentData.commitment() — claim data hash */
   entryCommitment: Field,
@@ -37,8 +38,12 @@ export class AccumulatorFulfillmentOutput extends Struct({
   planPayCents: Field,
   /** Field(1) = fulfillment, Field(2) = reversal */
   operationType: Field,
-  /** Eligibility NFT's forest root after accumulator update */
+  /** Eligibility credential's forest root after accumulator update */
   newEligibilityForestRoot: Field,
+  /** Portion of patientPay credited toward deductible (for reversal tracking) */
+  deductibleCreditCents: Field,
+  /** Poseidon hash of NDC code — drug identity proven by circuit */
+  ndcHash: Field,
 }) {}
 
 // ─── AccumulatorFulfillmentProgram ────────────────────────────
@@ -46,9 +51,9 @@ export class AccumulatorFulfillmentOutput extends Struct({
 /**
  * AccumulatorFulfillmentProgram — ZkProgram with accumulator-aware settlement.
  *
- * Operates on TWO NFTs simultaneously:
- *   - Prescription NFT (pharmacy's wallet): claim data + transaction history
- *   - Eligibility NFT (member's wallet): accumulator state at leaf 127
+ * Operates on TWO credentials simultaneously:
+ *   - Prescription credential (pharmacy's wallet): claim data + transaction history
+ *   - Eligibility credential (member's wallet): accumulator state at leaf 127
  *
  * The ZK proof IS the adjudication — copay is computed in-circuit
  * considering deductible, OOPM, and annual benefit maximum.
@@ -68,11 +73,11 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
      * Prove a valid claim fulfillment with accumulator-aware settlement.
      *
      * Steps 1-12: Same as FulfillmentProgram.proveFulfillment
-     * Steps 13-22: Eligibility NFT verification + accumulator logic
+     * Steps 13-22: Eligibility credential verification + accumulator logic
      */
     proveFulfillmentWithAccumulator: {
       privateInputs: [
-        NftData,                    // prescription NFT
+        CredentialData,                    // prescription credential
         PrescriptionData,
         PrescriptionStatusData,
         FulfillmentData,
@@ -83,13 +88,16 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
         ForestMerkleWitness,        // TRANSACTION: new fulfillment slot (empty)
         FormularyMerkleWitness,     // formulary entry in formulary tree
         Field,                      // formularyRoot
-        NftData,                    // eligibility NFT
+        CredentialData,                    // eligibility credential
         ForestRoots,                // eligibility forest roots
         AccumulatorData,            // current accumulator state
         ForestMerkleWitness,        // accumulator in eligibility ACCESS_CONTROL tree
+        Field,                      // H2: pharmacy qualifier
+        Field,                      // H2: pharmacy serviceProviderIdHash
+        Field,                      // H2: pharmacy enrollmentKeyHash
       ],
       async method(
-        nftData: NftData,
+        credentialData: CredentialData,
         prescriptionData: PrescriptionData,
         latestStatus: PrescriptionStatusData,
         fulfillmentData: FulfillmentData,
@@ -100,26 +108,41 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
         newSlotWitness: ForestMerkleWitness,
         formularyWitness: FormularyMerkleWitness,
         formularyRoot: Field,
-        eligNftData: NftData,
+        eligCredentialData: CredentialData,
         eligForestRoots: ForestRoots,
         accumulator: AccumulatorData,
         accumulatorWitness: ForestMerkleWitness,
+        pharmacyQualifier: Field,
+        pharmacyServiceProviderIdHash: Field,
+        pharmacyEnrollmentKeyHash: Field,
       ) {
-        // ── Steps 1-12: Prescription NFT validation (same as FulfillmentProgram) ──
+        // ── Steps 1-12: Prescription credential validation (same as FulfillmentProgram) ──
 
-        // 1. NFT type is PRESCRIPTION
-        nftData.nftType.assertEquals(
-          NFT_TYPE_PRESCRIPTION,
-          'NFT type must be PRESCRIPTION',
+        // 1. Credential type is PRESCRIPTION
+        credentialData.credentialType.assertEquals(
+          CREDENTIAL_TYPE_PRESCRIPTION,
+          'Credential type must be PRESCRIPTION',
         );
 
-        // 2. NFT is not revoked
-        nftData.revoked.assertEquals(Field(0), 'NFT is revoked');
+        // 2. Credential is not revoked
+        credentialData.revoked.assertEquals(Field(0), 'Credential is revoked');
+
+        // 2b. H2 fix: Verify pharmacy wallet identity binding.
+        const computedPharmacyWalletId = Poseidon.hash([
+          DOMAIN_TAG_PHARMACY,
+          pharmacyQualifier,
+          pharmacyServiceProviderIdHash,
+          pharmacyEnrollmentKeyHash,
+        ]);
+        computedPharmacyWalletId.assertEquals(
+          fulfillmentData.pharmacyWalletId,
+          'Pharmacy wallet identity binding failed',
+        );
 
         // 3. Forest root integrity
         const computedForestRoot = forestRoots.computeForestRoot();
         computedForestRoot.assertEquals(
-          nftData.forestRoot,
+          credentialData.forestRoot,
           'Forest root mismatch',
         );
 
@@ -172,6 +195,11 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
           .lessThanOrEqual(formularyEntry.maxQuantityPerFill)
           .assertTrue('Quantity exceeds max per fill');
 
+        // 10b. Quantity dispensed must not exceed quantity prescribed (FWA guard)
+        fulfillmentData.quantityDispensed
+          .lessThanOrEqual(prescriptionData.quantityPrescribed)
+          .assertTrue('Quantity dispensed exceeds quantity prescribed');
+
         // 11. Formulary entry in formulary tree
         formularyWitness
           .calculateRoot(formularyEntry.commitment())
@@ -186,19 +214,26 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
           'Formulary NDC does not match claim',
         );
 
-        // ── Steps 13-15: Eligibility NFT + Accumulator verification ──
+        // ── Steps 13-15: Eligibility credential + Accumulator verification ──
 
-        // 13. Eligibility NFT is ELIGIBILITY type, not revoked
-        eligNftData.nftType.assertEquals(
-          NFT_TYPE_ELIGIBILITY,
-          'Elig NFT type must be ELIGIBILITY',
+        // 13. Eligibility credential is ELIGIBILITY type, not revoked
+        eligCredentialData.credentialType.assertEquals(
+          CREDENTIAL_TYPE_ELIGIBILITY,
+          'Elig credential type must be ELIGIBILITY',
         );
-        eligNftData.revoked.assertEquals(Field(0), 'Elig NFT is revoked');
+        eligCredentialData.revoked.assertEquals(Field(0), 'Elig credential is revoked');
+
+        // 13b. Prescription patient must match eligibility credential subject (H1 fix).
+        // Prevents using a different patient's accumulator state.
+        prescriptionData.memberWalletId.assertEquals(
+          eligCredentialData.subjectWalletId,
+          'Prescription patient does not match eligibility credential subject',
+        );
 
         // 14. Eligibility forest root integrity
         const eligComputedRoot = eligForestRoots.computeForestRoot();
         eligComputedRoot.assertEquals(
-          eligNftData.forestRoot,
+          eligCredentialData.forestRoot,
           'Elig forest root mismatch',
         );
 
@@ -211,13 +246,19 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
           );
 
         // ── Step 16: Accumulator-aware copay calculation ──
+        //
+        // Priority (outermost = highest):
+        //   1. OOPM met/mid-claim cap → patient pays min(remaining OOPM, computed)
+        //   2. Benefit exhausted/mid-claim cap → plan pays min(remaining benefit, computed)
+        //   3. Deductible phase → patient pays deductible portion + copay on remainder
+        //   4. Normal → patient pays min(total, formulary copay)
 
         const total = fulfillmentData.ingredientCostCents.add(
           fulfillmentData.dispensingFeeCents,
         );
         const copay = formularyEntry.copayAmountCents;
 
-        // Deductible phase
+        // ── 16a: Deductible calculation ──
         const hasDeductible = accumulator.deductibleAmountCents.greaterThan(Field(0));
         const deductibleMet = accumulator.deductiblePaidCents
           .greaterThanOrEqual(accumulator.deductibleAmountCents);
@@ -229,51 +270,119 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
           Field(0),
         );
 
-        // Deductible pay = min(total, remainingDeductible)
+        // Deductible portion = min(total, remainingDeductible)
         const deductiblePay = Provable.if(
           total.lessThan(remainingDeductible),
           total,
           remainingDeductible,
         );
 
-        // Normal copay = min(total, formulary copay)
+        // Amount remaining after deductible is satisfied
+        const afterDeductible = total.sub(deductiblePay);
+
+        // ── 16b: Copay on post-deductible amount (C5 fix: split payment) ──
+        // When claim straddles deductible boundary, copay applies to the excess
+        const copayOnRemainder = Provable.if(
+          afterDeductible.lessThan(copay),
+          afterDeductible,
+          copay,
+        );
+
+        // Normal copay (when deductible already met or no deductible)
         const normalPay = Provable.if(total.lessThan(copay), total, copay);
 
-        // Select based on deductible status
-        const preCopay = Provable.if(inDeductiblePhase, deductiblePay, normalPay);
+        // Patient base pay:
+        //   in deductible phase: deductiblePay + copayOnRemainder
+        //   otherwise: normalPay
+        const basePay = Provable.if(
+          inDeductiblePhase,
+          deductiblePay.add(copayOnRemainder),
+          normalPay,
+        );
 
-        // Benefit exhaustion check
+        // ── 16c: Benefit maximum mid-claim cap (C2 fix) ──
         const hasBenefitMax = accumulator.annualBenefitMaxCents.greaterThan(Field(0));
-        const benefitExhausted = hasBenefitMax.and(
+        const benefitFullyExhausted = hasBenefitMax.and(
           accumulator.annualBenefitUsedCents
             .greaterThanOrEqual(accumulator.annualBenefitMaxCents),
         );
-        const postBenefitPay = Provable.if(benefitExhausted, total, preCopay);
 
-        // OOPM check (highest priority — outermost Provable.if)
+        const basePlanPay = total.sub(basePay);
+
+        // Remaining benefit = benefit exhausted ? 0 : (has limit ? max-used : unlimited)
+        const remainingBenefit = Provable.if(
+          benefitFullyExhausted,
+          Field(0),
+          Provable.if(
+            hasBenefitMax,
+            accumulator.annualBenefitMaxCents.sub(accumulator.annualBenefitUsedCents),
+            basePlanPay, // no limit → effectively unlimited
+          ),
+        );
+
+        // Cap plan pay at remaining benefit
+        const cappedPlanPay = Provable.if(
+          hasBenefitMax.and(basePlanPay.greaterThan(remainingBenefit)),
+          remainingBenefit,
+          basePlanPay,
+        );
+
+        // Patient picks up what plan can't cover
+        const postBenefitPay = total.sub(cappedPlanPay);
+
+        // ── 16d: OOPM mid-claim cap (C3 fix — ACA requirement) ──
         const hasOopm = accumulator.oopMaxCents.greaterThan(Field(0));
-        const oopMet = hasOopm.and(
+        const oopFullyMet = hasOopm.and(
           accumulator.oopPaidCents
             .greaterThanOrEqual(accumulator.oopMaxCents),
         );
-        const patientPay = Provable.if(oopMet, Field(0), postBenefitPay);
+
+        // Remaining OOPM = OOPM met ? 0 : (has OOPM ? max-paid : unlimited)
+        const remainingOopm = Provable.if(
+          oopFullyMet,
+          Field(0),
+          Provable.if(
+            hasOopm,
+            accumulator.oopMaxCents.sub(accumulator.oopPaidCents),
+            postBenefitPay, // no OOPM → effectively unlimited
+          ),
+        );
+
+        // Cap patient pay at remaining OOPM
+        const patientPay = Provable.if(
+          hasOopm.and(postBenefitPay.greaterThan(remainingOopm)),
+          remainingOopm,
+          postBenefitPay,
+        );
+
         const planPay = total.sub(patientPay);
 
-        // ── Step 17: Settlement commitment (for reversal verification) ──
+        // ── 16e: Deductible credit for accumulator update (C4 fix) ──
+        // Only the deductible portion counts toward deductiblePaidCents.
+        // If OOPM/benefit caps reduced patientPay below deductiblePay,
+        // credit = min(deductiblePay, patientPay)
+        const deductibleCredit = Provable.if(
+          patientPay.lessThan(deductiblePay),
+          patientPay,
+          deductiblePay,
+        );
+
+        // ── Step 17: Settlement commitment (includes deductibleCredit for reversal) ──
 
         const fulfillmentCommitment = fulfillmentData.commitment();
         const settlementCommitment = Poseidon.hash([
           fulfillmentCommitment,
           patientPay,
           planPay,
+          deductibleCredit,
         ]);
 
-        // ── Step 18: Update accumulator ──
+        // ── Step 18: Update accumulator (C4 fix: deductibleCredit, not patientPay) ──
 
         const newAccumulatorCommitment = Poseidon.hash([
           accumulator.planYear,
           accumulator.deductibleAmountCents,
-          accumulator.deductiblePaidCents.add(patientPay),
+          accumulator.deductiblePaidCents.add(deductibleCredit),
           accumulator.oopMaxCents,
           accumulator.oopPaidCents.add(patientPay),
           accumulator.annualBenefitMaxCents,
@@ -311,13 +420,15 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
         return {
           publicOutput: new AccumulatorFulfillmentOutput({
             prescriptionHash: rxCommitment,
-            oldForestRoot: nftData.forestRoot,
+            oldForestRoot: credentialData.forestRoot,
             newForestRoot,
             entryCommitment: fulfillmentCommitment,
             patientPayCents: patientPay,
             planPayCents: planPay,
             operationType: FULFILL_OP_CLAIM,
             newEligibilityForestRoot: newEligForestRoot,
+            deductibleCreditCents: deductibleCredit,
+            ndcHash: fulfillmentData.ndcHash,
           }),
         };
       },
@@ -332,7 +443,7 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
      */
     proveReversalWithAccumulator: {
       privateInputs: [
-        NftData,                    // prescription NFT
+        CredentialData,                    // prescription credential
         PrescriptionData,
         FulfillmentData,            // original fulfillment
         ReversalData,
@@ -342,13 +453,17 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
         ForestMerkleWitness,        // TRANSACTION: reversal slot (empty)
         Field,                      // originalPatientPay
         Field,                      // originalPlanPay
-        NftData,                    // eligibility NFT
+        Field,                      // originalDeductibleCredit
+        CredentialData,                    // eligibility credential
         ForestRoots,                // eligibility forest roots
         AccumulatorData,            // current accumulator state
         ForestMerkleWitness,        // accumulator in eligibility ACCESS_CONTROL tree
+        Field,                      // H2: pharmacy qualifier
+        Field,                      // H2: pharmacy serviceProviderIdHash
+        Field,                      // H2: pharmacy enrollmentKeyHash
       ],
       async method(
-        nftData: NftData,
+        credentialData: CredentialData,
         prescriptionData: PrescriptionData,
         originalFulfillment: FulfillmentData,
         reversalData: ReversalData,
@@ -358,26 +473,42 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
         reversalSlotWitness: ForestMerkleWitness,
         originalPatientPay: Field,
         originalPlanPay: Field,
-        eligNftData: NftData,
+        originalDeductibleCredit: Field,
+        eligCredentialData: CredentialData,
         eligForestRoots: ForestRoots,
         accumulator: AccumulatorData,
         accumulatorWitness: ForestMerkleWitness,
+        pharmacyQualifier: Field,
+        pharmacyServiceProviderIdHash: Field,
+        pharmacyEnrollmentKeyHash: Field,
       ) {
-        // ── Steps 1-3: Prescription NFT validation ──
+        // ── Steps 1-3: Prescription credential validation ──
 
-        // 1. NFT type is PRESCRIPTION
-        nftData.nftType.assertEquals(
-          NFT_TYPE_PRESCRIPTION,
-          'NFT type must be PRESCRIPTION',
+        // 1. Credential type is PRESCRIPTION
+        credentialData.credentialType.assertEquals(
+          CREDENTIAL_TYPE_PRESCRIPTION,
+          'Credential type must be PRESCRIPTION',
         );
 
-        // 2. NFT is not revoked
-        nftData.revoked.assertEquals(Field(0), 'NFT is revoked');
+        // 2. Credential is not revoked
+        credentialData.revoked.assertEquals(Field(0), 'Credential is revoked');
+
+        // 2b. H2 fix: Verify pharmacy wallet identity binding for reversal.
+        const computedPharmacyWalletId = Poseidon.hash([
+          DOMAIN_TAG_PHARMACY,
+          pharmacyQualifier,
+          pharmacyServiceProviderIdHash,
+          pharmacyEnrollmentKeyHash,
+        ]);
+        computedPharmacyWalletId.assertEquals(
+          originalFulfillment.pharmacyWalletId,
+          'Pharmacy wallet identity binding failed',
+        );
 
         // 3. Forest root integrity
         const computedForestRoot = forestRoots.computeForestRoot();
         computedForestRoot.assertEquals(
-          nftData.forestRoot,
+          credentialData.forestRoot,
           'Forest root mismatch',
         );
 
@@ -396,6 +527,7 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
           origCommitment,
           originalPatientPay,
           originalPlanPay,
+          originalDeductibleCredit,
         ]);
         fulfillmentWitness
           .calculateRoot(origSettlementCommitment)
@@ -428,19 +560,25 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
           'Plan refund does not match original payment',
         );
 
-        // ── Steps 9-11: Eligibility NFT + Accumulator verification ──
+        // ── Steps 9-11: Eligibility credential + Accumulator verification ──
 
-        // 9. Eligibility NFT is ELIGIBILITY type, not revoked
-        eligNftData.nftType.assertEquals(
-          NFT_TYPE_ELIGIBILITY,
-          'Elig NFT type must be ELIGIBILITY',
+        // 9. Eligibility credential is ELIGIBILITY type, not revoked
+        eligCredentialData.credentialType.assertEquals(
+          CREDENTIAL_TYPE_ELIGIBILITY,
+          'Elig credential type must be ELIGIBILITY',
         );
-        eligNftData.revoked.assertEquals(Field(0), 'Elig NFT is revoked');
+        eligCredentialData.revoked.assertEquals(Field(0), 'Elig credential is revoked');
+
+        // 9b. Prescription patient must match eligibility credential subject (H1 fix).
+        prescriptionData.memberWalletId.assertEquals(
+          eligCredentialData.subjectWalletId,
+          'Prescription patient does not match eligibility credential subject',
+        );
 
         // 10. Eligibility forest root integrity
         const eligComputedRoot = eligForestRoots.computeForestRoot();
         eligComputedRoot.assertEquals(
-          eligNftData.forestRoot,
+          eligCredentialData.forestRoot,
           'Elig forest root mismatch',
         );
 
@@ -452,16 +590,33 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
             'Accumulator not in ACCESS_CONTROL tree',
           );
 
-        // ── Step 12: Reverse accumulator ──
+        // ── Step 12: Reverse accumulator (C1 fix: safe subtraction, C4 fix: deductibleCredit) ──
+
+        // Safe subtraction: clamp to 0 instead of wrapping mod p
+        const newDeductiblePaid = Provable.if(
+          accumulator.deductiblePaidCents.greaterThanOrEqual(originalDeductibleCredit),
+          accumulator.deductiblePaidCents.sub(originalDeductibleCredit),
+          Field(0),
+        );
+        const newOopPaid = Provable.if(
+          accumulator.oopPaidCents.greaterThanOrEqual(originalPatientPay),
+          accumulator.oopPaidCents.sub(originalPatientPay),
+          Field(0),
+        );
+        const newBenefitUsed = Provable.if(
+          accumulator.annualBenefitUsedCents.greaterThanOrEqual(originalPlanPay),
+          accumulator.annualBenefitUsedCents.sub(originalPlanPay),
+          Field(0),
+        );
 
         const newAccumulatorCommitment = Poseidon.hash([
           accumulator.planYear,
           accumulator.deductibleAmountCents,
-          accumulator.deductiblePaidCents.sub(originalPatientPay),
+          newDeductiblePaid,
           accumulator.oopMaxCents,
-          accumulator.oopPaidCents.sub(originalPatientPay),
+          newOopPaid,
           accumulator.annualBenefitMaxCents,
-          accumulator.annualBenefitUsedCents.sub(originalPlanPay),
+          newBenefitUsed,
         ]);
 
         // ── Step 13-14: Compute new eligibility roots ──
@@ -496,13 +651,15 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
         return {
           publicOutput: new AccumulatorFulfillmentOutput({
             prescriptionHash: rxCommitment,
-            oldForestRoot: nftData.forestRoot,
+            oldForestRoot: credentialData.forestRoot,
             newForestRoot,
             entryCommitment: origCommitment,
             patientPayCents: originalPatientPay,
             planPayCents: originalPlanPay,
             operationType: FULFILL_OP_REVERSAL,
             newEligibilityForestRoot: newEligForestRoot,
+            deductibleCreditCents: originalDeductibleCredit,
+            ndcHash: originalFulfillment.ndcHash,
           }),
         };
       },

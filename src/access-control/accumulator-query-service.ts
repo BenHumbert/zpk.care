@@ -43,7 +43,7 @@ export interface AccumulatorStatus {
  * AccumulatorQueryService — read-only member benefit accumulator queries.
  *
  * Stateless service that extracts deductible, OOPM, and annual benefit max
- * status from the ACCESS_CONTROL tree leaf 127 of a member's eligibility NFT.
+ * status from the ACCESS_CONTROL tree leaf 127 of a member's eligibility credential.
  *
  * Used by:
  *   - Member app: "How much deductible do I have left?"
@@ -106,11 +106,11 @@ export class AccumulatorQueryService {
   /**
    * Estimate patient cost for a claim given current accumulator state.
    *
-   * Applies the same copay priority logic as AccumulatorFulfillmentProgram:
-   *   1. If OOPM is met → patient pays $0
-   *   2. If benefit is exhausted → patient pays 100%
-   *   3. If in deductible phase → patient pays min(remaining deductible, total)
-   *   4. Otherwise → patient pays min(copay, total)
+   * Mirrors AccumulatorFulfillmentProgram copay logic exactly:
+   *   1. Deductible phase: patient pays deductible portion + copay on remainder
+   *   2. Benefit max: cap plan pay at remaining benefit
+   *   3. OOPM: cap patient pay at remaining OOPM
+   *   4. Normal: patient pays min(copay, total)
    *
    * @param accumulatorData Current accumulator state
    * @param totalCostCents Total drug cost (ingredient + dispensing fee) in cents
@@ -124,20 +124,34 @@ export class AccumulatorQueryService {
   ): { patientPayCents: number; planPayCents: number } {
     const status = AccumulatorQueryService.getStatus(accumulatorData);
 
-    let patientPay: number;
+    // 16a: Deductible phase
+    const inDeductiblePhase = status.deductibleAmountCents > 0 && !status.isDeductibleMet;
+    const deductiblePay = inDeductiblePhase
+      ? Math.min(status.deductibleRemainingCents, totalCostCents)
+      : 0;
+    const afterDeductible = totalCostCents - deductiblePay;
 
-    if (status.isOopMaxMet) {
-      // OOPM met — patient pays nothing
-      patientPay = 0;
-    } else if (status.isBenefitExhausted) {
-      // Benefit exhausted — patient pays everything
-      patientPay = totalCostCents;
-    } else if (status.deductibleAmountCents > 0 && !status.isDeductibleMet) {
-      // Deductible phase — patient pays toward remaining deductible
-      patientPay = Math.min(status.deductibleRemainingCents, totalCostCents);
-    } else {
-      // Normal copay phase
-      patientPay = Math.min(copayCents, totalCostCents);
+    // 16b: Copay on post-deductible amount (split payment)
+    const copayOnRemainder = Math.min(afterDeductible, copayCents);
+    const normalPay = Math.min(copayCents, totalCostCents);
+    const basePay = inDeductiblePhase ? deductiblePay + copayOnRemainder : normalPay;
+
+    // 16c: Benefit maximum mid-claim cap
+    let basePlanPay = totalCostCents - basePay;
+    if (status.annualBenefitMaxCents > 0) {
+      const remainingBenefit = Math.max(0, status.benefitRemainingCents);
+      if (basePlanPay > remainingBenefit) {
+        basePlanPay = remainingBenefit;
+      }
+    }
+    let patientPay = totalCostCents - basePlanPay;
+
+    // 16d: OOPM mid-claim cap
+    if (status.oopMaxCents > 0) {
+      const remainingOopm = Math.max(0, status.oopRemainingCents);
+      if (patientPay > remainingOopm) {
+        patientPay = remainingOopm;
+      }
     }
 
     return {

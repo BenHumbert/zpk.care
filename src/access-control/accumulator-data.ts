@@ -7,7 +7,7 @@ export const ACCUMULATOR_LEAF_INDEX = 127n;
 /**
  * AccumulatorData — benefit accumulator tracking for a plan year.
  *
- * Stored at leaf 127 in the ELIGIBILITY NFT's ACCESS_CONTROL tree.
+ * Stored at leaf 127 in the ELIGIBILITY credential's ACCESS_CONTROL tree.
  * Updated atomically by AccumulatorFulfillmentProgram on each claim/reversal.
  *
  * Three accumulators:

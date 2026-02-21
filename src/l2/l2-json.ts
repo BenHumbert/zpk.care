@@ -39,7 +39,11 @@ export function bigintReplacer(_key: string, value: unknown): unknown {
  */
 export function bigintReviver(_key: string, value: unknown): unknown {
   if (typeof value === 'string' && value.startsWith(BIGINT_PREFIX)) {
-    return BigInt(value.slice(BIGINT_PREFIX.length));
+    const digits = value.slice(BIGINT_PREFIX.length);
+    if (digits.length > 100) {
+      throw new Error('BigInt value exceeds maximum length (100 digits)');
+    }
+    return BigInt(digits);
   }
   return value;
 }
