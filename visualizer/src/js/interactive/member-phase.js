@@ -711,28 +711,23 @@ export class MemberPhase {
       .map(([tid, msgs]) => ({ threadId: tid, messages: msgs, latest: Math.max(...msgs.map(m => m.timestamp || 0)) }))
       .sort((a, b) => b.latest - a.latest);
 
-    // Build recipient options from context
+    // Build recipient options — members can only contact PCP and family members
     const recipientOptions = [];
+
+    // 1. Assigned PCP (if any)
     if (member.pcpAssignment) {
       const p = state.demoData.prescribers[member.pcpAssignment.prescriberIndex];
       recipientOptions.push(`<option value="prescriber:${member.pcpAssignment.prescriberIndex}">Dr. ${p.firstName} ${p.lastName} (My PCP)</option>`);
     }
-    const rxPrescriberSet = new Set();
-    const rxPharmacySet = new Set();
-    (state.prescriptions || []).filter(rx => rx.memberWalletId === member.walletId).forEach(rx => {
-      if (member.pcpAssignment && rx.prescriberIndex === member.pcpAssignment.prescriberIndex) return;
-      rxPrescriberSet.add(rx.prescriberIndex);
-      rxPharmacySet.add(rx.pharmacyIndex);
-    });
-    for (const idx of rxPrescriberSet) {
-      const p = state.demoData.prescribers[idx];
-      recipientOptions.push(`<option value="prescriber:${idx}">Dr. ${p.firstName} ${p.lastName}</option>`);
+
+    // 2. Family members (same familyId, enrolled, not self, not revoked)
+    if (member.familyId) {
+      (enrolled || [])
+        .filter(e => e.familyId === member.familyId && e.walletId !== member.walletId && e.lifecycle !== 'REVOKED')
+        .forEach(fm => {
+          recipientOptions.push(`<option value="member:${fm.walletId}">${fm.displayName} (Family)</option>`);
+        });
     }
-    for (const idx of rxPharmacySet) {
-      const p = state.demoData.pharmacies[idx];
-      recipientOptions.push(`<option value="pharmacy:${idx}">${p.storeName}</option>`);
-    }
-    recipientOptions.push(`<option value="insurer:0">Insurer</option>`);
 
     return `
       <div class="section-card">

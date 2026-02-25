@@ -13,12 +13,23 @@
     "start:member": "npx tsx src/nodes/start-member-nautilus.ts",
     "start:prescriber": "npx tsx src/nodes/start-prescriber-nautilus.ts",
     "start:pharmacy": "npx tsx src/nodes/start-pharmacy-nautilus.ts",
-    "start:insurer": "npx tsx src/nodes/start-insurer-nautilus.ts"
+    "start:insurer": "npx tsx src/nodes/start-insurer-nautilus.ts",
+    "start:poc": "npx tsx src/poc/poc-orchestrator.ts",
+    "start:flowchart": "npx tsx visualizer/demo/flowchart-orchestrator.ts",
+    "kill:ports": "node -e \"const{execSync:x}=require('child_process');[3030,8080,3001,3002,3003,3004].forEach(p=>{try{const o=x('netstat -ano',{encoding:'utf8'});const m=o.split('\\n').find(l=>l.includes(':'+p+' ')&&l.includes('LISTEN'));if(m){const pid=m.trim().split(/\\s+/).pop();if(pid&&pid!=='0'){console.log('Killing PID '+pid+' on port '+p);x('taskkill /F /PID '+pid)}}}catch{}});console.log('Done.')\"",
+    "start:flowchart:clean": "npm run kill:ports && npx tsx visualizer/demo/flowchart-orchestrator.ts"
   },
-  "keywords": ["zkp", "mina", "healthcare", "nft", "o1js"],
+  "keywords": [
+    "zkp",
+    "mina",
+    "healthcare",
+    "nft",
+    "o1js"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "docx": "^9.5.3",
     "o1js": "^2.13.0"
   },
   "devDependencies": {

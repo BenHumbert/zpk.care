@@ -23,10 +23,10 @@ export class ClaimAccumulatorWitness extends MerkleWitness(CLAIM_TREE_HEIGHT) {}
 // ─── Claim Leaf ─────────────────────────────────────────────
 
 /**
- * ClaimLeaf — the 8 Fields that form a single claim leaf.
+ * ClaimLeaf — the 9 Fields that form a single claim leaf.
  *
  * All values are Field-compatible strings (BigInt decimal representation).
- * The leaf hash is Poseidon.hash of all 8 fields.
+ * The leaf hash is Poseidon.hash of all 9 fields.
  */
 export interface ClaimLeaf {
   /** Member wallet ID (Poseidon hash) */
@@ -45,10 +45,12 @@ export interface ClaimLeaf {
   planPayCents: string;
   /** Operation type: '1' = fulfillment, '2' = reversal */
   operationType: string;
+  /** Deductible credit in cents (portion of patient pay credited toward deductible) */
+  deductibleCreditCents: string;
 }
 
 /**
- * Compute the Poseidon hash of a ClaimLeaf (8 Fields → 1 hash).
+ * Compute the Poseidon hash of a ClaimLeaf (9 Fields → 1 hash).
  * This hash is stored as the leaf value in the MerkleTree.
  */
 export function computeClaimLeafHash(leaf: ClaimLeaf): Field {
@@ -61,6 +63,7 @@ export function computeClaimLeafHash(leaf: ClaimLeaf): Field {
     Field(BigInt(leaf.patientPayCents)),
     Field(BigInt(leaf.planPayCents)),
     Field(BigInt(leaf.operationType)),
+    Field(BigInt(leaf.deductibleCreditCents)),
   ]);
 }
 

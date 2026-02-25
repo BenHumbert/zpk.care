@@ -30,3 +30,19 @@ export {
   WalletState,
   WalletRegistry,
 } from './wallet-state.js';
+
+export {
+  WalletMigrationProgram,
+  WalletMigrationProof,
+  MigrationOutput,
+} from './wallet-migration-program.js';
+
+export {
+  WalletMigrationService,
+} from './wallet-migration-service.js';
+
+export type {
+  RecoveryResult,
+  NewWalletResult,
+  MigrationRequest,
+} from './wallet-migration-service.js';

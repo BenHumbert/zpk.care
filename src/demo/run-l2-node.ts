@@ -277,7 +277,7 @@ async function main() {
   console.log('  --- Waiting for Batch Timer (batch #0: 2 registrations) ---');
   console.log('');
   console.log(`  The batch timer fires every ${BATCH_INTERVAL_MS / 1000}s.`);
-  console.log('  Pending proofs will be wrapped (wrapTransition) and tree-merged (mergeBatches).');
+  console.log('  Pending proofs will be paired (wrapPair) and tree-merged (mergeBatches).');
   console.log('  Watch the L2 block watcher output below...');
   console.log('');
 

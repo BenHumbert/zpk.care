@@ -115,8 +115,10 @@ export class PrescriberNode extends EntityNodeBase {
   }
 
   async submitProof(proof: StateTransitionProof): Promise<L2Receipt> {
-    const client = this.getClientForWallet(this.config.walletId!);
-    return client.submitProof(proof);
+    return this.withPartitionRetry(
+      this.config.walletId!,
+      (client) => client.submitProof(proof),
+    );
   }
 
   getProofTimings(): ProofTimingEstimate[] {

@@ -93,10 +93,20 @@ export interface L2SequencerState {
     version: number;
   }>;
 
+  // ── Audit Merkle Index state (optional — present when audit events have been indexed) ──
+
+  /** Serialized audit Merkle index state for crash recovery */
+  auditMerkleIndexState?: import('../audit/audit-merkle-index.js').AuditMerkleState;
+
   // ── Claim Accumulator state (optional — present when claims have been submitted) ──
 
   /** Serialized claim accumulator state for crash recovery */
   claimAccumulatorState?: import('./claim-accumulator-types.js').ClaimAccumulatorState;
+
+  // ── Message Store state (optional — present when messages have been stored) ──
+
+  /** Serialized message store state for crash recovery */
+  messageStoreState?: import('./message-store-types.js').MessageStoreState;
 
   // ── Last-settled roots (crash recovery safe point) ──
 
@@ -125,8 +135,15 @@ export interface L2SequencerState {
   preBatchChainHash?: string;
   /** Claim accumulator leaf count at last settlement — rollback point for batch failure */
   preBatchClaimLeafCount?: bigint;
+  /** Audit Merkle index leaf count at last settlement — rollback point for batch failure */
+  preBatchAuditMerkleLeafCount?: bigint;
   /** Proof fingerprints at last settlement — rollback set for batch failure */
   preBatchFingerprints?: string[];
+
+  // ── Witness tree reconstruction ──
+
+  /** Ordered list of registered walletId strings for rebuilding WalletRegistry + lifecycle tree */
+  registeredWallets?: string[];
 }
 
 /**

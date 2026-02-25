@@ -13,6 +13,8 @@ import { Field } from 'o1js';
 import { generateEnrollmentKey } from '../../wallets/wallet-derivation.js';
 import { securePrescriberDerivation } from '../../security/secure-context.js';
 import { exportEnrollmentBackup, importEnrollmentBackup } from '../../security/enrollment-backup.js';
+import { WalletRegistryWitness } from '../../wallets/wallet-state.js';
+import { LifecycleWitness } from '../../engine/lifecycle.js';
 import { PrescriberNode } from '../prescriber-node.js';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
 import type { RouteRegistration } from '../nautilus-app-types.js';
@@ -71,11 +73,11 @@ export function buildPrescriberRoutes(
   routes.push({
     method: 'POST',
     path: '/onboarding/generate-key',
-    handler: async (_req, res, _params, _query, _body) => {
+    handler: async (_req, res, _params, _query, body) => {
       if (server.getOnboardingPhase() !== 'token_received') {
         return server.sendResponse(res, 409, false, undefined, `Cannot generate key in phase: ${server.getOnboardingPhase()}`);
       }
-      const enrollmentKey = generateEnrollmentKey();
+      const enrollmentKey = (body as any)?.enrollmentKey ?? generateEnrollmentKey();
       const state = server.getLocalState();
       const data = state.getState();
       if (data) {
@@ -132,7 +134,7 @@ export function buildPrescriberRoutes(
   routes.push({
     method: 'POST',
     path: '/onboarding/enroll',
-    handler: async (_req, res, _params, _query, _body) => {
+    handler: async (_req, res, _params, _query, body) => {
       if (server.getOnboardingPhase() !== 'wallet_derived') {
         return server.sendResponse(res, 409, false, undefined, `Cannot enroll in phase: ${server.getOnboardingPhase()}`);
       }
@@ -141,6 +143,8 @@ export function buildPrescriberRoutes(
       if (!data?.walletId) {
         return server.sendResponse(res, 409, false, undefined, 'Wallet not derived');
       }
+      const b = body as { insurerUrl?: string } | undefined;
+
       const node = new PrescriberNode({
         role: 'prescriber',
         walletId: data.walletId,
@@ -149,13 +153,26 @@ export function buildPrescriberRoutes(
       });
       server.setEntityNode(node);
 
+      // Notify insurer (non-blocking)
+      let insurerNotified = false;
+      if (b?.insurerUrl) {
+        try {
+          const resp = await fetch(`${b.insurerUrl}/enrollment/process`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ walletId: data.walletId, tokenId: data.onboarding.tokenId, role: 'prescriber' }),
+          });
+          insurerNotified = resp.ok;
+        } catch { /* insurer unreachable — continue */ }
+      }
+
       data.onboarding.phase = 'enrolled';
       data.onboarding.enrollmentTimestamp = Date.now();
       data.lastSequencerUrl = server.getConfig().sequencerUrl;
       await state.save(data);
 
       server.setOnboardingPhase('enrolled');
-      server.sendResponse(res, 200, true, { phase: 'enrolled', walletId: data.walletId });
+      server.sendResponse(res, 200, true, { phase: 'enrolled', walletId: data.walletId, insurerNotified });
     },
   });
 
@@ -182,6 +199,56 @@ export function buildPrescriberRoutes(
       }
       server.setOnboardingPhase('ready');
       server.sendResponse(res, 200, true, { phase: 'ready', compilationStatus: results });
+    },
+  });
+
+  // ── Proof: Registration ──────────────────────────────────
+
+  routes.push({
+    method: 'POST',
+    path: '/proof/registration',
+    handler: async (_req, res, _params, _query, _body) => {
+      if (server.getOnboardingPhase() !== 'ready') {
+        return server.sendResponse(res, 409, false, undefined, `Cannot generate proof in phase: ${server.getOnboardingPhase()}`);
+      }
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) {
+        return server.sendResponse(res, 409, false, undefined, 'Node not initialized');
+      }
+
+      const state = server.getLocalState();
+      const data = state.getState();
+      if (!data?.preimageFields || !data.walletId) {
+        return server.sendResponse(res, 409, false, undefined, 'Wallet preimage not available');
+      }
+
+      try {
+        const witnesses = await node.getClient().getRegistrationWitnesses();
+
+        // Reconstruct transition preimage: [domainTag, ...walletFields padded to 5]
+        const walletFields = data.preimageFields.map((s: string) => Field(BigInt(s)));
+        const padded = [...walletFields];
+        while (padded.length < 5) padded.push(Field(0));
+        const preimage = [Field(data.domainTag ?? 1), ...padded];
+
+        const regWitness = WalletRegistryWitness.fromJSON(JSON.parse(witnesses.registryWitnessJson));
+        const lcWitness = LifecycleWitness.fromJSON(JSON.parse(witnesses.lifecycleWitnessJson));
+        const regRoot = Field(BigInt(witnesses.currentRegistryRoot));
+        const lcRoot = Field(BigInt(witnesses.currentLifecycleRoot));
+
+        const proof = await node.proveRegistration(preimage, regWitness, lcWitness, regRoot, lcRoot);
+        const receipt = await node.submitProof(proof);
+
+        server.sendResponse(res, 200, true, {
+          receiptId: receipt.receiptId,
+          walletId: data.walletId,
+          proofGenerated: true,
+          submittedToSequencer: true,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
+        return server.sendResponse(res, 500, false, undefined, msg);
+      }
     },
   });
 
@@ -437,6 +504,53 @@ export function buildPrescriberRoutes(
       const node = server.getEntityNode() as PrescriberNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       server.sendResponse(res, 200, true, node.getProofTimings());
+    },
+  });
+
+  // ── Messaging ──────────────────────────────────────────────
+
+  routes.push({
+    method: 'POST',
+    path: '/messaging/send',
+    handler: async (_req, res, _params, _query, body) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      const b = body as { message?: Record<string, unknown>; payload?: Record<string, unknown> } | undefined;
+      if (!b?.message || !b?.payload) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing message or payload');
+      }
+      const entry = await node.storeMessage(b.message as any, b.payload as any);
+      server.sendResponse(res, 200, true, entry);
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/messaging/inbox',
+    handler: async (_req, res) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      server.sendResponse(res, 200, true, await node.getInbox());
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/messaging/sent',
+    handler: async (_req, res) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      server.sendResponse(res, 200, true, await node.getSentMessages());
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/messaging/thread/:threadIdHash',
+    handler: async (_req, res, params) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      server.sendResponse(res, 200, true, await node.getMessagesByThread(params.threadIdHash));
     },
   });
 

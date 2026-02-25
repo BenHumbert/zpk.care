@@ -44,7 +44,9 @@ import type {
   BatchBuiltPayload,
   BatchSettledPayload,
   BatchFailedPayload,
+  MessageStoredPayload,
 } from './l2-peer-types.js';
+import type { StoredMessage, MessagePayload, MessageStoreEntry } from './message-store-types.js';
 
 // ─── Settlement Strategy ─────────────────────────────────
 
@@ -411,6 +413,42 @@ export class L2Node {
     return result;
   }
 
+  // ─── Message Store ─────────────────────────────────────────
+
+  /**
+   * Store an encrypted message and broadcast via gossip.
+   *
+   * Delegates to the sequencer's storeMessage(), then broadcasts
+   * a `message:stored` gossip message so replicas replicate the entry.
+   */
+  storeMessage(message: StoredMessage, payload: MessagePayload): MessageStoreEntry {
+    const entry = this.sequencer.storeMessage(message, payload);
+
+    // Broadcast message:stored gossip to peers
+    if (this.role === 'sequencer' && this.peerNetwork) {
+      const gossipPayload: MessageStoredPayload = {
+        leafIndex: entry.leafIndex,
+        message,
+        payload,
+        leafHash: entry.leafHash,
+      };
+
+      const gossipMsg: GossipMessage = {
+        messageId: generateMessageId(
+          'message:stored', this.nodeId, Date.now(),
+          entry.leafIndex.toString(),
+        ),
+        type: 'message:stored',
+        senderId: this.nodeId,
+        timestamp: Date.now(),
+        payload: gossipPayload,
+      };
+      this.peerNetwork.broadcast(gossipMsg).catch(() => {});
+    }
+
+    return entry;
+  }
+
   // ─── Events ─────────────────────────────────────────────
 
   /** Subscribe to all chain events */
@@ -710,6 +748,17 @@ export class L2Node {
         break;
       }
 
+      case 'message:stored': {
+        if (this.role !== 'replica') return;
+        const payload = msg.payload as MessageStoredPayload;
+        this.sequencer.applyReplicatedMessage(
+          payload.leafIndex,
+          payload.message,
+          payload.payload,
+        );
+        break;
+      }
+
       // peer:announce and state:snapshot handled by L2PeerNetwork directly
       default:
         break;
@@ -826,7 +875,7 @@ export class L2Node {
       });
 
       const buildStart = Date.now();
-      // Acquire proving lock — buildBatch() calls ZkProgram methods (wrapTransition, mergeBatches)
+      // Acquire proving lock — buildBatch() calls ZkProgram methods (wrapPair, mergeBatches)
       const batch = await this.withProvingLock(() => this.sequencer.buildBatch());
 
       if (!batch) {

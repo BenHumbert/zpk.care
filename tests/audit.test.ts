@@ -7,6 +7,7 @@
  */
 import { Field, Poseidon } from 'o1js';
 import { AuditService, DEFAULT_ORPHAN_THRESHOLD_MS } from '../src/audit/audit-service.js';
+import { AuditMerkleIndex, AuditEventWitness } from '../src/audit/audit-merkle-index.js';
 import type {
   AuditEvent,
   AuditLog,
@@ -758,5 +759,250 @@ describe('Full Audit Report', () => {
     expect(report.details[4]).toContain('Orphaned receipts');
     expect(report.details[5]).toContain('Settlement');
     expect(report.details[6]).toContain('Enrollment');
+  });
+});
+
+// ─── Claim 7: Selective Merkle Witness ──────────────────────
+
+describe('Claim 7: Selective Merkle Witness', () => {
+  test('07-R01: getSelectiveWitness returns valid witness, commitment, and root', () => {
+    const index = new AuditMerkleIndex();
+    const events = buildValidChain(5);
+
+    // Append all events
+    for (const event of events) {
+      index.appendEvent(event);
+    }
+
+    // Get witness for event 2
+    const result = index.getSelectiveWitness(2n);
+
+    expect(result.eventIndex).toBe(2n);
+    expect(result.eventCommitment.toString()).toBe(
+      AuditService.computeEventCommitment(events[2]).toString(),
+    );
+    expect(result.root.toString()).toBe(index.getRoot().toString());
+
+    // Verify witness is valid
+    const isValid = AuditMerkleIndex.verifySelectiveWitness(
+      result.witness,
+      result.eventCommitment,
+      result.root,
+    );
+    expect(isValid).toBe(true);
+  });
+
+  test('07-R02: selective witness proves single event without revealing others', () => {
+    const index = new AuditMerkleIndex();
+    const events = buildValidChain(5);
+    for (const event of events) {
+      index.appendEvent(event);
+    }
+
+    // Get witness for event 3
+    const result = index.getSelectiveWitness(3n);
+
+    // The witness path contains sibling hashes — NOT the other event commitments.
+    // Verifier only sees: witness (sibling path), commitment (leaf), and root.
+    // They CANNOT extract commitments of events 0, 1, 2, or 4 from this data.
+    const isValid = AuditMerkleIndex.verifySelectiveWitness(
+      result.witness,
+      result.eventCommitment,
+      result.root,
+    );
+    expect(isValid).toBe(true);
+
+    // Prove another event with same root (different witness, different commitment)
+    const result0 = index.getSelectiveWitness(0n);
+    expect(result0.eventCommitment.toString()).not.toBe(
+      result.eventCommitment.toString(),
+    );
+    const isValid0 = AuditMerkleIndex.verifySelectiveWitness(
+      result0.witness,
+      result0.eventCommitment,
+      result0.root,
+    );
+    expect(isValid0).toBe(true);
+
+    // Both witnesses share the same root but reveal different leaves
+    expect(result.root.toString()).toBe(result0.root.toString());
+  });
+
+  test('07-R03: selective witness root matches full Merkle index root', () => {
+    const index = new AuditMerkleIndex();
+    const events = buildValidChain(4);
+    for (const event of events) {
+      index.appendEvent(event);
+    }
+
+    const fullRoot = index.getRoot();
+
+    // Every event's witness root should match the full index root
+    for (let i = 0n; i < 4n; i++) {
+      const result = index.getSelectiveWitness(i);
+      expect(result.root.toString()).toBe(fullRoot.toString());
+
+      // Witness also verifies against the full root
+      const isValid = AuditMerkleIndex.verifySelectiveWitness(
+        result.witness,
+        result.eventCommitment,
+        fullRoot,
+      );
+      expect(isValid).toBe(true);
+    }
+  });
+
+  test('07-R04: tampered event commitment fails selective witness verification', () => {
+    const index = new AuditMerkleIndex();
+    const events = buildValidChain(3);
+    for (const event of events) {
+      index.appendEvent(event);
+    }
+
+    const result = index.getSelectiveWitness(1n);
+
+    // Tamper with the commitment — use a different hash
+    const tamperedCommitment = Poseidon.hash([Field(99999n)]);
+
+    const isValid = AuditMerkleIndex.verifySelectiveWitness(
+      result.witness,
+      tamperedCommitment,
+      result.root,
+    );
+    expect(isValid).toBe(false);
+  });
+
+  test('empty index has default root and eventCount=0', () => {
+    const index = new AuditMerkleIndex();
+    expect(index.getEventCount()).toBe(0n);
+    // Root should be the empty MerkleTree root (all zeroes)
+    expect(index.getRoot().toBigInt()).toBeGreaterThan(0n); // Exists and non-trivial
+  });
+
+  test('append N events gives correct sequential indices', () => {
+    const index = new AuditMerkleIndex();
+    const events = buildValidChain(5);
+
+    for (let i = 0; i < events.length; i++) {
+      const leafIndex = index.appendEvent(events[i]);
+      expect(leafIndex).toBe(BigInt(i));
+    }
+
+    expect(index.getEventCount()).toBe(5n);
+  });
+
+  test('appendEventFromCommitment works with pre-computed commitment', () => {
+    const index = new AuditMerkleIndex();
+    const events = buildValidChain(2);
+
+    const commitment = AuditService.computeEventCommitment(events[0]);
+    const leafIndex = index.appendEventFromCommitment(commitment);
+    expect(leafIndex).toBe(0n);
+
+    const result = index.getSelectiveWitness(0n);
+    expect(result.eventCommitment.toString()).toBe(commitment.toString());
+  });
+
+  test('export/restore preserves tree root and all witnesses', () => {
+    const index = new AuditMerkleIndex();
+    const events = buildValidChain(4);
+    for (const event of events) {
+      index.appendEvent(event);
+    }
+
+    const rootBefore = index.getRoot().toString();
+    const witness2Before = index.getSelectiveWitness(2n);
+
+    // Export and restore
+    const state = index.exportState();
+    const restored = new AuditMerkleIndex();
+    restored.restoreState(state);
+
+    // Root matches
+    expect(restored.getRoot().toString()).toBe(rootBefore);
+    expect(restored.getEventCount()).toBe(4n);
+
+    // Witness for event 2 still valid
+    const witness2After = restored.getSelectiveWitness(2n);
+    expect(witness2After.eventCommitment.toString()).toBe(
+      witness2Before.eventCommitment.toString(),
+    );
+    const isValid = AuditMerkleIndex.verifySelectiveWitness(
+      witness2After.witness,
+      witness2After.eventCommitment,
+      witness2After.root,
+    );
+    expect(isValid).toBe(true);
+  });
+
+  test('witness for non-existent index throws', () => {
+    const index = new AuditMerkleIndex();
+    const events = buildValidChain(2);
+    for (const event of events) {
+      index.appendEvent(event);
+    }
+
+    expect(() => index.getSelectiveWitness(5n)).toThrow(
+      'Event index 5 out of range (2 events stored)',
+    );
+  });
+
+  test('root changes after each append (non-trivial tree progression)', () => {
+    const index = new AuditMerkleIndex();
+    const events = buildValidChain(3);
+    const roots: string[] = [];
+
+    roots.push(index.getRoot().toString()); // empty
+
+    for (const event of events) {
+      index.appendEvent(event);
+      roots.push(index.getRoot().toString());
+    }
+
+    // All 4 roots (empty + 3 appends) should be distinct
+    const unique = new Set(roots);
+    expect(unique.size).toBe(4);
+  });
+
+  test('batch rollback removes leaves and restores previous root', () => {
+    const index = new AuditMerkleIndex();
+    const events = buildValidChain(5);
+
+    // Append first 3 events
+    for (let i = 0; i < 3; i++) {
+      index.appendEvent(events[i]);
+    }
+    const rootAfter3 = index.getRoot().toString();
+    const countAfter3 = index.getEventCount();
+
+    // Append 2 more (simulating a batch that will fail)
+    index.appendEvent(events[3]);
+    index.appendEvent(events[4]);
+    expect(index.getEventCount()).toBe(5n);
+    expect(index.getRoot().toString()).not.toBe(rootAfter3);
+
+    // Rollback: export, truncate, restore
+    const state = index.exportState();
+    state.eventCommitments = state.eventCommitments.slice(0, Number(countAfter3));
+    state.nextLeafIndex = countAfter3;
+    index.restoreState(state);
+
+    // Should be back to the state after 3 events
+    expect(index.getEventCount()).toBe(3n);
+    expect(index.getRoot().toString()).toBe(rootAfter3);
+
+    // Witnesses for events 0-2 still valid
+    for (let i = 0n; i < 3n; i++) {
+      const result = index.getSelectiveWitness(i);
+      const isValid = AuditMerkleIndex.verifySelectiveWitness(
+        result.witness,
+        result.eventCommitment,
+        result.root,
+      );
+      expect(isValid).toBe(true);
+    }
+
+    // Event 3 no longer accessible
+    expect(() => index.getSelectiveWitness(3n)).toThrow();
   });
 });

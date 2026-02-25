@@ -17,6 +17,7 @@
 import type { L2Receipt, L2Block, L2Batch } from './l2-types.js';
 import type { AuditEvent } from '../audit/audit-types.js';
 import type { ClaimAccumulatorEntry } from './claim-accumulator-types.js';
+import type { StoredMessage, MessagePayload } from './message-store-types.js';
 import type { L2SequencerState } from './l2-checkpoint.js';
 import type { LeaderHeartbeatPayload, LeaderPromotionPayload } from './l2-leviathan-types.js';
 
@@ -63,6 +64,7 @@ export type GossipMessageType =
   | 'batch:failed'        // Batch failure + reason
   | 'state:snapshot'      // Full state for IBD (response to sync request)
   | 'peer:announce'       // Peer discovery + exchange peer lists
+  | 'message:stored'      // New encrypted message stored in Message Store
   | 'leader:heartbeat'    // Leviathan leader heartbeat (partition leadership)
   | 'leader:promotion';   // Leviathan leader promotion (failover)
 
@@ -130,6 +132,21 @@ export interface BatchFailedPayload {
 }
 
 /**
+ * MessageStoredPayload — broadcast when a new encrypted message is stored.
+ *
+ * Replicas apply this to their local message store for HA.
+ * Messages are global (not partitioned) — all nodes store all messages.
+ */
+export interface MessageStoredPayload {
+  leafIndex: bigint;
+  message: StoredMessage;
+  payload: MessagePayload;
+  leafHash: string;
+  /** Partition index (leviathan mode). Undefined for single-sequencer backward compat. */
+  partitionIndex?: number;
+}
+
+/**
  * PeerAnnouncePayload — broadcast for peer discovery.
  *
  * Contains this node's identity and a list of known peer URLs
@@ -147,6 +164,7 @@ export type GossipPayload =
   | BatchBuiltPayload
   | BatchSettledPayload
   | BatchFailedPayload
+  | MessageStoredPayload
   | PeerAnnouncePayload
   | L2SequencerState         // For state:snapshot (IBD)
   | LeaderHeartbeatPayload   // For leader:heartbeat (leviathan)

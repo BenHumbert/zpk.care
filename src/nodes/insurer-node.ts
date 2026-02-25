@@ -14,6 +14,7 @@
 import type { L2Receipt, L2Batch, L2ChainProofResponse } from '../l2/l2-types.js';
 import type { AuditLog, FullAuditReport, ChainIntegrityResult, FinancialBalanceResult, DuplicateDetectionResult } from '../audit/audit-types.js';
 import type { ClaimAccumulatorEntry } from '../l2/claim-accumulator-types.js';
+import type { MessageStoreEntry } from '../l2/message-store-types.js';
 import type {
   ReportFilter,
   ClaimsRegisterReport,
@@ -100,6 +101,13 @@ export class InsurerNode extends EntityNodeBase {
   async getDrugClaims(ndcHash: string): Promise<EntityClaimView[]> {
     const entries = await this.client.getClaimsByNdc(ndcHash);
     return this.toClaimViews(entries);
+  }
+
+  // ─── Messaging (System-Wide) ────────────────────────────
+
+  /** Get all messages for any wallet (insurer system-wide query) */
+  async getMessagesByWallet(walletId: string): Promise<MessageStoreEntry[]> {
+    return this.client.getMessagesByWallet(walletId);
   }
 
   // ─── Reporting (12 types) ───────────────────────────────

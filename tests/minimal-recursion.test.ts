@@ -1,8 +1,7 @@
 /**
  * Minimal 3-level recursion reproduction test.
  *
- * Isolates the BatchProgram.wrapTransition pickles error to determine
- * whether the root cause is:
+ * Isolates the BatchProgram pickles error to determine whether the root cause is:
  *   (a) 3-level recursion depth itself, OR
  *   (b) Heterogeneous method signatures (1 proof vs 2 proofs in same ZkProgram)
  *
@@ -12,6 +11,12 @@
  *
  *   2. ProgramA (0 proofs) → ProgramB (1 proof) → ProgramC_Mixed (1 proof + 2 SelfProofs)
  *      If this FAILS: the issue is heterogeneous methods + dummy proofs (Issue #1939)
+ *
+ * PRODUCTION FIX: The ProgramC_UniformPair pattern proven here has been
+ * applied to BatchProgram (src/l2/batch-program.ts). The old wrapTransition
+ * (1 proof) was replaced with wrapPair (2 proofs), making both methods
+ * uniform at maxProofsVerified=2. This enables the full 3-tier zkTrident
+ * chain: StateTransitionProof → BatchProof → ChainProof.
  *
  * Run:
  *   NODE_OPTIONS="--max-old-space-size=8192" npx jest tests/minimal-recursion.test.ts --verbose --maxWorkers=1

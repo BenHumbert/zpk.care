@@ -124,6 +124,8 @@ export interface L2Batch {
   failureReason?: string;
   /** Claim Accumulator Tree root at the time this batch was created */
   claimAccumulatorRoot?: string;
+  /** Message Store root at the time this batch was created */
+  messageStoreRoot?: string;
 }
 
 // ─── L2 Node Config ─────────────────────────────────────────
@@ -239,6 +241,8 @@ export interface ClaimSubmissionMetadata {
   daysSupply?: number;
   /** Fill number: 0=original, 1+=refill (optional, for display) */
   fillNumber?: number;
+  /** Deductible credit in cents (from AccumulatorFulfillmentProof output) */
+  deductibleCreditCents?: string;
 }
 
 // ─── L2 Chain State Query ────────────────────────────────────

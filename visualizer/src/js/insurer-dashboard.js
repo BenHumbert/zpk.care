@@ -973,15 +973,21 @@ async function renderBatches() {
   const columns = [
     { key: 'batchNumber', label: 'Batch #', format: (v) => `<span style="font-weight: 600;">#${v}</span>` },
     { key: 'registrationCount', label: 'Registrations', align: 'right' },
-    { key: 'transitionCount', label: 'Transitions', align: 'right' },
+    { key: 'transitionCount', label: 'Transitions', align: 'right', format: (v, row) => {
+      const isEmpty = row.transitionCount === 0 && row.registrationCount === 0;
+      return isEmpty ? '<span style="color: var(--text-secondary);">0 (empty)</span>' : v;
+    }},
     { key: 'l1Status', label: 'Status', format: (v) => statusBadge(v) },
     { key: 'createdAt', label: 'Created At', format: (v) => formatTimestamp(v) },
     { key: 'l1TxHash', label: 'L1 Tx Hash', format: (v) => v ? `<span class="mono" style="font-size: 10px;" title="${v}">${truncHash(v, 8)}</span>` : '--' },
   ];
 
+  const emptyRowStyle = (row) =>
+    row.transitionCount === 0 && row.registrationCount === 0 ? 'opacity: 0.5;' : '';
+
   const content = `
     <div style="max-height: 400px; overflow-y: auto;">
-      ${renderSortableTable('batches-table', columns, sorted)}
+      ${renderSortableTable('batches-table', columns, sorted, null, emptyRowStyle)}
     </div>
   `;
 

@@ -18,6 +18,7 @@ import type { L2ClientOptions } from '../l2/l2-client.js';
 import { PartitionRouter, getPartition } from '../l2/l2-partition.js';
 import type { L2ChainState, L2Receipt } from '../l2/l2-types.js';
 import type { ClaimAccumulatorEntry } from '../l2/claim-accumulator-types.js';
+import type { StoredMessage, MessagePayload, MessageStoreEntry } from '../l2/message-store-types.js';
 import type { L2ChainEvent, L2EventHandler, L2NodeStatus } from '../l2/l2-node.js';
 import type {
   EntityNodeConfig,
@@ -93,6 +94,52 @@ export abstract class EntityNodeBase {
     return this.partitionClients.get(idx) ?? this.client;
   }
 
+  /**
+   * Execute a partition-routed operation with automatic failover.
+   *
+   * On connection failure (ECONNREFUSED, timeout, etc.), re-discovers
+   * partition leaders from the primary sequencer and retries once.
+   * This handles transparent failover when a leviathan partition leader
+   * goes down and another node has promoted itself.
+   */
+  protected async withPartitionRetry<T>(
+    walletId: string,
+    fn: (client: L2Client) => Promise<T>,
+  ): Promise<T> {
+    const client = this.getClientForWallet(walletId);
+    try {
+      return await fn(client);
+    } catch (err) {
+      if (this.isConnectionError(err)) {
+        await this.discoverPartitions();
+        const retryClient = this.getClientForWallet(walletId);
+        return fn(retryClient);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Check if an error indicates a connection-level failure (not an
+   * application-level rejection). These errors suggest the partition
+   * leader may have changed.
+   */
+  private isConnectionError(err: unknown): boolean {
+    if (!(err instanceof Error)) return false;
+    const msg = err.message.toLowerCase();
+    return (
+      msg.includes('econnrefused') ||
+      msg.includes('econnreset') ||
+      msg.includes('etimedout') ||
+      msg.includes('enetunreach') ||
+      msg.includes('ehostunreach') ||
+      msg.includes('fetch failed') ||
+      msg.includes('network error') ||
+      msg.includes('socket hang up') ||
+      msg.includes('aborted')
+    );
+  }
+
   // ─── Shared Query Methods ───────────────────────────────
 
   /** Get the sequencer's current chain state (roots, counts, batch info) */
@@ -146,6 +193,44 @@ export abstract class EntityNodeBase {
   /** Get the current partition router (null if no partitioning) */
   getPartitionRouter(): PartitionRouter | null {
     return this.partitionRouter;
+  }
+
+  // ─── Messaging ─────────────────────────────────────────
+
+  /** Store an encrypted message on the sequencer */
+  async storeMessage(message: StoredMessage, payload: MessagePayload): Promise<MessageStoreEntry> {
+    return this.client.storeMessage(message, payload);
+  }
+
+  /** Get messages received by this wallet */
+  async getInbox(): Promise<MessageStoreEntry[]> {
+    const walletId = this.config.walletId;
+    if (!walletId) return [];
+    return this.client.getMessagesByRecipient(walletId);
+  }
+
+  /** Get messages sent by this wallet */
+  async getSentMessages(): Promise<MessageStoreEntry[]> {
+    const walletId = this.config.walletId;
+    if (!walletId) return [];
+    return this.client.getMessagesBySender(walletId);
+  }
+
+  /** Get all messages in a thread */
+  async getMessagesByThread(threadIdHash: string): Promise<MessageStoreEntry[]> {
+    return this.client.getMessagesByThread(threadIdHash);
+  }
+
+  /** Get all messages involving this wallet (sent + received) */
+  async getAllMessages(): Promise<MessageStoreEntry[]> {
+    const walletId = this.config.walletId;
+    if (!walletId) return [];
+    return this.client.getMessagesByWallet(walletId);
+  }
+
+  /** Get the Message Store root and count */
+  async getMessageStoreStatus(): Promise<{ root: string; messageCount: string }> {
+    return this.client.getMessageStoreRoot();
   }
 
   // ─── Shared Transformation Helpers ──────────────────────

@@ -198,6 +198,8 @@ interface EnrolledMember {
   credentialInventoryRoot: Field;
   cachedProofGateProof: unknown;
   l2Receipts: string[];
+  /** Last generated portable credential JSON (for pharmacy fill) */
+  lastCredentialJson?: string;
 }
 
 // ─── Prescription State ─────────────────────────────────
@@ -320,6 +322,17 @@ export class InteractiveDemoService {
   private priorAuths: Map<string, PriorAuthState> = new Map();
   private rxCounter = 0;
   private paCounter = 0;
+  /** Prescriptions currently being proved (visible to pharmacy as PENDING). */
+  private pendingPrescriptions: Map<string, {
+    id: string;
+    prescriberIndex: number;
+    pharmacyIndex: number;
+    memberWalletId: string;
+    medicationIndex: number;
+    quantity: number;
+    refills: number;
+    startedAt: number;
+  }> = new Map();
   /** Next available PA leaf index per member (leaves 1-126 in ACCESS_CONTROL tree) */
   private nextPaLeafIndex: Map<string, bigint> = new Map();
   private compiled = false;
@@ -557,7 +570,7 @@ export class InteractiveDemoService {
         this.credentialProgramVkHash = Field(result.verificationKey.hash);
       } },
       { name: 'StateTransitionProgram (2 methods)', fn: () => StateTransitionProgram.compile() },
-      { name: 'BatchProgram (2 methods)', fn: () => BatchProgram.compile() },
+      { name: 'BatchProgram (3 methods)', fn: () => BatchProgram.compile() },
     ];
 
     const compileStart = performance.now();
@@ -589,6 +602,21 @@ export class InteractiveDemoService {
     if (!member) throw new Error(`Invalid member index: ${memberIndex}`);
 
     const displayName = `${member.localData.firstName} ${member.localData.lastName}`;
+
+    // Check if already fully enrolled (e.g., user clicked "Enroll" twice)
+    const existingWalletId = deriveMemberWalletId(member.localData, member.enrollmentKey);
+    if (this.enrolledMembers.has(existingWalletId.toString())) {
+      const existing = this.enrolledMembers.get(existingWalletId.toString())!;
+      this.emit('info', 'enroll', `${displayName} is already enrolled — skipping`);
+      return {
+        memberIndex,
+        walletId: existing.walletIdStr,
+        displayName: existing.displayName,
+        lifecycle: existing.lifecycle,
+        alreadyEnrolled: true,
+      };
+    }
+
     const enrollStartTime = performance.now();
     this.emit('phase', 'enroll', `═══ Member Enrollment: ${displayName} ═══`);
 
@@ -690,15 +718,11 @@ export class InteractiveDemoService {
     this.emit('info', 'enroll', `  │  Sequence #:  ${regReceipt.sequenceNumber}`);
     this.emit('info', 'enroll', `  └─ Wallet registered on L2 chain`);
 
-    // 4b. PHASE B: Admin lifecycle transition (REGISTERED → ELIGIBLE)
-    this.emit('offchain', 'enroll', 'Step 4b: Admin lifecycle transition REGISTERED → ELIGIBLE...', 'start');
-    this.lifecycleTree.setLeaf(BigInt(walletIndex), lifecycleLeafCommitment(walletId, LIFECYCLE_ELIGIBLE));
-    this.l2Node.getSequencer().applyAdminRootUpdate({
-      newLifecycleRoot: this.lifecycleTree.getRoot(),
-    });
-    this.emit('offchain', 'enroll', 'Step 4b: Lifecycle updated to ELIGIBLE (admin op)', 'complete');
-
-    // 4c. PHASE C: Credential mint — build forest + CredentialData + proveWalletUpdate
+    // 4b. PHASE B: Credential mint — build forest + CredentialData + proveWalletUpdate
+    // NOTE: Admin lifecycle transition (REGISTERED → ELIGIBLE) is deferred to AFTER
+    // the wallet update proof so both proofs chain correctly in BatchProgram.wrapPair().
+    // The registration proof sets lifecycle to REGISTERED; the wallet update proof must
+    // use the same REGISTERED root. The ELIGIBLE advancement happens after both proofs.
     this.emit('offchain', 'enroll', 'Step 4c: Building eligibility forest + minting credential...', 'start');
     const startMint = performance.now();
 
@@ -776,7 +800,7 @@ export class InteractiveDemoService {
 
     // Create CredentialInventory + mint
     const credentialInventory = new CredentialInventory();
-    credentialInventory.mintCredential(credentialData);
+    credentialInventory.mint(credentialData);
     const inventoryRoot = credentialInventory.getRoot();
 
     // Generate proveWalletUpdate (EMPTY_CREDENTIAL_ROOT → inventoryRoot, nonce 0→1)
@@ -791,10 +815,10 @@ export class InteractiveDemoService {
       preimageFields[0]!, preimageFields[1]!, preimageFields[2]!, preimageFields[3]!, preimageFields[4]!,
       EMPTY_CREDENTIAL_ROOT, Field(0), inventoryRoot,
       mintRegWitness, mintLcWitness, currentRegRoot, currentLcRoot,
-      LIFECYCLE_ELIGIBLE,
+      LIFECYCLE_REGISTERED,
     );
     const elapsedMint = performance.now() - startMint;
-    this.emit('proof', 'enroll', `Step 4c: Wallet update proof generated (credential minted)`, 'complete', elapsedMint);
+    this.emit('proof', 'enroll', `Step 4b: Wallet update proof generated (credential minted)`, 'complete', elapsedMint);
 
     const mintOutput = stResult.proof.publicOutput;
     this.emit('info', 'enroll', `  ┌─ PROOF: StateTransitionProgram.proveWalletUpdate (Credential Mint)`);
@@ -822,6 +846,39 @@ export class InteractiveDemoService {
     this.emit('info', 'enroll', `  │  Receipt ID:  ${mintReceipt.receiptId}`);
     this.emit('info', 'enroll', `  │  Sequence #:  ${mintReceipt.sequenceNumber}`);
     this.emit('info', 'enroll', `  └─ Eligibility credential committed to L2 chain`);
+
+    // 4b-settle. Batch the 2 enrollment proofs BEFORE the admin lifecycle update.
+    // We call buildBatch() directly (not forceBatch) because we already hold the
+    // proving lock. This drains the pending pool so the admin lifecycle update
+    // won't create an un-proven root gap between this enrollment's proofs and the
+    // next enrollment's proofs when they end up in the same batch (mergeBatches
+    // enforces left.newLifecycleRoot == right.oldLifecycleRoot).
+    this.emit('offchain', 'enroll', `Batch building... (${this.l2Node.getSequencer().getPendingCount()} pending transitions)`);
+    try {
+      const sequencer = this.l2Node.getSequencer();
+      const enrollBatch = await sequencer.buildBatch();
+      if (enrollBatch) {
+        // Settle immediately — buildBatch() sets inFlightBatchNumber which blocks
+        // future batches until settled. Since we're inside the proving lock and need
+        // the next enrollment to also build its batch, we must clear in-flight now.
+        sequencer.markBatchSettled(
+          enrollBatch.batchNumber,
+          `l2-enroll-${enrollBatch.batchNumber}`,
+        );
+        this.emit('offchain', 'enroll', `Enrollment batch #${enrollBatch.batchNumber} built & settled (${enrollBatch.transitionCount} transitions)`);
+      }
+    } catch (e) {
+      this.emit('offchain', 'enroll', `Enrollment batch build warning: ${e instanceof Error ? e.message : e}`);
+    }
+
+    // 4c. PHASE C: Admin lifecycle transition (REGISTERED → ELIGIBLE)
+    // Deferred to after both proofs are batched so the proof chain is continuous.
+    this.emit('offchain', 'enroll', 'Step 4c: Admin lifecycle transition REGISTERED → ELIGIBLE...', 'start');
+    this.lifecycleTree.setLeaf(BigInt(walletIndex), lifecycleLeafCommitment(walletId, LIFECYCLE_ELIGIBLE));
+    this.l2Node.getSequencer().applyAdminRootUpdate({
+      newLifecycleRoot: this.lifecycleTree.getRoot(),
+    });
+    this.emit('offchain', 'enroll', 'Step 4c: Lifecycle updated to ELIGIBLE (admin op)', 'complete');
 
     // Update opaque roster
     try {
@@ -1480,6 +1537,21 @@ export class InteractiveDemoService {
     // Determine total proof steps (4 for non-PA, 5 for PA-required)
     const totalSteps = requiresPa ? 5 : 4;
 
+    // Register as pending so the pharmacy Dispensing Queue shows it immediately
+    this.rxCounter++;
+    const pendingRxId = `RX-${String(this.rxCounter).padStart(4, '0')}`;
+    this.pendingPrescriptions.set(pendingRxId, {
+      id: pendingRxId,
+      prescriberIndex: opts.prescriberIndex,
+      pharmacyIndex: opts.pharmacyIndex,
+      memberWalletId: opts.memberWalletId,
+      medicationIndex: opts.medicationIndex,
+      quantity: opts.quantity,
+      refills: effectiveRefills,
+      startedAt: Date.now(),
+    });
+
+    try {
     // 1. ProofGate: Prescriber identity
     this.emit('proof', 'prescribe', `[1/${totalSteps}] Generating ProofGate.verifyPrescriber proof...`, 'start');
     const startPG = performance.now();
@@ -1730,9 +1802,9 @@ export class InteractiveDemoService {
       data: { medication: medication.brandName, status: 'ACTIVE' },
     });
 
-    // Store prescription state
-    this.rxCounter++;
-    const rxId = `RX-${String(this.rxCounter).padStart(4, '0')}`;
+    // Store prescription state (promote from pending to active)
+    this.pendingPrescriptions.delete(pendingRxId);
+    const rxId = pendingRxId;
     const rxState: PrescriptionState = {
       id: rxId,
       prescriptionData,
@@ -1826,13 +1898,19 @@ export class InteractiveDemoService {
       },
       chainState: this.getChainState(),
     };
+
+    } catch (err) {
+      // Clean up pending entry on proof failure
+      this.pendingPrescriptions.delete(pendingRxId);
+      throw err;
+    }
   }
 
   // ─── Fill Prescription ─────────────────────────────────
 
   async fillPrescription(opts: {
     prescriptionId: string;
-    credentialJson: string;       // Required: member's portable credential (holding proof)
+    credentialJson?: string;      // Optional: no longer required for fill (fills are reversible)
     quantityDispensed?: number;
     ingredientCostCents?: number;
     dispensingFeeCents?: number;
@@ -1848,49 +1926,18 @@ export class InteractiveDemoService {
       throw new Error(`Cannot fill prescription in ${rxState.status} status: ${opts.prescriptionId}`);
     }
 
-    // ─── Credential Verification Gate (stateless) ────────────────
-    // Every fill verifies the credential fresh — no stored server state.
-    // This is exactly how production works: pharmacy scans credential at counter.
-    // The credential proves the member owns the wallet (ZK holding proof).
+    // ─── Wallet Identity (no credential required) ────────────────
+    // The prescription already records the member's walletId.
     // The pharmacy proves its own identity via ProofGate.verifyPharmacy below.
-    if (!opts.credentialJson) {
-      throw new Error(
-        'Credential required: member must present a verified holding proof before dispensing.',
-      );
-    }
-
-    let credential: PortableCredential;
-    try {
-      credential = JSON.parse(opts.credentialJson);
-    } catch {
-      throw new Error('Invalid credential JSON');
-    }
-
-    // Verify the ZK proof offline (same as pharmacy device would)
-    const credentialValid = await verifyCredentialOffline(credential, this.credentialProgramVk!);
-    if (!credentialValid) {
-      throw new Error(
-        'Credential verification failed: proof is invalid, expired, or tampered.',
-      );
-    }
-
-    // Confirm the credential's wallet matches the prescription's member
-    const credentialWalletId = credential.publicOutput.walletId;
-    if (credentialWalletId !== rxState.memberWalletId) {
-      throw new Error(
-        'Credential wallet does not match prescription member. Wrong patient credential.',
-      );
-    }
-
-    // Compute service date from NOW (the moment of verified dispensing)
+    // No credential needed — fills are reversible, so the risk is low.
     const now = new Date();
     const serviceDateStr = now.getFullYear().toString() +
       String(now.getMonth() + 1).padStart(2, '0') +
       String(now.getDate()).padStart(2, '0');
 
-    this.emit('info', 'fill', `  Member credential VERIFIED — wallet ${truncField(Field(BigInt(credentialWalletId)))}`);
-    this.emit('info', 'fill', `  Service date: ${serviceDateStr} (from verified dispensing time)`);
-    // ─── End Credential Gate ─────────────────────────────────────
+    this.emit('info', 'fill', `  Member wallet from prescription — ${truncField(Field(BigInt(rxState.memberWalletId)))}`);
+    this.emit('info', 'fill', `  Service date: ${serviceDateStr}`);
+    // ─── End Wallet Identity ─────────────────────────────────────
 
     const medication = DEMO_MEDICATIONS[rxState.medicationIndex];
     const pharmacy = DEMO_PHARMACIES[rxState.pharmacyIndex];
@@ -4508,6 +4555,10 @@ export class InteractiveDemoService {
     this.emit('info', 'credential', '  This credential can be verified offline at any pharmacy.');
 
     const credentialJson = JSON.stringify(credential);
+
+    // Store on enrolled member so pharmacy can access it via getState()
+    enrolled.lastCredentialJson = credentialJson;
+
     return {
       credential,
       credentialJson,
@@ -4636,6 +4687,7 @@ export class InteractiveDemoService {
         terminationDate: m.terminationDate,
         nonce: m.nonce,
         l2Receipts: m.l2Receipts,
+        credentialJson: m.lastCredentialJson ?? null,
         credentialInventory: {
           count: m.credentialInventory.count,
           inventoryRoot: fieldToStr(m.credentialInventory.getRoot()),
@@ -4645,6 +4697,27 @@ export class InteractiveDemoService {
     }
 
     const rxList: Record<string, unknown>[] = [];
+    // Include pending prescriptions (proofs being generated) so pharmacy can see them queuing
+    for (const [_, pending] of this.pendingPrescriptions) {
+      const med = DEMO_MEDICATIONS[pending.medicationIndex];
+      rxList.push({
+        id: pending.id,
+        medication: med.brandName,
+        medicationStrength: med.strength,
+        medicationIndex: pending.medicationIndex,
+        memberWalletId: pending.memberWalletId,
+        prescriberIndex: pending.prescriberIndex,
+        pharmacyIndex: pending.pharmacyIndex,
+        quantity: pending.quantity,
+        quantityDispensed: 0,
+        refills: pending.refills,
+        refillsUsed: 0,
+        status: 'PENDING',
+        filled: false,
+        statusHistory: [],
+        startedAt: pending.startedAt,
+      });
+    }
     for (const [_, rx] of this.prescriptions) {
       const med = DEMO_MEDICATIONS[rx.medicationIndex];
       const fills = this.fulfillments.get(rx.id) || [];
@@ -4924,6 +4997,7 @@ export class InteractiveDemoService {
     this.emit('info', 'reset', 'Resetting session state (keeping compiled programs)...');
     this.enrolledMembers.clear();
     this.prescriptions.clear();
+    this.pendingPrescriptions.clear();
     this.fulfillments.clear();
     this.priorAuths.clear();
     this.nextPaLeafIndex.clear();

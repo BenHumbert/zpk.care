@@ -223,6 +223,19 @@ describe('L2SequencerService', () => {
     expect(result).toBeNull();
   });
 
+  test('buildBatch returns null when only 1 pending proof (needs pair)', async () => {
+    // wrapPair requires 2 proofs — a single pending proof must wait for a partner
+    const s = service as any;
+    s.pendingPool = [{ proof: {}, receipt: { receiptId: 'l2-solo' } }];
+    expect(s.pendingPool).toHaveLength(1);
+
+    const result = await service.buildBatch();
+    expect(result).toBeNull();
+
+    // Single proof remains in pool, waiting for a partner
+    expect(s.pendingPool).toHaveLength(1);
+  });
+
   test('drainAdminQueue returns operations and clears queue', () => {
     const delta1: AdminStateDelta = {
       operationType: 'updateBenefitPlan',

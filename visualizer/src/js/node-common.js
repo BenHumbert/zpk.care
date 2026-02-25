@@ -161,7 +161,7 @@ export function renderBadge(text, type) {
 }
 
 // Sortable table. columns = [{key, label, format?, align?}], rows = objects
-export function renderSortableTable(tableId, columns, rows, defaultSortKey) {
+export function renderSortableTable(tableId, columns, rows, defaultSortKey, rowStyle) {
   if (rows.length === 0) {
     return `<div style="color: var(--text-secondary); padding: 16px; text-align: center;">No data available</div>`;
   }
@@ -173,7 +173,8 @@ export function renderSortableTable(tableId, columns, rows, defaultSortKey) {
       const val = c.format ? c.format(row[c.key], row) : (row[c.key] ?? '—');
       return `<td style="${c.align === 'right' ? 'text-align: right;' : ''}">${val}</td>`;
     }).join('');
-    return `<tr>${cells}</tr>`;
+    const rs = rowStyle ? rowStyle(row) : '';
+    return `<tr${rs ? ` style="${rs}"` : ''}>${cells}</tr>`;
   }).join('');
   return `
     <table class="sortable-table" id="${tableId}">

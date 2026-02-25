@@ -147,8 +147,10 @@ export class MemberNode extends EntityNodeBase {
    * Submit a proof to the sequencer (auto-routes to correct partition).
    */
   async submitProof(proof: StateTransitionProof): Promise<L2Receipt> {
-    const client = this.getClientForWallet(this.config.walletId!);
-    return client.submitProof(proof);
+    return this.withPartitionRetry(
+      this.config.walletId!,
+      (client) => client.submitProof(proof),
+    );
   }
 
   /** Get proof timing estimates for delegation decisions */

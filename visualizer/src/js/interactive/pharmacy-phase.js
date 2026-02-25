@@ -1,18 +1,18 @@
 /**
- * Pharmacy Phase — Pharmacy fill UI with credential verification gate.
+ * Pharmacy Phase — Pharmacy fill UI with direct script selection.
  *
- * Two-phase flow (mirrors production):
- *   Phase 1: Credential Verification Gate — member must present a portable
- *            credential (ZK holding proof) before any medication can be dispensed.
- *   Phase 2: Verified Pharmacy View — after credential is verified, pharmacy
- *            sees the member's available prescriptions and can fill/dispense.
+ * No credential gate — fills are reversible, so the pharmacy can fill
+ * any DISPENSED or PARTIALLY_FILLED prescription directly.
  *
- * The credential JSON is stored on the client only (no server state).
- * It is passed to the fill endpoint on every fill request, where the backend
- * re-verifies it inline — fully stateless.
+ * Layout:
+ *   1. Dispensing Queue — PENDING/ACTIVE prescriptions (Dispense/Reject)
+ *   2. Fill Queue — DISPENSED/PARTIALLY_FILLED prescriptions (Select for Fill)
+ *   3. Fill Details Panel — selected prescription's fill form
+ *   4. Formulary Browser — searchable medication reference table
+ *   5. Prescription History — FILLED/REVERSED/CANCELLED/REJECTED
  *
  * Wallet binding:
- *   - Member's wallet: proven by PortableCredential (proveHolding ZK proof)
+ *   - Member's wallet: identified by prescription record (walletId)
  *   - Pharmacy's wallet: proven by ProofGate.verifyPharmacy (step 1 of fill)
  */
 
@@ -27,9 +27,7 @@ export class PharmacyPhase {
     this.container = document.getElementById('tab-pharmacy');
     this.fillResult = null;
     this.selectedRxId = null;
-    // Credential verification state (client-only, not stored on server)
-    this.verifiedMember = null;       // { walletId, displayName, proofType, prescriptions }
-    this.storedCredentialJson = null;  // raw JSON string — passed to fill endpoint
+    this.selectedMedIndex = null; // for formulary browser
   }
 
   // ─── Main Render ─────────────────────────────────────────
@@ -38,51 +36,36 @@ export class PharmacyPhase {
     this.currentState = state;
 
     const allPrescriptions = state.prescriptions || [];
-    const activePrescriptions = allPrescriptions.filter(rx => rx.status === 'ACTIVE');
-    const dispensedPrescriptions = allPrescriptions.filter(rx => rx.status === 'DISPENSED');
-    const hasVerifiedCredential = this.verifiedMember && this.storedCredentialJson;
+    const queuePrescriptions = allPrescriptions.filter(rx =>
+      rx.status === 'PENDING' || rx.status === 'ACTIVE');
+    const fillablePrescriptions = allPrescriptions.filter(rx =>
+      rx.status === 'DISPENSED' || rx.status === 'PARTIALLY_FILLED');
 
     this.container.innerHTML = `
-      ${this.renderDispensingQueue(activePrescriptions, state)}
-      ${dispensedPrescriptions.length > 0 || hasVerifiedCredential
-        ? this.renderPickupSection(dispensedPrescriptions, state)
-        : this.renderCredentialGateCompact(state)}
-      ${hasVerifiedCredential ? this.renderFillableSection(state) : ''}
+      ${this.renderDispensingQueue(queuePrescriptions, state)}
+      ${this.renderFillQueue(fillablePrescriptions, state)}
+      ${this.selectedRxId ? this.renderFillDetails(fillablePrescriptions, state) : ''}
+      ${this.renderFormularyBrowser(state)}
       ${this.renderPrescriptionHistory(allPrescriptions, state)}
     `;
 
     this.bindDispensingQueueEvents(state);
-    // Bind pickup-fill buttons (DISPENSED Rx in Pickup section → select & scroll to fill form)
-    this.container.querySelectorAll('.btn-pickup-fill').forEach(btn => {
-      btn.addEventListener('click', () => {
-        this.selectedRxId = btn.dataset.rxId;
-        this.render(this.currentState);
-        const fillBtn = document.getElementById('btn-fill');
-        if (fillBtn) fillBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      });
-    });
-    if (hasVerifiedCredential) {
-      const fillable = allPrescriptions.filter(rx =>
-        rx.memberWalletId === this.verifiedMember.walletId &&
-        (rx.status === 'DISPENSED' || rx.status === 'PARTIALLY_FILLED'));
-      if (fillable.length > 0) {
-        const currentRx = this.selectedRxId
-          ? fillable.find(rx => rx.id === this.selectedRxId) || fillable[0]
-          : fillable[0];
-        this.selectedRxId = currentRx.id;
+    this.bindFillQueueEvents(fillablePrescriptions, state);
+    if (this.selectedRxId) {
+      const currentRx = fillablePrescriptions.find(rx => rx.id === this.selectedRxId);
+      if (currentRx) {
         const med = state.demoData.medications[currentRx.medicationIndex];
-        this.bindEvents(currentRx, med, state);
+        this.bindFillDetailEvents(currentRx, med, state);
       }
-      this.bindSummaryEvents(state);
-    } else {
-      this.bindVerificationGateEvents();
     }
+    this.bindFormularyEvents(state);
+    this.bindSummaryEvents(state);
   }
 
   // ─── Dispensing Queue (no credential needed) ────────────
 
-  renderDispensingQueue(activePrescriptions, state) {
-    if (activePrescriptions.length === 0) {
+  renderDispensingQueue(queuePrescriptions, state) {
+    if (queuePrescriptions.length === 0) {
       return `
         <div class="section-card" style="border-left: 3px solid var(--color-pharmacy);">
           <div class="card-header pharmacy">Dispensing Queue</div>
@@ -96,10 +79,40 @@ export class PharmacyPhase {
       `;
     }
 
-    const rows = activePrescriptions.map(rx => {
+    const pendingCount = queuePrescriptions.filter(rx => rx.status === 'PENDING').length;
+    const activeCount = queuePrescriptions.filter(rx => rx.status === 'ACTIVE').length;
+    const headerParts = [];
+    if (pendingCount > 0) headerParts.push(`${pendingCount} proving`);
+    if (activeCount > 0) headerParts.push(`${activeCount} ready`);
+    const headerLabel = headerParts.join(', ');
+
+    const rows = queuePrescriptions.map(rx => {
       const med = state.demoData.medications[rx.medicationIndex];
       const member = state.enrolledMembers.find(m => m.walletId === rx.memberWalletId);
       const prescriber = state.demoData.prescribers[rx.prescriberIndex];
+      const isPending = rx.status === 'PENDING';
+      const elapsed = isPending && rx.startedAt
+        ? `${Math.round((Date.now() - rx.startedAt) / 1000)}s`
+        : '';
+
+      if (isPending) {
+        return `
+          <tr style="opacity: 0.75;">
+            <td class="mono" style="font-size: 11px;">${rx.id}</td>
+            <td>${med.brandName} ${med.strength}</td>
+            <td><span class="tier-badge tier-${med.tier}">Tier ${med.tier}</span></td>
+            <td>${rx.quantity}</td>
+            <td>${member ? member.displayName : '\u2014'}</td>
+            <td>Dr. ${prescriber.firstName} ${prescriber.lastName}</td>
+            <td>
+              <span style="color: var(--accent-orange); font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                <span class="spinner-dot"></span> Generating ZK proofs${elapsed ? ` (${elapsed})` : ''}
+              </span>
+            </td>
+          </tr>
+        `;
+      }
+
       return `
         <tr>
           <td class="mono" style="font-size: 11px;">${rx.id}</td>
@@ -117,12 +130,26 @@ export class PharmacyPhase {
     }).join('');
 
     return `
+      <style>
+        @keyframes pulse-dot {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.3; }
+        }
+        .spinner-dot {
+          display: inline-block;
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: var(--accent-orange);
+          animation: pulse-dot 1.2s ease-in-out infinite;
+        }
+      </style>
       <div class="section-card" style="border-left: 3px solid var(--color-pharmacy);">
-        <div class="card-header pharmacy">Dispensing Queue (${activePrescriptions.length} active)</div>
+        <div class="card-header pharmacy">Dispensing Queue (${headerLabel})</div>
         <div class="card-body">
           <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">
             Prepare medications for dispensing. <strong>No credential required</strong> \u2014 the pharmacy
-            can begin working on prescriptions immediately. The member presents their credential at pickup.
+            can begin working on prescriptions immediately.
           </div>
           <table class="med-table">
             <thead>
@@ -176,7 +203,7 @@ export class PharmacyPhase {
         const med = state.demoData.medications[rx.medicationIndex];
         resultDiv.innerHTML = `
           <div style="padding: 8px 12px; background: rgba(255, 183, 77, 0.1); border: 1px solid rgba(255, 183, 77, 0.3); border-radius: 6px; font-size: 12px; color: var(--accent-yellow);">
-            ${med.brandName} ${med.strength} marked as <strong>DISPENSED</strong>. Awaiting member pickup with credential.
+            ${med.brandName} ${med.strength} marked as <strong>DISPENSED</strong>. Ready for fill in the Fill Queue below.
           </div>
         `;
       }
@@ -227,27 +254,41 @@ export class PharmacyPhase {
     }
   }
 
-  // ─── Pickup Section (DISPENSED prescriptions) ──────────
+  // ─── Fill Queue (replaces credential gate + pickup section) ──
 
-  renderPickupSection(dispensedPrescriptions, state) {
-    const hasVerifiedCredential = this.verifiedMember && this.storedCredentialJson;
+  renderFillQueue(fillable, state) {
+    if (fillable.length === 0) {
+      return `
+        <div class="section-card" style="border-left: 3px solid var(--accent-yellow); margin-top: 16px;">
+          <div class="card-header pharmacy">Fill Queue</div>
+          <div class="card-body">
+            <div style="color: var(--text-muted); padding: 16px; text-align: center; font-size: 12px;">
+              No prescriptions ready for fill. Dispense prescriptions from the queue above first.
+            </div>
+          </div>
+        </div>
+      `;
+    }
 
-    const dispensedRows = dispensedPrescriptions.map(rx => {
+    const rows = fillable.map(rx => {
       const med = state.demoData.medications[rx.medicationIndex];
       const member = state.enrolledMembers.find(m => m.walletId === rx.memberWalletId);
-      const canFill = hasVerifiedCredential && rx.memberWalletId === this.verifiedMember.walletId;
+      const remaining = rx.quantity - (rx.quantityDispensed || 0);
+      const isSelected = rx.id === this.selectedRxId;
+      const statusClass = `rx-status-${rx.status.toLowerCase().replace('_', '-')}`;
       return `
-        <tr>
+        <tr style="${isSelected ? 'background: rgba(255, 183, 77, 0.12);' : ''}" data-rx-id="${rx.id}">
           <td class="mono" style="font-size: 11px;">${rx.id}</td>
           <td>${med.brandName} ${med.strength}</td>
-          <td>${rx.quantity}</td>
+          <td><span class="tier-badge tier-${med.tier}">Tier ${med.tier}</span></td>
+          <td>${remaining} / ${rx.quantity}</td>
           <td>${member ? member.displayName : '\u2014'}</td>
-          <td><span class="rx-status-badge rx-status-dispensed">DISPENSED</span></td>
+          <td><span class="rx-status-badge ${statusClass}">${rx.status.replace('_', ' ')}</span></td>
           <td>
-            ${canFill
-              ? `<button class="btn-action pharmacy btn-sm btn-pickup-fill" data-rx-id="${rx.id}">Fill (Pickup)</button>`
-              : `<span style="font-size: 11px; color: var(--text-muted);">Verify credential to fill</span>`}
-            <button class="btn-action btn-sm btn-reject-queue" data-rx-id="${rx.id}" style="background: var(--accent-red); color: #0d1117; margin-left: 4px;">Reject</button>
+            <button class="btn-action pharmacy btn-sm btn-select-fill" data-rx-id="${rx.id}"
+              ${isSelected ? 'style="opacity: 0.6;"' : ''}>
+              ${isSelected ? '\u2713 Selected' : 'Select for Fill'}
+            </button>
           </td>
         </tr>
       `;
@@ -255,191 +296,43 @@ export class PharmacyPhase {
 
     return `
       <div class="section-card" style="border-left: 3px solid var(--accent-yellow); margin-top: 16px;">
-        <div class="card-header pharmacy">Awaiting Pickup (${dispensedPrescriptions.length})</div>
+        <div class="card-header pharmacy">Fill Queue (${fillable.length})</div>
         <div class="card-body">
           <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">
-            These prescriptions have been dispensed and are waiting for member pickup.
-            The member must present their <strong>portable credential</strong> (NFC/QR) to complete the fill.
+            Select a prescription to view details and complete the fill.
+            <strong>No credential required</strong> &mdash; fills are reversible.
           </div>
-          ${dispensedPrescriptions.length > 0 ? `
-            <table class="med-table">
-              <thead><tr><th>Rx ID</th><th>Drug</th><th>Qty</th><th>Patient</th><th>Status</th><th>Actions</th></tr></thead>
-              <tbody>${dispensedRows}</tbody>
-            </table>
-          ` : `
-            <div style="color: var(--text-muted); padding: 16px; text-align: center; font-size: 12px;">
-              No prescriptions awaiting pickup.
-            </div>
-          `}
-          ${this.renderCredentialGateCompact(state)}
+          <table class="med-table">
+            <thead>
+              <tr><th>Rx ID</th><th>Drug</th><th>Tier</th><th>Qty Remaining</th><th>Patient</th><th>Status</th><th>Actions</th></tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
         </div>
       </div>
     `;
   }
 
-  // ─── Compact Credential Gate ───────────────────────────
-
-  renderCredentialGateCompact(state) {
-    const hasVerified = this.verifiedMember && this.storedCredentialJson;
-
-    if (hasVerified) {
-      return `
-        <div style="margin-top: 12px; padding: 10px 14px; background: rgba(76, 175, 80, 0.08); border: 1px solid rgba(76, 175, 80, 0.3); border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <span style="color: var(--accent-green); font-weight: 700;">\u2713 Credential Verified</span>
-            <span style="color: var(--text-secondary); margin-left: 8px;">${this.verifiedMember.displayName}</span>
-          </div>
-          <button id="btn-verify-different" class="btn-action"
-            style="background: var(--surface-secondary); color: var(--text-secondary); font-size: 11px; padding: 4px 10px;">
-            Verify Different Member
-          </button>
-        </div>
-      `;
-    }
-
-    return `
-      <div style="margin-top: 12px; padding: 12px; background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: 6px;">
-        <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
-          <strong style="color: var(--accent-orange);">Member Pickup:</strong> Paste the member's portable credential to complete a fill.
-        </div>
-        <div style="display: flex; gap: 8px; align-items: flex-start;">
-          <textarea id="credential-verify-input" class="credential-textarea"
-            placeholder="Paste credential JSON here..."
-            style="min-height: 60px; flex: 1; font-size: 11px;"></textarea>
-          <button id="btn-verify-credential" class="btn-action pharmacy" disabled style="white-space: nowrap;">
-            <span class="spinner"></span> Verify
-          </button>
-        </div>
-        <div id="verify-credential-result" class="hidden"></div>
-      </div>
-    `;
-  }
-
-  bindVerificationGateEvents() {
-    const textarea = document.getElementById('credential-verify-input');
-    const btn = document.getElementById('btn-verify-credential');
-    if (!textarea || !btn) return;
-
-    textarea.addEventListener('input', () => {
-      btn.disabled = !textarea.value.trim();
-    });
-
-    btn.addEventListener('click', () => this.doVerifyAndUnlock());
-
-    // Verify Different Member button
-    const diffBtn = document.getElementById('btn-verify-different');
-    if (diffBtn) {
-      diffBtn.addEventListener('click', () => {
-        this.verifiedMember = null;
-        this.storedCredentialJson = null;
-        this.selectedRxId = null;
+  bindFillQueueEvents(fillable, state) {
+    this.container.querySelectorAll('.btn-select-fill').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.selectedRxId = btn.dataset.rxId;
         this.fillResult = null;
         this.render(this.currentState);
+        const fillBtn = document.getElementById('btn-fill');
+        if (fillBtn) fillBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });
+    });
+  }
+
+  // ─── Fill Details Panel (shown when script selected) ──────
+
+  renderFillDetails(fillable, state) {
+    const currentRx = fillable.find(rx => rx.id === this.selectedRxId);
+    if (!currentRx) {
+      this.selectedRxId = null;
+      return '';
     }
-  }
-
-  async doVerifyAndUnlock() {
-    const btn = document.getElementById('btn-verify-credential');
-    const textarea = document.getElementById('credential-verify-input');
-    const credentialJson = textarea.value.trim();
-
-    btn.classList.add('loading');
-    btn.disabled = true;
-    this.app.setStatus('working', 'Verifying credential...');
-
-    try {
-      const res = await fetch(`${API_BASE}/interactive/verify-credential`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credentialJson }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Verification failed');
-
-      if (data.valid && data.memberWalletId) {
-        // Store credential and verification locally (no server state)
-        this.verifiedMember = {
-          walletId: data.memberWalletId,
-          displayName: data.memberDisplayName || 'Unknown',
-          proofType: data.proofType,
-          prescriptions: data.memberPrescriptions || [],
-          verificationTimeMs: data.verificationTimeMs,
-        };
-        this.storedCredentialJson = credentialJson;
-
-        this.app.setStatus('ready', `Verified: ${data.memberDisplayName}`);
-
-        // Re-render with the verified pharmacy view
-        const stateRes = await fetch(`${API_BASE}/interactive/state`);
-        if (stateRes.ok) {
-          this.render(await stateRes.json());
-        }
-      } else if (data.valid && !data.memberWalletId) {
-        // Valid proof but wallet not enrolled
-        const resultDiv = document.getElementById('verify-credential-result');
-        resultDiv.classList.remove('hidden');
-        resultDiv.innerHTML = `
-          <div class="verify-result invalid">
-            <div class="verify-badge invalid">
-              Valid proof but wallet not enrolled in this plan.
-            </div>
-          </div>
-        `;
-        this.app.setStatus('ready', 'Wallet not enrolled');
-      } else {
-        // Invalid proof
-        const resultDiv = document.getElementById('verify-credential-result');
-        resultDiv.classList.remove('hidden');
-        resultDiv.innerHTML = `
-          <div class="verify-result invalid">
-            <div class="verify-badge invalid">\u2717 INVALID \u2014 Credential verification failed</div>
-            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
-              The credential proof could not be verified.
-              It may be expired, tampered with, or generated with a different verification key.
-            </div>
-          </div>
-        `;
-        this.app.setStatus('ready', 'Credential invalid');
-      }
-    } catch (err) {
-      const resultDiv = document.getElementById('verify-credential-result');
-      resultDiv.classList.remove('hidden');
-      resultDiv.innerHTML = `
-        <div class="verify-result invalid">
-          <div class="verify-badge invalid">Error: ${err.message}</div>
-        </div>
-      `;
-      this.app.setStatus('ready', 'Verification error');
-    } finally {
-      btn.classList.remove('loading');
-    }
-  }
-
-  // ─── Fillable Section (after credential verification) ───
-
-  renderFillableSection(state) {
-    const vm = this.verifiedMember;
-    if (!vm) return '';
-
-    const allPrescriptions = state.prescriptions || [];
-
-    // DISPENSED or PARTIALLY_FILLED for the verified member
-    const fillable = allPrescriptions.filter(rx =>
-      rx.memberWalletId === vm.walletId &&
-      (rx.status === 'DISPENSED' || rx.status === 'PARTIALLY_FILLED'));
-
-    if (fillable.length === 0) return '';
-
-    return this.renderFillSection(fillable, state);
-  }
-
-  renderFillSection(fillable, state) {
-    const currentRx = this.selectedRxId
-      ? fillable.find(rx => rx.id === this.selectedRxId) || fillable[0]
-      : fillable[0];
-    this.selectedRxId = currentRx.id;
 
     const med = state.demoData.medications[currentRx.medicationIndex];
     const prescriber = state.demoData.prescribers[currentRx.prescriberIndex];
@@ -453,26 +346,14 @@ export class PharmacyPhase {
     const isDispensed = currentRx.status === 'DISPENSED';
 
     return `
-      <!-- Prescription Selector -->
+      <!-- Selected Prescription Header -->
       <div class="section-card" style="margin-top: 16px;">
-        <div class="card-header pharmacy">Member Pickup \u2014 Fill Prescription</div>
+        <div class="card-header pharmacy">Fill Prescription &mdash; ${currentRx.id}</div>
         <div class="card-body">
-          ${fillable.length > 1 ? `
-            <div class="form-group">
-              <select id="rx-selector">
-                ${fillable.map(rx => {
-                  const rxMed = state.demoData.medications[rx.medicationIndex];
-                  const statusTag = rx.status === 'PARTIALLY_FILLED' ? ' [PARTIAL]' : rx.status === 'DISPENSED' ? ' [DISPENSED]' : '';
-                  return `<option value="${rx.id}" ${rx.id === currentRx.id ? 'selected' : ''}>${rx.id} \u2014 ${rxMed.brandName} ${rxMed.strength}${statusTag}</option>`;
-                }).join('')}
-              </select>
-            </div>
-          ` : `
-            <div style="font-size: 13px; color: var(--text-secondary);">
-              1 prescription ready: <strong>${currentRx.id}</strong>
-              ${isPartial ? `<span class="rx-status-badge rx-status-partially-filled">PARTIALLY FILLED</span>` : ''}
-            </div>
-          `}
+          <div style="font-size: 13px; color: var(--text-secondary);">
+            Selected: <strong>${currentRx.id}</strong> &mdash; ${med.brandName} ${med.strength}
+            ${isPartial ? '<span class="rx-status-badge rx-status-partially-filled">PARTIALLY FILLED</span>' : ''}
+          </div>
         </div>
       </div>
 
@@ -489,7 +370,7 @@ export class PharmacyPhase {
 
       <!-- Incoming Prescription -->
       <div class="section-card">
-        <div class="card-header prescriber">Incoming Prescription \u2014 ${currentRx.id}</div>
+        <div class="card-header prescriber">Incoming Prescription &mdash; ${currentRx.id}</div>
         <div class="card-body">
           <div class="data-grid">
             <div class="label">Drug</div><div class="value">${med.brandName} ${med.strength}</div>
@@ -510,7 +391,7 @@ export class PharmacyPhase {
 
       <!-- Eligibility Verification -->
       <div class="section-card">
-        <div class="card-header member">Eligibility Verification \u2014 Before Fill</div>
+        <div class="card-header member">Eligibility Verification &mdash; Before Fill</div>
         <div class="card-body">
           <div class="data-grid">
             <div class="label">Member</div><div class="value">${member ? member.displayName : 'Unknown'}</div>
@@ -571,7 +452,7 @@ export class PharmacyPhase {
           <div style="display: flex; gap: 8px; align-items: center;">
             <button id="btn-fill" class="btn-action pharmacy">
               <span class="spinner"></span>
-              ${isPartial ? 'Fill Remaining' : isDispensed ? 'Complete Fill (Pickup)' : 'Fill Prescription'}
+              ${isPartial ? 'Fill Remaining' : isDispensed ? 'Complete Fill' : 'Fill Prescription'}
             </button>
             <button id="btn-reject-rx" class="btn-action" style="background: var(--accent-red); color: #0d1117; font-size: 12px; padding: 8px 16px;">
               Reject
@@ -581,6 +462,155 @@ export class PharmacyPhase {
         </div>
       </div>
     `;
+  }
+
+  // ─── Formulary Browser (searchable medication reference) ──
+
+  renderFormularyBrowser(state) {
+    const medications = state.demoData.medications;
+
+    const rows = medications.map((m, i) => {
+      const tier = m.currentTierLevel ?? m.tier;
+      const copay = m.currentCopayAmountCents ?? m.copayAmountCents;
+      const pa = m.currentRequiresPriorAuth ?? m.requiresPriorAuth;
+      const step = m.currentStepTherapyRequired ?? m.stepTherapyRequired;
+      const active = m.active !== false;
+      const paClass = pa ? ' pa-required-row' : '';
+      const removedClass = !active ? ' formulary-removed' : '';
+      const paBadge = pa
+        ? '<span class="pa-badge pa-required">PA</span>'
+        : '<span style="color: var(--text-muted);">No</span>';
+      const badges = [];
+      if (!active) badges.push('<span class="removed-badge">Removed</span>');
+      if (step) badges.push('<span class="step-therapy-badge">Step</span>');
+      if (m.deaSchedule > 0) badges.push(`<span class="dea-badge dea-schedule-${m.deaSchedule}">C${m.deaSchedule}</span>`);
+      return `
+        <tr data-med-index="${i}" class="${paClass}${removedClass}" style="cursor: pointer;">
+          <td>${m.brandName}${badges.length ? ' ' + badges.join(' ') : ''}</td>
+          <td>${m.strength}</td>
+          <td>${m.dosageForm}</td>
+          <td><span class="tier-badge tier-${tier}">Tier ${tier}</span></td>
+          <td>${formatCents(copay)}</td>
+          <td>${formatCents(m.awpUnitPriceCents)}</td>
+          <td>${paBadge}</td>
+          <td>${m.maxQuantityPerFill}</td>
+        </tr>
+      `;
+    }).join('');
+
+    return `
+      <div class="section-card" style="margin-top: 16px;">
+        <div class="card-header insurer">Formulary Browser</div>
+        <div class="card-body">
+          <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">
+            Reference: view formulary medications, tiers, copays, and coverage details. Click a row to view full drug information.
+          </div>
+          <div class="form-group" style="margin-bottom: 12px;">
+            <input type="text" id="pharm-med-search" placeholder="Search medications by name, class, or NDC..." />
+          </div>
+          <div style="max-height: 400px; overflow-y: auto;">
+            <table class="med-table">
+              <thead>
+                <tr>
+                  <th>Drug Name</th>
+                  <th>Strength</th>
+                  <th>Dosage Form</th>
+                  <th>Tier</th>
+                  <th>Copay</th>
+                  <th>AWP/Unit</th>
+                  <th>PA?</th>
+                  <th>Max Qty</th>
+                </tr>
+              </thead>
+              <tbody id="pharm-med-table-body">${rows}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Medication Detail Panel -->
+      <div id="pharm-med-detail" class="section-card hidden" style="margin-top: 8px;">
+        <div class="card-header insurer">Medication Details</div>
+        <div class="card-body" id="pharm-med-detail-body"></div>
+      </div>
+    `;
+  }
+
+  bindFormularyEvents(state) {
+    const medications = state.demoData.medications;
+
+    // Search filter
+    const search = document.getElementById('pharm-med-search');
+    if (search) {
+      search.addEventListener('input', (e) => {
+        const q = e.target.value.toLowerCase();
+        document.querySelectorAll('#pharm-med-table-body tr').forEach(row => {
+          const text = row.textContent.toLowerCase();
+          row.style.display = text.includes(q) ? '' : 'none';
+        });
+      });
+    }
+
+    // Row click for detail
+    const tbody = document.getElementById('pharm-med-table-body');
+    if (tbody) {
+      tbody.addEventListener('click', (e) => {
+        const row = e.target.closest('tr');
+        if (!row) return;
+        document.querySelectorAll('#pharm-med-table-body tr').forEach(r =>
+          r.style.background = '');
+        row.style.background = 'rgba(79, 195, 247, 0.1)';
+        this.selectedMedIndex = parseInt(row.dataset.medIndex, 10);
+        this.showPharmMedDetail(medications[this.selectedMedIndex]);
+      });
+    }
+  }
+
+  showPharmMedDetail(med) {
+    const detail = document.getElementById('pharm-med-detail');
+    detail.classList.remove('hidden');
+
+    const tier = med.currentTierLevel ?? med.tier;
+    const copay = med.currentCopayAmountCents ?? med.copayAmountCents;
+    const pa = med.currentRequiresPriorAuth ?? med.requiresPriorAuth;
+    const step = med.currentStepTherapyRequired ?? med.stepTherapyRequired;
+    const active = med.active !== false;
+
+    const paDisplay = pa
+      ? '<span class="pa-badge pa-required">PA Required</span>'
+      : '<span style="color: var(--accent-green);">Not Required</span>';
+    const stepDisplay = step
+      ? '<span class="step-therapy-badge">Step Therapy Required</span>'
+      : '<span style="color: var(--accent-green);">Not Required</span>';
+    const deaDisplay = med.deaSchedule === 0
+      ? 'Non-controlled'
+      : `<span class="dea-badge dea-schedule-${med.deaSchedule}">Schedule ${med.deaSchedule}</span>`;
+
+    document.getElementById('pharm-med-detail-body').innerHTML = `
+      ${!active ? `<div style="padding: 8px 12px; background: rgba(244, 67, 54, 0.08); border: 1px solid rgba(244, 67, 54, 0.3); border-radius: 6px; margin-bottom: 12px; font-size: 12px; color: var(--accent-red);">This medication has been removed from the formulary.</div>` : ''}
+      <div class="data-grid">
+        <div class="label">Brand Name</div><div class="value">${med.brandName}</div>
+        <div class="label">Generic Name</div><div class="value">${med.genericName}</div>
+        <div class="label">Strength</div><div class="value">${med.strength}</div>
+        <div class="label">Dosage Form</div><div class="value">${med.dosageForm}</div>
+        <div class="label">Route</div><div class="value">${med.route}</div>
+        <div class="label">NDC</div><div class="value mono">${med.ndc}</div>
+        <div class="label">NDC Formatted</div><div class="value mono">${med.ndcFormatted}</div>
+        <div class="label">Tier</div><div class="value"><span class="tier-badge tier-${tier}">Tier ${tier}</span></div>
+        <div class="label">Copay</div><div class="value">${formatCents(copay)}</div>
+        <div class="label">Prior Auth</div><div class="value">${paDisplay}</div>
+        <div class="label">Step Therapy</div><div class="value">${stepDisplay}</div>
+        <div class="label">Max Qty/Fill</div><div class="value">${med.maxQuantityPerFill}</div>
+        <div class="label">Max Day Supply</div><div class="value">${med.maxDaySupply}</div>
+        <div class="label">AWP Unit Price</div><div class="value">${formatCents(med.awpUnitPriceCents)}</div>
+        <div class="label">AWP Package Price</div><div class="value">${formatCents(med.awpPackagePriceCents)} (${med.packageSize} units)</div>
+        <div class="label">Manufacturer</div><div class="value">${med.manufacturer}</div>
+        <div class="label">Therapeutic Class</div><div class="value">${med.therapeuticClass}</div>
+        <div class="label">DEA Schedule</div><div class="value">${deaDisplay}</div>
+      </div>
+    `;
+
+    detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
   // ─── Shared Renderers ───────────────────────────────────
@@ -668,38 +698,37 @@ export class PharmacyPhase {
 
   // ─── Event Binding ──────────────────────────────────────
 
-  bindEvents(currentRx, med, state) {
+  bindFillDetailEvents(currentRx, med, state) {
     const qtyInput = document.getElementById('fill-quantity');
     const ingredientInput = document.getElementById('fill-ingredient');
     const totalInput = document.getElementById('fill-total');
     const remainingQty = currentRx.quantity - (currentRx.quantityDispensed || 0);
 
-    qtyInput.addEventListener('input', () => {
-      let qty = parseInt(qtyInput.value, 10) || 0;
-      // FWA guard: clamp to remaining quantity
-      if (qty > remainingQty) {
-        qty = remainingQty;
-        qtyInput.value = qty;
-      }
-      if (qty < 1) qty = 0;
-      const cost = med.awpUnitPriceCents * qty;
-      ingredientInput.value = formatCents(cost);
-      totalInput.value = formatCents(cost + 200);
-    });
-
-    // Rx selector (if multiple fillable)
-    const rxSelector = document.getElementById('rx-selector');
-    if (rxSelector) {
-      rxSelector.addEventListener('change', () => {
-        this.selectedRxId = rxSelector.value;
-        this.render(state);
+    if (qtyInput) {
+      qtyInput.addEventListener('input', () => {
+        let qty = parseInt(qtyInput.value, 10) || 0;
+        // FWA guard: clamp to remaining quantity
+        if (qty > remainingQty) {
+          qty = remainingQty;
+          qtyInput.value = qty;
+        }
+        if (qty < 1) qty = 0;
+        const cost = med.awpUnitPriceCents * qty;
+        ingredientInput.value = formatCents(cost);
+        totalInput.value = formatCents(cost + 200);
       });
     }
 
-    document.getElementById('btn-fill').addEventListener('click', () => this.doFill(currentRx, med));
+    const fillBtn = document.getElementById('btn-fill');
+    if (fillBtn) {
+      fillBtn.addEventListener('click', () => this.doFill(currentRx, med));
+    }
 
     // Reject button
-    document.getElementById('btn-reject-rx').addEventListener('click', () => this.doRejectRx(currentRx, state));
+    const rejectBtn = document.getElementById('btn-reject-rx');
+    if (rejectBtn) {
+      rejectBtn.addEventListener('click', () => this.doRejectRx(currentRx, state));
+    }
 
     // Messaging
     const msgRecipient = document.getElementById('pharmacy-msg-recipient');
@@ -738,7 +767,7 @@ export class PharmacyPhase {
     });
   }
 
-  // ─── Fill (with credential) ─────────────────────────────
+  // ─── Fill ─────────────────────────────────────────────────
 
   async doFill(currentRx, med) {
     const btn = document.getElementById('btn-fill');
@@ -768,7 +797,6 @@ export class PharmacyPhase {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prescriptionId: currentRx.id,
-          credentialJson: this.storedCredentialJson,
           quantityDispensed: qty,
           ingredientCostCents,
           dispensingFeeCents: 200,
@@ -832,7 +860,7 @@ export class PharmacyPhase {
       // status === 'pending' or 'not_started' → keep polling
     }
 
-    throw new Error(`Fill timed out after ${timeoutMs / 1000}s — the server is still working. Check the sequencer console.`);
+    throw new Error(`Fill timed out after ${timeoutMs / 1000}s \u2014 the server is still working. Check the sequencer console.`);
   }
 
   /**
@@ -923,12 +951,12 @@ export class PharmacyPhase {
 
         <div class="mt-4" style="padding: 12px; background: rgba(79, 195, 247, 0.08); border-radius: 6px; font-size: 13px; color: var(--text-secondary);">
           <strong style="color: var(--accent-blue);">What Just Happened:</strong><br>
-          1. The member's portable credential (holding proof) was verified inline \u2014 no server state<br>
+          1. Prescription identity verified by wallet binding (no credential required \u2014 fills are reversible)<br>
           2. The pharmacy proved its identity without revealing credentials (ProofGate)<br>
           3. The ZK circuit enforced the prescription status transition ACTIVE \u2192 FILLED<br>
           4. The AccumulatorFulfillment circuit computed patient/plan pay split (15 private inputs)<br>
           5. The member's eligibility credential was updated with new accumulator values<br>
-          6. <strong>Service date (${serviceDateDisplay}) was set at time of verified dispensing. No service date without a holding proof.</strong>
+          6. <strong>Service date (${serviceDateDisplay}) was set at time of pharmacy dispensing.</strong>
         </div>
 
         <!-- ZK Detail Sections -->
@@ -1125,17 +1153,26 @@ export class PharmacyPhase {
       .map(([tid, msgs]) => ({ threadId: tid, messages: msgs, latest: Math.max(...msgs.map(m => m.timestamp || 0)) }))
       .sort((a, b) => b.latest - a.latest);
 
-    // Build recipient options from current Rx context
+    // Build recipient options — pharmacies can contact members and prescribers
     const recipientOptions = [];
-    const member = state.enrolledMembers?.find(m => m.walletId === currentRx.memberWalletId);
-    if (member) {
-      recipientOptions.push(`<option value="member:${member.walletId}">${member.displayName} (Patient)</option>`);
+    const pharmacyIdx = currentRx.pharmacyIndex;
+    const rxAtPharmacy = (state.prescriptions || []).filter(rx => rx.pharmacyIndex === pharmacyIdx);
+
+    // Unique members with Rx at this pharmacy
+    const memberWalletSet = new Set();
+    rxAtPharmacy.forEach(rx => { if (rx.memberWalletId) memberWalletSet.add(rx.memberWalletId); });
+    for (const wid of memberWalletSet) {
+      const m = state.enrolledMembers?.find(e => e.walletId === wid && e.lifecycle !== 'REVOKED');
+      if (m) recipientOptions.push(`<option value="member:${m.walletId}">${m.displayName} (Patient)</option>`);
     }
-    const prescriber = state.demoData?.prescribers?.[currentRx.prescriberIndex];
-    if (prescriber) {
-      recipientOptions.push(`<option value="prescriber:${currentRx.prescriberIndex}">Dr. ${prescriber.firstName} ${prescriber.lastName}</option>`);
+
+    // Unique prescribers who wrote Rx filled at this pharmacy
+    const prescriberSet = new Set();
+    rxAtPharmacy.forEach(rx => { if (rx.prescriberIndex !== undefined) prescriberSet.add(rx.prescriberIndex); });
+    for (const idx of prescriberSet) {
+      const p = state.demoData?.prescribers?.[idx];
+      if (p) recipientOptions.push(`<option value="prescriber:${idx}">Dr. ${p.firstName} ${p.lastName}</option>`);
     }
-    recipientOptions.push(`<option value="insurer:0">Insurer</option>`);
 
     return `
       <div class="section-card">

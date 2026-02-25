@@ -122,8 +122,10 @@ export function registerInteractiveRoutes(
       enrollmentJobs.set(memberIndex, { status: 'pending' });
 
       service.getL2Node().withProvingLock(() => service.enrollMember(memberIndex))
-        .then((result) => {
+        .then(async (result) => {
           enrollmentJobs.set(memberIndex, { status: 'complete', result });
+          // Batch is now built inside enrollMember() (before admin lifecycle update)
+          // so the pending pool is already drained. No need for forceBatch here.
         })
         .catch((err) => {
           const message = err instanceof Error ? err.message : String(err);
@@ -225,6 +227,8 @@ export function registerInteractiveRoutes(
         'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
+      // Force batch to settle any pending transitions immediately
+      service.forceBatch().catch(() => {});
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       sendError(res, 500, message);
@@ -299,11 +303,6 @@ export function registerInteractiveRoutes(
         sendError(res, 400, 'Missing required field: prescriptionId');
         return;
       }
-      if (typeof params.credentialJson !== 'string') {
-        sendError(res, 400, 'Missing required field: credentialJson (member holding proof)');
-        return;
-      }
-
       const jobKey = params.prescriptionId;
 
       // If already running or complete, return current status
@@ -322,13 +321,14 @@ export function registerInteractiveRoutes(
 
       service.getL2Node().withProvingLock(() => service.fillPrescription({
         prescriptionId: params.prescriptionId,
-        credentialJson: params.credentialJson,
         quantityDispensed: params.quantityDispensed,
         ingredientCostCents: params.ingredientCostCents,
         dispensingFeeCents: params.dispensingFeeCents,
       }))
-        .then((result) => {
+        .then(async (result) => {
           fillJobs.set(jobKey, { status: 'complete', result });
+          // Force batch to settle any pending transitions immediately
+          try { await service.forceBatch(); } catch (e) { console.warn('[fill] forceBatch after fill:', e instanceof Error ? e.message : e); }
         })
         .catch((err) => {
           const message = err instanceof Error ? err.message : String(err);
@@ -448,6 +448,8 @@ export function registerInteractiveRoutes(
         'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
+      // Force batch to settle any pending transitions immediately
+      service.forceBatch().catch(() => {});
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       sendError(res, 500, message);

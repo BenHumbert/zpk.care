@@ -23,6 +23,7 @@ import {
 } from './encryption.js';
 import { hashString } from '../zkp/hash-utils.js';
 import { MSG_TYPE_AOR_REVOKE } from './aor-data.js';
+import type { StoredMessage, MessagePayload } from '../l2/message-store-types.js';
 
 /**
  * MessagingService — orchestration layer for the messaging system.
@@ -149,11 +150,29 @@ export class MessagingService {
     const proofId = `msg-${Date.now()}`;
     await this.store.saveProof(proofId, JSON.stringify(result.proof.toJSON()));
 
+    // Build StoredMessage + MessagePayload for sequencer submission
+    const storedMessage: StoredMessage = {
+      messageCommitment: contentHash.toString(),
+      senderWalletId: senderWalletId.toString(),
+      recipientWalletId: recipientWalletId.toString(),
+      messageType: messageType.toString(),
+      threadIdHash: threadId.toString(),
+    };
+
+    const messagePayload: MessagePayload = {
+      ciphertext: encrypted.ciphertext.toString('hex'),
+      iv: encrypted.iv.toString('hex'),
+      tag: encrypted.tag.toString('hex'),
+      timestamp: Date.now(),
+    };
+
     return {
       proof: result.proof,
       encryptedContent: encrypted,
       messageData,
       messageIndex: index,
+      storedMessage,
+      messagePayload,
     };
   }
 

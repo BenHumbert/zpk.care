@@ -1,4 +1,4 @@
-import { Field, Poseidon } from 'o1js';
+import { Field, Poseidon, MerkleTree } from 'o1js';
 import type { ILocalStore } from '../storage/local-store.js';
 import {
   TransitionOutput,
@@ -15,6 +15,7 @@ import type {
   L1Status,
 } from './l2-types.js';
 import { AuditService } from '../audit/audit-service.js';
+import { AuditMerkleIndex } from '../audit/audit-merkle-index.js';
 import { l2Stringify } from './l2-json.js';
 import type { AuditEvent, AuditLog } from '../audit/audit-types.js';
 import type { ClaimContext } from '../reporting/report-types.js';
@@ -22,16 +23,21 @@ import type { L2SequencerState } from './l2-checkpoint.js';
 import type { ClaimSubmissionMetadata } from './l2-types.js';
 import { ClaimAccumulatorService } from './claim-accumulator-service.js';
 import type { ClaimAccumulatorEntry } from './claim-accumulator-types.js';
+import { MessageStoreService } from './message-store-service.js';
+import type { StoredMessage, MessagePayload, MessageStoreEntry } from './message-store-types.js';
 import type { PartitionConfig } from './l2-partition.js';
 import { isMyPartition, getPartition } from './l2-partition.js';
+import { WalletRegistry, WALLET_TREE_HEIGHT } from '../wallets/wallet-state.js';
+import { lifecycleLeafCommitment, LIFECYCLE_REGISTERED, LifecycleWitness } from '../engine/lifecycle.js';
 
 /** Default batch interval: 3 minutes (matches MINA L1 block time) */
 export const DEFAULT_BATCH_INTERVAL_MS = 180_000;
 
 /**
- * Maximum transitions per batch.
- * Tree-merge produces log2(N) recursion levels. Pickles fails at depth >= 2
- * when maxProofsVerified=2, so we cap at 4 transitions (2 merge rounds).
+ * Maximum transitions per batch (must be even — wrapPair requires pairs).
+ *
+ * With uniform pairs: 4 transitions = 2 wrapPair calls → 1 merge = 3 proof ops.
+ * This is more efficient than the old approach (4 wraps + 3 merges = 7 ops).
  * Excess proofs remain in the pending pool for the next batch.
  */
 export const MAX_TRANSITIONS_PER_BATCH = 4;
@@ -119,16 +125,30 @@ export class L2SequencerService {
   private currentBlockHeight: Field = Field(0);
   private currentGlobalStateRoot: Field = Field(0);
 
+  // Audit Merkle index — parallel MerkleTree for selective event witness disclosure
+  private auditMerkleIndex: AuditMerkleIndex = new AuditMerkleIndex();
+
   // Claim accumulator — global MerkleTree tracking all fulfilled claims with NDC data
   private claimAccumulator: ClaimAccumulatorService = new ClaimAccumulatorService();
 
+  // Message store — global MerkleTree tracking encrypted messages between providers
+  private messageStore: MessageStoreService = new MessageStoreService();
+
   // Proof fingerprint deduplication — prevents replay of identical transitions
   private seenProofFingerprints: Set<string> = new Set();
+
+  // Witness trees — maintained in parallel with root Fields for proof generation.
+  // These let the sequencer produce MerkleWitnesses for entity nodes building
+  // registration proofs. The trees stay in sync with currentRegistryRoot /
+  // currentLifecycleRoot by applying the same mutations after each submitProof().
+  private walletRegistry: WalletRegistry = new WalletRegistry();
+  private lifecycleTree: MerkleTree = new MerkleTree(WALLET_TREE_HEIGHT);
 
   // Pre-batch snapshots for rollback on batch failure
   private preBatchAuditLogLength = 0;
   private preBatchChainHash: Field = Field(0);
   private preBatchClaimLeafCount = 0n;
+  private preBatchAuditMerkleLeafCount = 0n;
   private preBatchFingerprints: Set<string> = new Set();
 
   // Formulary store — published formularies indexed by planIdHash
@@ -253,6 +273,12 @@ export class L2SequencerService {
 
     if (isRegistration) {
       this.currentWalletCount = this.currentWalletCount.add(1);
+      // Update witness trees to stay in sync with root Fields
+      const regIndex = this.walletRegistry.register(output.walletId);
+      this.lifecycleTree.setLeaf(
+        regIndex,
+        lifecycleLeafCommitment(output.walletId, LIFECYCLE_REGISTERED),
+      );
     }
 
     // 5. Issue receipt
@@ -297,6 +323,7 @@ export class L2SequencerService {
     this.latestChainHash = chainHash;
 
     this.auditLog.push(auditEvent);
+    this.auditMerkleIndex.appendEventFromCommitment(eventCommitment);
     receipt.auditEventHash = chainHash.toString();
 
     this.receipts.set(receiptId, receipt);
@@ -313,6 +340,7 @@ export class L2SequencerService {
           patientPayCents: metadata.patientPayCents,
           planPayCents: metadata.planPayCents,
           operationType: metadata.operationType,
+          deductibleCreditCents: metadata.deductibleCreditCents ?? '0',
         },
         {
           receiptId,
@@ -339,15 +367,15 @@ export class L2SequencerService {
   }
 
   /**
-   * Build a batch from all pending proofs.
+   * Build a batch from pending proofs.
    *
-   * 1. Drains the pending pool (ordered by sequence number)
-   * 2. wrapTransition() each proof
-   * 3. Tree-merge into single BatchProof (log2(N) rounds)
+   * 1. Drains an even number of transitions (wrapPair requires pairs)
+   * 2. wrapPair() each pair of consecutive transitions
+   * 3. Tree-merge into single BatchProof (log2(N/2) rounds)
    * 4. Creates L2Block + L2Batch metadata
    * 5. Updates receipt statuses to 'batched'
    *
-   * @returns L2Batch with the BatchProof JSON, or null if no pending proofs
+   * @returns L2Batch with the BatchProof JSON, or null if fewer than 2 pending
    */
   async buildBatch(): Promise<L2Batch | null> {
     if (this.inFlightBatchNumber !== null) {
@@ -358,41 +386,82 @@ export class L2SequencerService {
     }
 
     if (this.pendingPool.length === 0) {
-      return null;
+      // Create an empty batch record so the UI shows that a batch cycle ran
+      // but found nothing to process. No proof, no block, no settlement.
+      const emptyBatchNumber = this.nextBatchNumber++;
+      const emptyBatch: L2Batch = {
+        batchNumber: emptyBatchNumber,
+        blockNumbers: [],
+        registrationCount: 0,
+        transitionCount: 0,
+        oldRegistryRoot: this.currentRegistryRoot.toString(),
+        newRegistryRoot: this.currentRegistryRoot.toString(),
+        oldLifecycleRoot: this.currentLifecycleRoot.toString(),
+        newLifecycleRoot: this.currentLifecycleRoot.toString(),
+        batchProofJson: '',
+        createdAt: Date.now(),
+        l1Status: 'settled',   // nothing to settle
+        l1TxHash: `empty-${emptyBatchNumber}`,
+        claimAccumulatorRoot: this.claimAccumulator.getRoot().toString(),
+        messageStoreRoot: this.messageStore.getRoot().toString(),
+      };
+      this.batches.set(emptyBatchNumber, emptyBatch);
+      return emptyBatch;
     }
 
-    // 1. Drain up to MAX_TRANSITIONS_PER_BATCH; excess stays for next batch
-    const drainCount = Math.min(this.pendingPool.length, MAX_TRANSITIONS_PER_BATCH);
+    // 1. Drain transitions — pairs for wrapPair, or single for wrapSingle
+    const available = Math.min(this.pendingPool.length, MAX_TRANSITIONS_PER_BATCH);
+    const drainCount = available >= 2
+      ? available - (available % 2)  // Even count for wrapPair
+      : available;                   // Single transition → wrapSingle
     const transitions = this.pendingPool.splice(0, drainCount);
 
-    // 2. Wrap each transition into a BatchProof (base cases)
-    const wrappedProofs: BatchProof[] = [];
-    for (const t of transitions) {
-      const wrapped = await BatchProgram.wrapTransition(t.proof);
-      wrappedProofs.push(wrapped.proof as BatchProof);
-    }
-
-    // 3. Tree-merge: pair-wise merge until single proof remains
-    let currentLevel = wrappedProofs;
-    while (currentLevel.length > 1) {
-      const nextLevel: BatchProof[] = [];
-      for (let i = 0; i < currentLevel.length; i += 2) {
-        if (i + 1 < currentLevel.length) {
-          // Merge pair
-          const merged = await BatchProgram.mergeBatches(
-            currentLevel[i],
-            currentLevel[i + 1],
+    // 2. Build base-case BatchProofs
+    let finalProof: BatchProof;
+    try {
+      if (transitions.length === 1) {
+        // Single transition — use wrapSingle (same proof passed as both args for uniform arity)
+        const wrapped = await BatchProgram.wrapSingle(
+          transitions[0].proof,
+          transitions[0].proof,
+        );
+        finalProof = wrapped.proof as BatchProof;
+      } else {
+        // Pair transitions and wrap each pair into a BatchProof
+        const wrappedProofs: BatchProof[] = [];
+        for (let i = 0; i < transitions.length; i += 2) {
+          const wrapped = await BatchProgram.wrapPair(
+            transitions[i].proof,
+            transitions[i + 1].proof,
           );
-          nextLevel.push(merged.proof as BatchProof);
-        } else {
-          // Odd one out — carry forward
-          nextLevel.push(currentLevel[i]);
+          wrappedProofs.push(wrapped.proof as BatchProof);
         }
-      }
-      currentLevel = nextLevel;
-    }
 
-    const finalProof = currentLevel[0];
+        // 3. Tree-merge: pair-wise merge until single proof remains
+        let currentLevel = wrappedProofs;
+        while (currentLevel.length > 1) {
+          const nextLevel: BatchProof[] = [];
+          for (let i = 0; i < currentLevel.length; i += 2) {
+            if (i + 1 < currentLevel.length) {
+              const merged = await BatchProgram.mergeBatches(
+                currentLevel[i],
+                currentLevel[i + 1],
+              );
+              nextLevel.push(merged.proof as BatchProof);
+            } else {
+              nextLevel.push(currentLevel[i]);
+            }
+          }
+          currentLevel = nextLevel;
+        }
+
+        finalProof = currentLevel[0];
+      }
+    } catch (err) {
+      // Restore transitions to the front of the pending pool so they aren't lost.
+      this.pendingPool.unshift(...transitions);
+      throw err;
+    }
     const batchOutput = finalProof.publicOutput as unknown as BatchOutput;
 
     // 4. Create L2Block
@@ -431,6 +500,7 @@ export class L2SequencerService {
       createdAt: Date.now(),
       l1Status: 'batched',
       claimAccumulatorRoot: this.claimAccumulator.getRoot().toString(),
+      messageStoreRoot: this.messageStore.getRoot().toString(),
     };
 
     this.batches.set(batchNumber, batch);
@@ -476,6 +546,7 @@ export class L2SequencerService {
       this.preBatchAuditLogLength = this.auditLog.length;
       this.preBatchChainHash = this.latestChainHash;
       this.preBatchClaimLeafCount = this.claimAccumulator.getLeafCount();
+      this.preBatchAuditMerkleLeafCount = this.auditMerkleIndex.getEventCount();
       this.preBatchFingerprints = new Set(this.seenProofFingerprints);
       // No in-flight guard — next batch can build immediately
     } else {
@@ -614,6 +685,7 @@ export class L2SequencerService {
     this.preBatchAuditLogLength = this.auditLog.length;
     this.preBatchChainHash = this.latestChainHash;
     this.preBatchClaimLeafCount = this.claimAccumulator.getLeafCount();
+    this.preBatchAuditMerkleLeafCount = this.auditMerkleIndex.getEventCount();
 
     // Evict settled fingerprints — rebuild from pending pool only.
     // Settled proofs are protected by L1 root chain (replay impossible).
@@ -682,6 +754,16 @@ export class L2SequencerService {
     // to the pre-batch snapshot so the next batch starts from a clean state.
     this.auditLog.length = this.preBatchAuditLogLength;
     this.latestChainHash = this.preBatchChainHash;
+
+    // Roll back audit Merkle index if new leaves were added during the failed batch
+    if (this.auditMerkleIndex.getEventCount() > this.preBatchAuditMerkleLeafCount) {
+      const amState = this.auditMerkleIndex.exportState();
+      amState.eventCommitments = amState.eventCommitments.slice(
+        0, Number(this.preBatchAuditMerkleLeafCount),
+      );
+      amState.nextLeafIndex = this.preBatchAuditMerkleLeafCount;
+      this.auditMerkleIndex.restoreState(amState);
+    }
 
     // Roll back claim accumulator if new leaves were added during the failed batch
     if (this.claimAccumulator.getLeafCount() > this.preBatchClaimLeafCount) {
@@ -960,6 +1042,64 @@ export class L2SequencerService {
     return this.currentWalletCount;
   }
 
+  /**
+   * Get Merkle witnesses for the next registration slot.
+   *
+   * Returns both witnesses and current roots atomically so entity nodes
+   * can build valid registration proofs. The witnesses are for the NEXT
+   * empty slot in the wallet registry and lifecycle trees.
+   *
+   * NOTE: These witnesses become stale if another registration proof
+   * is submitted between the fetch and the proof generation. In production,
+   * retry with fresh witnesses if the sequencer rejects the proof.
+   */
+  getRegistrationWitnesses(): {
+    registryWitnessJson: string;
+    lifecycleWitnessJson: string;
+    currentRegistryRoot: string;
+    currentLifecycleRoot: string;
+    nextSlotIndex: string;
+  } {
+    const nextIndex = BigInt(this.walletRegistry.count);
+    const regWitness = this.walletRegistry.getNextSlotWitness();
+    const lcWitness = new LifecycleWitness(this.lifecycleTree.getWitness(nextIndex));
+
+    return {
+      registryWitnessJson: JSON.stringify(regWitness.toJSON()),
+      lifecycleWitnessJson: JSON.stringify(lcWitness.toJSON()),
+      currentRegistryRoot: this.currentRegistryRoot.toString(),
+      currentLifecycleRoot: this.currentLifecycleRoot.toString(),
+      nextSlotIndex: nextIndex.toString(),
+    };
+  }
+
+  /**
+   * Get Merkle witnesses for an EXISTING registered wallet.
+   * Used by entity nodes to generate wallet UPDATE proofs (credential mutations).
+   */
+  getWalletWitnesses(walletId: string): {
+    registryWitnessJson: string;
+    lifecycleWitnessJson: string;
+    currentRegistryRoot: string;
+    currentLifecycleRoot: string;
+    slotIndex: string;
+    currentLifecycleState: string;
+  } {
+    const wid = Field(BigInt(walletId));
+    const index = this.walletRegistry.getIndex(wid);
+    const regWitness = this.walletRegistry.getWitnessByIndex(index);
+    const lcWitness = new LifecycleWitness(this.lifecycleTree.getWitness(index));
+
+    return {
+      registryWitnessJson: JSON.stringify(regWitness.toJSON()),
+      lifecycleWitnessJson: JSON.stringify(lcWitness.toJSON()),
+      currentRegistryRoot: this.currentRegistryRoot.toString(),
+      currentLifecycleRoot: this.currentLifecycleRoot.toString(),
+      slotIndex: index.toString(),
+      currentLifecycleState: LIFECYCLE_REGISTERED.toString(),
+    };
+  }
+
   /** Last-settled registry root (matches L1 state) */
   getLastSettledRegistryRoot(): Field {
     return this.lastSettledRegistryRoot;
@@ -1108,6 +1248,112 @@ export class L2SequencerService {
     return this.claimAccumulator.getClaimWithProof(leafIndex);
   }
 
+  // ─── Accumulator Reconstruction (Wallet Migration) ──────────
+
+  /**
+   * Reconstruct a member's accumulator totals from claim history.
+   *
+   * Sums all claims for a wallet ID from the Claim Accumulator Tree:
+   *   - Fulfillments (operationType '1') add to totals
+   *   - Reversals (operationType '2') subtract from totals
+   *
+   * Used during wallet migration to seed the new wallet's AccumulatorData
+   * with the old wallet's financial history (deductible, OOP, benefit).
+   *
+   * @param walletId — the member wallet ID to reconstruct for
+   * @returns Reconstructed accumulator totals in cents, or null if no claims found
+   */
+  reconstructAccumulator(walletId: string): {
+    deductiblePaidCents: bigint;
+    oopPaidCents: bigint;
+    benefitUsedCents: bigint;
+    claimCount: number;
+  } | null {
+    const claims = this.claimAccumulator.getClaimsByMember(walletId);
+    if (claims.length === 0) return null;
+
+    let deductiblePaidCents = 0n;
+    let oopPaidCents = 0n;
+    let benefitUsedCents = 0n;
+
+    for (const claim of claims) {
+      const patientPay = BigInt(claim.leaf.patientPayCents);
+      const planPay = BigInt(claim.leaf.planPayCents);
+      const deductibleCredit = BigInt(claim.leaf.deductibleCreditCents);
+
+      if (claim.leaf.operationType === '1') {
+        // Fulfillment — add
+        oopPaidCents += patientPay;
+        benefitUsedCents += planPay;
+        deductiblePaidCents += deductibleCredit;
+      } else if (claim.leaf.operationType === '2') {
+        // Reversal — subtract
+        oopPaidCents -= patientPay;
+        benefitUsedCents -= planPay;
+        deductiblePaidCents -= deductibleCredit;
+      }
+    }
+
+    return {
+      deductiblePaidCents,
+      oopPaidCents,
+      benefitUsedCents,
+      claimCount: claims.length,
+    };
+  }
+
+  // ─── Message Store ─────────────────────────────────────────
+
+  /**
+   * Store an encrypted message in the Message Store tree.
+   *
+   * @param message — the 5-Field message leaf data
+   * @param payload — the encrypted message payload (ciphertext + iv + tag)
+   * @returns MessageStoreEntry with assigned leafIndex and leafHash
+   */
+  storeMessage(message: StoredMessage, payload: MessagePayload): MessageStoreEntry {
+    return this.messageStore.appendMessage(message, payload);
+  }
+
+  /** Current Merkle root of the Message Store tree */
+  getMessageStoreRoot(): string {
+    return this.messageStore.getRoot().toString();
+  }
+
+  /** Number of messages in the store */
+  getMessageCount(): bigint {
+    return this.messageStore.getMessageCount();
+  }
+
+  /** All messages sent by a wallet */
+  getMessagesBySender(senderWalletId: string): MessageStoreEntry[] {
+    return this.messageStore.getMessagesBySender(senderWalletId);
+  }
+
+  /** All messages received by a wallet */
+  getMessagesByRecipient(recipientWalletId: string): MessageStoreEntry[] {
+    return this.messageStore.getMessagesByRecipient(recipientWalletId);
+  }
+
+  /** All messages involving a wallet (sent or received) */
+  getMessagesByWallet(walletId: string): MessageStoreEntry[] {
+    return this.messageStore.getMessagesByWallet(walletId);
+  }
+
+  /** All messages in a thread */
+  getMessagesByThread(threadIdHash: string): MessageStoreEntry[] {
+    return this.messageStore.getMessagesByThread(threadIdHash);
+  }
+
+  /** Get a message with its Merkle inclusion proof */
+  getMessageWithProof(leafIndex: bigint): {
+    entry: MessageStoreEntry;
+    witnessJson: string;
+    root: string;
+  } | undefined {
+    return this.messageStore.getMessageWithProof(leafIndex);
+  }
+
   // ─── Audit / DA ────────────────────────────────────────────
 
   /**
@@ -1158,6 +1404,7 @@ export class L2SequencerService {
     this.latestChainHash = chainHash;
 
     this.auditLog.push(auditEvent);
+    this.auditMerkleIndex.appendEventFromCommitment(eventCommitment);
 
     return { chainHash: chainHash.toString(), sequenceNumber };
   }
@@ -1186,6 +1433,16 @@ export class L2SequencerService {
       latestChainHash: this.latestChainHash.toString(),
       eventCount: BigInt(this.auditLog.length),
     };
+  }
+
+  /** Current Merkle root of the audit event index tree */
+  getAuditMerkleRoot(): Field {
+    return this.auditMerkleIndex.getRoot();
+  }
+
+  /** Selective Merkle witness for a specific audit event by index */
+  getAuditSelectiveWitness(eventIndex: bigint) {
+    return this.auditMerkleIndex.getSelectiveWitness(eventIndex);
   }
 
   /**
@@ -1268,9 +1525,22 @@ export class L2SequencerService {
     // Store receipt
     this.receipts.set(receipt.receiptId, receipt);
 
-    // Append audit event + update chain hash
+    // Update witness trees for replicated registrations
+    if (receipt.isRegistration) {
+      const walletId = Field(BigInt(receipt.walletId));
+      if (!this.walletRegistry.isRegistered(walletId)) {
+        const regIndex = this.walletRegistry.register(walletId);
+        this.lifecycleTree.setLeaf(
+          regIndex,
+          lifecycleLeafCommitment(walletId, LIFECYCLE_REGISTERED),
+        );
+      }
+    }
+
+    // Append audit event + update chain hash + Merkle index
     this.auditLog.push(auditEvent);
     this.latestChainHash = Field(BigInt(auditEvent.chainHash));
+    this.auditMerkleIndex.appendEventFromCommitment(Field(BigInt(auditEvent.eventCommitment)));
 
     // Advance sequence counter past the replicated receipt
     if (receipt.sequenceNumber >= this.nextSequenceNumber) {
@@ -1397,6 +1667,21 @@ export class L2SequencerService {
   }
 
   /**
+   * Apply a replicated message from a peer (gossip: message:stored).
+   *
+   * Idempotent: if the leafIndex already exists, silently skips.
+   */
+  applyReplicatedMessage(
+    leafIndex: bigint,
+    message: StoredMessage,
+    payload: MessagePayload,
+  ): void {
+    // Idempotent: skip if this message is already stored
+    if (this.messageStore.getEntry(leafIndex) !== undefined) return;
+    this.messageStore.appendMessage(message, payload);
+  }
+
+  /**
    * Apply a replicated batch failure from a peer (gossip: batch:failed).
    *
    * Idempotent: if batch is already failed, silently skips.
@@ -1481,9 +1766,19 @@ export class L2SequencerService {
       state.currentGlobalStateRoot = this.currentGlobalStateRoot.toString();
     }
 
+    // Include audit Merkle index state
+    if (this.auditMerkleIndex.getEventCount() > 0n) {
+      state.auditMerkleIndexState = this.auditMerkleIndex.exportState();
+    }
+
     // Include claim accumulator state
     if (this.claimAccumulator.getLeafCount() > 0n) {
       state.claimAccumulatorState = this.claimAccumulator.exportState();
+    }
+
+    // Include message store state
+    if (this.messageStore.getMessageCount() > 0n) {
+      state.messageStoreState = this.messageStore.exportState();
     }
 
     // Include formulary state
@@ -1508,8 +1803,21 @@ export class L2SequencerService {
     state.preBatchAuditLogLength = this.preBatchAuditLogLength;
     state.preBatchChainHash = this.preBatchChainHash.toString();
     state.preBatchClaimLeafCount = this.preBatchClaimLeafCount;
+    state.preBatchAuditMerkleLeafCount = this.preBatchAuditMerkleLeafCount;
     if (this.preBatchFingerprints.size > 0) {
       state.preBatchFingerprints = Array.from(this.preBatchFingerprints);
+    }
+
+    // Include registered wallet list for witness tree reconstruction
+    if (this.walletRegistry.count > 0) {
+      const wallets: string[] = [];
+      // Reconstruct ordered list from receipts (registration order)
+      for (const r of state.receipts) {
+        if (r.isRegistration) {
+          wallets.push(r.walletId);
+        }
+      }
+      state.registeredWallets = wallets;
     }
 
     return state;
@@ -1616,11 +1924,25 @@ export class L2SequencerService {
       this.latestChainProof = null;
     }
 
+    // Restore audit Merkle index state
+    if (state.auditMerkleIndexState) {
+      this.auditMerkleIndex.restoreState(state.auditMerkleIndexState);
+    } else {
+      this.auditMerkleIndex = new AuditMerkleIndex();
+    }
+
     // Restore claim accumulator state
     if (state.claimAccumulatorState) {
       this.claimAccumulator.restoreState(state.claimAccumulatorState);
     } else {
       this.claimAccumulator = new ClaimAccumulatorService();
+    }
+
+    // Restore message store state
+    if (state.messageStoreState) {
+      this.messageStore.restoreState(state.messageStoreState);
+    } else {
+      this.messageStore = new MessageStoreService();
     }
 
     // Restore formulary state
@@ -1649,9 +1971,24 @@ export class L2SequencerService {
       ? Field(BigInt(state.preBatchChainHash))
       : this.latestChainHash;
     this.preBatchClaimLeafCount = state.preBatchClaimLeafCount ?? this.claimAccumulator.getLeafCount();
+    this.preBatchAuditMerkleLeafCount = state.preBatchAuditMerkleLeafCount ?? this.auditMerkleIndex.getEventCount();
     this.preBatchFingerprints = state.preBatchFingerprints
       ? new Set(state.preBatchFingerprints)
       : new Set(this.seenProofFingerprints);
+
+    // Rebuild witness trees from registered wallet list
+    this.walletRegistry = new WalletRegistry();
+    this.lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
+    if (state.registeredWallets) {
+      for (const walletIdStr of state.registeredWallets) {
+        const walletId = Field(BigInt(walletIdStr));
+        const regIndex = this.walletRegistry.register(walletId);
+        this.lifecycleTree.setLeaf(
+          regIndex,
+          lifecycleLeafCommitment(walletId, LIFECYCLE_REGISTERED),
+        );
+      }
+    }
 
     // Pending pool is NOT restored — proofs are transient
     this.pendingPool = [];

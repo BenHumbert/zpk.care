@@ -10,6 +10,7 @@
  * Usage: npx tsx demo/start-interactive.ts
  */
 import { Field, MerkleTree } from 'o1js';
+import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import { InMemoryStore } from '../../src/storage/local-store.js';
@@ -83,8 +84,16 @@ async function main() {
     req.end();
   };
 
-  // 2b. Configure checkpoint store
+  // 2b. Clear stale checkpoints for clean startup
   const checkpointDir = path.join(process.cwd(), '.l2-checkpoints');
+  if (fs.existsSync(checkpointDir)) {
+    for (const file of fs.readdirSync(checkpointDir)) {
+      fs.unlinkSync(path.join(checkpointDir, file));
+    }
+    console.log('  [Interactive] Cleared stale L2 checkpoints for clean startup.');
+  }
+
+  // 2c. Configure checkpoint store
   const checkpointStore = new L2CheckpointStore(checkpointDir);
   node.setCheckpointStore(checkpointStore, { autoCheckpoint: true, maxCheckpoints: 5 });
 

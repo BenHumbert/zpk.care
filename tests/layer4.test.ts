@@ -18,6 +18,7 @@ import {
 import {
   serializeCredential,
   deserializeCredential,
+  verifyCredentialOffline,
 } from '../src/credentials/portable-credential.js';
 import type { PortableCredential } from '../src/credentials/portable-credential.js';
 import { UserWalletService } from '../src/credentials/user-wallet-service.js';
@@ -381,6 +382,37 @@ describe('Layer 4 — Credential System / User Path', () => {
         CredentialProgram.proveMint(
           pgResult.proof,
           wrongCredential,
+          witness,
+          inventory.getRoot(),
+        ),
+      ).rejects.toThrow();
+    });
+
+    // 14-R04: proveMint rejects pre-revoked credential
+    test('rejects pre-revoked credential (revoked=1)', async () => {
+      const inventory = new CredentialInventory();
+      const revokedCredential = new CredentialData({
+        credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
+        forestRoot: sampleForestRoot,
+        issuerWalletId: prescriberWalletId,
+        subjectWalletId: memberWalletId,
+        issuedAt: Field(20260201),
+        expiresAt: Field(20270201),
+        revoked: Field(1), // PRE-REVOKED
+      });
+      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
+
+      const pgResult = await ProofGateProgram.verifyMember(
+        memberWalletId,
+        preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!,
+      );
+
+      const witness = inventory.getWitness(0n);
+
+      await expect(
+        CredentialProgram.proveMint(
+          pgResult.proof,
+          revokedCredential,
           witness,
           inventory.getRoot(),
         ),
@@ -789,6 +821,38 @@ describe('Layer 4 — Credential System / User Path', () => {
       // Should be JSON serializable
       const json = JSON.stringify(portableCredential);
       expect(json.length).toBeGreaterThan(0);
+    });
+
+    // 14-R14: verifyCredentialOffline succeeds with valid proof
+    test('verifyCredentialOffline succeeds with valid holding proof', async () => {
+      const service = new UserWalletService(
+        store,
+        memberWalletId,
+        memberInventory,
+        registry,
+        lifecycleTree,
+      );
+
+      const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
+      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
+      const mintResult = await service.mintCredential(preimage, 'member', credential, LIFECYCLE_ELIGIBLE);
+
+      const holdingProof = await service.proveCredentialHolding(preimage, 'member', mintResult.credentialIndex);
+
+      const portableCredential = service.exportCredential(
+        holdingProof as any,
+        'credential-holding',
+        Field(12345),
+      );
+
+      // verifyCredentialOffline should validate this real proof
+      // Note: verificationKey param is a string (vk hash), the function
+      // uses CredentialProgram.verify internally which was compiled in beforeAll
+      const isValid = await verifyCredentialOffline(
+        portableCredential,
+        '12345', // matches verificationKeyHash
+      );
+      expect(isValid).toBe(true);
     });
 
     test('tracks credential count and inventory state', async () => {

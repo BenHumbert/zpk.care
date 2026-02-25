@@ -358,8 +358,9 @@ export class CareContract extends SmartContract {
    * Settle a batch of state transitions via a single recursive BatchProof.
    *
    * This is the L2 settlement path. The sequencer collects individual
-   * StateTransitionProofs, wraps and merges them into a BatchProof,
-   * then submits here. One L1 tx per batch ≈ one per 3-min MINA block.
+   * StateTransitionProofs, pairs and wraps them (wrapPair) and tree-merges
+   * (mergeBatches) into a BatchProof, then submits here. One L1 tx per
+   * batch ≈ one per 3-min MINA block.
    *
    * Cost: $0.0003/batch instead of $0.0003/transition.
    * Fallback: settleTransition() remains available for direct L1 submission.

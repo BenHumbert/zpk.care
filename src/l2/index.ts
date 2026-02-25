@@ -105,6 +105,20 @@ export type {
 } from './claim-accumulator-types.js';
 export { ClaimAccumulatorService } from './claim-accumulator-service.js';
 
+// Message Store — encrypted message history
+export {
+  MESSAGE_STORE_HEIGHT,
+  MessageStoreWitness,
+  computeMessageLeafHash,
+} from './message-store-types.js';
+export type {
+  StoredMessage,
+  MessagePayload,
+  MessageStoreEntry,
+  MessageStoreState,
+} from './message-store-types.js';
+export { MessageStoreService } from './message-store-service.js';
+
 // L2 Checkpoint / Crash Recovery
 export {
   L2CheckpointStore,
@@ -138,6 +152,7 @@ export type {
   BatchBuiltPayload,
   BatchSettledPayload,
   BatchFailedPayload,
+  MessageStoredPayload,
   PeerAnnouncePayload,
   StateDigest,
   PeerNetworkConfig,

@@ -13,7 +13,7 @@ import {
 import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY } from '../credentials/credential-data.js';
 import { CredentialInventory } from '../credentials/credential-inventory.js';
 import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
-import { ACCUMULATOR_LEAF_INDEX } from '../access-control/accumulator-data.js';
+import { ACCUMULATOR_LEAF_INDEX, AccumulatorData } from '../access-control/accumulator-data.js';
 import { BenefitPlanRegistry } from '../eligibility/benefit-plan-registry.js';
 import { EligibilityData } from '../eligibility/eligibility-data.js';
 import { hashString, dateToField } from '../zkp/hash-utils.js';
@@ -67,6 +67,26 @@ export interface TerminationResult {
   newRegistryRoot: Field;
   /** New lifecycle tree Merkle root */
   newLifecycleRoot: Field;
+}
+
+/**
+ * Result of a wallet migration.
+ */
+export interface MigrationResult {
+  /** The old wallet ID (now revoked) */
+  oldWalletId: Field;
+  /** The new wallet ID (now enrolled) */
+  newWalletId: Field;
+  /** Termination result for the old wallet */
+  termination: TerminationResult;
+  /** Enrollment result for the new wallet */
+  enrollment: EnrollmentResult;
+  /** Reconstructed accumulator values seeded to new wallet (if provided) */
+  seededAccumulator?: {
+    deductiblePaidCents: bigint;
+    oopPaidCents: bigint;
+    benefitUsedCents: bigint;
+  };
 }
 
 /**
@@ -463,6 +483,163 @@ export class EnrollmentService {
       walletId,
       newRegistryRoot: this.walletRegistry.getRoot(),
       newLifecycleRoot: this.lifecycleTree.getRoot(),
+    };
+  }
+
+  /**
+   * Process a wallet migration — transfer enrollment from old wallet to new wallet.
+   *
+   * Called when a member recovers via NFC card and needs a new wallet.
+   * The insurer identifies the member via tokenIdHash (from the recovery card),
+   * looks up the consumed token, terminates the old wallet, and enrolls the
+   * new wallet with the same group/plan.
+   *
+   * Optionally seeds the new wallet's AccumulatorData with reconstructed values
+   * from the sequencer's claim history (deductible, OOP, benefit continuity).
+   *
+   * @param oldWalletId — the old wallet being replaced
+   * @param newWalletId — the new wallet to enroll
+   * @param tokenIdHash — Poseidon hash of the original enrollment tokenId
+   * @param currentDate — current date as CCYYMMDD string
+   * @param reconstructedAccumulator — optional accumulator totals from sequencer
+   */
+  processMigration(
+    oldWalletId: Field,
+    newWalletId: Field,
+    tokenIdHash: string,
+    currentDate: string,
+    reconstructedAccumulator?: {
+      deductiblePaidCents: bigint;
+      oopPaidCents: bigint;
+      benefitUsedCents: bigint;
+    },
+  ): MigrationResult {
+    // 1. Look up the consumed token by its hash
+    const tokenRecord = this.tokenAuthority.getTokenByHash(tokenIdHash);
+    if (!tokenRecord) {
+      throw new Error('No token found matching tokenIdHash — cannot verify identity');
+    }
+    if (tokenRecord.status !== 'consumed') {
+      throw new Error(`Token is ${tokenRecord.status}, expected consumed`);
+    }
+
+    // 2. Verify the old wallet matches the token's consumed wallet
+    if (tokenRecord.consumedByWalletId !== oldWalletId.toString()) {
+      throw new Error(
+        'Token was consumed by a different wallet — identity mismatch',
+      );
+    }
+
+    // 3. Verify old wallet is in the roster
+    const rosterResult = this.opaqueRoster.getEntryByWallet(oldWalletId);
+    if (!rosterResult) {
+      throw new Error('Old wallet not found in roster');
+    }
+
+    // 4. Get original enrollment data from roster entry
+    const groupIdHash = rosterResult.entry.groupIdHash;
+    const planIdHash = rosterResult.entry.planIdHash;
+
+    // 5. Find the group and plan
+    const groupResult = this.groupRegistry.getGroupByHash(groupIdHash);
+    if (!groupResult) {
+      throw new Error('Group not found for migration');
+    }
+
+    // Find the plan ID from the token's local data
+    const planId = tokenRecord.localData.planId;
+    const groupId = tokenRecord.localData.groupId;
+    const familyId = tokenRecord.localData.familyId;
+
+    // 6. Terminate the old wallet
+    const termination = this.terminateMember(oldWalletId, currentDate);
+
+    // 7. Re-generate a fresh token for the new enrollment
+    // (reuse the same group/plan/family but new token ID for the new wallet)
+    const migrationTokenId = `MIGRATION-${Date.now()}`;
+    const { tokenId: newTokenId } = this.tokenAuthority.generateToken(
+      groupId,
+      planId,
+      tokenRecord.localData.employeeId,
+      familyId,
+      '29991231', // Far future expiry for migration tokens
+      migrationTokenId,
+    );
+
+    // 8. Enroll the new wallet using the migration token
+    const enrollment = this.processEnrollment(newWalletId, newTokenId, currentDate);
+
+    // 9. Seed accumulator data if reconstruction is provided
+    let seededAccumulator: MigrationResult['seededAccumulator'];
+    if (reconstructedAccumulator) {
+      const forest = this.memberForests.get(newWalletId.toString());
+      if (forest) {
+        const planTemplate = this.planTemplates.get(planId);
+        if (planTemplate) {
+          const effectiveDate = groupResult.config.effectiveDate.toString();
+          const planYearStart = effectiveDate.slice(0, 4) + '0101';
+          const seededAccData = planTemplate.buildAccumulatorData(planYearStart);
+
+          // Override with reconstructed values
+          const newAccData = new AccumulatorData({
+            planYear: seededAccData.planYear,
+            deductibleAmountCents: seededAccData.deductibleAmountCents,
+            deductiblePaidCents: Field(reconstructedAccumulator.deductiblePaidCents),
+            oopMaxCents: seededAccData.oopMaxCents,
+            oopPaidCents: Field(reconstructedAccumulator.oopPaidCents),
+            annualBenefitMaxCents: seededAccData.annualBenefitMaxCents,
+            annualBenefitUsedCents: Field(reconstructedAccumulator.benefitUsedCents),
+          });
+
+          forest.setLeaf(
+            ForestDomain.ACCESS_CONTROL,
+            ACCUMULATOR_LEAF_INDEX,
+            newAccData.commitment(),
+          );
+
+          // Update credential with new forest root
+          const inventory = this.memberInventories.get(newWalletId.toString());
+          if (inventory) {
+            const currentCred = inventory.getCredential(0n);
+            if (currentCred) {
+              const updatedCred = new CredentialData({
+                credentialType: currentCred.credentialType,
+                forestRoot: forest.getForestRoot(),
+                issuerWalletId: currentCred.issuerWalletId,
+                subjectWalletId: currentCred.subjectWalletId,
+                issuedAt: currentCred.issuedAt,
+                expiresAt: currentCred.expiresAt,
+                revoked: currentCred.revoked,
+              });
+              inventory.updateCredential(0n, updatedCred);
+
+              // Update wallet state
+              this.walletRegistry.updateState(
+                newWalletId,
+                new WalletState({
+                  walletId: newWalletId,
+                  credentialInventoryRoot: inventory.getRoot(),
+                  nonce: Field(2),
+                }),
+              );
+            }
+          }
+
+          seededAccumulator = {
+            deductiblePaidCents: reconstructedAccumulator.deductiblePaidCents,
+            oopPaidCents: reconstructedAccumulator.oopPaidCents,
+            benefitUsedCents: reconstructedAccumulator.benefitUsedCents,
+          };
+        }
+      }
+    }
+
+    return {
+      oldWalletId,
+      newWalletId,
+      termination,
+      enrollment,
+      seededAccumulator,
     };
   }
 

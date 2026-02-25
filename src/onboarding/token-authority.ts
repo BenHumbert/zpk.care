@@ -190,6 +190,25 @@ export class TokenAuthority {
     return this.tokens.get(tokenId);
   }
 
+  /**
+   * Look up a consumed token by its token ID hash.
+   *
+   * Used during wallet migration: the recovery card stores tokenIdHash
+   * (Poseidon hash of tokenId). The insurer scans consumed tokens to find
+   * the matching record, confirming the member's identity.
+   *
+   * @param tokenIdHash — Poseidon hash of the token ID (from recovery card)
+   * @returns The matching token record, or undefined if not found
+   */
+  getTokenByHash(tokenIdHash: string): TokenRecord | undefined {
+    for (const record of this.tokens.values()) {
+      if (record.token.tokenIdHash.toString() === tokenIdHash) {
+        return record;
+      }
+    }
+    return undefined;
+  }
+
   /** Get total number of tokens managed */
   get count(): number {
     return this.tokens.size;

@@ -18,6 +18,7 @@ import type { StateTransitionProof } from '../engine/state-transition.js';
 import type { L2ChainEvent, L2EventHandler, L2NodeStatus } from './l2-node.js';
 import type { L2Receipt, L2Block, L2Batch, L2ChainState, L2ChainProofResponse, ClaimSubmissionMetadata } from './l2-types.js';
 import type { ClaimAccumulatorEntry } from './claim-accumulator-types.js';
+import type { StoredMessage, MessagePayload, MessageStoreEntry } from './message-store-types.js';
 import type { AuditLog } from '../audit/audit-types.js';
 import type { RpcRequest, RpcResponse } from './l2-rpc-server.js';
 import type { GossipMessage, PeerInfo, StateDigest } from './l2-peer-types.js';
@@ -183,6 +184,79 @@ export class L2Client {
   /** Get the Claim Accumulator Tree root and leaf count */
   async getClaimAccumulatorRoot(): Promise<{ root: string; leafCount: string }> {
     return this.rpcCall('l2_getClaimAccumulatorRoot');
+  }
+
+  /** Get MerkleWitnesses for the next registration slot (used by entity nodes to generate proofs) */
+  async getRegistrationWitnesses(): Promise<{
+    registryWitnessJson: string;
+    lifecycleWitnessJson: string;
+    currentRegistryRoot: string;
+    currentLifecycleRoot: string;
+    nextSlotIndex: string;
+  }> {
+    return this.rpcCall('l2_getRegistrationWitnesses');
+  }
+
+  /** Get Merkle witnesses for an existing registered wallet (for wallet update proofs) */
+  async getWalletWitnesses(walletId: string): Promise<{
+    registryWitnessJson: string;
+    lifecycleWitnessJson: string;
+    currentRegistryRoot: string;
+    currentLifecycleRoot: string;
+    slotIndex: string;
+    currentLifecycleState: string;
+  }> {
+    return this.rpcCall('l2_getWalletWitnesses', { walletId });
+  }
+
+  /**
+   * Reconstruct a member's accumulator totals from claim history.
+   * Used during wallet migration to seed the new wallet's AccumulatorData.
+   *
+   * @returns Reconstructed totals, or null if no claims found for this wallet
+   */
+  async reconstructAccumulator(walletId: string): Promise<{
+    deductiblePaidCents: bigint;
+    oopPaidCents: bigint;
+    benefitUsedCents: bigint;
+    claimCount: number;
+  } | null> {
+    return this.rpcCall('l2_reconstructAccumulator', { walletId });
+  }
+
+  // ─── Message Store Queries ──────────────────────────────
+
+  /** Get all messages involving a wallet (sent or received) */
+  async getMessagesByWallet(walletId: string): Promise<MessageStoreEntry[]> {
+    return this.rpcCall<MessageStoreEntry[]>('l2_getMessagesByWallet', { walletId });
+  }
+
+  /** Get all messages sent by a wallet */
+  async getMessagesBySender(walletId: string): Promise<MessageStoreEntry[]> {
+    return this.rpcCall<MessageStoreEntry[]>('l2_getMessagesBySender', { walletId });
+  }
+
+  /** Get all messages received by a wallet */
+  async getMessagesByRecipient(walletId: string): Promise<MessageStoreEntry[]> {
+    return this.rpcCall<MessageStoreEntry[]>('l2_getMessagesByRecipient', { walletId });
+  }
+
+  /** Get all messages in a thread */
+  async getMessagesByThread(threadIdHash: string): Promise<MessageStoreEntry[]> {
+    return this.rpcCall<MessageStoreEntry[]>('l2_getMessagesByThread', { threadIdHash });
+  }
+
+  /** Get the Message Store root and message count */
+  async getMessageStoreRoot(): Promise<{ root: string; messageCount: string }> {
+    return this.rpcCall('l2_getMessageStoreRoot');
+  }
+
+  /** Store an encrypted message on the sequencer */
+  async storeMessage(message: StoredMessage, payload: MessagePayload): Promise<MessageStoreEntry> {
+    return this.rpcCall<MessageStoreEntry>('l2_storeMessage', {
+      message: message as unknown as Record<string, unknown>,
+      payload: payload as unknown as Record<string, unknown>,
+    });
   }
 
   // ─── Peer Network / Gossip ────────────────────────────

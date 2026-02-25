@@ -37,6 +37,7 @@ function makeLeaf(overrides: Partial<ClaimLeaf> = {}): ClaimLeaf {
     patientPayCents: '1000',
     planPayCents: '5000',
     operationType: '1',
+    deductibleCreditCents: '0',
     ...overrides,
   };
 }
@@ -74,6 +75,7 @@ describe('Claim Accumulator Types', () => {
     const fields: (keyof ClaimLeaf)[] = [
       'memberWalletId', 'ndcHash', 'pharmacyWalletId', 'prescriberWalletId',
       'dateOfService', 'patientPayCents', 'planPayCents', 'operationType',
+      'deductibleCreditCents',
     ];
     for (const field of fields) {
       const modified = { ...base, [field]: '99999' };
@@ -82,7 +84,7 @@ describe('Claim Accumulator Types', () => {
     }
   });
 
-  test('computeClaimLeafHash matches manual Poseidon.hash of 8 fields', () => {
+  test('computeClaimLeafHash matches manual Poseidon.hash of 9 fields', () => {
     const leaf = makeLeaf();
     const expected = Poseidon.hash([
       Field(BigInt(leaf.memberWalletId)),
@@ -93,6 +95,7 @@ describe('Claim Accumulator Types', () => {
       Field(BigInt(leaf.patientPayCents)),
       Field(BigInt(leaf.planPayCents)),
       Field(BigInt(leaf.operationType)),
+      Field(BigInt(leaf.deductibleCreditCents)),
     ]);
     expect(computeClaimLeafHash(leaf).toString()).toBe(expected.toString());
   });

@@ -23,3 +23,13 @@ export {
 export type { EnrollmentBackup } from './enrollment-backup.js';
 
 export { ObfuscatedKey } from './obfuscated-key.js';
+
+export {
+  NFC_CAPACITY_BYTES,
+  exportRecoveryCard,
+  importRecoveryCard,
+  isRecoveryCard,
+  estimateRecoveryCardSize,
+} from './recovery-card.js';
+
+export type { RecoveryCard } from './recovery-card.js';

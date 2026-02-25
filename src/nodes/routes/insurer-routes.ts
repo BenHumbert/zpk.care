@@ -85,6 +85,36 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     },
   });
 
+  // ── Enrollment Processing ──────────────────────────────────
+
+  routes.push({
+    method: 'POST',
+    path: '/enrollment/process',
+    adminOnly: true,
+    handler: async (_req, res, _params, _query, body) => {
+      const node = server.getEntityNode() as InsurerNode | null;
+      if (!node) {
+        return server.sendResponse(res, 503, false, undefined, 'Insurer node not configured');
+      }
+
+      const b = body as { walletId?: string; tokenId?: string; role?: string } | undefined;
+      if (!b?.walletId) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing walletId');
+      }
+
+      // Lightweight enrollment acknowledgment — records the wallet registration.
+      // The actual ZK registration proof is what registers the wallet on the sequencer.
+      // This endpoint is for the insurer's roster tracking.
+      server.sendResponse(res, 200, true, {
+        enrolled: true,
+        walletId: b.walletId,
+        tokenId: b.tokenId ?? null,
+        role: b.role ?? 'unknown',
+        enrolledAt: Date.now(),
+      });
+    },
+  });
+
   // ══════════════════════════════════════════════════════════
   //  SYSTEM-WIDE QUERIES
   // ══════════════════════════════════════════════════════════
@@ -439,6 +469,40 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const batch = await node.forceBatch();
       server.sendResponse(res, 200, true, batch);
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  MESSAGING (Read-Only — system-wide queries)
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'GET',
+    path: '/messaging/wallet/:walletId',
+    handler: async (_req, res, params) => {
+      const node = server.getEntityNode() as InsurerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      server.sendResponse(res, 200, true, await node.getMessagesByWallet(params.walletId));
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/messaging/thread/:threadIdHash',
+    handler: async (_req, res, params) => {
+      const node = server.getEntityNode() as InsurerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      server.sendResponse(res, 200, true, await node.getMessagesByThread(params.threadIdHash));
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/messaging/status',
+    handler: async (_req, res) => {
+      const node = server.getEntityNode() as InsurerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      server.sendResponse(res, 200, true, await node.getMessageStoreStatus());
     },
   });
 

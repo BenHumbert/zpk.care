@@ -224,39 +224,11 @@ Sequence Number: 0
 
 ---
 
-### STEP 4b: Insurer Promotes Lifecycle (Admin Operation)
+### STEP 4b: Insurer Builds Eligibility Forest & Mints Credential
 
 **Actor: Insurer (zkpCare L2 Sequencer)**
 
-This is an off-chain admin operation — the insurer updates the lifecycle tree directly (no ZK proof needed for admin ops).
-
-**Simple action box:**
-```
-Admin Operation (no ZK proof):
-  Lifecycle slot N:
-    REGISTERED (1) → ELIGIBLE (2)
-
-  lifecycleTree.setLeaf(N,
-    Poseidon.hash([walletId, LIFECYCLE_ELIGIBLE]))
-```
-
-**Lifecycle state machine (show as a small state diagram):**
-```
-EMPTY(0) → REGISTERED(1) → ELIGIBLE(2) → ACTIVE(3)
-                                              ↓
-                                         REVOKED(4)
-```
-
-**Annotation:**
-> "The insurer is the attestation authority — they approve the member's eligibility after validating the employer's token. This is the ONLY step where the insurer exercises discretion."
-
----
-
-### STEP 4c: Insurer Builds Eligibility Forest & Mints NFT
-
-**Actor: Insurer (zkpCare L2 Sequencer)**
-
-The insurer constructs the member's eligibility data, builds a MerkleForest, creates an NftData object, mints it into an NftInventory, and generates a StateTransitionProof for the wallet update.
+The insurer constructs the member's eligibility data, builds a MerkleForest, creates a CredentialData object, mints it into a CredentialInventory, and generates a StateTransitionProof for the wallet update. The wallet's lifecycle remains REGISTERED during this step — both enrollment proofs (registration + credential mint) must use the same lifecycle root so they chain correctly in `BatchProgram.wrapPair()`.
 
 **Show the MerkleForest construction:**
 ```
@@ -304,11 +276,11 @@ AccumulatorData (initialized to zero):
 └──────────────────────────────────────┘
 ```
 
-**Show the NftData card:**
+**Show the CredentialData card:**
 ```
-Eligibility NFT (NftData — 7 Fields):
+Eligibility Credential (CredentialData — 7 Fields):
 ┌──────────────────────────────────────┐
-│ nftType:         ELIGIBILITY (1)     │
+│ credentialType:  ELIGIBILITY (1)     │
 │ forestRoot:      [MerkleForest root] │
 │ issuerWalletId:  [admin wallet]      │
 │ subjectWalletId: [Emma's walletId]   │
@@ -318,15 +290,15 @@ Eligibility NFT (NftData — 7 Fields):
 └──────────────────────────────────────┘
 ```
 
-**Show the NftInventory minting:**
+**Show the CredentialInventory minting:**
 ```
-NftInventory (MerkleTree, height 4):
-  BEFORE: empty tree (root = EMPTY_NFT_ROOT)
+CredentialInventory (MerkleTree, height 7):
+  BEFORE: empty tree (root = EMPTY_CREDENTIAL_ROOT)
 
-  mint(nftData) → inserts at slot 0
+  mint(credentialData) → inserts at slot 0
 
   AFTER:
-    Slot 0: Poseidon.hash(nftData fields)
+    Slot 0: Poseidon.hash(credentialData fields)
     Root: inventoryRoot (new Merkle root)
 ```
 
@@ -339,14 +311,14 @@ NftInventory (MerkleTree, height 4):
 ║  Private inputs:                         ║
 ║    domainTag:     Field(0) [MEMBER]      ║
 ║    f0-f4:         preimage fields        ║
-║    oldNftRoot:    EMPTY_NFT_ROOT         ║
+║    oldCredRoot:   EMPTY_CREDENTIAL_ROOT  ║
 ║    oldNonce:      0                      ║
-║    newNftRoot:    inventoryRoot           ║
+║    newCredRoot:   inventoryRoot           ║
 ║    registryWitness: Merkle path          ║
 ║    lifecycleWitness: Merkle path         ║
 ║    currentRegistryRoot                   ║
 ║    currentLifecycleRoot                  ║
-║    currentLifecycle: ELIGIBLE (2)        ║
+║    currentLifecycle: REGISTERED (1)      ║
 ║                                          ║
 ║  Circuit logic:                          ║
 ║    1. Compute walletId from preimage     ║
@@ -354,7 +326,7 @@ NftInventory (MerkleTree, height 4):
 ║       (lifecycle != REVOKED)             ║
 ║    3. Verify old state in registry:      ║
 ║       Poseidon.hash([walletId,           ║
-║         EMPTY_NFT_ROOT, nonce=0])        ║
+║         EMPTY_CREDENTIAL_ROOT, nonce=0]) ║
 ║    4. Compute new state:                 ║
 ║       Poseidon.hash([walletId,           ║
 ║         inventoryRoot, nonce=1])         ║
@@ -372,9 +344,49 @@ NftInventory (MerkleTree, height 4):
 **Arrow → to L2 Sequencer (internal):**
 ```
 L2 Receipt #2: l2-00000001
-Type: NFT Mint (wallet update)
+Type: Credential Mint (wallet update)
 Sequence Number: 1
 ```
+
+---
+
+### STEP 4c: Batch Enrollment Proofs & Promote Lifecycle
+
+**Actor: Insurer (zkpCare L2 Sequencer)**
+
+After both enrollment proofs are submitted, the sequencer immediately builds a batch from them (via `buildBatch()` → `BatchProgram.wrapPair()`). This drains the pending pool before the admin lifecycle update, preventing cross-enrollment root gaps when multiple members enroll consecutively. After the batch is built, the insurer advances the lifecycle from REGISTERED to ELIGIBLE.
+
+**Batch build (inside the proving lock — already held by enrollment):**
+```
+sequencer.buildBatch()
+  → wrapPair(registrationProof, credentialMintProof)
+  → BatchProof (2 transitions)
+  → pending pool drained
+```
+
+**Then admin lifecycle promotion:**
+```
+Admin Operation (no ZK proof — after batch drains pending pool):
+  Lifecycle slot N:
+    REGISTERED (1) → ELIGIBLE (2)
+
+  lifecycleTree.setLeaf(N,
+    Poseidon.hash([walletId, LIFECYCLE_ELIGIBLE]))
+
+  sequencer.applyAdminRootUpdate({
+    newLifecycleRoot: lifecycleTree.getRoot()
+  })
+```
+
+**Lifecycle state machine (show as a small state diagram):**
+```
+EMPTY(0) → REGISTERED(1) → ELIGIBLE(2) → ACTIVE(3)
+                                              ↓
+                                         REVOKED(4)
+```
+
+**Annotation:**
+> "The batch is built BEFORE the admin lifecycle update to prevent cross-enrollment root gaps. When multiple members enroll consecutively, the proving lock serializes them. Without batching first, the admin update (REGISTERED → ELIGIBLE) would change the lifecycle root between one enrollment's last proof and the next enrollment's first proof, causing `mergeBatches()` to fail. By draining the pending pool before the admin update, each enrollment is self-contained."
 
 ---
 
@@ -433,8 +445,8 @@ KeyRegistry:
 ✓ walletId: 22933566...56270809 (opaque hash)
 ✓ Wallet Registry: slot N committed with nonce=1, inventoryRoot
 ✓ Lifecycle Tree: slot N = ELIGIBLE
-✓ NFT Inventory: slot 0 = Eligibility NFT (forestRoot with eligibility + accumulator)
-✓ 2 L2 Receipts (registration + NFT mint)
+✓ Credential Inventory: slot 0 = Eligibility Credential (forestRoot with eligibility + accumulator)
+✓ 2 L2 Receipts (registration + credential mint)
 ✓ Opaque Roster: walletId → group/plan mapping (no names)
 ✗ Does NOT know Emma's name, DOB, cardholderId, or enrollmentKey
 ✗ CANNOT derive the walletId from any data it holds
@@ -446,16 +458,30 @@ KeyRegistry:
 ### L2 Settlement Path (show as a small footer diagram)
 
 ```
-StateTransitionProof (registration)  ─┐
-                                       ├─→ BatchProgram.wrapTransition()
-StateTransitionProof (NFT mint)      ─┘         │
-                                          BatchProgram.mergeBatches()
-                                                 │
-                                          ChainProgram.advance()
-                                                 │
-                                          CareContract.settle() → MINA L1
-                                          (every ~3 minutes)
+Per-enrollment (inside proving lock):
+
+  StateTransitionProof (registration)  ─┐  Both proofs share the same
+                                         ├─→ BatchProgram.wrapPair()
+  StateTransitionProof (credential)    ─┘  lifecycle root (REGISTERED)
+                                                   │
+                                             BatchProof (enrollment batch)
+                                                   │
+  Admin: REGISTERED → ELIGIBLE             (pending pool now empty)
+  (applied AFTER batch drains pool)
+
+Cross-enrollment (when multiple enrollments batched):
+
+  BatchProof (enrollment A)  ─┐
+                               ├─→ BatchProgram.mergeBatches()
+  BatchProof (enrollment B)  ─┘         │
+                                  ChainProgram.advance()
+                                         │
+                                  Leviathan L2 settlement
 ```
+
+**Proof chain ordering constraints:**
+1. `wrapPair()` enforces `left.newLifecycleRoot == right.oldLifecycleRoot`. Both enrollment proofs use lifecycle state REGISTERED, so they chain correctly within each enrollment.
+2. The batch is built BEFORE the admin lifecycle promotion. This drains the pending pool, preventing cross-enrollment root gaps when `mergeBatches()` combines enrollment batches from consecutive members.
 
 ---
 

@@ -325,16 +325,18 @@ function renderBatches(batches) {
   }
 
   const sorted = [...batches].reverse();
-  const rows = sorted.map(b => `
-    <tr>
+  const rows = sorted.map(b => {
+    const isEmpty = b.transitionCount === 0 && b.registrationCount === 0;
+    return `
+    <tr${isEmpty ? ' style="opacity: 0.5;"' : ''}>
       <td style="font-weight:600;">#${b.batchNumber}</td>
       <td>${b.registrationCount}</td>
-      <td>${b.transitionCount}</td>
+      <td>${isEmpty ? '<span style="color:var(--text-secondary);">0 (empty)</span>' : b.transitionCount}</td>
       <td><span class="seq-status-badge ${b.l1Status}">${b.l1Status}</span></td>
       <td class="mono" style="font-size:11px;" title="${b.l1TxHash || ''}">${b.l1TxHash ? b.l1TxHash.slice(0, 16) + '...' : '—'}</td>
       <td style="font-size:11px; color:var(--text-secondary);">${formatTime(b.createdAt)}</td>
     </tr>
-  `).join('');
+  `;}).join('');
 
   container.innerHTML = `
     <div class="section-card">

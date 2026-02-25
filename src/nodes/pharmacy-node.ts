@@ -132,8 +132,10 @@ export class PharmacyNode extends EntityNodeBase {
   ): Promise<L2Receipt> {
     // Fulfillment proofs target the MEMBER's wallet, not the pharmacy's
     const targetWallet = memberWalletId ?? this.config.walletId!;
-    const client = this.getClientForWallet(targetWallet);
-    return client.submitProof(proof);
+    return this.withPartitionRetry(
+      targetWallet,
+      (client) => client.submitProof(proof),
+    );
   }
 
   getProofTimings(): ProofTimingEstimate[] {

@@ -34,7 +34,9 @@ import type {
   BatchBuiltPayload,
   BatchSettledPayload,
   BatchFailedPayload,
+  MessageStoredPayload,
 } from './l2-peer-types.js';
+import type { StoredMessage, MessagePayload, MessageStoreEntry } from './message-store-types.js';
 import { getPartition, PartitionRouter } from './l2-partition.js';
 import type { PartitionConfig } from './l2-partition.js';
 import type { L2ChainEvent, L2EventHandler, L2NodeOptions } from './l2-node.js';
@@ -550,6 +552,43 @@ export class L2Leviathan {
     }
   }
 
+  // ─── Message Store ──────────────────────────────────────
+
+  /**
+   * Store an encrypted message on the primary partition's sequencer.
+   * Messages are global (not partitioned) — all leviathans store all messages.
+   * Broadcasts message:stored gossip so all replicas replicate the entry.
+   */
+  storeMessage(message: StoredMessage, payload: MessagePayload): MessageStoreEntry {
+    const seq = this.getSequencer(); // primary partition
+    const entry = seq.storeMessage(message, payload);
+
+    // Broadcast message:stored gossip
+    if (this.peerNetwork) {
+      const gossipPayload: MessageStoredPayload = {
+        leafIndex: entry.leafIndex,
+        message,
+        payload,
+        leafHash: entry.leafHash,
+        partitionIndex: this.config.primaryPartition,
+      };
+
+      const gossipMsg: GossipMessage = {
+        messageId: generateMessageId(
+          'message:stored', this.nodeId, Date.now(),
+          entry.leafIndex.toString(),
+        ),
+        type: 'message:stored',
+        senderId: this.nodeId,
+        timestamp: Date.now(),
+        payload: gossipPayload,
+      };
+      this.peerNetwork.broadcast(gossipMsg).catch(() => {});
+    }
+
+    return entry;
+  }
+
   /** Get partition config for the primary partition */
   getPartitionConfig(): PartitionConfig | null {
     return {
@@ -933,6 +972,14 @@ export class L2Leviathan {
           payload.batchNumber,
           payload.reason,
         );
+        break;
+      }
+
+      case 'message:stored': {
+        // Messages are global — apply to primary partition sequencer (idempotent)
+        const payload = msg.payload as MessageStoredPayload;
+        const seq = this.getSequencer(); // primary partition
+        seq.applyReplicatedMessage(payload.leafIndex, payload.message, payload.payload);
         break;
       }
 

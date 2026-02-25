@@ -405,7 +405,7 @@ export type {
 } from './l2/index.js';
 
 // Audit — Data Availability & Audit Trail
-export { AuditService, DEFAULT_ORPHAN_THRESHOLD_MS } from './audit/index.js';
+export { AuditService, DEFAULT_ORPHAN_THRESHOLD_MS, AuditMerkleIndex, AuditEventWitness, AUDIT_TREE_HEIGHT } from './audit/index.js';
 export type {
   AuditEvent,
   AuditLog,
@@ -418,6 +418,8 @@ export type {
   SettlementResult,
   EnrollmentConsistencyResult,
   FullAuditReport,
+  AuditMerkleState,
+  SelectiveWitnessResult,
 } from './audit/index.js';
 
 // ── Demo Data ──────────────────────────────────────────────

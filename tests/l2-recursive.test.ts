@@ -4,9 +4,9 @@
  * SEPARATE FILE from l2.test.ts — recursive proofs MUST NOT run
  * alongside LocalBlockchain tests (Mina global state conflict).
  *
- * Tests:
- *   1. wrapTransition: wraps a registration proof (registrationCount=1)
- *   2. wrapTransition: wraps a wallet update proof (registrationCount=0)
+ * Tests (uniform pair pattern — both wrapPair and mergeBatches take 2 proofs):
+ *   1. wrapPair: wraps two registration proofs (registrationCount=2)
+ *   2. wrapPair: wraps registration + wallet update (registrationCount=1)
  *   3. mergeBatches: merges two batch proofs with correct root chaining
  *   4. mergeBatches: rejects mismatched roots (chain violation)
  *   5. BatchProof verifies standalone (offline verification)
@@ -17,7 +17,7 @@
  * Timing (estimated on Ryzen 7 5800XT):
  *   Compilation: ~2-3 min (StateTransition ~35s + BatchProgram ~60-120s)
  *   Each proof:  ~30-60s
- *   Total:       ~6-10 min
+ *   Total:       ~8-12 min
  */
 import { Field, MerkleTree, Poseidon } from 'o1js';
 import {
@@ -68,15 +68,24 @@ const member2: MemberLocalData = {
   lastName: 'Smith',
 };
 
+const member3: MemberLocalData = {
+  cardholderId: 'CARD555444333',
+  dateOfBirth: '19880520',
+  genderCode: 1,
+  firstName: 'Bob',
+  lastName: 'Johnson',
+};
+
 const ENROLLMENT_KEY_1 = 'xK9#mP2$vL5nQ8wR3jF7';
 const ENROLLMENT_KEY_2 = 'aB3@nR4%tK7mJ9xW2pL8';
+const ENROLLMENT_KEY_3 = 'cD5!fH8^gJ1kL4mN6pQ9';
 
 // ─── Tests ───────────────────────────────────────────────
 
-describe('L2 — BatchProgram Recursive Proofs', () => {
+describe('L2 — BatchProgram Recursive Proofs (Uniform Pair)', () => {
   // Store proofs generated in earlier tests for use in merge tests
-  let registrationBatchProof: BatchProof;
-  let walletUpdateBatchProof: BatchProof;
+  let pairBatchProof1: BatchProof;   // test 1: 2 registrations
+  let pairBatchProof2: BatchProof;   // test 2: registration + wallet update
 
   // Track tree state across tests
   let regTree: MerkleTree;
@@ -86,7 +95,7 @@ describe('L2 — BatchProgram Recursive Proofs', () => {
   beforeAll(async () => {
     const t0 = Date.now();
     console.log('\n╔══════════════════════════════════════════════════╗');
-    console.log('║  L2 BATCH PROGRAM COMPILATION                    ║');
+    console.log('║  L2 BATCH PROGRAM COMPILATION (UNIFORM PAIR)     ║');
     console.log('╚══════════════════════════════════════════════════╝\n');
 
     console.log(`[compile] StateTransitionProgram (inline wallet verification)... (${mem()})`);
@@ -94,7 +103,7 @@ describe('L2 — BatchProgram Recursive Proofs', () => {
     await StateTransitionProgram.compile();
     console.log(`[compile] StateTransitionProgram DONE in ${secs(t)}s (${mem()})\n`);
 
-    console.log(`[compile] BatchProgram (RECURSIVE)... (${mem()})`);
+    console.log(`[compile] BatchProgram (RECURSIVE, uniform pair)... (${mem()})`);
     t = Date.now();
     await BatchProgram.compile();
     console.log(`[compile] BatchProgram DONE in ${secs(t)}s (${mem()})\n`);
@@ -102,152 +111,202 @@ describe('L2 — BatchProgram Recursive Proofs', () => {
     console.log(`✓ Total compilation: ${secs(t0)}s — ready to run proofs\n`);
   }, 600_000); // 10 min timeout for compilation
 
-  test('wrapTransition: wraps a registration proof (registrationCount=1)', async () => {
+  test('wrapPair: wraps two registration proofs (registrationCount=2)', async () => {
     const t = Date.now();
-    console.log(`\n── Test 1/5: wrapTransition (registration) (${mem()}) ──`);
+    console.log(`\n── Test 1/5: wrapPair (2 registrations) (${mem()}) ──`);
 
     // Set up fresh trees
     regTree = new MerkleTree(WALLET_TREE_HEIGHT);
     lcTree = new MerkleTree(WALLET_TREE_HEIGHT);
 
+    // ── Registration 1: member1 at slot 0 ──
     walletId1 = deriveMemberWalletId(member1, ENROLLMENT_KEY_1);
-    const preimage = memberWalletPreimage(member1, ENROLLMENT_KEY_1);
+    const preimage1 = memberWalletPreimage(member1, ENROLLMENT_KEY_1);
 
-    // StateTransitionProof (registration — wallet verification inlined)
-    console.log(`[test1] Generating StateTransitionProof (registration)...`);
+    console.log(`[test1] Generating StateTransitionProof #1 (register member1)...`);
     let s = Date.now();
-    const regWitness = new WalletRegistryWitness(regTree.getWitness(0n));
-    const lcWitness = new LifecycleWitness(lcTree.getWitness(0n));
+    const regWitness1 = new WalletRegistryWitness(regTree.getWitness(0n));
+    const lcWitness1 = new LifecycleWitness(lcTree.getWitness(0n));
 
-    const stResult = await StateTransitionProgram.proveRegistration(
+    const stResult1 = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
-      preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!,
-      regWitness,
-      lcWitness,
+      preimage1[0]!, preimage1[1]!, preimage1[2]!, preimage1[3]!, preimage1[4]!,
+      regWitness1,
+      lcWitness1,
       regTree.getRoot(),
       lcTree.getRoot(),
     );
-    console.log(`[test1] StateTransitionProof done in ${secs(s)}s`);
+    console.log(`[test1] ST proof #1 done in ${secs(s)}s`);
 
     // Update trees to match new state
-    const walletCommitment = Poseidon.hash([walletId1, EMPTY_CREDENTIAL_ROOT, Field(0)]);
-    regTree.setLeaf(0n, walletCommitment);
-    const lcLeaf = lifecycleLeafCommitment(walletId1, LIFECYCLE_REGISTERED);
-    lcTree.setLeaf(0n, lcLeaf);
+    const walletCommitment1 = Poseidon.hash([walletId1, EMPTY_CREDENTIAL_ROOT, Field(0)]);
+    regTree.setLeaf(0n, walletCommitment1);
+    const lcLeaf1 = lifecycleLeafCommitment(walletId1, LIFECYCLE_REGISTERED);
+    lcTree.setLeaf(0n, lcLeaf1);
 
-    // Step 3: wrapTransition
-    console.log(`[test1] Wrapping into BatchProof...`);
+    // ── Registration 2: member2 at slot 1 ──
+    const walletId2 = deriveMemberWalletId(member2, ENROLLMENT_KEY_2);
+    const preimage2 = memberWalletPreimage(member2, ENROLLMENT_KEY_2);
+
+    console.log(`[test1] Generating StateTransitionProof #2 (register member2)...`);
     s = Date.now();
-    const batchResult = await BatchProgram.wrapTransition(stResult.proof);
-    console.log(`[test1] wrapTransition done in ${secs(s)}s`);
+    const regWitness2 = new WalletRegistryWitness(regTree.getWitness(1n));
+    const lcWitness2 = new LifecycleWitness(lcTree.getWitness(1n));
 
-    registrationBatchProof = batchResult.proof as BatchProof;
-    const output = registrationBatchProof.publicOutput as unknown as BatchOutput;
+    const stResult2 = await StateTransitionProgram.proveRegistration(
+      DOMAIN_TAG_MEMBER,
+      preimage2[0]!, preimage2[1]!, preimage2[2]!, preimage2[3]!, preimage2[4]!,
+      regWitness2,
+      lcWitness2,
+      regTree.getRoot(),
+      lcTree.getRoot(),
+    );
+    console.log(`[test1] ST proof #2 done in ${secs(s)}s`);
 
-    expect(output.registrationCount.toString()).toBe('1');
-    expect(output.transitionCount.toString()).toBe('1');
+    // Update trees for member2
+    const walletCommitment2 = Poseidon.hash([walletId2, EMPTY_CREDENTIAL_ROOT, Field(0)]);
+    regTree.setLeaf(1n, walletCommitment2);
+    const lcLeaf2 = lifecycleLeafCommitment(walletId2, LIFECYCLE_REGISTERED);
+    lcTree.setLeaf(1n, lcLeaf2);
+
+    // ── wrapPair: wrap both registrations as a pair ──
+    console.log(`[test1] wrapPair (2 registration proofs)...`);
+    s = Date.now();
+    const batchResult = await BatchProgram.wrapPair(stResult1.proof, stResult2.proof);
+    console.log(`[test1] wrapPair done in ${secs(s)}s`);
+
+    pairBatchProof1 = batchResult.proof as BatchProof;
+    const output = pairBatchProof1.publicOutput as unknown as BatchOutput;
+
+    // 2 registrations, 2 transitions
+    expect(output.registrationCount.toString()).toBe('2');
+    expect(output.transitionCount.toString()).toBe('2');
+    // Both roots changed (registrations modify both registry and lifecycle)
     expect(output.oldRegistryRoot.toString()).not.toBe(output.newRegistryRoot.toString());
     expect(output.oldLifecycleRoot.toString()).not.toBe(output.newLifecycleRoot.toString());
 
     console.log(`✓ Test 1/5 PASSED in ${secs(t)}s (${mem()})\n`);
   }, 600_000);
 
-  test('wrapTransition: wraps a wallet update proof (registrationCount=0)', async () => {
+  test('wrapPair: wraps registration + wallet update (registrationCount=1)', async () => {
     const t = Date.now();
-    console.log(`\n── Test 2/5: wrapTransition (wallet update) (${mem()}) ──`);
+    console.log(`\n── Test 2/5: wrapPair (registration + wallet update) (${mem()}) ──`);
 
-    // Use current tree state from test 1 (wallet is registered)
-    const preimage = memberWalletPreimage(member1, ENROLLMENT_KEY_1);
+    // ── Registration 3: member3 at slot 2 ──
+    const walletId3 = deriveMemberWalletId(member3, ENROLLMENT_KEY_3);
+    const preimage3 = memberWalletPreimage(member3, ENROLLMENT_KEY_3);
 
-    // StateTransitionProof (wallet update — wallet verification inlined)
-    console.log(`[test2] Generating StateTransitionProof (wallet update)...`);
+    console.log(`[test2] Generating StateTransitionProof #3 (register member3)...`);
     let s = Date.now();
+    const regWitness3 = new WalletRegistryWitness(regTree.getWitness(2n));
+    const lcWitness3 = new LifecycleWitness(lcTree.getWitness(2n));
 
-    const newCredentialRoot = Poseidon.hash([Field(9999)]); // Simulated new credential inventory
-    const regWitness = new WalletRegistryWitness(regTree.getWitness(0n));
-    const lcWitness = new LifecycleWitness(lcTree.getWitness(0n));
-
-    const stResult = await StateTransitionProgram.proveWalletUpdate(
+    const stResult3 = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
-      preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!,
+      preimage3[0]!, preimage3[1]!, preimage3[2]!, preimage3[3]!, preimage3[4]!,
+      regWitness3,
+      lcWitness3,
+      regTree.getRoot(),
+      lcTree.getRoot(),
+    );
+    console.log(`[test2] ST proof #3 done in ${secs(s)}s`);
+
+    // Update trees for member3
+    const walletCommitment3 = Poseidon.hash([walletId3, EMPTY_CREDENTIAL_ROOT, Field(0)]);
+    regTree.setLeaf(2n, walletCommitment3);
+    const lcLeaf3 = lifecycleLeafCommitment(walletId3, LIFECYCLE_REGISTERED);
+    lcTree.setLeaf(2n, lcLeaf3);
+
+    // ── Wallet update: member1 at slot 0 (already registered in test 1) ──
+    const preimage1 = memberWalletPreimage(member1, ENROLLMENT_KEY_1);
+
+    console.log(`[test2] Generating StateTransitionProof #4 (wallet update member1)...`);
+    s = Date.now();
+
+    const newCredentialRoot = Poseidon.hash([Field(9999)]); // Simulated credential change
+    const regWitness4 = new WalletRegistryWitness(regTree.getWitness(0n));
+    const lcWitness4 = new LifecycleWitness(lcTree.getWitness(0n));
+
+    const stResult4 = await StateTransitionProgram.proveWalletUpdate(
+      DOMAIN_TAG_MEMBER,
+      preimage1[0]!, preimage1[1]!, preimage1[2]!, preimage1[3]!, preimage1[4]!,
       EMPTY_CREDENTIAL_ROOT,   // oldCredentialRoot
-      Field(0),          // oldNonce
-      newCredentialRoot,        // newCredentialRoot
-      regWitness,
-      lcWitness,
+      Field(0),                // oldNonce
+      newCredentialRoot,       // newCredentialRoot
+      regWitness4,
+      lcWitness4,
       regTree.getRoot(),
       lcTree.getRoot(),
       LIFECYCLE_REGISTERED,
     );
-    console.log(`[test2] StateTransitionProof done in ${secs(s)}s`);
+    console.log(`[test2] ST proof #4 done in ${secs(s)}s`);
 
     // Update registry tree for new wallet state
     const newCommitment = Poseidon.hash([walletId1, newCredentialRoot, Field(1)]);
     regTree.setLeaf(0n, newCommitment);
 
-    // Step 3: wrapTransition
-    console.log(`[test2] Wrapping into BatchProof...`);
+    // ── wrapPair: wrap registration + wallet update as a pair ──
+    console.log(`[test2] wrapPair (registration + wallet update)...`);
     s = Date.now();
-    const batchResult = await BatchProgram.wrapTransition(stResult.proof);
-    console.log(`[test2] wrapTransition done in ${secs(s)}s`);
+    const batchResult = await BatchProgram.wrapPair(stResult3.proof, stResult4.proof);
+    console.log(`[test2] wrapPair done in ${secs(s)}s`);
 
-    walletUpdateBatchProof = batchResult.proof as BatchProof;
-    const output = walletUpdateBatchProof.publicOutput as unknown as BatchOutput;
+    pairBatchProof2 = batchResult.proof as BatchProof;
+    const output = pairBatchProof2.publicOutput as unknown as BatchOutput;
 
-    expect(output.registrationCount.toString()).toBe('0');
-    expect(output.transitionCount.toString()).toBe('1');
-    // Registry root changed (wallet state updated)
+    // 1 registration + 0 registration = 1
+    expect(output.registrationCount.toString()).toBe('1');
+    expect(output.transitionCount.toString()).toBe('2');
+    // Registry root changed (both proofs modify registry)
     expect(output.oldRegistryRoot.toString()).not.toBe(output.newRegistryRoot.toString());
-    // Lifecycle root unchanged (wallet updates don't affect lifecycle)
-    expect(output.oldLifecycleRoot.toString()).toBe(output.newLifecycleRoot.toString());
 
     console.log(`✓ Test 2/5 PASSED in ${secs(t)}s (${mem()})\n`);
   }, 600_000);
 
-  test('mergeBatches: merges two batch proofs with correct root chaining', async () => {
+  test('mergeBatches: merges two wrapPair batch proofs with correct root chaining', async () => {
     const t = Date.now();
     console.log(`\n── Test 3/5: mergeBatches (${mem()}) ──`);
 
-    // Verify chain: registration.new roots == walletUpdate.old roots
-    const regOutput = registrationBatchProof.publicOutput as unknown as BatchOutput;
-    const updOutput = walletUpdateBatchProof.publicOutput as unknown as BatchOutput;
+    // Verify chain: pairBatch1.new roots == pairBatch2.old roots
+    const out1 = pairBatchProof1.publicOutput as unknown as BatchOutput;
+    const out2 = pairBatchProof2.publicOutput as unknown as BatchOutput;
 
-    expect(regOutput.newRegistryRoot.toString()).toBe(
-      updOutput.oldRegistryRoot.toString(),
+    expect(out1.newRegistryRoot.toString()).toBe(
+      out2.oldRegistryRoot.toString(),
     );
-    expect(regOutput.newLifecycleRoot.toString()).toBe(
-      updOutput.oldLifecycleRoot.toString(),
+    expect(out1.newLifecycleRoot.toString()).toBe(
+      out2.oldLifecycleRoot.toString(),
     );
 
     // Merge
     console.log(`[test3] Merging two BatchProofs...`);
     const s = Date.now();
     const mergedResult = await BatchProgram.mergeBatches(
-      registrationBatchProof,
-      walletUpdateBatchProof,
+      pairBatchProof1,
+      pairBatchProof2,
     );
     console.log(`[test3] mergeBatches done in ${secs(s)}s`);
 
     const mergedProof = mergedResult.proof as BatchProof;
     const output = mergedProof.publicOutput as unknown as BatchOutput;
 
-    // A→C: old from registration, new from wallet update
+    // A→C: old from pair1, new from pair2
     expect(output.oldRegistryRoot.toString()).toBe(
-      regOutput.oldRegistryRoot.toString(),
+      out1.oldRegistryRoot.toString(),
     );
     expect(output.newRegistryRoot.toString()).toBe(
-      updOutput.newRegistryRoot.toString(),
+      out2.newRegistryRoot.toString(),
     );
     expect(output.oldLifecycleRoot.toString()).toBe(
-      regOutput.oldLifecycleRoot.toString(),
+      out1.oldLifecycleRoot.toString(),
     );
     expect(output.newLifecycleRoot.toString()).toBe(
-      updOutput.newLifecycleRoot.toString(),
+      out2.newLifecycleRoot.toString(),
     );
 
-    // Counts: 1 registration + 0 = 1, 1 transition + 1 = 2
-    expect(output.registrationCount.toString()).toBe('1');
-    expect(output.transitionCount.toString()).toBe('2');
+    // Counts: 2 + 1 = 3 registrations, 2 + 2 = 4 transitions
+    expect(output.registrationCount.toString()).toBe('3');
+    expect(output.transitionCount.toString()).toBe('4');
 
     console.log(`✓ Test 3/5 PASSED in ${secs(t)}s (${mem()})\n`);
   }, 600_000);
@@ -256,15 +315,15 @@ describe('L2 — BatchProgram Recursive Proofs', () => {
     const t = Date.now();
     console.log(`\n── Test 4/5: mergeBatches chain violation (${mem()}) ──`);
 
-    // Try to merge in wrong order: walletUpdate first, then registration
-    // walletUpdate.new roots != registration.old roots — chain is broken
+    // Try to merge in wrong order: pairBatch2 first, then pairBatch1
+    // pairBatch2.new roots != pairBatch1.old roots — chain is broken
     console.log(`[test4] Attempting merge with wrong order (should fail)...`);
 
     // This should throw a constraint failure during proof generation
     await expect(
       BatchProgram.mergeBatches(
-        walletUpdateBatchProof,
-        registrationBatchProof,
+        pairBatchProof2,
+        pairBatchProof1,
       ),
     ).rejects.toThrow();
 
@@ -275,10 +334,10 @@ describe('L2 — BatchProgram Recursive Proofs', () => {
     const t = Date.now();
     console.log(`\n── Test 5/5: Standalone BatchProof verification (${mem()}) ──`);
 
-    // Verify the registration batch proof offline
+    // Verify the pair batch proof offline
     console.log(`[test5] Verifying BatchProof offline...`);
     const s = Date.now();
-    const isValid = await BatchProgram.verify(registrationBatchProof);
+    const isValid = await BatchProgram.verify(pairBatchProof1);
     console.log(`[test5] verify() done in ${secs(s)}s — valid=${isValid}`);
 
     expect(isValid).toBe(true);

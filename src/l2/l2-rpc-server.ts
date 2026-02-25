@@ -764,6 +764,99 @@ export class L2RpcServer {
         };
       }
 
+      case 'l2_getRegistrationWitnesses': {
+        return this.node.getSequencer().getRegistrationWitnesses();
+      }
+
+      case 'l2_getWalletWitnesses': {
+        const wid = params.walletId ?? params[0];
+        if (typeof wid !== 'string') throw new Error('Missing walletId parameter');
+        return this.node.getSequencer().getWalletWitnesses(wid);
+      }
+
+      // ── Message Store queries ──
+
+      case 'l2_getMessagesByWallet': {
+        const walletId = params.walletId;
+        if (typeof walletId !== 'string') {
+          throw new Error('Missing or invalid walletId parameter');
+        }
+        return this.node.getSequencer().getMessagesByWallet(walletId);
+      }
+
+      case 'l2_getMessagesBySender': {
+        const walletId = params.walletId;
+        if (typeof walletId !== 'string') {
+          throw new Error('Missing or invalid walletId parameter');
+        }
+        return this.node.getSequencer().getMessagesBySender(walletId);
+      }
+
+      case 'l2_getMessagesByRecipient': {
+        const walletId = params.walletId;
+        if (typeof walletId !== 'string') {
+          throw new Error('Missing or invalid walletId parameter');
+        }
+        return this.node.getSequencer().getMessagesByRecipient(walletId);
+      }
+
+      case 'l2_getMessagesByThread': {
+        const threadIdHash = params.threadIdHash;
+        if (typeof threadIdHash !== 'string') {
+          throw new Error('Missing or invalid threadIdHash parameter');
+        }
+        return this.node.getSequencer().getMessagesByThread(threadIdHash);
+      }
+
+      case 'l2_getMessageStoreRoot': {
+        return {
+          root: this.node.getSequencer().getMessageStoreRoot(),
+          messageCount: this.node.getSequencer().getMessageCount().toString(),
+        };
+      }
+
+      case 'l2_storeMessage': {
+        const msg = params.message as Record<string, unknown> | undefined;
+        const pl = params.payload as Record<string, unknown> | undefined;
+        if (!msg || typeof msg.messageCommitment !== 'string' ||
+            typeof msg.senderWalletId !== 'string' ||
+            typeof msg.recipientWalletId !== 'string' ||
+            typeof msg.messageType !== 'string' ||
+            typeof msg.threadIdHash !== 'string') {
+          throw new Error('Missing or invalid message parameter (requires messageCommitment, senderWalletId, recipientWalletId, messageType, threadIdHash)');
+        }
+        if (!pl || typeof pl.ciphertext !== 'string' ||
+            typeof pl.iv !== 'string' ||
+            typeof pl.tag !== 'string') {
+          throw new Error('Missing or invalid payload parameter (requires ciphertext, iv, tag)');
+        }
+        const storedMessage = {
+          messageCommitment: msg.messageCommitment as string,
+          senderWalletId: msg.senderWalletId as string,
+          recipientWalletId: msg.recipientWalletId as string,
+          messageType: msg.messageType as string,
+          threadIdHash: msg.threadIdHash as string,
+        };
+        const messagePayload = {
+          ciphertext: pl.ciphertext as string,
+          iv: pl.iv as string,
+          tag: pl.tag as string,
+          timestamp: typeof pl.timestamp === 'number' ? pl.timestamp : Date.now(),
+          receiptId: typeof pl.receiptId === 'string' ? pl.receiptId : undefined,
+        };
+        return this.node.storeMessage(storedMessage, messagePayload);
+      }
+
+      // ── Accumulator Reconstruction ──
+
+      case 'l2_reconstructAccumulator': {
+        const walletId = params.walletId;
+        if (typeof walletId !== 'string') {
+          throw new Error('Missing or invalid walletId parameter');
+        }
+        return this.node.getSequencer().reconstructAccumulator(walletId);
+      }
+
       // ── Peer Network / Gossip methods ──
 
       case 'l2_gossipRelay': {
