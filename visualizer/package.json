@@ -6,8 +6,16 @@
   "scripts": {
     "prestart": "powershell -File kill-ports.ps1",
     "start": "concurrently -n SEQ,UI -c blue,green \"npm run sequencer\" \"npm run dev\"",
+    "start:clean": "npm run clean && npm start",
+    "clean": "powershell -Command \"& ./kill-ports.ps1; Remove-Item -Recurse -Force .parcel-cache -ErrorAction SilentlyContinue; Get-ChildItem dist -Exclude flowchart -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue; Write-Output 'Cache cleared (dist/flowchart preserved)'\"",
     "sequencer": "npx tsx demo/start-interactive.ts",
+    "flowchart": "npx tsx demo/flowchart-orchestrator.ts",
     "dev": "parcel src/index.html src/interactive.html src/member.html src/prescriber.html src/pharmacy.html src/insurer.html src/sequencer.html --port 1234",
+    "scenarios": "node demo/scenario-runner.mjs",
+    "start:scenarios": "concurrently -n SEQ,UI,RUN -c blue,green,yellow \"npm run sequencer\" \"npm run dev\" \"node demo/scenario-runner.mjs\"",
+    "start:scenarios:clean": "npm run clean && npm run start:scenarios",
+    "start:flowchart": "concurrently -n DASH,RUN -c blue,yellow \"npm run flowchart\" \"node demo/scenario-runner.mjs\"",
+    "start:flowchart:clean": "npm run clean && npm run start:flowchart",
     "start:old": "concurrently -n SEQ,VIZ,DEMO -c blue,green,yellow \"npx tsx demo/start-sequencer.ts\" \"parcel src/index.html --port 1234\" \"npx tsx demo/scenario-runner.ts\""
   },
   "devDependencies": {

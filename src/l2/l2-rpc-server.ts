@@ -35,17 +35,23 @@ export type VizEventType =
   | 'viz:formulary:check' | 'viz:formulary:verified'
   | 'viz:prescription:written' | 'viz:prescription:sent'
   | 'viz:prescription:received' | 'viz:prescription:status'
-  | 'viz:fulfillment:started' | 'viz:fulfillment:settled'
+  | 'viz:fulfillment:started' | 'viz:fulfillment:settled' | 'viz:fulfillment:reversed'
+  | 'viz:pharmacy:dispensed' | 'viz:pharmacy:rejected' | 'viz:pharmacy:credential_scan'
   | 'viz:accumulator:updated' | 'viz:reversal:processed'
   | 'viz:message:sent' | 'viz:message:received'
   | 'viz:delegation:created'
-  | 'viz:batch:submitted' | 'viz:batch:settled';
+  | 'viz:batch:submitted' | 'viz:batch:settled'
+  | 'viz:enrollment:wallet_derived' | 'viz:enrollment:proof_gate'
+  | 'viz:enrollment:registration' | 'viz:enrollment:credential_mint'
+  | 'viz:enrollment:lifecycle' | 'viz:enrollment:provider_notify'
+  | 'viz:enrollment:terminated'
+  | 'viz:leviathan:heartbeat' | 'viz:leviathan:failover' | 'viz:leviathan:gossip';
 
 /** Lane names for the horse-race view */
-export type VizLane = 'enrollment' | 'eligibility' | 'prescription' | 'fulfillment' | 'messaging' | 'batch';
+export type VizLane = 'enrollment' | 'eligibility' | 'prescription' | 'fulfillment' | 'messaging' | 'batch' | 'leviathan';
 
 /** Actor types in the system */
-export type VizActorType = 'member' | 'prescriber' | 'pharmacy' | 'insurer' | 'employer';
+export type VizActorType = 'member' | 'prescriber' | 'pharmacy' | 'insurer' | 'employer' | 'leviathan';
 
 /** A visualization event pushed by the demo scenario script */
 export interface VizEvent {

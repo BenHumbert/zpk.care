@@ -21,6 +21,17 @@ import {
   updateChainState, renderCredentialCard, renderForestCard, renderZkDataSection,
 } from '../interactive-app.js';
 
+import {
+  checkInteractions,
+  getDurStatus,
+  renderDurBadge,
+  renderInteractionAlerts,
+} from '../drug-interactions.js';
+import {
+  renderSectionCard, renderMetricRow, renderSortableTable,
+  truncHash,
+} from '../node-common.js';
+
 export class PharmacyPhase {
   constructor(app) {
     this.app = app;
@@ -28,6 +39,8 @@ export class PharmacyPhase {
     this.fillResult = null;
     this.selectedRxId = null;
     this.selectedMedIndex = null; // for formulary browser
+    this.scannedMemberWalletId = null; // patient lookup filter
+    this.scannedCredentialJson = null;  // stored credential from scan
   }
 
   // ─── Main Render ─────────────────────────────────────────
@@ -41,16 +54,29 @@ export class PharmacyPhase {
     const fillablePrescriptions = allPrescriptions.filter(rx =>
       rx.status === 'DISPENSED' || rx.status === 'PARTIALLY_FILLED');
 
+    // Filter fillable by scanned member if set
+    const filteredFillable = this.scannedMemberWalletId
+      ? fillablePrescriptions.filter(rx => rx.memberWalletId === this.scannedMemberWalletId)
+      : fillablePrescriptions;
+
     this.container.innerHTML = `
+      ${this.renderPatientLookup(state)}
       ${this.renderDispensingQueue(queuePrescriptions, state)}
-      ${this.renderFillQueue(fillablePrescriptions, state)}
+      ${this.renderFillQueue(filteredFillable, state)}
       ${this.selectedRxId ? this.renderFillDetails(fillablePrescriptions, state) : ''}
       ${this.renderFormularyBrowser(state)}
+      ${this.renderPharmacyDur(state)}
+      ${this.renderPharmacyActivity(allPrescriptions, state)}
+      ${this.renderPharmPatientBreakdown(allPrescriptions, state)}
+      ${this.renderPharmPrescriberBreakdown(allPrescriptions, state)}
+      ${this.renderPharmMedicationBreakdown(allPrescriptions, state)}
       ${this.renderPrescriptionHistory(allPrescriptions, state)}
+      ${this.renderPharmNodeInfo()}
     `;
 
+    this.bindPatientLookupEvents(state);
     this.bindDispensingQueueEvents(state);
-    this.bindFillQueueEvents(fillablePrescriptions, state);
+    this.bindFillQueueEvents(filteredFillable, state);
     if (this.selectedRxId) {
       const currentRx = fillablePrescriptions.find(rx => rx.id === this.selectedRxId);
       if (currentRx) {
@@ -59,7 +85,153 @@ export class PharmacyPhase {
       }
     }
     this.bindFormularyEvents(state);
+    this.bindDurEvents(state);
     this.bindSummaryEvents(state);
+    this.loadPharmNodeInfo();
+  }
+
+  // ─── Patient Lookup (NFC / Credential) ──────────────────
+
+  renderPatientLookup(state) {
+    const enrolled = state.enrolledMembers || [];
+    const scanned = this.scannedMemberWalletId;
+    const member = scanned ? enrolled.find(m => m.walletId === scanned) : null;
+
+    return `
+      <div class="section-card" style="border-left: 3px solid var(--accent-blue);">
+        <div class="card-header pharmacy">Patient Lookup (NFC / Credential)</div>
+        <div class="card-body">
+          <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">
+            Paste the member's <strong>Portable Credential JSON</strong> (generated in the Member tab)
+            or enter a wallet ID to identify and filter prescriptions by patient.
+          </div>
+
+          <div style="display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 250px;">
+              <label style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">NFC Card Data / Wallet ID</label>
+              <input type="text" id="pharm-nfc-input" class="mono"
+                placeholder="Tap NFC card or paste wallet ID..."
+                style="width: 100%; padding: 8px; font-size: 12px; background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 4px; color: var(--text-primary);"
+                value="${scanned && !this.scannedCredentialJson ? scanned : ''}" />
+            </div>
+            <div style="flex: 1; min-width: 250px;">
+              <label style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Credential JSON (from Member tab)</label>
+              <textarea id="pharm-credential-input" class="mono"
+                placeholder="Paste credential JSON here..."
+                style="width: 100%; padding: 8px; font-size: 11px; height: 60px; background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 4px; color: var(--text-primary); resize: vertical;"
+              >${this.scannedCredentialJson || ''}</textarea>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px;">
+            <button id="pharm-scan-btn" class="btn-action pharmacy" style="white-space: nowrap;">
+              Scan / Lookup
+            </button>
+            ${scanned ? `
+              <button id="pharm-clear-scan" class="btn-action" style="background: var(--border-subtle); color: var(--text-primary); white-space: nowrap; font-size: 12px; padding: 8px 12px;">
+                Clear Filter
+              </button>
+            ` : ''}
+          </div>
+
+          ${member ? `
+          <div style="margin-top: 12px; padding: 10px 14px; background: rgba(102, 187, 106, 0.08); border: 1px solid rgba(102, 187, 106, 0.3); border-radius: 6px;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+              <span style="color: var(--accent-green); font-weight: 600; font-size: 13px;">Patient Verified</span>
+              ${this.scannedCredentialJson ? '<span style="font-size: 10px; padding: 2px 8px; background: var(--accent-green); color: #0d1117; border-radius: 4px; font-weight: 600;">ZK CREDENTIAL</span>' : '<span style="font-size: 10px; padding: 2px 8px; background: var(--accent-blue); color: #0d1117; border-radius: 4px; font-weight: 600;">WALLET ID</span>'}
+            </div>
+            <div class="data-grid">
+              <div class="label">Name</div><div class="value">${member.displayName}</div>
+              <div class="label">Wallet ID</div><div class="value mono" style="font-size: 11px;">${member.walletIdDisplay || member.walletId}</div>
+              <div class="label">Plan</div><div class="value">${member.planId || '\u2014'}</div>
+              <div class="label">Status</div><div class="value"><span style="color: ${member.lifecycle === 'REVOKED' ? 'var(--accent-red)' : 'var(--accent-green)'};">${member.lifecycle || 'ELIGIBLE'}</span></div>
+            </div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">
+              Fill Queue below is filtered to this patient's prescriptions.
+            </div>
+          </div>
+          ` : scanned ? `
+          <div style="margin-top: 12px; padding: 10px 14px; background: rgba(239, 83, 80, 0.08); border: 1px solid rgba(239, 83, 80, 0.3); border-radius: 6px;">
+            <span style="color: var(--accent-red); font-size: 12px;">No enrolled member found for wallet ID: ${scanned.slice(0, 12)}\u2026</span>
+          </div>
+          ` : ''}
+
+          <div id="pharm-scan-result"></div>
+        </div>
+      </div>
+    `;
+  }
+
+  bindPatientLookupEvents(state) {
+    const scanBtn = document.getElementById('pharm-scan-btn');
+    if (scanBtn) {
+      scanBtn.addEventListener('click', () => this.doPatientScan(state));
+    }
+
+    const clearBtn = document.getElementById('pharm-clear-scan');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        this.scannedMemberWalletId = null;
+        this.scannedCredentialJson = null;
+        this.selectedRxId = null;
+        this.render(this.currentState);
+      });
+    }
+
+    // Enter key on inputs triggers scan
+    const nfcInput = document.getElementById('pharm-nfc-input');
+    const credInput = document.getElementById('pharm-credential-input');
+    if (nfcInput) nfcInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.doPatientScan(state); });
+  }
+
+  doPatientScan(state) {
+    const nfcInput = document.getElementById('pharm-nfc-input');
+    const credInput = document.getElementById('pharm-credential-input');
+    const nfcValue = nfcInput?.value?.trim();
+    const credJson = credInput?.value?.trim();
+    const resultDiv = document.getElementById('pharm-scan-result');
+
+    try {
+      let walletId = null;
+
+      // Priority 1: NFC card data / wallet ID
+      if (nfcValue) {
+        if (/^\d+$/.test(nfcValue)) {
+          walletId = nfcValue;
+        } else {
+          try {
+            const payload = JSON.parse(nfcValue);
+            walletId = payload.walletId || payload.memberWalletId || payload.publicOutput?.walletId;
+          } catch {
+            walletId = nfcValue;
+          }
+        }
+      }
+
+      // Priority 2: Credential JSON
+      if (!walletId && credJson) {
+        const cred = JSON.parse(credJson);
+        walletId = cred.publicOutput?.walletId || cred.walletId || cred.memberWalletId;
+        this.scannedCredentialJson = credJson;
+      }
+
+      if (!walletId) {
+        if (resultDiv) {
+          resultDiv.innerHTML = `<div style="color: var(--accent-red); font-size: 12px; margin-top: 8px;">Enter a wallet ID, NFC card data, or credential JSON.</div>`;
+        }
+        return;
+      }
+
+      this.scannedMemberWalletId = walletId;
+      if (credJson && !this.scannedCredentialJson) this.scannedCredentialJson = credJson;
+      this.selectedRxId = null;
+      this.render(this.currentState);
+
+    } catch (err) {
+      if (resultDiv) {
+        resultDiv.innerHTML = `<div style="color: var(--accent-red); font-size: 12px; margin-top: 8px;">Invalid input: ${err.message}</div>`;
+      }
+    }
   }
 
   // ─── Dispensing Queue (no credential needed) ────────────
@@ -613,6 +785,298 @@ export class PharmacyPhase {
     detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
+  // ─── DUR (Drug Utilization Review) ────────────────────────
+
+  renderPharmacyDur(state) {
+    const enrolled = state.enrolledMembers || [];
+    if (enrolled.length === 0) return '';
+
+    const memberOptions = enrolled
+      .filter(m => m.lifecycle !== 'REVOKED')
+      .map(m => `<option value="${m.walletId}">${m.displayName} (${m.walletId ? m.walletId.slice(0, 8) + '\u2026' : '--'})</option>`)
+      .join('');
+
+    return `
+      <div class="section-card" style="margin-top: 16px;">
+        <div class="card-header pharmacy">Drug Utilization Review (DUR)</div>
+        <div class="card-body">
+          <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">
+            Select a patient to check for drug interactions across their active medications.
+          </div>
+          <div style="display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 200px;">
+              <select id="pharm-dur-member">
+                <option value="">\u2014 Select patient \u2014</option>
+                ${memberOptions}
+              </select>
+            </div>
+            <button id="btn-run-dur" class="btn-action pharmacy" style="white-space: nowrap;">Run DUR</button>
+          </div>
+          <div id="pharm-dur-results" style="margin-top: 12px;"></div>
+        </div>
+      </div>
+    `;
+  }
+
+  bindDurEvents(state) {
+    const btnDur = document.getElementById('btn-run-dur');
+    const durSelect = document.getElementById('pharm-dur-member');
+    if (btnDur && durSelect) {
+      btnDur.addEventListener('click', () => {
+        const walletId = durSelect.value;
+        if (walletId) this.performDur(walletId, state);
+      });
+    }
+  }
+
+  performDur(memberWalletId, state) {
+    const resultsEl = document.getElementById('pharm-dur-results');
+    if (!resultsEl) return;
+
+    const prescriptions = state.prescriptions || [];
+    const medications = state.demoData?.medications || [];
+    const fulfillments = state.fulfillments || [];
+
+    // Find this member's filled prescriptions
+    const memberRxs = prescriptions.filter(rx => rx.memberWalletId === memberWalletId);
+    const filledRxs = memberRxs.filter(rx => rx.status === 'FILLED' || rx.status === 'PARTIALLY_FILLED' || rx.status === 'DISPENSED');
+
+    if (filledRxs.length === 0) {
+      resultsEl.innerHTML = `
+        <div style="padding: 12px; text-align: center;">
+          ${renderDurBadge('green')}
+          <div style="color: var(--text-muted); margin-top: 8px;">No active medications for this patient.</div>
+        </div>
+      `;
+      return;
+    }
+
+    // Build active medication list
+    const activeMeds = filledRxs.map(rx => {
+      const med = medications[rx.medicationIndex] || {};
+      return {
+        brandName: med.brandName || rx.medication || '--',
+        therapeuticClass: med.therapeuticClass || '',
+        tier: med.tier,
+        strength: med.strength || '',
+      };
+    });
+
+    // De-duplicate by brand name
+    const seen = new Set();
+    const uniqueMeds = activeMeds.filter(m => {
+      if (seen.has(m.brandName)) return false;
+      seen.add(m.brandName);
+      return true;
+    });
+
+    // Check interactions
+    const alerts = checkInteractions(uniqueMeds);
+    const status = getDurStatus(alerts);
+
+    // Active medications table
+    const medRows = uniqueMeds.map(m => `
+      <tr>
+        <td>${m.brandName}</td>
+        <td>${m.strength}</td>
+        <td>${m.therapeuticClass || '--'}</td>
+        <td>${m.tier != null ? `<span class="tier-badge tier-${m.tier}">Tier ${m.tier}</span>` : '--'}</td>
+      </tr>
+    `).join('');
+
+    resultsEl.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+        ${renderDurBadge(status)}
+        <span style="font-size: 12px; color: var(--text-secondary);">${uniqueMeds.length} active medication${uniqueMeds.length !== 1 ? 's' : ''}</span>
+      </div>
+      <div style="margin-bottom: 12px;">
+        <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">Active Medications</div>
+        <table class="med-table">
+          <thead><tr><th>Drug</th><th>Strength</th><th>Therapeutic Class</th><th>Tier</th></tr></thead>
+          <tbody>${medRows}</tbody>
+        </table>
+      </div>
+      <div>
+        <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">Interaction Alerts</div>
+        ${renderInteractionAlerts(alerts)}
+      </div>
+    `;
+  }
+
+  // ─── Activity Summary ──────────────────────────────────────
+
+  renderPharmacyActivity(allPrescriptions, state) {
+    if (allPrescriptions.length === 0) return '';
+
+    const filled = allPrescriptions.filter(rx => rx.status === 'FILLED' || rx.status === 'PARTIALLY_FILLED');
+    const reversed = allPrescriptions.filter(rx => rx.status === 'REVERSED');
+    const active = allPrescriptions.filter(rx => rx.status === 'ACTIVE' || rx.status === 'PENDING' || rx.status === 'DISPENSED');
+    const patientSet = new Set(allPrescriptions.map(rx => rx.memberWalletId).filter(Boolean));
+    const medSet = new Set(allPrescriptions.map(rx => rx.medicationIndex));
+
+    let totalPatientPay = 0, totalPlanPay = 0;
+    for (const rx of allPrescriptions) {
+      totalPatientPay += rx.patientPayCents || 0;
+      totalPlanPay += rx.planPayCents || 0;
+    }
+
+    const content = `
+      ${renderMetricRow([
+        { label: 'Total Scripts', value: allPrescriptions.length, color: 'var(--color-pharmacy, #FF7043)' },
+        { label: 'Filled', value: filled.length, color: 'var(--accent-green, #66BB6A)' },
+        { label: 'In Progress', value: active.length, color: 'var(--accent-blue, #4FC3F7)' },
+        { label: 'Reversed', value: reversed.length, color: 'var(--accent-red, #EF5350)' },
+      ])}
+      ${renderMetricRow([
+        { label: 'Unique Patients', value: patientSet.size, color: 'var(--color-member, #4FC3F7)' },
+        { label: 'Unique Medications', value: medSet.size, color: 'var(--accent-blue, #4FC3F7)' },
+        { label: 'Total Patient Pay', value: formatCents(totalPatientPay), color: 'var(--accent-orange, #FFB74D)' },
+        { label: 'Total Plan Pay', value: formatCents(totalPlanPay), color: 'var(--accent-green, #66BB6A)' },
+      ])}
+    `;
+
+    return renderSectionCard('Activity Summary', 'pharmacy', content);
+  }
+
+  // ─── Patient Breakdown ──────────────────────────────────────
+
+  renderPharmPatientBreakdown(allPrescriptions, state) {
+    if (allPrescriptions.length === 0) return '';
+
+    const enrolled = state.enrolledMembers || [];
+    const getMemberName = (walletId) => {
+      const m = enrolled.find(e => e.walletId === walletId);
+      return m ? m.displayName : (walletId ? truncHash(walletId, 8) : '--');
+    };
+
+    const patientMap = new Map();
+    for (const rx of allPrescriptions) {
+      const e = patientMap.get(rx.memberWalletId) || {
+        name: getMemberName(rx.memberWalletId),
+        walletId: rx.memberWalletId,
+        scripts: 0, meds: new Set(), patientPay: 0, planPay: 0,
+      };
+      e.scripts++;
+      e.meds.add(rx.medicationIndex);
+      e.patientPay += rx.patientPayCents || 0;
+      e.planPay += rx.planPayCents || 0;
+      patientMap.set(rx.memberWalletId, e);
+    }
+
+    const patients = Array.from(patientMap.values()).sort((a, b) => b.scripts - a.scripts);
+    const rows = patients.map(p => ({
+      name: p.name,
+      walletId: p.walletId ? truncHash(p.walletId, 8) : '--',
+      scripts: p.scripts,
+      uniqueMeds: p.meds.size,
+      patientPay: p.patientPay,
+      planPay: p.planPay,
+    }));
+
+    const columns = [
+      { key: 'name', label: 'Patient' },
+      { key: 'walletId', label: 'Wallet ID', format: v => `<span class="mono" style="font-size: 11px;">${v}</span>` },
+      { key: 'scripts', label: 'Scripts', align: 'right' },
+      { key: 'uniqueMeds', label: 'Unique Meds', align: 'right' },
+      { key: 'patientPay', label: 'Patient Pay', align: 'right', format: v => formatCents(v) },
+      { key: 'planPay', label: 'Plan Pay', align: 'right', format: v => formatCents(v) },
+    ];
+
+    return renderSectionCard(
+      `Patient Breakdown (${patients.length})`, 'pharmacy',
+      renderSortableTable('pharm-patient-table', columns, rows, 'scripts')
+    );
+  }
+
+  // ─── Prescriber Breakdown ──────────────────────────────────
+
+  renderPharmPrescriberBreakdown(allPrescriptions, state) {
+    if (allPrescriptions.length === 0) return '';
+
+    const prescribers = state.demoData?.prescribers || [];
+
+    const prescriberMap = new Map();
+    for (const rx of allPrescriptions) {
+      const e = prescriberMap.get(rx.prescriberIndex) || {
+        name: prescribers[rx.prescriberIndex]
+          ? `Dr. ${prescribers[rx.prescriberIndex].firstName} ${prescribers[rx.prescriberIndex].lastName}`
+          : `Prescriber #${rx.prescriberIndex}`,
+        scripts: 0, patients: new Set(), meds: new Set(),
+      };
+      e.scripts++;
+      e.patients.add(rx.memberWalletId);
+      e.meds.add(rx.medicationIndex);
+      prescriberMap.set(rx.prescriberIndex, e);
+    }
+
+    const prescs = Array.from(prescriberMap.values()).sort((a, b) => b.scripts - a.scripts);
+    const rows = prescs.map(p => ({
+      name: p.name,
+      scripts: p.scripts,
+      patients: p.patients.size,
+      uniqueMeds: p.meds.size,
+    }));
+
+    const columns = [
+      { key: 'name', label: 'Prescriber' },
+      { key: 'scripts', label: 'Scripts', align: 'right' },
+      { key: 'patients', label: 'Patients', align: 'right' },
+      { key: 'uniqueMeds', label: 'Unique Meds', align: 'right' },
+    ];
+
+    return renderSectionCard(
+      `Prescriber Breakdown (${prescs.length})`, 'pharmacy',
+      renderSortableTable('pharm-prescriber-table', columns, rows, 'scripts')
+    );
+  }
+
+  // ─── Medication Breakdown ──────────────────────────────────
+
+  renderPharmMedicationBreakdown(allPrescriptions, state) {
+    if (allPrescriptions.length === 0) return '';
+
+    const medications = state.demoData?.medications || [];
+
+    const medMap = new Map();
+    for (const rx of allPrescriptions) {
+      const med = medications[rx.medicationIndex] || {};
+      const e = medMap.get(rx.medicationIndex) || {
+        name: med.brandName || rx.medication || '--',
+        tier: med.tier ?? null,
+        scripts: 0, patients: new Set(), patientPay: 0, planPay: 0,
+      };
+      e.scripts++;
+      e.patients.add(rx.memberWalletId);
+      e.patientPay += rx.patientPayCents || 0;
+      e.planPay += rx.planPayCents || 0;
+      medMap.set(rx.medicationIndex, e);
+    }
+
+    const meds = Array.from(medMap.values()).sort((a, b) => b.scripts - a.scripts);
+    const rows = meds.map(m => ({
+      name: m.name,
+      tier: m.tier,
+      scripts: m.scripts,
+      patients: m.patients.size,
+      patientPay: m.patientPay,
+      planPay: m.planPay,
+    }));
+
+    const columns = [
+      { key: 'name', label: 'Medication' },
+      { key: 'tier', label: 'Tier', format: v => v != null ? `<span class="tier-badge tier-${v}">Tier ${v}</span>` : '--' },
+      { key: 'scripts', label: 'Scripts', align: 'right' },
+      { key: 'patients', label: 'Patients', align: 'right' },
+      { key: 'patientPay', label: 'Patient Pay', align: 'right', format: v => formatCents(v) },
+      { key: 'planPay', label: 'Plan Pay', align: 'right', format: v => formatCents(v) },
+    ];
+
+    return renderSectionCard(
+      `Medication Breakdown (${meds.length})`, 'pharmacy',
+      renderSortableTable('pharm-med-table', columns, rows, 'scripts')
+    );
+  }
+
   // ─── Shared Renderers ───────────────────────────────────
 
   renderPrescriptionHistory(allPrescriptions, state) {
@@ -694,6 +1158,56 @@ export class PharmacyPhase {
         `).join('')}
       </div>
     `;
+  }
+
+  // ─── Node Info ──────────────────────────────────────────
+
+  renderPharmNodeInfo() {
+    return `
+      <div class="section-card collapsed">
+        <div class="card-header pharmacy collapsible" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span>Node Info</span>
+          <span class="collapse-arrow">&#9660;</span>
+        </div>
+        <div class="card-body collapsible-body">
+          <div id="pharm-node-info">
+            <div style="color: var(--text-muted); font-size: 12px; text-align: center; padding: 12px;">Loading chain state...</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  async loadPharmNodeInfo() {
+    const container = document.getElementById('pharm-node-info');
+    if (!container) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/node/chain-state`);
+      if (!res.ok) throw new Error('Failed to fetch chain state');
+      const cs = await res.json();
+
+      const truncate = (s) => s && String(s).length > 16 ? String(s).slice(0, 8) + '\u2026' + String(s).slice(-6) : String(s || '\u2014');
+
+      const entries = [];
+      entries.push(`<div class="label">Sequencer URL</div><div class="value mono">http://127.0.0.1:3030</div>`);
+      entries.push(`<div class="label">Health</div><div class="value"><span style="color: var(--accent-green);">Connected</span></div>`);
+      if (cs.registryRoot) entries.push(`<div class="label">Registry Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.registryRoot)}</div>`);
+      if (cs.lifecycleRoot) entries.push(`<div class="label">Lifecycle Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.lifecycleRoot)}</div>`);
+      if (cs.walletCount != null) entries.push(`<div class="label">Wallet Count</div><div class="value">${cs.walletCount}</div>`);
+      if (cs.benefitPlanRoot) entries.push(`<div class="label">Benefit Plan Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.benefitPlanRoot)}</div>`);
+      if (cs.nftRegistryRoot) entries.push(`<div class="label">Credential Registry Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.nftRegistryRoot)}</div>`);
+      if (cs.blockHeight != null) entries.push(`<div class="label">Block Height</div><div class="value">${cs.blockHeight}</div>`);
+      if (cs.globalStateRoot) entries.push(`<div class="label">Global State Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.globalStateRoot)}</div>`);
+
+      container.innerHTML = `<div class="data-grid">${entries.join('')}</div>`;
+    } catch (err) {
+      container.innerHTML = `<div class="data-grid">
+        <div class="label">Sequencer URL</div><div class="value mono">http://127.0.0.1:3030</div>
+        <div class="label">Health</div><div class="value"><span style="color: var(--accent-red);">Disconnected</span></div>
+      </div>
+      <div style="color: var(--accent-red); font-size: 12px; margin-top: 8px;">${err.message}</div>`;
+    }
   }
 
   // ─── Event Binding ──────────────────────────────────────

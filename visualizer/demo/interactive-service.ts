@@ -632,6 +632,8 @@ export class InteractiveDemoService {
     this.emitViz('viz:token:generated', 'enrollment', {
       actor: 'ACME Corp HR',
       actorType: 'employer',
+      target: displayName,
+      targetType: 'member',
       data: { tokenId, employeeId: member.employeeId, planId: 'PLAN-GOLD-2026' },
     });
 
@@ -651,6 +653,12 @@ export class InteractiveDemoService {
     this.emit('info', 'enroll', `  │  Preimage Fields: [${preimageFields.map(f => truncField(f)).join(', ')}]`);
     this.emit('info', 'enroll', `  └─ No private key — access through ZK proof only`);
 
+    this.emitViz('viz:enrollment:wallet_derived', 'enrollment', {
+      actor: displayName,
+      actorType: 'member',
+      data: { walletId: walletIdStr, step: 'wallet_derived' },
+    });
+
     // 3. Generate ProofGate proof (member proves identity — CACHED for reuse)
     this.emit('proof', 'enroll', 'Step 3: Generating ProofGate.verifyMember proof...', 'start');
     const startProof = performance.now();
@@ -667,6 +675,12 @@ export class InteractiveDemoService {
     this.emit('info', 'enroll', `  │  Constraint:     Poseidon.hash([DOMAIN_TAG_MEMBER, ...preimage]) == walletId`);
     this.emit('info', 'enroll', `  │  Result:         VERIFIED — ${displayName} proved identity without revealing PHI`);
     this.emit('info', 'enroll', `  └─ Proof time: ${elapsedProof.toFixed(0)}ms`);
+
+    this.emitViz('viz:enrollment:proof_gate', 'enrollment', {
+      actor: displayName,
+      actorType: 'member',
+      data: { walletId: walletIdStr, step: 'proof_gate', elapsedMs: elapsedProof },
+    });
 
     // 4. PHASE A: Registration — proveRegistration (wallet + lifecycle)
     this.emitViz('viz:enrollment:started', 'enrollment', {
@@ -717,6 +731,15 @@ export class InteractiveDemoService {
     this.emit('info', 'enroll', `  │  Receipt ID:  ${regReceipt.receiptId}`);
     this.emit('info', 'enroll', `  │  Sequence #:  ${regReceipt.sequenceNumber}`);
     this.emit('info', 'enroll', `  └─ Wallet registered on L2 chain`);
+
+    this.emitViz('viz:enrollment:registration', 'enrollment', {
+      actor: displayName,
+      actorType: 'member',
+      actorWalletId: walletIdStr,
+      target: 'leviathan',
+      targetType: 'leviathan',
+      data: { receiptId: regReceipt.receiptId, step: 'registration' },
+    });
 
     // 4b. PHASE B: Credential mint — build forest + CredentialData + proveWalletUpdate
     // NOTE: Admin lifecycle transition (REGISTERED → ELIGIBLE) is deferred to AFTER
@@ -847,6 +870,15 @@ export class InteractiveDemoService {
     this.emit('info', 'enroll', `  │  Sequence #:  ${mintReceipt.sequenceNumber}`);
     this.emit('info', 'enroll', `  └─ Eligibility credential committed to L2 chain`);
 
+    this.emitViz('viz:enrollment:credential_mint', 'enrollment', {
+      actor: 'Insurer',
+      actorType: 'insurer',
+      target: displayName,
+      targetType: 'member',
+      targetWalletId: walletIdStr,
+      data: { receiptId: mintReceipt.receiptId, step: 'credential_mint' },
+    });
+
     // 4b-settle. Batch the 2 enrollment proofs BEFORE the admin lifecycle update.
     // We call buildBatch() directly (not forceBatch) because we already hold the
     // proving lock. This drains the pending pool so the admin lifecycle update
@@ -880,6 +912,15 @@ export class InteractiveDemoService {
     });
     this.emit('offchain', 'enroll', 'Step 4c: Lifecycle updated to ELIGIBLE (admin op)', 'complete');
 
+    this.emitViz('viz:enrollment:lifecycle', 'enrollment', {
+      actor: 'Insurer',
+      actorType: 'insurer',
+      target: displayName,
+      targetType: 'member',
+      targetWalletId: walletIdStr,
+      data: { lifecycle: 'ELIGIBLE', step: 'lifecycle' },
+    });
+
     // Update opaque roster
     try {
       const rosterEntry = buildRosterEntry(walletId, {
@@ -907,10 +948,24 @@ export class InteractiveDemoService {
     for (const idx of network.prescriberIndices) {
       const p = DEMO_PRESCRIBERS[idx];
       this.emit('info', 'enroll', `    → Dr. ${p.firstName} ${p.lastName}, ${p.credential} (${p.specialty}) — CREDENTIALED`);
+      this.emitViz('viz:enrollment:provider_notify', 'enrollment', {
+        actor: 'Insurer',
+        actorType: 'insurer',
+        target: `Dr. ${p.firstName} ${p.lastName}`,
+        targetType: 'prescriber',
+        data: { providerType: 'prescriber', providerIndex: idx, step: 'provider_notify' },
+      });
     }
     for (const idx of network.pharmacyIndices) {
       const p = DEMO_PHARMACIES[idx];
       this.emit('info', 'enroll', `    → ${p.storeName} (${p.pharmacyTypeDesc}) — CREDENTIALED`);
+      this.emitViz('viz:enrollment:provider_notify', 'enrollment', {
+        actor: 'Insurer',
+        actorType: 'insurer',
+        target: p.storeName,
+        targetType: 'pharmacy',
+        data: { providerType: 'pharmacy', providerIndex: idx, step: 'provider_notify' },
+      });
     }
     this.emit('offchain', 'enroll', `Step 5: Provider network credentials issued`, 'complete');
 
@@ -2530,6 +2585,25 @@ export class InteractiveDemoService {
     this.emit('info', 'status', `  ${actorName} ${verb} ${opts.prescriptionId} for ${enrolled?.displayName ?? 'unknown'}`);
     this.emit('info', 'status', `  Status: ${previousStatus} → ${opts.newStatus}`);
     if (opts.note) this.emit('info', 'status', `  Reason: ${opts.note}`);
+
+    // Emit pharmacy-specific VizEvents
+    if (opts.newStatus === 'DISPENSED') {
+      this.emitViz('viz:pharmacy:dispensed', 'fulfillment', {
+        actor: actorName,
+        actorType: 'pharmacy',
+        target: enrolled?.displayName ?? '',
+        targetType: 'member',
+        data: { medication: medication.brandName, prescriptionId: opts.prescriptionId },
+      });
+    } else if (opts.newStatus === 'REJECTED') {
+      this.emitViz('viz:pharmacy:rejected', 'fulfillment', {
+        actor: actorName,
+        actorType: 'pharmacy',
+        target: enrolled?.displayName ?? '',
+        targetType: 'member',
+        data: { medication: medication.brandName, prescriptionId: opts.prescriptionId, reason: opts.note },
+      });
+    }
 
     return {
       prescriptionId: opts.prescriptionId,
@@ -4642,6 +4716,15 @@ export class InteractiveDemoService {
     } else {
       this.emit('info', 'credential', '  Result: INVALID — proof verification failed');
     }
+
+    // Emit credential scan VizEvent
+    this.emitViz('viz:pharmacy:credential_scan', 'fulfillment', {
+      actor: 'Pharmacy',
+      actorType: 'pharmacy',
+      target: memberDisplayName ?? '',
+      targetType: 'member',
+      data: { valid, walletId, proofType: credential.proofType, elapsedMs: elapsed },
+    });
 
     return {
       valid,

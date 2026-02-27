@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>zkpCare — Network Topology Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+  <!-- Compilation overlay -->
+  <div id="compilation-overlay" class="compilation-overlay">
+    <div class="compilation-card">
+      <h2>Compiling ZkPrograms</h2>
+      <p class="compilation-subtitle">Initializing zero-knowledge circuits</p>
+      <div class="compilation-progress-wrap">
+        <div class="compilation-progress-bar">
+          <div id="compilation-progress-fill" class="compilation-progress-fill" style="width:0%"></div>
+        </div>
+        <span id="compilation-percent" class="compilation-percent">0%</span>
+      </div>
+      <div id="compilation-current" class="compilation-current"></div>
+      <div id="compilation-programs" class="compilation-programs"></div>
+    </div>
+  </div>
+
+  <!-- Header bar -->
+  <header class="header-bar">
+    <div class="header-left">
+      <h1 class="header-title">zkpCare</h1>
+      <span class="header-subtitle">Network Topology</span>
+    </div>
+    <div class="header-center">
+      <div class="header-stat">
+        <span class="stat-label">Block Height</span>
+        <span id="stat-block-height" class="stat-value">0</span>
+      </div>
+      <div class="header-stat">
+        <span class="stat-label">Receipts</span>
+        <span id="stat-receipts" class="stat-value">0</span>
+      </div>
+      <div class="header-stat">
+        <span class="stat-label">Batches</span>
+        <span id="stat-batches" class="stat-value">0</span>
+      </div>
+      <div class="header-stat">
+        <span class="stat-label">Wallets</span>
+        <span id="stat-wallets" class="stat-value">0</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <button id="btn-smoke-test" class="btn btn-primary" disabled>Run Smoke Test</button>
+      <button id="btn-toggle-log" class="btn btn-secondary">Activity Log <span id="log-count" class="log-badge">0</span></button>
+      <button id="btn-reset" class="btn btn-danger">Reset</button>
+    </div>
+  </header>
+
+  <!-- Main graph area -->
+  <div id="graph-container" class="graph-container">
+    <svg id="graph-svg"></svg>
+  </div>
+
+  <!-- Block timeline strip at bottom -->
+  <div id="block-timeline" class="block-timeline">
+    <div class="timeline-header">
+      <span class="timeline-title">Batch Timeline</span>
+      <span id="next-batch-timer" class="next-batch-timer"></span>
+    </div>
+    <div id="timeline-cards" class="timeline-cards"></div>
+  </div>
+
+  <!-- Console output panel -->
+  <div id="console-panel" class="console-panel">
+    <div id="console-resize-handle" class="console-resize-handle"></div>
+    <div class="console-header">
+      <span class="console-title">Console Output</span>
+      <div class="console-filters">
+        <button class="console-filter active" data-filter="all">All</button>
+        <button class="console-filter" data-filter="proof">Proofs</button>
+        <button class="console-filter" data-filter="offchain">Steps</button>
+        <button class="console-filter" data-filter="phase">Phases</button>
+        <button class="console-filter" data-filter="error">Errors</button>
+      </div>
+      <button id="btn-console-clear" class="btn-icon" title="Clear">&times;</button>
+    </div>
+    <div id="console-output" class="console-output"></div>
+  </div>
+
+  <!-- Activity log sidebar (right) -->
+  <div id="activity-log-panel" class="activity-log-panel hidden">
+    <div class="panel-header">
+      <h3>Activity Log</h3>
+      <button id="btn-close-log" class="btn-icon">&times;</button>
+    </div>
+    <div id="activity-log-entries" class="activity-log-entries"></div>
+  </div>
+
+  <!-- Smoke test sidebar -->
+  <div id="smoke-test-panel" class="smoke-test-panel hidden">
+    <div class="panel-header">
+      <h3>Smoke Test</h3>
+      <button id="btn-close-smoke" class="btn-icon">&times;</button>
+    </div>
+    <div id="smoke-test-steps" class="smoke-test-steps"></div>
+  </div>
+
+  <!-- Leviathan modal (injected by JS) -->
+  <div id="leviathan-modal" class="modal hidden"></div>
+
+  <!-- Entity modal (member, prescriber, pharmacy, insurer, employer) -->
+  <div id="entity-modal" class="modal hidden"></div>
+
+  <!-- Batch detail popup (injected by block-timeline) -->
+  <div id="batch-popup" class="batch-popup hidden"></div>
+
+  <!-- Scripts — loaded as modules -->
+  <script src="shared-utils.js"></script>
+  <script src="node-renderer.js"></script>
+  <script src="connection-renderer.js"></script>
+  <script src="relationship-tracker.js"></script>
+  <script src="force-graph.js"></script>
+  <script src="block-timeline.js"></script>
+  <script src="modals/leviathan-modal.js"></script>
+  <script src="modals/entity-modal.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

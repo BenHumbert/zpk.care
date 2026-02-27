@@ -10,6 +10,10 @@ import {
   API_BASE, formatCents,
   updateChainState, renderCredentialCard, renderForestCard, renderZkDataSection,
 } from '../interactive-app.js';
+import {
+  renderSectionCard, renderMetricRow, renderSortableTable,
+  truncHash,
+} from '../node-common.js';
 
 const PCP_ELIGIBLE_SPECIALTIES = [
   'Internal Medicine',
@@ -428,6 +432,9 @@ export class MemberPhase {
       <!-- Claims & Fill History -->
       ${this.renderClaimsSection(state, member, memberRxs)}
 
+      <!-- Activity Summary -->
+      ${this.renderActivitySection(state, member, memberRxs)}
+
       <!-- Messaging -->
       ${this.renderMessagingSection(state, member, enrolled)}
 
@@ -437,8 +444,20 @@ export class MemberPhase {
       <!-- PCP Assignment (not shown for terminated members) -->
       ${!member.pcpAssignment && member.lifecycle !== 'REVOKED' ? this.renderPcpSection(state, member) : ''}
 
+      <!-- Formulary Lookup -->
+      ${this.renderFormularySection(state)}
+
+      <!-- Claim Verification -->
+      ${this.renderClaimVerificationSection(member)}
+
+      <!-- L2 Receipts -->
+      ${this.renderReceiptsSection(member)}
+
       <!-- Family Dashboard -->
       ${this.renderFamilySection(state, enrolled, member)}
+
+      <!-- Node Info -->
+      ${this.renderNodeInfoSection()}
 
       <!-- Enroll Another Member -->
       <div class="section-card">
@@ -499,7 +518,7 @@ export class MemberPhase {
         : '\u2014';
 
       return `
-        <tr${f.reversed ? ' style="opacity: 0.5;"' : ''}>
+        <tr class="claims-row" data-dos="${f.serviceDateStr || ''}"${f.reversed ? ' style="opacity: 0.5;"' : ''}>
           <td>${drug}</td>
           <td>${pharmacy}</td>
           <td>${fillDate}</td>
@@ -523,7 +542,13 @@ export class MemberPhase {
             Each row is a ZK-adjudicated claim. Patient/plan pay was computed <strong>in-circuit</strong> by AccumulatorFulfillmentProgram.
             Settlement commitments are Poseidon hashes stored in the prescription credential's TRANSACTION tree.
           </div>
-          <table class="insurer-table">
+          <div class="filter-row" style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap;">
+            <label style="font-size: 12px; color: var(--text-secondary);">From:</label>
+            <input type="date" id="claims-date-start" class="date-input" style="font-size: 12px; padding: 4px 8px;" />
+            <label style="font-size: 12px; color: var(--text-secondary); margin-left: 8px;">To:</label>
+            <input type="date" id="claims-date-end" class="date-input" style="font-size: 12px; padding: 4px 8px;" />
+          </div>
+          <table class="insurer-table" id="claims-history-table">
             <thead><tr><th>Drug</th><th>Pharmacy</th><th>Date</th><th>Qty</th><th>Patient Pay</th><th>Plan Pay</th><th>Total</th><th>Settlement</th></tr></thead>
             <tbody>
               ${rows}
@@ -853,6 +878,254 @@ export class MemberPhase {
     `;
   }
 
+  renderActivitySection(state, member, memberRxs) {
+    const fulfillments = state.fulfillments || [];
+    const memberRxIds = new Set(memberRxs.map(rx => rx.id));
+    const memberClaims = fulfillments.filter(f => memberRxIds.has(f.prescriptionId));
+    if (memberClaims.length === 0) return '';
+
+    const activeClaims = memberClaims.filter(f => !f.reversed);
+    const reversals = memberClaims.filter(f => f.reversed);
+    const totalPatientPay = activeClaims.reduce((s, f) => s + (f.patientPayCents || 0), 0);
+    const totalPlanPay = activeClaims.reduce((s, f) => s + (f.planPayCents || 0), 0);
+    const uniqueMeds = new Set(memberRxs.filter(rx => memberClaims.some(f => f.prescriptionId === rx.id)).map(rx => rx.medicationIndex));
+
+    const content = `
+      ${renderMetricRow([
+        { label: 'Total Claims', value: memberClaims.length, color: 'var(--accent-blue)' },
+        { label: 'Active Claims', value: activeClaims.length, color: 'var(--accent-green)' },
+        { label: 'Reversals', value: reversals.length, color: 'var(--accent-red)' },
+      ])}
+      ${renderMetricRow([
+        { label: 'Patient Pay', value: formatCents(totalPatientPay), color: 'var(--accent-orange)' },
+        { label: 'Plan Pay', value: formatCents(totalPlanPay), color: 'var(--accent-green)' },
+        { label: 'Unique Medications', value: uniqueMeds.size, color: 'var(--accent-blue)' },
+      ])}
+    `;
+
+    return renderSectionCard('Activity Summary', 'member', content);
+  }
+
+  renderFormularySection(state) {
+    const medications = state.demoData.medications;
+    if (!medications || medications.length === 0) return '';
+
+    const rows = medications.map((m, i) => {
+      const tier = m.currentTierLevel ?? m.tier;
+      const copay = m.currentCopayAmountCents ?? m.copayAmountCents;
+      const pa = m.currentRequiresPriorAuth ?? m.requiresPriorAuth;
+      const active = m.active !== false;
+      const paBadge = pa
+        ? '<span class="pa-badge pa-required">PA</span>'
+        : '<span style="color: var(--text-muted);">No</span>';
+      const removedClass = !active ? ' formulary-removed' : '';
+      return `
+        <tr data-med-index="${i}" class="${removedClass}" style="cursor: pointer;">
+          <td>${m.brandName}${!active ? ' <span class="removed-badge">Removed</span>' : ''}</td>
+          <td>${m.genericName}</td>
+          <td>${m.ndc}</td>
+          <td><span class="tier-badge tier-${tier}">Tier ${tier}</span></td>
+          <td>${formatCents(copay)}</td>
+          <td>${paBadge}</td>
+          <td>${m.maxQuantityPerFill}</td>
+        </tr>
+      `;
+    }).join('');
+
+    return `
+      <div class="section-card">
+        <div class="card-header member">Formulary Lookup (${medications.length})</div>
+        <div class="card-body">
+          <div class="form-group" style="margin-bottom: 12px;">
+            <input type="text" id="member-formulary-search" placeholder="Search medications by name, NDC, or class..." />
+          </div>
+          <div style="max-height: 400px; overflow-y: auto;">
+            <table class="med-table">
+              <thead>
+                <tr><th>Brand Name</th><th>Generic</th><th>NDC</th><th>Tier</th><th>Copay</th><th>PA?</th><th>Max Qty</th></tr>
+              </thead>
+              <tbody id="member-formulary-body">${rows}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div id="member-formulary-detail" class="section-card hidden">
+        <div class="card-header member">Medication Details</div>
+        <div class="card-body" id="member-formulary-detail-body"></div>
+      </div>
+    `;
+  }
+
+  showMemberMedDetail(med) {
+    const detail = document.getElementById('member-formulary-detail');
+    if (!detail) return;
+    detail.classList.remove('hidden');
+
+    const tier = med.currentTierLevel ?? med.tier;
+    const copay = med.currentCopayAmountCents ?? med.copayAmountCents;
+    const pa = med.currentRequiresPriorAuth ?? med.requiresPriorAuth;
+    const step = med.currentStepTherapyRequired ?? med.stepTherapyRequired;
+    const active = med.active !== false;
+    const deaDisplay = med.deaSchedule === 0
+      ? 'Non-controlled'
+      : `<span class="dea-badge dea-schedule-${med.deaSchedule}">Schedule ${med.deaSchedule}</span>`;
+
+    document.getElementById('member-formulary-detail-body').innerHTML = `
+      ${!active ? '<div style="padding: 8px 12px; background: rgba(244, 67, 54, 0.08); border: 1px solid rgba(244, 67, 54, 0.3); border-radius: 6px; margin-bottom: 12px; font-size: 12px; color: var(--accent-red);">This medication has been removed from the formulary.</div>' : ''}
+      <div class="data-grid">
+        <div class="label">Brand Name</div><div class="value">${med.brandName}</div>
+        <div class="label">Generic Name</div><div class="value">${med.genericName}</div>
+        <div class="label">Strength</div><div class="value">${med.strength}</div>
+        <div class="label">Dosage Form</div><div class="value">${med.dosageForm}</div>
+        <div class="label">Route</div><div class="value">${med.route}</div>
+        <div class="label">NDC</div><div class="value mono">${med.ndc}</div>
+        <div class="label">Tier</div><div class="value"><span class="tier-badge tier-${tier}">Tier ${tier}</span></div>
+        <div class="label">Copay</div><div class="value">${formatCents(copay)}</div>
+        <div class="label">Prior Auth</div><div class="value">${pa ? '<span class="pa-badge pa-required">PA Required</span>' : '<span style="color: var(--accent-green);">Not Required</span>'}</div>
+        <div class="label">Step Therapy</div><div class="value">${step ? '<span class="step-therapy-badge">Required</span>' : '<span style="color: var(--accent-green);">Not Required</span>'}</div>
+        <div class="label">Max Qty/Fill</div><div class="value">${med.maxQuantityPerFill}</div>
+        <div class="label">Max Day Supply</div><div class="value">${med.maxDaySupply}</div>
+        <div class="label">AWP Unit Price</div><div class="value">${formatCents(med.awpUnitPriceCents)}</div>
+        <div class="label">Manufacturer</div><div class="value">${med.manufacturer}</div>
+        <div class="label">Therapeutic Class</div><div class="value">${med.therapeuticClass}</div>
+        <div class="label">DEA Schedule</div><div class="value">${deaDisplay}</div>
+      </div>
+    `;
+    detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  renderClaimVerificationSection(member) {
+    if (!member || member.lifecycle === 'REVOKED') return '';
+
+    return `
+      <div class="section-card">
+        <div class="card-header member">Claim Verification</div>
+        <div class="card-body">
+          <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">
+            Enter a claim accumulator leaf index to retrieve Merkle proof data for verification.
+          </div>
+          <div style="display: flex; gap: 8px; align-items: flex-end;">
+            <div style="flex: 1;">
+              <input type="text" id="member-verify-leaf" placeholder="Enter leaf index..." style="width: 100%;" />
+            </div>
+            <button id="btn-verify-claim" class="btn-action member" style="white-space: nowrap;">Verify</button>
+          </div>
+          <div id="member-verify-result" style="margin-top: 12px;"></div>
+        </div>
+      </div>
+    `;
+  }
+
+  renderReceiptsSection(member) {
+    if (!member || member.lifecycle === 'REVOKED') return '';
+
+    return `
+      <div class="section-card">
+        <div class="card-header member">My L2 Receipts</div>
+        <div class="card-body">
+          <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">
+            Receipts issued by the sequencer for this wallet's state transitions.
+          </div>
+          <div id="member-receipts-container">
+            <div style="color: var(--text-muted); font-size: 12px; text-align: center; padding: 12px;">Loading receipts...</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  async loadReceipts(member) {
+    const container = document.getElementById('member-receipts-container');
+    if (!container || !member) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/node/receipts-by-wallet?walletId=${encodeURIComponent(member.walletId)}`);
+      if (!res.ok) throw new Error('Failed to fetch receipts');
+      const data = await res.json();
+      const receipts = data.receipts || [];
+
+      if (receipts.length === 0) {
+        container.innerHTML = '<div style="color: var(--text-muted); font-size: 12px; text-align: center; padding: 12px;">No receipts yet.</div>';
+        return;
+      }
+
+      const rows = receipts.map(r => {
+        const id = r.receiptId || r.id || '';
+        const truncId = id.length > 16 ? id.slice(0, 8) + '\u2026' + id.slice(-6) : id;
+        const ts = r.acceptedAt || r.timestamp;
+        const timeStr = ts ? new Date(ts).toLocaleString() : '\u2014';
+        const type = r.type || 'transition';
+        const seq = r.sequenceNumber ?? '\u2014';
+        const statusColor = r.status === 'settled' ? 'var(--accent-green)' : 'var(--accent-yellow)';
+        return `
+          <tr>
+            <td class="mono" style="font-size: 11px;" title="${id}">${truncId}</td>
+            <td>${type}</td>
+            <td>${seq}</td>
+            <td>${timeStr}</td>
+            <td><span style="color: ${statusColor}; font-weight: 600; font-size: 11px;">${r.status || 'pending'}</span></td>
+          </tr>`;
+      }).join('');
+
+      container.innerHTML = `
+        <table class="insurer-table">
+          <thead><tr><th>Receipt ID</th><th>Type</th><th>Seq #</th><th>Timestamp</th><th>Status</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    } catch (err) {
+      container.innerHTML = `<div style="color: var(--accent-red); font-size: 12px; padding: 12px;">${err.message}</div>`;
+    }
+  }
+
+  renderNodeInfoSection() {
+    return `
+      <div class="section-card">
+        <div class="card-header member collapsible" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span>Node Info</span>
+          <span class="collapse-arrow">&#9660;</span>
+        </div>
+        <div class="card-body collapsible-body">
+          <div id="member-node-info">
+            <div style="color: var(--text-muted); font-size: 12px; text-align: center; padding: 12px;">Loading chain state...</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  async loadNodeInfo() {
+    const container = document.getElementById('member-node-info');
+    if (!container) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/node/chain-state`);
+      if (!res.ok) throw new Error('Failed to fetch chain state');
+      const cs = await res.json();
+
+      const truncate = (s) => s && String(s).length > 16 ? String(s).slice(0, 8) + '\u2026' + String(s).slice(-6) : String(s || '\u2014');
+
+      const entries = [];
+      entries.push(`<div class="label">Sequencer URL</div><div class="value mono">http://127.0.0.1:3030</div>`);
+      entries.push(`<div class="label">Health</div><div class="value"><span style="color: var(--accent-green);">Connected</span></div>`);
+      if (cs.registryRoot) entries.push(`<div class="label">Registry Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.registryRoot)}</div>`);
+      if (cs.lifecycleRoot) entries.push(`<div class="label">Lifecycle Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.lifecycleRoot)}</div>`);
+      if (cs.walletCount != null) entries.push(`<div class="label">Wallet Count</div><div class="value">${cs.walletCount}</div>`);
+      if (cs.benefitPlanRoot) entries.push(`<div class="label">Benefit Plan Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.benefitPlanRoot)}</div>`);
+      if (cs.nftRegistryRoot) entries.push(`<div class="label">Credential Registry Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.nftRegistryRoot)}</div>`);
+      if (cs.blockHeight != null) entries.push(`<div class="label">Block Height</div><div class="value">${cs.blockHeight}</div>`);
+      if (cs.globalStateRoot) entries.push(`<div class="label">Global State Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.globalStateRoot)}</div>`);
+
+      container.innerHTML = `<div class="data-grid">${entries.join('')}</div>`;
+    } catch (err) {
+      container.innerHTML = `<div class="data-grid">
+        <div class="label">Sequencer URL</div><div class="value mono">http://127.0.0.1:3030</div>
+        <div class="label">Health</div><div class="value"><span style="color: var(--accent-red);">Disconnected</span></div>
+      </div>
+      <div style="color: var(--accent-red); font-size: 12px; margin-top: 8px;">${err.message}</div>`;
+    }
+  }
+
   renderCredentialSection(member) {
     const inv = member.nftInventory;
     if (!inv) return '';
@@ -1001,8 +1274,12 @@ export class MemberPhase {
     const resultDiv = document.getElementById('credential-result');
     resultDiv.classList.remove('hidden');
 
+    // Store for re-generation
+    this._lastCredentialJson = data.credentialJson;
+
     const truncate = (s) => s && s.length > 16 ? s.slice(0, 8) + '\u2026' + s.slice(-6) : s;
     const cred = data.credential;
+    const credJson = data.credentialJson || '';
 
     resultDiv.innerHTML = `
       <div class="credential-summary">
@@ -1022,38 +1299,53 @@ export class MemberPhase {
           <span>CredentialProgram: ${(data.nftProgramTimeMs / 1000).toFixed(1)}s</span>
           <span>Total: ${(data.totalTimeMs / 1000).toFixed(1)}s</span>
         </div>
-        <div class="credential-actions">
-          <button id="btn-copy-credential" class="button small outline primary">Copy Credential JSON</button>
-          <button id="btn-toggle-credential-json" class="button small outline">Show Raw JSON</button>
-        </div>
-        <div id="credential-json-container" class="hidden">
-          <div class="credential-json-block">${data.credentialJson}</div>
+
+        <!-- Portable Credential JSON — always visible -->
+        <div style="margin-top: 12px; padding: 12px; background: rgba(102, 187, 106, 0.06); border: 2px solid var(--accent-green); border-radius: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-size: 13px; font-weight: 600; color: var(--accent-green);">
+              Portable Credential JSON
+            </span>
+            <button id="btn-copy-credential" style="padding: 6px 16px; font-size: 13px; font-weight: 600; background: var(--accent-green); color: #0d1117; border: none; border-radius: 4px; cursor: pointer;">
+              Copy to Clipboard
+            </button>
+          </div>
+          <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
+            Copy this JSON and paste it into the pharmacy's <strong>"Credential JSON"</strong> field for offline identity verification.
+          </div>
+          <textarea id="credential-json-output" readonly
+            style="width: 100%; height: 120px; padding: 8px; font-size: 11px; font-family: monospace; background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 4px; color: var(--text-primary); resize: vertical; cursor: text;"
+            onclick="this.select()">${credJson}</textarea>
+          <div style="margin-top: 6px; font-size: 11px; color: var(--text-muted);">
+            ${credJson.length.toLocaleString()} characters &bull; Click textarea to select all &bull; Contains ZK proof (no PHI revealed)
+          </div>
         </div>
       </div>
     `;
 
-    // Copy button
+    // Copy button with fallback
     document.getElementById('btn-copy-credential').addEventListener('click', () => {
-      navigator.clipboard.writeText(data.credentialJson).then(() => {
-        const copyBtn = document.getElementById('btn-copy-credential');
+      const copyBtn = document.getElementById('btn-copy-credential');
+      navigator.clipboard.writeText(credJson).then(() => {
         copyBtn.textContent = 'Copied!';
-        setTimeout(() => { copyBtn.textContent = 'Copy Credential JSON'; }, 2000);
+        copyBtn.style.background = '#66bb6a';
+        setTimeout(() => { copyBtn.textContent = 'Copy to Clipboard'; copyBtn.style.background = ''; }, 2000);
+      }).catch(() => {
+        // Fallback: select textarea and execCommand
+        const textarea = document.getElementById('credential-json-output');
+        if (textarea) {
+          textarea.select();
+          document.execCommand('copy');
+          copyBtn.textContent = 'Copied!';
+          setTimeout(() => { copyBtn.textContent = 'Copy to Clipboard'; }, 2000);
+        }
       });
     });
 
-    // Toggle raw JSON
-    document.getElementById('btn-toggle-credential-json').addEventListener('click', () => {
-      const container = document.getElementById('credential-json-container');
-      const toggleBtn = document.getElementById('btn-toggle-credential-json');
-      container.classList.toggle('hidden');
-      toggleBtn.textContent = container.classList.contains('hidden') ? 'Show Raw JSON' : 'Hide Raw JSON';
-    });
-
-    // Update button to show completion
+    // Update button to show completion but allow re-generation
     btn.classList.remove('loading');
-    btn.querySelector('.btn-text').textContent = 'Credential Generated';
-    btn.disabled = true;
-    btn.style.opacity = '0.7';
+    btn.querySelector('.btn-text').textContent = 'Regenerate Credential';
+    btn.disabled = false;
 
     this.app.setStatus('ready', 'Credential generated');
   }
@@ -1148,6 +1440,82 @@ export class MemberPhase {
       });
       btnAnother.addEventListener('click', () => this.doEnrollAnother(btnAnother));
     }
+
+    // Formulary search filter
+    const formSearch = document.getElementById('member-formulary-search');
+    const formBody = document.getElementById('member-formulary-body');
+    if (formSearch && formBody) {
+      formSearch.addEventListener('input', () => {
+        const q = formSearch.value.toLowerCase();
+        formBody.querySelectorAll('tr').forEach(row => {
+          row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+        });
+      });
+    }
+
+    // Formulary row click → show detail
+    if (formBody) {
+      formBody.addEventListener('click', (e) => {
+        const row = e.target.closest('tr');
+        if (!row) return;
+        const idx = parseInt(row.dataset.medIndex, 10);
+        const med = state.demoData.medications[idx];
+        if (med) this.showMemberMedDetail(med);
+      });
+    }
+
+    // Claim verification
+    const btnVerify = document.getElementById('btn-verify-claim');
+    const leafInput = document.getElementById('member-verify-leaf');
+    if (btnVerify && leafInput) {
+      const doVerify = async () => {
+        const leafIndex = leafInput.value.trim();
+        if (!leafIndex) return;
+        const resultDiv = document.getElementById('member-verify-result');
+        resultDiv.innerHTML = '<div style="color: var(--accent-blue);">Verifying...</div>';
+        try {
+          const res = await fetch(`${API_BASE}/interactive/claim-proof?leafIndex=${encodeURIComponent(leafIndex)}`);
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Verification failed');
+          resultDiv.innerHTML = `
+            <div style="padding: 12px; background: rgba(102, 187, 106, 0.08); border: 1px solid rgba(102, 187, 106, 0.3); border-radius: 6px;">
+              <div style="font-weight: 600; color: var(--accent-green); margin-bottom: 8px;">Claim Verified</div>
+              <div class="data-grid">
+                <div class="label">Leaf Index</div><div class="value mono">${data.leafIndex}</div>
+                <div class="label">Leaf Hash</div><div class="value mono" style="font-size: 11px; word-break: break-all;">${data.leafHash || 'N/A'}</div>
+                <div class="label">Root</div><div class="value mono" style="font-size: 11px; word-break: break-all;">${data.root || 'N/A'}</div>
+                <div class="label">Proof Valid</div><div class="value">${data.valid !== false ? '<span style="color: var(--accent-green);">Yes</span>' : '<span style="color: var(--accent-red);">No</span>'}</div>
+              </div>
+            </div>
+          `;
+        } catch (err) {
+          resultDiv.innerHTML = `<div style="padding: 12px; background: rgba(239, 83, 80, 0.08); border: 1px solid rgba(239, 83, 80, 0.3); border-radius: 6px; color: var(--accent-red);">${err.message}</div>`;
+        }
+      };
+      btnVerify.addEventListener('click', doVerify);
+      leafInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doVerify(); });
+    }
+
+    // Claims date filter
+    const claimsStart = document.getElementById('claims-date-start');
+    const claimsEnd = document.getElementById('claims-date-end');
+    if (claimsStart && claimsEnd) {
+      const filterClaims = () => {
+        const startVal = claimsStart.value ? claimsStart.value.replace(/-/g, '') : '00000000';
+        const endVal = claimsEnd.value ? claimsEnd.value.replace(/-/g, '') : '99999999';
+        document.querySelectorAll('#claims-history-table .claims-row').forEach(row => {
+          const dos = row.dataset.dos || '';
+          if (!dos) { row.style.display = ''; return; }
+          row.style.display = (dos >= startVal && dos <= endVal) ? '' : 'none';
+        });
+      };
+      claimsStart.addEventListener('change', filterClaims);
+      claimsEnd.addEventListener('change', filterClaims);
+    }
+
+    // Async data loading: receipts + node info
+    this.loadReceipts(member);
+    this.loadNodeInfo();
   }
 
   async doAssignPcp(member) {

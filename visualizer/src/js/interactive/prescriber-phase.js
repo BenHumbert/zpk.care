@@ -18,6 +18,10 @@ import {
   API_BASE, formatCents,
   updateChainState, renderCredentialCard, renderForestCard, renderZkDataSection,
 } from '../interactive-app.js';
+import {
+  renderSectionCard, renderMetricRow, renderSortableTable,
+  truncHash,
+} from '../node-common.js';
 
 export class PrescriberPhase {
   constructor(app) {
@@ -248,9 +252,30 @@ export class PrescriberPhase {
 
       <!-- Section 7: Messages -->
       ${this.renderPrescriberMessages(state)}
+
+      <!-- Section 8: Prescribing History -->
+      ${this.renderPrescribingHistory(state)}
+
+      <!-- Section 9: Activity Summary -->
+      ${this.renderPrescriberActivity(state)}
+
+      <!-- Section 10: PCP Patients -->
+      ${this.renderPcpPatients(state)}
+
+      <!-- Section 11-13: Breakdowns -->
+      ${this.renderPatientBreakdown(state)}
+      ${this.renderMedicationBreakdown(state)}
+      ${this.renderPharmacyBreakdown(state)}
+
+      <!-- Section 14: Prior Auth Requests -->
+      ${this.renderPriorAuthRequests(state)}
+
+      <!-- Section 15: Node Info -->
+      ${this.renderPrescriberNodeInfo()}
     `;
 
     this.bindEvents(state);
+    this.loadPrescriberNodeInfo();
   }
 
   bindEvents(state) {
@@ -1067,6 +1092,377 @@ export class PrescriberPhase {
       btn.classList.remove('loading');
     }
   }
+  // ─── PCP Patients ─────────────────────────────────────────────────
+
+  renderPcpPatients(state) {
+    if (this.selectedPrescriber === null) return '';
+
+    const enrolled = state.enrolledMembers || [];
+    const pcpPatients = enrolled.filter(
+      m => m.pcpAssignment && m.pcpAssignment.prescriberIndex === this.selectedPrescriber
+    );
+
+    if (pcpPatients.length === 0) return '';
+
+    const lifecycleLabel = (lc) => {
+      const labels = { REGISTERED: 'REGISTERED', ELIGIBLE: 'ELIGIBLE', ACTIVE: 'ACTIVE', REVOKED: 'REVOKED' };
+      return labels[lc] || lc || 'UNKNOWN';
+    };
+    const lifecycleColor = (lc) => {
+      if (lc === 'ACTIVE') return 'var(--accent-green)';
+      if (lc === 'REVOKED') return 'var(--accent-red)';
+      return 'var(--accent-blue)';
+    };
+
+    const rows = pcpPatients.map(m => ({
+      name: m.displayName,
+      walletId: truncHash(m.walletId, 8),
+      group: m.groupId || '--',
+      family: m.familyId || '--',
+      relationship: m.relationship || '--',
+      lifecycle: m.lifecycle,
+      deductible: m.accumulator ? m.accumulator.deductiblePaidCents : 0,
+    }));
+
+    const columns = [
+      { key: 'name', label: 'Patient Name' },
+      { key: 'walletId', label: 'Wallet ID', format: v => `<span class="mono" style="font-size: 11px;">${v}</span>` },
+      { key: 'group', label: 'Group' },
+      { key: 'family', label: 'Family' },
+      { key: 'relationship', label: 'Relationship' },
+      { key: 'lifecycle', label: 'Status', format: v => `<span style="color: ${lifecycleColor(v)}; font-weight: 600; font-size: 12px;">${lifecycleLabel(v)}</span>` },
+      { key: 'deductible', label: 'Deductible Used', align: 'right', format: v => formatCents(v) },
+    ];
+
+    return renderSectionCard(
+      `My PCP Patients (${pcpPatients.length})`, 'prescriber',
+      renderSortableTable('pcp-patients-table', columns, rows, 'name')
+    );
+  }
+
+  // ─── Prior Auth Requests ────────────────────────────────────────────
+
+  renderPriorAuthRequests(state) {
+    if (this.selectedPrescriber === null) return '';
+
+    const priorAuths = (state.priorAuths || []).filter(
+      pa => pa.prescriberIndex === this.selectedPrescriber
+    );
+    if (priorAuths.length === 0) return '';
+
+    const enrolled = state.enrolledMembers || [];
+    const medications = state.demoData?.medications || [];
+
+    const paStatusColor = (s) => {
+      if (s === 'APPROVED') return 'var(--accent-green)';
+      if (s === 'DENIED') return 'var(--accent-red)';
+      return 'var(--accent-orange)';
+    };
+
+    const rows = priorAuths.map(pa => {
+      const member = enrolled.find(m => m.walletId === pa.memberWalletId);
+      const med = medications[pa.medicationIndex];
+      return {
+        id: pa.id || '--',
+        patient: member ? member.displayName : truncHash(pa.memberWalletId, 8),
+        medication: med ? med.brandName : `Med #${pa.medicationIndex}`,
+        strength: med ? med.strength : '--',
+        tier: med ? med.tier : null,
+        status: pa.status,
+        requestedAt: pa.requestedAt || pa.timestamp,
+        resolvedAt: pa.resolvedAt,
+      };
+    });
+
+    const columns = [
+      { key: 'id', label: 'PA ID', format: v => `<span class="mono" style="font-size: 11px;">${v}</span>` },
+      { key: 'patient', label: 'Patient' },
+      { key: 'medication', label: 'Medication' },
+      { key: 'strength', label: 'Strength' },
+      { key: 'tier', label: 'Tier', format: v => v != null ? `<span class="tier-badge tier-${v}">Tier ${v}</span>` : '--' },
+      { key: 'status', label: 'Status', format: v => `<span style="color: ${paStatusColor(v)}; font-weight: 600; font-size: 12px;">${v}</span>` },
+      { key: 'requestedAt', label: 'Requested', format: v => v ? new Date(v).toLocaleTimeString() : '--' },
+      { key: 'resolvedAt', label: 'Resolved', format: v => v ? new Date(v).toLocaleTimeString() : '--' },
+    ];
+
+    return renderSectionCard(
+      `Prior Authorization Requests (${priorAuths.length})`, 'prescriber',
+      renderSortableTable('prescriber-pa-table', columns, rows, 'id')
+    );
+  }
+
+  // ─── Prescribing History (all scripts by this prescriber) ──────────
+
+  renderPrescribingHistory(state) {
+    if (this.selectedPrescriber === null) return '';
+
+    const prescriptions = (state.prescriptions || []).filter(
+      rx => rx.prescriberIndex === this.selectedPrescriber
+    );
+    if (prescriptions.length === 0) return '';
+
+    const enrolled = state.enrolledMembers || [];
+    const pharmacies = state.demoData?.pharmacies || [];
+
+    const getMemberName = (walletId) => {
+      const m = enrolled.find(e => e.walletId === walletId);
+      return m ? m.displayName : (walletId ? truncHash(walletId, 8) : '--');
+    };
+    const getPharmName = (idx) => {
+      const p = pharmacies[idx];
+      return p ? p.storeName : `Pharmacy #${idx}`;
+    };
+    const statusColor = (s) => {
+      if (s === 'FILLED') return 'var(--accent-green)';
+      if (s === 'ACTIVE' || s === 'PENDING' || s === 'DISPENSED') return 'var(--accent-blue)';
+      if (s === 'CANCELLED' || s === 'REJECTED' || s === 'REVERSED') return 'var(--accent-red)';
+      return 'var(--text-secondary)';
+    };
+
+    const rows = prescriptions.map(rx => ({
+      id: rx.id,
+      medication: rx.medication || '--',
+      strength: rx.medicationStrength || '--',
+      patient: getMemberName(rx.memberWalletId),
+      pharmacy: getPharmName(rx.pharmacyIndex),
+      quantity: rx.quantity,
+      refills: `${rx.refillsUsed || 0}/${rx.refills}`,
+      status: rx.status,
+      patientPay: rx.patientPayCents || 0,
+      planPay: rx.planPayCents || 0,
+    }));
+
+    const columns = [
+      { key: 'id', label: 'Rx ID', format: v => `<span class="mono" style="font-size: 11px;">${v}</span>` },
+      { key: 'medication', label: 'Medication' },
+      { key: 'strength', label: 'Strength' },
+      { key: 'patient', label: 'Patient' },
+      { key: 'pharmacy', label: 'Pharmacy' },
+      { key: 'quantity', label: 'Qty', align: 'right' },
+      { key: 'refills', label: 'Refills' },
+      { key: 'status', label: 'Status', format: v => `<span style="color: ${statusColor(v)}; font-weight: 600; font-size: 12px;">${v}</span>` },
+      { key: 'patientPay', label: 'Patient Pay', align: 'right', format: v => v ? formatCents(v) : '--' },
+      { key: 'planPay', label: 'Plan Pay', align: 'right', format: v => v ? formatCents(v) : '--' },
+    ];
+
+    return renderSectionCard(
+      `Prescribing History (${prescriptions.length})`, 'prescriber',
+      `<div style="max-height: 400px; overflow-y: auto;">${renderSortableTable('prescriber-history-table', columns, rows, 'id')}</div>`
+    );
+  }
+
+  // ─── Activity Summary ──────────────────────────────────────────────
+
+  renderPrescriberActivity(state) {
+    if (this.selectedPrescriber === null) return '';
+
+    const prescriptions = (state.prescriptions || []).filter(
+      rx => rx.prescriberIndex === this.selectedPrescriber
+    );
+    if (prescriptions.length === 0) return '';
+
+    const priorAuths = (state.priorAuths || []).filter(
+      pa => pa.prescriberIndex === this.selectedPrescriber
+    );
+
+    const total = prescriptions.length;
+    const active = prescriptions.filter(rx => rx.status !== 'CANCELLED' && rx.status !== 'REJECTED').length;
+    const filled = prescriptions.filter(rx => rx.status === 'FILLED' || rx.status === 'PARTIALLY_FILLED').length;
+    const cancelled = prescriptions.filter(rx => rx.status === 'CANCELLED' || rx.status === 'REJECTED').length;
+    const paPending = priorAuths.filter(pa => pa.status === 'PENDING').length;
+    const paApproved = priorAuths.filter(pa => pa.status === 'APPROVED').length;
+    const paDenied = priorAuths.filter(pa => pa.status === 'DENIED').length;
+    let totalPatientPay = 0, totalPlanPay = 0;
+    for (const rx of prescriptions) {
+      totalPatientPay += rx.patientPayCents || 0;
+      totalPlanPay += rx.planPayCents || 0;
+    }
+
+    // Status breakdown
+    const statusCounts = {};
+    for (const rx of prescriptions) {
+      statusCounts[rx.status] = (statusCounts[rx.status] || 0) + 1;
+    }
+    const statusRows = Object.entries(statusCounts).map(([s, c]) =>
+      `<div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border-subtle);"><span style="font-size: 12px;">${s}</span><span style="font-weight: 600;">${c}</span></div>`
+    ).join('');
+
+    const content = `
+      ${renderMetricRow([
+        { label: 'Total Scripts', value: total, color: 'var(--color-prescriber, #AB47BC)' },
+        { label: 'Active', value: active, color: 'var(--accent-green, #66BB6A)' },
+        { label: 'Filled', value: filled, color: 'var(--accent-blue, #4FC3F7)' },
+        { label: 'Cancelled', value: cancelled, color: 'var(--accent-red, #EF5350)' },
+      ])}
+      ${renderMetricRow([
+        { label: 'PA Pending', value: paPending, color: 'var(--accent-orange, #FFB74D)' },
+        { label: 'PA Approved', value: paApproved, color: 'var(--accent-green, #66BB6A)' },
+        { label: 'PA Denied', value: paDenied, color: 'var(--accent-red, #EF5350)' },
+      ])}
+      ${renderMetricRow([
+        { label: 'Total Patient Pay', value: formatCents(totalPatientPay), color: 'var(--color-member, #4FC3F7)' },
+        { label: 'Total Plan Pay', value: formatCents(totalPlanPay), color: 'var(--color-insurer, #78909C)' },
+      ])}
+      ${statusRows ? `<div style="margin-top: 8px;"><div style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Status Breakdown</div>${statusRows}</div>` : ''}
+    `;
+
+    return renderSectionCard('Activity Summary', 'prescriber', content);
+  }
+
+  // ─── Patient Breakdown ──────────────────────────────────────────────
+
+  renderPatientBreakdown(state) {
+    if (this.selectedPrescriber === null) return '';
+
+    const prescriptions = (state.prescriptions || []).filter(
+      rx => rx.prescriberIndex === this.selectedPrescriber
+    );
+    if (prescriptions.length === 0) return '';
+
+    const enrolled = state.enrolledMembers || [];
+    const getMemberName = (walletId) => {
+      const m = enrolled.find(e => e.walletId === walletId);
+      return m ? m.displayName : (walletId ? truncHash(walletId, 8) : '--');
+    };
+
+    const patientMap = new Map();
+    for (const rx of prescriptions) {
+      const e = patientMap.get(rx.memberWalletId) || {
+        name: getMemberName(rx.memberWalletId),
+        walletId: rx.memberWalletId,
+        scripts: 0, meds: new Set(), patientPay: 0, planPay: 0,
+      };
+      e.scripts++;
+      e.meds.add(rx.medicationIndex);
+      e.patientPay += rx.patientPayCents || 0;
+      e.planPay += rx.planPayCents || 0;
+      patientMap.set(rx.memberWalletId, e);
+    }
+
+    const patients = Array.from(patientMap.values()).sort((a, b) => b.scripts - a.scripts);
+    const rows = patients.map(p => ({
+      name: p.name,
+      walletId: p.walletId ? truncHash(p.walletId, 8) : '--',
+      scripts: p.scripts,
+      uniqueMeds: p.meds.size,
+      patientPay: p.patientPay,
+      planPay: p.planPay,
+    }));
+
+    const columns = [
+      { key: 'name', label: 'Patient' },
+      { key: 'walletId', label: 'Wallet ID', format: v => `<span class="mono" style="font-size: 11px;">${v}</span>` },
+      { key: 'scripts', label: 'Scripts', align: 'right' },
+      { key: 'uniqueMeds', label: 'Unique Meds', align: 'right' },
+      { key: 'patientPay', label: 'Patient Pay', align: 'right', format: v => formatCents(v) },
+      { key: 'planPay', label: 'Plan Pay', align: 'right', format: v => formatCents(v) },
+    ];
+
+    return renderSectionCard(
+      `Patient Breakdown (${patients.length})`, 'prescriber',
+      renderSortableTable('prescriber-patient-table', columns, rows, 'scripts')
+    );
+  }
+
+  // ─── Medication Breakdown ──────────────────────────────────────────
+
+  renderMedicationBreakdown(state) {
+    if (this.selectedPrescriber === null) return '';
+
+    const prescriptions = (state.prescriptions || []).filter(
+      rx => rx.prescriberIndex === this.selectedPrescriber
+    );
+    if (prescriptions.length === 0) return '';
+
+    const medications = state.demoData?.medications || [];
+
+    const medMap = new Map();
+    for (const rx of prescriptions) {
+      const e = medMap.get(rx.medicationIndex) || {
+        name: rx.medication || '--',
+        tier: null, scripts: 0, patients: new Set(), patientPay: 0, planPay: 0,
+      };
+      const med = medications[rx.medicationIndex];
+      if (med) e.tier = med.tier;
+      e.scripts++;
+      e.patients.add(rx.memberWalletId);
+      e.patientPay += rx.patientPayCents || 0;
+      e.planPay += rx.planPayCents || 0;
+      medMap.set(rx.medicationIndex, e);
+    }
+
+    const meds = Array.from(medMap.values()).sort((a, b) => b.scripts - a.scripts);
+    const rows = meds.map(m => ({
+      name: m.name,
+      tier: m.tier,
+      scripts: m.scripts,
+      patients: m.patients.size,
+      patientPay: m.patientPay,
+      planPay: m.planPay,
+    }));
+
+    const columns = [
+      { key: 'name', label: 'Medication' },
+      { key: 'tier', label: 'Tier', format: v => v !== null ? `<span class="tier-badge tier-${v}">Tier ${v}</span>` : '--' },
+      { key: 'scripts', label: 'Scripts', align: 'right' },
+      { key: 'patients', label: 'Patients', align: 'right' },
+      { key: 'patientPay', label: 'Patient Pay', align: 'right', format: v => formatCents(v) },
+      { key: 'planPay', label: 'Plan Pay', align: 'right', format: v => formatCents(v) },
+    ];
+
+    return renderSectionCard(
+      `Medication Breakdown (${meds.length})`, 'prescriber',
+      renderSortableTable('prescriber-med-table', columns, rows, 'scripts')
+    );
+  }
+
+  // ─── Pharmacy Breakdown ──────────────────────────────────────────
+
+  renderPharmacyBreakdown(state) {
+    if (this.selectedPrescriber === null) return '';
+
+    const prescriptions = (state.prescriptions || []).filter(
+      rx => rx.prescriberIndex === this.selectedPrescriber
+    );
+    if (prescriptions.length === 0) return '';
+
+    const pharmacies = state.demoData?.pharmacies || [];
+
+    const pharmMap = new Map();
+    for (const rx of prescriptions) {
+      const e = pharmMap.get(rx.pharmacyIndex) || {
+        name: pharmacies[rx.pharmacyIndex]?.storeName || `Pharmacy #${rx.pharmacyIndex}`,
+        scripts: 0, patients: new Set(), meds: new Set(),
+      };
+      e.scripts++;
+      e.patients.add(rx.memberWalletId);
+      e.meds.add(rx.medicationIndex);
+      pharmMap.set(rx.pharmacyIndex, e);
+    }
+
+    const pharms = Array.from(pharmMap.values()).sort((a, b) => b.scripts - a.scripts);
+    const rows = pharms.map(p => ({
+      name: p.name,
+      scripts: p.scripts,
+      patients: p.patients.size,
+      uniqueMeds: p.meds.size,
+    }));
+
+    const columns = [
+      { key: 'name', label: 'Pharmacy' },
+      { key: 'scripts', label: 'Scripts', align: 'right' },
+      { key: 'patients', label: 'Patients', align: 'right' },
+      { key: 'uniqueMeds', label: 'Unique Meds', align: 'right' },
+    ];
+
+    return renderSectionCard(
+      `Pharmacy Breakdown (${pharms.length})`, 'prescriber',
+      renderSortableTable('prescriber-pharm-table', columns, rows, 'scripts')
+    );
+  }
+
+  // ─── Messages ────────────────────────────────────────────────────
+
   renderPrescriberMessages(state) {
     if (this.selectedPrescriber === null) {
       return `
@@ -1332,11 +1728,54 @@ export class PrescriberPhase {
       btn.classList.remove('loading');
     }
   }
-}
 
-/** Truncate a large numeric hash string for display: first 8 ... last 8 */
-function truncHash(s) {
-  if (!s) return '—';
-  if (s.length <= 20) return s;
-  return s.slice(0, 8) + '\u2026' + s.slice(-8);
+  // ─── Node Info ──────────────────────────────────────────
+
+  renderPrescriberNodeInfo() {
+    return `
+      <div class="section-card collapsed">
+        <div class="card-header prescriber collapsible" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span>Node Info</span>
+          <span class="collapse-arrow">&#9660;</span>
+        </div>
+        <div class="card-body collapsible-body">
+          <div id="prescriber-node-info">
+            <div style="color: var(--text-muted); font-size: 12px; text-align: center; padding: 12px;">Loading chain state...</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  async loadPrescriberNodeInfo() {
+    const container = document.getElementById('prescriber-node-info');
+    if (!container) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/node/chain-state`);
+      if (!res.ok) throw new Error('Failed to fetch chain state');
+      const cs = await res.json();
+
+      const truncate = (s) => s && String(s).length > 16 ? String(s).slice(0, 8) + '\u2026' + String(s).slice(-6) : String(s || '\u2014');
+
+      const entries = [];
+      entries.push(`<div class="label">Sequencer URL</div><div class="value mono">http://127.0.0.1:3030</div>`);
+      entries.push(`<div class="label">Health</div><div class="value"><span style="color: var(--accent-green);">Connected</span></div>`);
+      if (cs.registryRoot) entries.push(`<div class="label">Registry Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.registryRoot)}</div>`);
+      if (cs.lifecycleRoot) entries.push(`<div class="label">Lifecycle Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.lifecycleRoot)}</div>`);
+      if (cs.walletCount != null) entries.push(`<div class="label">Wallet Count</div><div class="value">${cs.walletCount}</div>`);
+      if (cs.benefitPlanRoot) entries.push(`<div class="label">Benefit Plan Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.benefitPlanRoot)}</div>`);
+      if (cs.nftRegistryRoot) entries.push(`<div class="label">Credential Registry Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.nftRegistryRoot)}</div>`);
+      if (cs.blockHeight != null) entries.push(`<div class="label">Block Height</div><div class="value">${cs.blockHeight}</div>`);
+      if (cs.globalStateRoot) entries.push(`<div class="label">Global State Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.globalStateRoot)}</div>`);
+
+      container.innerHTML = `<div class="data-grid">${entries.join('')}</div>`;
+    } catch (err) {
+      container.innerHTML = `<div class="data-grid">
+        <div class="label">Sequencer URL</div><div class="value mono">http://127.0.0.1:3030</div>
+        <div class="label">Health</div><div class="value"><span style="color: var(--accent-red);">Disconnected</span></div>
+      </div>
+      <div style="color: var(--accent-red); font-size: 12px; margin-top: 8px;">${err.message}</div>`;
+    }
+  }
 }

@@ -557,10 +557,10 @@ function renderCredentialSection() {
   // Explanation
   content += `
     <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.5;">
-      Generate a portable ZK credential for this member. Present it at any pharmacy for
-      offline identity verification (NFC tap, QR scan, or direct transfer). The credential
-      contains a cryptographic proof that this wallet holds a valid eligibility credential —
-      no PHI is revealed.
+      Generate a portable ZK credential for offline identity verification.
+      <strong style="color: var(--text-primary);">Copy the generated JSON and paste it into the pharmacy's
+      "Credential JSON" input field.</strong> The credential proves wallet ownership without revealing PHI —
+      usable via NFC tap, QR scan, or copy-paste.
     </div>
   `;
 
@@ -594,9 +594,6 @@ function renderCredentialSection() {
 
 function buildCredentialDisplay(credResult) {
   const credJson = credResult.credentialJson || '';
-  const truncatedJson = credJson.length > 200
-    ? credJson.slice(0, 200) + '...'
-    : credJson;
 
   return `
     <div class="credential-card">
@@ -618,12 +615,25 @@ function buildCredentialDisplay(credResult) {
         <span class="credential-label">CredentialProgram Time</span>
         <span>${((credResult.nftProgramTimeMs || 0) / 1000).toFixed(1)}s</span>
       </div>
-      <div style="margin-top: 12px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-          <span style="font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Credential JSON (for pharmacy verification)</span>
-          <button id="btn-copy-credential" class="btn-copy">Copy to Clipboard</button>
+
+      <div style="margin-top: 16px; padding: 12px; background: var(--bg-primary); border: 2px solid var(--color-accent-green); border-radius: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-size: 13px; font-weight: 600; color: var(--text-primary);">
+            Portable Credential JSON
+          </span>
+          <button id="btn-copy-credential" class="btn-copy" style="padding: 6px 16px; font-size: 13px; font-weight: 600;">
+            Copy to Clipboard
+          </button>
         </div>
-        <pre class="credential-json">${escapeHtml(truncatedJson)}</pre>
+        <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">
+          Copy this JSON and paste it into the pharmacy's "Credential JSON" field for offline identity verification.
+        </div>
+        <textarea id="credential-json-output" class="mono" readonly
+          style="width: 100%; height: 120px; padding: 8px; font-size: 11px; background: var(--bg-tertiary); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); resize: vertical; cursor: text;"
+          onclick="this.select()">${escapeHtml(credJson)}</textarea>
+        <div style="margin-top: 6px; font-size: 11px; color: var(--text-secondary);">
+          ${credJson.length.toLocaleString()} characters &bull; Click the textarea to select all &bull; Contains ZK proof (no PHI revealed)
+        </div>
       </div>
     </div>
   `;
@@ -743,9 +753,22 @@ function wireCopyButton() {
       const json = lastCredentialJson.credentialJson || '';
       navigator.clipboard.writeText(json).then(() => {
         copyBtn.textContent = 'Copied!';
-        setTimeout(() => { copyBtn.textContent = 'Copy to Clipboard'; }, 2000);
+        copyBtn.style.background = 'var(--color-accent-green)';
+        setTimeout(() => {
+          copyBtn.textContent = 'Copy to Clipboard';
+          copyBtn.style.background = '';
+        }, 2000);
       }).catch(() => {
-        copyBtn.textContent = 'Copy failed';
+        // Fallback: select the textarea content
+        const textarea = document.getElementById('credential-json-output');
+        if (textarea) {
+          textarea.select();
+          document.execCommand('copy');
+          copyBtn.textContent = 'Copied!';
+          setTimeout(() => { copyBtn.textContent = 'Copy to Clipboard'; }, 2000);
+        } else {
+          copyBtn.textContent = 'Copy failed';
+        }
       });
     });
   }

@@ -64,13 +64,163 @@ interface LeviathanVisual {
   name: string;
   status: 'running' | 'stopped';
   isPrimary: boolean;
+  role: 'sequencer' | 'replica';
+  primaryPartition: number;
+  activePartitions: number[];
+  lastHeartbeat: number;
 }
 
+const PARTITION_COUNT = 3;
+
 const leviathanVisuals: LeviathanVisual[] = [
-  { id: 'lev-alpha', name: 'Leviathan Alpha', status: 'running', isPrimary: true },
-  { id: 'lev-beta', name: 'Leviathan Beta', status: 'running', isPrimary: false },
-  { id: 'lev-gamma', name: 'Leviathan Gamma', status: 'running', isPrimary: false },
+  { id: 'lev-alpha', name: 'Leviathan Alpha', status: 'running', isPrimary: true, role: 'sequencer', primaryPartition: 0, activePartitions: [0], lastHeartbeat: Date.now() },
+  { id: 'lev-beta', name: 'Leviathan Beta', status: 'running', isPrimary: false, role: 'replica', primaryPartition: 1, activePartitions: [1], lastHeartbeat: Date.now() },
+  { id: 'lev-gamma', name: 'Leviathan Gamma', status: 'running', isPrimary: false, role: 'replica', primaryPartition: 2, activePartitions: [2], lastHeartbeat: Date.now() },
 ];
+
+// Leader map: partition index → leviathan id
+const leaderMap: Record<number, string> = { 0: 'lev-alpha', 1: 'lev-beta', 2: 'lev-gamma' };
+
+// Failover chain: partition → ordered priority list of leviathan ids
+const failoverChain: Record<number, string[]> = {
+  0: ['lev-alpha', 'lev-beta', 'lev-gamma'],
+  1: ['lev-beta', 'lev-gamma', 'lev-alpha'],
+  2: ['lev-gamma', 'lev-alpha', 'lev-beta'],
+};
+
+/** Reassign partitions after a leviathan stops. */
+function handleLeviathanStop(stoppedId: string, vizEmitter: (event: VizEvent) => void): void {
+  const stopped = leviathanVisuals.find(l => l.id === stoppedId);
+  if (!stopped) return;
+  stopped.status = 'stopped';
+  stopped.lastHeartbeat = 0;
+
+  // Reassign each partition this node was leading
+  const partitionsToReassign = [...stopped.activePartitions];
+  stopped.activePartitions = [];
+
+  for (const partition of partitionsToReassign) {
+    const chain = failoverChain[partition];
+    const newLeader = chain.find(id => {
+      const lev = leviathanVisuals.find(l => l.id === id);
+      return lev && lev.status === 'running' && lev.id !== stoppedId;
+    });
+    if (newLeader) {
+      leaderMap[partition] = newLeader;
+      const newLev = leviathanVisuals.find(l => l.id === newLeader)!;
+      if (!newLev.activePartitions.includes(partition)) {
+        newLev.activePartitions.push(partition);
+      }
+      // Emit failover event
+      vizEmitter({
+        type: 'viz:leviathan:failover',
+        timestamp: Date.now(),
+        id: `viz-failover-${Date.now()}`,
+        actor: stoppedId,
+        actorType: 'leviathan',
+        target: newLeader,
+        targetType: 'leviathan',
+        data: { partitionIndex: partition, reason: 'timeout', oldLeader: stoppedId, newLeader },
+        lane: 'leviathan',
+        stage: 1,
+        totalStages: 1,
+      });
+    }
+  }
+}
+
+/** Reclaim partitions when a leviathan starts back up. */
+function handleLeviathanStart(startedId: string, vizEmitter: (event: VizEvent) => void): void {
+  const started = leviathanVisuals.find(l => l.id === startedId);
+  if (!started) return;
+  started.status = 'running';
+  started.lastHeartbeat = Date.now();
+
+  // Reclaim home partition if currently led by a backup
+  const homePartition = started.primaryPartition;
+  const currentLeader = leaderMap[homePartition];
+  if (currentLeader !== startedId) {
+    // Remove partition from current leader's active list
+    const oldLev = leviathanVisuals.find(l => l.id === currentLeader);
+    if (oldLev) {
+      oldLev.activePartitions = oldLev.activePartitions.filter(p => p !== homePartition);
+    }
+    leaderMap[homePartition] = startedId;
+    started.activePartitions = [homePartition];
+
+    vizEmitter({
+      type: 'viz:leviathan:failover',
+      timestamp: Date.now(),
+      id: `viz-recovery-${Date.now()}`,
+      actor: currentLeader,
+      actorType: 'leviathan',
+      target: startedId,
+      targetType: 'leviathan',
+      data: { partitionIndex: homePartition, reason: 'recovery', oldLeader: currentLeader, newLeader: startedId },
+      lane: 'leviathan',
+      stage: 1,
+      totalStages: 1,
+    });
+  } else {
+    started.activePartitions = [homePartition];
+  }
+}
+
+/** Start heartbeat timer — emits viz:leviathan:heartbeat every 5s for running nodes. */
+function startHeartbeatTimer(vizEmitter: (event: VizEvent) => void): NodeJS.Timeout {
+  return setInterval(() => {
+    for (const lev of leviathanVisuals) {
+      if (lev.status !== 'running') continue;
+      lev.lastHeartbeat = Date.now();
+
+      vizEmitter({
+        type: 'viz:leviathan:heartbeat',
+        timestamp: Date.now(),
+        id: `viz-hb-${lev.id}-${Date.now()}`,
+        actor: lev.id,
+        actorType: 'leviathan',
+        data: { partitions: lev.activePartitions, role: lev.role },
+        lane: 'leviathan',
+        stage: 1,
+        totalStages: 1,
+      });
+    }
+  }, 5000);
+}
+
+/** Emit gossip relay events from batch source to all running replicas. */
+function emitGossipRelay(sourceId: string, vizEmitter: (event: VizEvent) => void): void {
+  const runningPeers = leviathanVisuals.filter(l => l.status === 'running' && l.id !== sourceId);
+  let delay = 0;
+  for (const peer of runningPeers) {
+    setTimeout(() => {
+      vizEmitter({
+        type: 'viz:leviathan:gossip',
+        timestamp: Date.now(),
+        id: `viz-gossip-${sourceId}-${peer.id}-${Date.now()}`,
+        actor: sourceId,
+        actorType: 'leviathan',
+        target: peer.id,
+        targetType: 'leviathan',
+        data: { messageType: 'batch:built' },
+        lane: 'leviathan',
+        stage: 1,
+        totalStages: 1,
+      });
+    }, delay);
+    delay += 200;
+  }
+}
+
+/** Reset leviathan state to defaults. */
+function resetLeviathanState(): void {
+  leviathanVisuals[0] = { id: 'lev-alpha', name: 'Leviathan Alpha', status: 'running', isPrimary: true, role: 'sequencer', primaryPartition: 0, activePartitions: [0], lastHeartbeat: Date.now() };
+  leviathanVisuals[1] = { id: 'lev-beta', name: 'Leviathan Beta', status: 'running', isPrimary: false, role: 'replica', primaryPartition: 1, activePartitions: [1], lastHeartbeat: Date.now() };
+  leviathanVisuals[2] = { id: 'lev-gamma', name: 'Leviathan Gamma', status: 'running', isPrimary: false, role: 'replica', primaryPartition: 2, activePartitions: [2], lastHeartbeat: Date.now() };
+  leaderMap[0] = 'lev-alpha';
+  leaderMap[1] = 'lev-beta';
+  leaderMap[2] = 'lev-gamma';
+}
 
 // ─── Main ──────────────────────────────────────────────
 
@@ -166,7 +316,7 @@ async function main() {
   pendingConsoleEvents.length = 0;
 
   // 5. Register flowchart-specific routes
-  registerFlowchartRoutes(rpcServer, service, node);
+  registerFlowchartRoutes(rpcServer, service, node, vizEmitter);
 
   // 5b. Forward L2Node batch events to console SSE (for block-viz awareness)
   node.on((event) => {
@@ -183,6 +333,8 @@ async function main() {
         message: `Batch #${d.batchNumber} built (${d.transitionCount} tx, ${d.buildTimeMs}ms)`,
         status: 'complete', timestamp: event.timestamp,
       });
+      // Emit gossip relay from primary sequencer to replicas
+      emitGossipRelay('lev-alpha', vizEmitter);
     } else if (event.type === 'batch:settled') {
       const d = event.data as Record<string, unknown>;
       bufferedConsoleEmitter({
@@ -205,6 +357,9 @@ async function main() {
   // 6. Start backend RPC server
   await rpcServer.start();
   node.start();
+
+  // 6b. Start leviathan heartbeat timer (5s pulses for running nodes)
+  startHeartbeatTimer(vizEmitter);
 
   console.log(`  [Flowchart] Backend RPC server on port ${BACKEND_PORT}`);
 
@@ -299,6 +454,7 @@ function registerFlowchartRoutes(
   server: L2RpcServer,
   service: InteractiveDemoService,
   node: L2Node,
+  vizEmitter: (event: VizEvent) => void,
 ): void {
   // GET /flowchart/status — aggregated dashboard status
   server.registerRoute('GET', '/flowchart/status', async (_req, res) => {
@@ -313,6 +469,8 @@ function registerFlowchartRoutes(
         elapsedMs: compilationState.startedAt > 0 ? Date.now() - compilationState.startedAt : 0,
       },
       leviathans: leviathanVisuals,
+      partitionMap: { ...leaderMap },
+      partitionCount: PARTITION_COUNT,
       chain: {
         blockHeight: Number(seq.getCurrentBlockHeight().toBigInt()),
         receiptCount: seq.getAllReceipts().length,
@@ -347,7 +505,7 @@ function registerFlowchartRoutes(
     }));
   });
 
-  // POST /flowchart/leviathan/stop — visually stop a leviathan
+  // POST /flowchart/leviathan/stop — stop a leviathan + trigger failover
   server.registerRoute('POST', '/flowchart/leviathan/stop', async (req, res) => {
     const body = await readBody(req);
     const { id } = JSON.parse(body || '{}');
@@ -357,12 +515,12 @@ function registerFlowchartRoutes(
       res.end(JSON.stringify({ error: 'Leviathan not found' }));
       return;
     }
-    lev.status = 'stopped';
+    handleLeviathanStop(id, vizEmitter);
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify({ ok: true, id, status: 'stopped' }));
   });
 
-  // POST /flowchart/leviathan/start — visually start a leviathan
+  // POST /flowchart/leviathan/start — start a leviathan + reclaim partition
   server.registerRoute('POST', '/flowchart/leviathan/start', async (req, res) => {
     const body = await readBody(req);
     const { id } = JSON.parse(body || '{}');
@@ -372,9 +530,52 @@ function registerFlowchartRoutes(
       res.end(JSON.stringify({ error: 'Leviathan not found' }));
       return;
     }
-    lev.status = 'running';
+    handleLeviathanStart(id, vizEmitter);
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify({ ok: true, id, status: 'running' }));
+  });
+
+  // POST /flowchart/reset — full state reset (keeps compiled programs, restarts L2 node)
+  server.registerRoute('POST', '/flowchart/reset', async (_req, res) => {
+    if (smokeTestState.status === 'running') {
+      res.writeHead(409, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: 'Cannot reset while smoke test is running' }));
+      return;
+    }
+
+    // 1. Stop the L2 node (clears batch timer, waits for in-progress batches)
+    await node.stop();
+
+    // 2. Clear stale checkpoint files
+    const cpDir = path.join(process.cwd(), '.l2-checkpoints');
+    if (fs.existsSync(cpDir)) {
+      for (const file of fs.readdirSync(cpDir)) {
+        fs.unlinkSync(path.join(cpDir, file));
+      }
+    }
+
+    // 3. Reset sequencer to fresh empty state
+    const freshRegTree = new MerkleTree(REGISTRY_TREE_HEIGHT);
+    const freshLcTree = new MerkleTree(REGISTRY_TREE_HEIGHT);
+    node.getSequencer().resetForDemo(
+      Field(freshRegTree.getRoot()),
+      Field(freshLcTree.getRoot()),
+    );
+
+    // 4. Reset interactive service (rebuilds infrastructure + syncs sequencer roots)
+    service.reset();
+
+    // 5. Reset leviathan visuals to all running
+    resetLeviathanState();
+
+    // 6. Reset smoke test UI state
+    smokeTestState = { status: 'idle', currentStep: 0, steps: [] };
+
+    // 7. Restart the L2 node (fresh batch timer)
+    node.start();
+
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({ ok: true, message: 'Full reset complete. Leviathans restarted. Ready for new smoke test.' }));
   });
 
   // POST /flowchart/smoke-test — kick off automated smoke test
@@ -389,6 +590,27 @@ function registerFlowchartRoutes(
       res.end(JSON.stringify({ error: 'Smoke test already running' }));
       return;
     }
+
+    // Auto-reset before each smoke test run (full clean slate)
+    await node.stop();
+    const cpDir = path.join(process.cwd(), '.l2-checkpoints');
+    if (fs.existsSync(cpDir)) {
+      for (const file of fs.readdirSync(cpDir)) {
+        fs.unlinkSync(path.join(cpDir, file));
+      }
+    }
+    const freshRegTree = new MerkleTree(REGISTRY_TREE_HEIGHT);
+    const freshLcTree = new MerkleTree(REGISTRY_TREE_HEIGHT);
+    node.getSequencer().resetForDemo(
+      Field(freshRegTree.getRoot()),
+      Field(freshLcTree.getRoot()),
+    );
+    service.reset();
+    for (const lev of leviathanVisuals) {
+      lev.status = 'running';
+      lev.isPrimary = lev.id === 'lev-alpha';
+    }
+    node.start();
 
     // Reset and start
     smokeTestState = {
@@ -432,38 +654,66 @@ function registerFlowchartRoutes(
     const allBatches = seq.getAllBatches();
     const allReceipts = seq.getAllReceipts();
 
-    // Recent settled batches (last 8)
+    // Build walletId → member name lookup from enrolled members
+    const stateData = service.getState() as Record<string, unknown>;
+    const walletNameMap: Record<string, string> = {};
+    const enrolledArr = (stateData.enrolledMembers ?? []) as Array<Record<string, unknown>>;
+    for (const m of enrolledArr) {
+      if (m.walletId && m.displayName) {
+        walletNameMap[String(m.walletId)] = String(m.displayName);
+      }
+    }
+
+    // Recent batches (last 8) — flattened receipt data for easy frontend rendering
     const recentBatches = allBatches.slice(-8).map(batch => {
       const batchReceipts = allReceipts
         .filter(r => r.l1BatchNumber === batch.batchNumber)
         .map(r => {
-          let claimDetail: Record<string, unknown> | null = null;
+          // Resolve member display name
+          const memberName = walletNameMap[r.walletId] ?? null;
+
+          // Determine operation type and flatten claim detail
+          let operationType: string = r.isRegistration ? 'registration' : 'transition';
+          let patientPayCents = 0;
+          let planPayCents = 0;
+          let brandName: string | null = null;
+          let ndc: string | null = null;
+          let tierLevel: number | null = null;
+          let daysSupply: number | null = null;
+
           if (r.claimLeafIndex !== undefined) {
             try {
               const result = seq.getClaimWithProof(r.claimLeafIndex);
               if (result) {
-                claimDetail = {
-                  patientPayCents: result.entry.leaf.patientPayCents,
-                  planPayCents: result.entry.leaf.planPayCents,
-                  operationType: result.entry.leaf.operationType,
-                  brandName: result.entry.metadata.brandName ?? null,
-                  ndc: result.entry.metadata.ndc ?? null,
-                  tierLevel: result.entry.metadata.tierLevel ?? null,
-                  daysSupply: result.entry.metadata.daysSupply ?? null,
-                };
+                patientPayCents = Number(result.entry.leaf.patientPayCents);
+                planPayCents = Number(result.entry.leaf.planPayCents);
+                const op = String(result.entry.leaf.operationType);
+                operationType = op === '1' ? 'fulfillment' : op === '2' ? 'reversal' : operationType;
+                brandName = (result.entry.metadata.brandName as string) ?? null;
+                ndc = (result.entry.metadata.ndc as string) ?? null;
+                tierLevel = (result.entry.metadata.tierLevel as number) ?? null;
+                daysSupply = (result.entry.metadata.daysSupply as number) ?? null;
               }
             } catch {
               // Claim data not available — skip enrichment
             }
           }
+
           return {
             receiptId: r.receiptId,
             walletId: r.walletId,
+            memberName,
             isRegistration: r.isRegistration,
+            operationType,
             sequenceNumber: Number(r.sequenceNumber),
             acceptedAt: r.acceptedAt,
             l1Status: r.l1Status,
-            claimDetail,
+            patientPayCents,
+            planPayCents,
+            brandName,
+            ndc,
+            tierLevel,
+            daysSupply,
           };
         });
 

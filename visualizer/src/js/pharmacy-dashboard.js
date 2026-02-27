@@ -44,8 +44,9 @@ let prescribers = [];       // state.prescribers (if available)
 
 // Rx Queue state
 let queueFilter = 'ALL';               // Current status filter
-let scannedMemberWalletId = null;       // Member whose credential was scanned
-let scannedCredentialJson = null;       // The raw credential JSON for fill calls
+let selectedRxId = null;               // Currently selected prescription ID
+let scannedMemberWalletId = null;       // Member whose NFC/credential was scanned
+let scannedCredentialJson = null;       // The raw credential JSON (optional, for patient lookup)
 
 // ============================================================================
 // Bootstrap
@@ -319,24 +320,33 @@ function renderRxQueue() {
     return `<button class="rx-filter-chip${active}" data-filter="${s}">${s.replace('_', ' ')} <span class="chip-count">${count}</span></button>`;
   }).filter(Boolean).join('');
 
-  // Credential scan area
+  // NFC / Patient Lookup area (optional filter — NOT required for dispensing)
   const scanArea = `
-    <div class="rx-scan-area">
-      <div class="rx-scan-row">
-        <div class="rx-scan-input-group">
-          <label>Member Credential Scan</label>
-          <textarea id="rx-credential-input" class="mono" rows="2" placeholder="Paste member portable credential JSON here..."></textarea>
+    <div class="rx-scan-area" style="margin-bottom: 12px;">
+      <div style="display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap;">
+        <div style="flex: 1; min-width: 200px;">
+          <label style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">NFC Card Data / Wallet ID</label>
+          <input type="text" id="rx-nfc-input" class="mono" placeholder="Tap NFC card or paste wallet ID..." style="width: 100%; padding: 8px; font-size: 12px; background: var(--bg-primary); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary);" />
         </div>
-        <button id="rx-scan-btn" class="btn-action pharmacy">Scan Credential</button>
-        ${scannedMemberWalletId ? `<button id="rx-clear-scan-btn" class="btn-action" style="background: var(--bg-tertiary); color: var(--text-secondary);">Clear Filter</button>` : ''}
+        <div style="flex: 1; min-width: 200px;">
+          <label style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Credential JSON (optional)</label>
+          <input type="text" id="rx-credential-input" class="mono" placeholder="Paste credential JSON..." style="width: 100%; padding: 8px; font-size: 12px; background: var(--bg-primary); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary);" />
+        </div>
+        <button id="rx-scan-btn" class="btn-action pharmacy" style="white-space: nowrap;">Scan / Lookup</button>
+        ${scannedMemberWalletId ? `<button id="rx-clear-scan-btn" class="btn-action" style="background: var(--bg-tertiary); color: var(--text-secondary); white-space: nowrap;">Clear Filter</button>` : ''}
       </div>
       ${scannedMemberWalletId ? `
-        <div class="rx-scan-result">
+        <div class="rx-scan-result" style="margin-top: 8px;">
           <span class="rx-scan-verified">Verified</span>
-          Member: <span class="mono">${truncHash(scannedMemberWalletId, 8)}</span>
-          — showing ${getQueuePrescriptions().length} script(s) for this patient
+          Patient: <span class="mono">${truncHash(scannedMemberWalletId, 8)}</span>
+          — showing ${getQueuePrescriptions().length} script(s)
+          <span style="margin-left: 12px; font-size: 11px; color: var(--text-secondary);">(filter only — not required for dispensing)</span>
         </div>
-      ` : ''}
+      ` : `
+        <div style="margin-top: 6px; font-size: 11px; color: var(--text-secondary);">
+          Optional: scan NFC card or enter wallet ID to filter prescriptions by patient
+        </div>
+      `}
     </div>
   `;
 
@@ -354,14 +364,13 @@ function renderRxQueue() {
       const maxDaySupply = med.maxDaySupply || '--';
       const refillsRemaining = (rx.refills || 0) - (rx.refillsUsed || 0);
       const transitions = PHARMACY_TRANSITIONS[rx.status] || [];
-      const hasCredential = scannedMemberWalletId && rx.memberWalletId === scannedMemberWalletId;
 
-      // Action button(s)
+      // Action button(s) — no credential required (fills are reversible)
       let actionHtml = '';
-      if (rx.status === 'DISPENSED' && hasCredential) {
-        actionHtml += `<button class="btn-action pharmacy btn-sm rx-fill-btn" data-rx-id="${rx.id}">Fill (Pickup)</button> `;
+      if (rx.status === 'DISPENSED') {
+        actionHtml += `<button class="btn-action pharmacy btn-sm rx-fill-btn" data-rx-id="${rx.id}">Fill</button> `;
       }
-      if (rx.status === 'FILLED' && hasCredential) {
+      if (rx.status === 'FILLED') {
         actionHtml += `<button class="btn-action btn-sm rx-complete-btn" data-rx-id="${rx.id}" style="background: var(--color-accent-green);">Complete (PoS)</button> `;
       }
       if (transitions.length > 0) {
@@ -376,8 +385,9 @@ function renderRxQueue() {
         actionHtml = '<span style="color: var(--text-secondary); font-size: 11px;">—</span>';
       }
 
+      const isSelected = selectedRxId === rx.id;
       return `
-        <tr>
+        <tr class="rx-row${isSelected ? ' rx-row-selected' : ''}" data-rx-id="${rx.id}" style="cursor: pointer;${isSelected ? ' background: var(--bg-tertiary); outline: 2px solid var(--color-pharmacy);' : ''}">
           <td class="mono" style="font-size: 11px;">${truncHash(rx.id, 6)}</td>
           <td>${med.brandName || rx.medication || '--'}${med.strength ? ` <span style="color:var(--text-secondary);font-size:11px;">${med.strength}</span>` : ''}</td>
           <td style="text-align:right;">${rx.quantity || '--'}</td>
@@ -411,11 +421,15 @@ function renderRxQueue() {
     `;
   }
 
+  // Detail panel for selected prescription
+  const detailPanel = selectedRxId ? renderRxDetailPanel(filtered) : '';
+
   const content = `
     <div class="rx-queue-container">
       <div class="rx-filter-row">${filterChips}</div>
       ${scanArea}
       ${tableHtml}
+      ${detailPanel}
     </div>
   `;
 
@@ -435,7 +449,7 @@ function attachQueueListeners() {
     });
   });
 
-  // Credential scan
+  // Credential / NFC scan
   const scanBtn = document.getElementById('rx-scan-btn');
   if (scanBtn) {
     scanBtn.addEventListener('click', handleCredentialScan);
@@ -450,6 +464,17 @@ function attachQueueListeners() {
       renderRxQueue();
     });
   }
+
+  // Row click → select prescription
+  document.querySelectorAll('.rx-row').forEach((row) => {
+    row.addEventListener('click', (e) => {
+      // Don't select when clicking buttons/selects inside the row
+      if (e.target.closest('button') || e.target.closest('select')) return;
+      const rxId = row.dataset.rxId;
+      selectedRxId = selectedRxId === rxId ? null : rxId; // Toggle
+      renderRxQueue();
+    });
+  });
 
   // Fill buttons
   document.querySelectorAll('.rx-fill-btn').forEach((btn) => {
@@ -469,43 +494,164 @@ function attachQueueListeners() {
       }
     });
   });
+
+  // Detail panel buttons
+  const detailFillBtn = document.getElementById('detail-fill-btn');
+  if (detailFillBtn) {
+    detailFillBtn.addEventListener('click', () => handleFill(detailFillBtn.dataset.rxId));
+  }
+  const detailCompleteBtn = document.getElementById('detail-complete-btn');
+  if (detailCompleteBtn) {
+    detailCompleteBtn.addEventListener('click', () => handleComplete(detailCompleteBtn.dataset.rxId));
+  }
+  const detailReverseBtn = document.getElementById('detail-reverse-btn');
+  if (detailReverseBtn) {
+    detailReverseBtn.addEventListener('click', () => handleStatusChange(detailReverseBtn.dataset.rxId, 'REVERSED'));
+  }
+  const detailStatusSelect = document.getElementById('detail-status-select');
+  if (detailStatusSelect) {
+    detailStatusSelect.addEventListener('change', () => {
+      if (detailStatusSelect.value) {
+        handleStatusChange(detailStatusSelect.dataset.rxId, detailStatusSelect.value);
+      }
+    });
+  }
+}
+
+function renderRxDetailPanel(rxList) {
+  const rx = rxList.find((r) => r.id === selectedRxId);
+  if (!rx) {
+    selectedRxId = null;
+    return '';
+  }
+
+  const med = medications[Number(rx.medicationIndex)] || {};
+  const member = enrolledMembers.find((m) => m.walletId === rx.memberWalletId);
+  const prescriber = lookupPrescriberName(rx.prescriberIndex);
+  const tier = med.tier != null ? med.tier : (med.tierLevel != null ? med.tierLevel : null);
+  const refillsRemaining = (rx.refills || 0) - (rx.refillsUsed || 0);
+  const transitions = PHARMACY_TRANSITIONS[rx.status] || [];
+
+  // Build action buttons for this prescription
+  let actionsHtml = '';
+  if (rx.status === 'DISPENSED') {
+    actionsHtml += `<button id="detail-fill-btn" class="btn-action pharmacy" data-rx-id="${rx.id}">Fill Prescription</button> `;
+  }
+  if (rx.status === 'FILLED') {
+    actionsHtml += `<button id="detail-complete-btn" class="btn-action" data-rx-id="${rx.id}" style="background: var(--color-accent-green);">Complete (PoS)</button> `;
+  }
+  if (rx.status === 'FILLED' || rx.status === 'COMPLETED') {
+    actionsHtml += `<button id="detail-reverse-btn" class="btn-action" data-rx-id="${rx.id}" style="background: var(--color-accent-red);">Reverse Fill</button> `;
+  }
+  if (transitions.length > 0) {
+    const opts = transitions.map((t) => `<option value="${t}">${t}</option>`).join('');
+    actionsHtml += `
+      <select id="detail-status-select" class="rx-status-select" data-rx-id="${rx.id}" style="padding: 6px 12px;">
+        <option value="">Change Status...</option>
+        ${opts}
+      </select>`;
+  }
+
+  return `
+    <div class="rx-detail-panel" style="margin-top: 12px; padding: 16px; background: var(--bg-secondary); border: 1px solid var(--color-pharmacy); border-radius: 8px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h4 style="margin: 0; color: var(--text-primary);">Prescription Details</h4>
+        <div>${rxStatusBadge(rx.status)}</div>
+      </div>
+      <div class="data-grid" style="grid-template-columns: 140px 1fr 140px 1fr; gap: 6px 12px;">
+        <div class="label">Rx ID</div>
+        <div class="value mono" style="font-size: 11px;" title="${rx.id}">${rx.id}</div>
+        <div class="label">Status</div>
+        <div class="value">${rx.status}</div>
+
+        <div class="label">Medication</div>
+        <div class="value">${med.brandName || rx.medication || '--'}${med.strength ? ` ${med.strength}` : ''}${med.dosageForm ? ` (${med.dosageForm})` : ''}</div>
+        <div class="label">Generic</div>
+        <div class="value">${med.genericName || '--'}</div>
+
+        <div class="label">NDC</div>
+        <div class="value mono">${med.ndc || '--'}</div>
+        <div class="label">Tier</div>
+        <div class="value">${tierBadge(tier)}</div>
+
+        <div class="label">Quantity</div>
+        <div class="value">${rx.quantity || '--'}</div>
+        <div class="label">Days Supply</div>
+        <div class="value">${med.maxDaySupply || '--'}</div>
+
+        <div class="label">Refills</div>
+        <div class="value">${refillsRemaining}/${rx.refills || 0} remaining</div>
+        <div class="label">Therapeutic Class</div>
+        <div class="value">${med.therapeuticClass || '--'}</div>
+
+        <div class="label">Patient</div>
+        <div class="value mono" style="font-size: 11px;">${rx.memberWalletId || '--'}</div>
+        <div class="label">Prescriber</div>
+        <div class="value">${prescriber}</div>
+      </div>
+      ${actionsHtml ? `
+        <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border-primary); display: flex; gap: 8px; flex-wrap: wrap;">
+          ${actionsHtml}
+        </div>
+      ` : ''}
+    </div>
+  `;
 }
 
 async function handleCredentialScan() {
-  const input = document.getElementById('rx-credential-input');
-  const credJson = input?.value?.trim();
-  if (!credJson) return;
+  const nfcInput = document.getElementById('rx-nfc-input');
+  const credInput = document.getElementById('rx-credential-input');
+  const nfcValue = nfcInput?.value?.trim();
+  const credJson = credInput?.value?.trim();
 
   try {
-    // Validate it's parseable JSON with a walletId
-    const cred = JSON.parse(credJson);
-    const walletId = cred.publicOutput?.walletId || cred.walletId || cred.memberWalletId;
-    if (!walletId) throw new Error('Credential missing walletId');
+    let walletId = null;
+
+    // Priority 1: NFC card data / wallet ID
+    if (nfcValue) {
+      // Could be a raw wallet ID, or NFC NDEF payload
+      if (/^\d+$/.test(nfcValue)) {
+        // Raw numeric wallet ID
+        walletId = nfcValue;
+      } else {
+        // Try parsing as JSON (NFC NDEF payload)
+        try {
+          const payload = JSON.parse(nfcValue);
+          walletId = payload.walletId || payload.memberWalletId || payload.publicOutput?.walletId;
+        } catch {
+          // Not JSON — try as base64 or hex
+          walletId = nfcValue; // Treat as wallet ID string
+        }
+      }
+    }
+
+    // Priority 2: Credential JSON
+    if (!walletId && credJson) {
+      const cred = JSON.parse(credJson);
+      walletId = cred.publicOutput?.walletId || cred.walletId || cred.memberWalletId;
+      scannedCredentialJson = credJson;
+    }
+
+    if (!walletId) {
+      alert('Enter a wallet ID, NFC card data, or credential JSON');
+      return;
+    }
 
     scannedMemberWalletId = walletId;
-    scannedCredentialJson = credJson;
-
-    // Auto-filter to show this member's scripts
     renderRxQueue();
   } catch (err) {
-    alert(`Invalid credential: ${err.message}`);
+    alert(`Invalid input: ${err.message}`);
   }
 }
 
 async function handleFill(rxId) {
-  if (!scannedCredentialJson) {
-    alert('Please scan member credential first before filling');
-    return;
-  }
-
   const btn = document.querySelector(`.rx-fill-btn[data-rx-id="${rxId}"]`);
   if (btn) { btn.disabled = true; btn.textContent = 'Submitting...'; }
 
   try {
-    // Kick off async fill
+    // Kick off async fill — no credential required (fills are reversible)
     await postJson('/interactive/fill', {
       prescriptionId: rxId,
-      credentialJson: scannedCredentialJson,
     });
 
     // Poll every 15s for up to 3 minutes

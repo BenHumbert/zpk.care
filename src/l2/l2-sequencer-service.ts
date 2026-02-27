@@ -871,6 +871,48 @@ export class L2SequencerService {
   }
 
   /**
+   * Reset sequencer to fresh state for demo replay.
+   * Clears all accumulated receipts, batches, audit log, claim accumulator, and message store.
+   * Caller must also call applyAdminRootUpdate() after rebuilding infrastructure trees
+   * to sync the sequencer roots with the new service state.
+   */
+  resetForDemo(initialRegistryRoot: Field, initialLifecycleRoot: Field): void {
+    this.currentRegistryRoot = initialRegistryRoot;
+    this.currentLifecycleRoot = initialLifecycleRoot;
+    this.currentWalletCount = Field(0);
+    this.pendingPool = [];
+    this.nextSequenceNumber = 0n;
+    this.receipts.clear();
+    this.blocks.clear();
+    this.batches.clear();
+    this.nextBlockNumber = 0n;
+    this.nextBatchNumber = 0n;
+    this.adminQueue = [];
+    this.auditLog = [];
+    this.latestChainHash = Field(0);
+    this.inFlightBatchNumber = null;
+    this.latestChainProof = null;
+    this.latestChainProofJson = null;
+    this.currentBlockHeight = Field(0);
+    this.currentGlobalStateRoot = Field(0);
+    this.auditMerkleIndex = new AuditMerkleIndex();
+    this.claimAccumulator = new ClaimAccumulatorService();
+    this.messageStore = new MessageStoreService();
+    this.seenProofFingerprints.clear();
+    this.walletRegistry = new WalletRegistry();
+    this.lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
+    this.preBatchAuditLogLength = 0;
+    this.preBatchChainHash = Field(0);
+    this.preBatchClaimLeafCount = 0n;
+    this.preBatchAuditMerkleLeafCount = 0n;
+    this.preBatchFingerprints.clear();
+    this.formularyStore.clear();
+    this.lastSettledRegistryRoot = initialRegistryRoot;
+    this.lastSettledLifecycleRoot = initialLifecycleRoot;
+    this.lastSettledWalletCount = Field(0);
+  }
+
+  /**
    * H4 fix: Sync L2 sequencer state from L1 after a direct L1 settlement
    * (e.g. settleTransition fallback or admin op that changed on-chain roots).
    *
