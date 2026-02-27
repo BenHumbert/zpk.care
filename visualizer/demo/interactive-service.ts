@@ -656,7 +656,7 @@ export class InteractiveDemoService {
     this.emitViz('viz:enrollment:wallet_derived', 'enrollment', {
       actor: displayName,
       actorType: 'member',
-      data: { walletId: walletIdStr, step: 'wallet_derived' },
+      data: { walletId: walletIdStr, step: 'wallet_derived', memberIndex: member.memberIndex },
     });
 
     // 3. Generate ProofGate proof (member proves identity — CACHED for reuse)
@@ -679,7 +679,9 @@ export class InteractiveDemoService {
     this.emitViz('viz:enrollment:proof_gate', 'enrollment', {
       actor: displayName,
       actorType: 'member',
-      data: { walletId: walletIdStr, step: 'proof_gate', elapsedMs: elapsedProof },
+      target: 'Insurer',
+      targetType: 'insurer',
+      data: { walletId: walletIdStr, step: 'proof_gate', elapsedMs: elapsedProof, memberIndex: member.memberIndex },
     });
 
     // 4. PHASE A: Registration — proveRegistration (wallet + lifecycle)
@@ -687,7 +689,9 @@ export class InteractiveDemoService {
       actor: displayName,
       actorType: 'member',
       actorWalletId: walletIdStr,
-      data: { tokenId, step: 'processing' },
+      target: 'leviathan',
+      targetType: 'leviathan',
+      data: { tokenId, step: 'processing', memberIndex: member.memberIndex },
     });
 
     this.emit('offchain', 'enroll', 'Step 4a: Capturing pre-registration roots...', 'start');
@@ -1006,14 +1010,17 @@ export class InteractiveDemoService {
     this.enrolledMembers.set(walletId.toString(), enrolled);
 
     this.emitViz('viz:enrollment:complete', 'enrollment', {
-      actor: displayName,
-      actorType: 'member',
-      actorWalletId: walletIdStr,
+      actor: 'Insurer',
+      actorType: 'insurer',
+      target: displayName,
+      targetType: 'member',
+      targetWalletId: walletIdStr,
       data: {
         walletId: walletIdStr,
         planId,
         groupId,
         lifecycle: 'ELIGIBLE',
+        memberIndex: member.memberIndex,
       },
     });
 
@@ -1703,6 +1710,8 @@ export class InteractiveDemoService {
     this.emitViz('viz:eligibility:verified', 'eligibility', {
       actor: enrolled.displayName,
       actorType: 'member',
+      target: 'Insurer',
+      targetType: 'insurer',
       data: { planId: 'PLAN-GOLD-2026', status: 'ELIGIBLE' },
     });
 
@@ -1732,6 +1741,8 @@ export class InteractiveDemoService {
     this.emitViz('viz:formulary:verified', 'eligibility', {
       actor: enrolled.displayName,
       actorType: 'member',
+      target: 'Insurer',
+      targetType: 'insurer',
       data: {
         medication: medication.brandName,
         tier: medication.formularyEntry.tierLevel,
@@ -2101,6 +2112,8 @@ export class InteractiveDemoService {
     this.emitViz('viz:prescription:status', 'prescription', {
       actor: pharmacy.storeName,
       actorType: 'pharmacy',
+      target: enrolled.displayName,
+      targetType: 'member',
       data: { prescriptionId: opts.prescriptionId, oldStatus: rxState.status, newStatus: statusLabel },
     });
 
@@ -2263,9 +2276,9 @@ export class InteractiveDemoService {
         phase = adjusted.reason;
 
         this.emitViz('viz:accumulator:updated', 'fulfillment', {
-          actor: 'System',
+          actor: 'Insurer',
           actorType: 'insurer',
-          target: `${enrolled.familyId}`,
+          target: enrolled.displayName,
           targetType: 'member',
           data: {
             familyPooling: true,
@@ -2405,7 +2418,7 @@ export class InteractiveDemoService {
     });
 
     this.emitViz('viz:accumulator:updated', 'fulfillment', {
-      actor: 'System',
+      actor: 'Insurer',
       actorType: 'insurer',
       target: enrolled.displayName,
       targetType: 'member',
@@ -3452,6 +3465,8 @@ export class InteractiveDemoService {
     this.emitViz('viz:enrollment:terminated', 'enrollment', {
       actor: enrolled.displayName,
       actorType: 'member',
+      target: 'Insurer',
+      targetType: 'insurer',
       data: { walletId: enrolled.walletIdStr, terminationDate: termDate },
     });
 
@@ -4116,6 +4131,8 @@ export class InteractiveDemoService {
       actor: enrolled.displayName,
       actorType: 'member',
       actorWalletId: enrolled.walletIdStr,
+      target: prescriberName,
+      targetType: 'prescriber',
       data: {
         pcpAssigned: prescriberName,
         specialty: prescriber.specialty,

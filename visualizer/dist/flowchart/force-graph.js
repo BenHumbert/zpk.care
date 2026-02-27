@@ -327,8 +327,8 @@ class ForceGraph {
     linkSel.enter().append('line')
       .attr('class', 'relationship-link')
       .attr('stroke', d => {
-        if (d.type === 'member-prescriber') return 'rgba(59,130,246,0.12)';
-        if (d.type === 'member-pharmacy') return 'rgba(249,115,22,0.12)';
+        if (d.type === 'member-prescriber') return 'rgba(102,187,106,0.12)';
+        if (d.type === 'member-pharmacy') return 'rgba(255,167,38,0.12)';
         return 'rgba(255,255,255,0.05)';
       })
       .attr('stroke-width', 1)

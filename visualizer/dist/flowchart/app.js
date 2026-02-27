@@ -489,7 +489,7 @@
     }
 
     const fromId = resolveNodeId(actor, actorType, event);
-    const toId = target ? resolveNodeId(target, targetType, event) : null;
+    let toId = target ? resolveNodeId(target, targetType, event) : null;
 
     // Enrollment lifecycle — gray → blue → green
     if (type === 'viz:enrollment:started') {
@@ -499,9 +499,11 @@
       }
     }
     if (type === 'viz:enrollment:complete') {
-      if (fromId) {
-        forceGraph.setMemberState(fromId, 'enrolled');
-        forceGraph.setEnrollingOverlay(fromId, false);
+      // Resolve the member node — could be actor (PCP flow) or target (enrollment flow)
+      const memberId = (actorType === 'member' ? fromId : null) || (targetType === 'member' ? resolveNodeId(target, 'member', event) : null) || fromId;
+      if (memberId) {
+        forceGraph.setMemberState(memberId, 'enrolled');
+        forceGraph.setEnrollingOverlay(memberId, false);
       }
       pollStatus();
     }
@@ -513,13 +515,24 @@
       if (fromId) forceGraph.setProvingSpinner(fromId, false);
     }
 
+    // If no target resolved, try a default target based on event semantics
+    if (fromId && !toId) {
+      toId = getDefaultTarget(type, fromId);
+    }
+
+    // Animate connection line if we have both endpoints
     if (fromId && toId) {
       forceGraph.animateEvent(fromId, toId, type);
+    } else if (fromId) {
+      // Single-actor event — pulse the source node
+      const config = EVENT_CONFIG[type];
+      if (config) {
+        forceGraph.pulseNode(fromId, config.color, 1);
+      }
     }
 
     // Batch events — pulse all running leviathans
     if (type === 'viz:batch:submitted') {
-      // Batch building — pulse cyan on all running leviathans
       if (lastStatusData && lastStatusData.leviathans) {
         for (const lev of lastStatusData.leviathans) {
           if (lev.status === 'running') {
@@ -527,7 +540,6 @@
           }
         }
       }
-      // Reset building state on timeline
       if (blockTimeline) blockTimeline.isBuilding = false;
       pollStatus();
     }
@@ -556,9 +568,8 @@
     if (type === 'insurer') return 'insurer';
     if (type === 'employer') return 'employer';
     if (type === 'leviathan') {
-      // Could be 'lev-alpha', 'leviathan', or a display name
       if (name.startsWith('lev-')) return name;
-      return 'lev-alpha'; // default to primary leader
+      return 'lev-alpha';
     }
 
     const data = event.data || {};
@@ -569,7 +580,7 @@
       if (idx != null) return `prescriber-${idx}`;
     }
     if (type === 'pharmacy') {
-      const idx = data.pharmacyIndex;
+      const idx = data.pharmacyIndex ?? data.providerIndex;
       if (idx != null) return `pharmacy-${idx}`;
     }
     if (type === 'member') {
@@ -577,37 +588,74 @@
       if (idx != null) return `member-${idx}`;
     }
 
-    // Name-based fallback: match display name → node ID
+    // Fuzzy name matching: exact → contains → last-name
     const lowerName = name.toLowerCase();
 
-    if (type === 'member') {
-      const match = MEMBERS.find(m => m.name.toLowerCase() === lowerName);
-      if (match) return `member-${match.idx}`;
-    }
-    if (type === 'prescriber') {
-      const match = PRESCRIBERS.find(p => p.name.toLowerCase() === lowerName);
-      if (match) return `prescriber-${match.idx}`;
-    }
-    if (type === 'pharmacy') {
-      const match = PHARMACIES.find(p => p.name.toLowerCase() === lowerName);
-      if (match) return `pharmacy-${match.idx}`;
+    // Members — exact then partial
+    if (type === 'member' || !type) {
+      const exactM = MEMBERS.find(m => m.name.toLowerCase() === lowerName);
+      if (exactM) return `member-${exactM.idx}`;
+      const partialM = MEMBERS.find(m => lowerName.includes(m.name.toLowerCase()) || m.name.toLowerCase().includes(lowerName));
+      if (partialM) return `member-${partialM.idx}`;
     }
 
-    // Universal name scan if type wasn't provided or didn't match
+    // Prescribers — exact, then partial, then last-name match
+    if (type === 'prescriber' || !type) {
+      const exactP = PRESCRIBERS.find(p => p.name.toLowerCase() === lowerName);
+      if (exactP) return `prescriber-${exactP.idx}`;
+      // "Dr. Sarah Chen" should match "Dr. Chen" — check if either contains the other
+      const partialP = PRESCRIBERS.find(p => lowerName.includes(p.name.toLowerCase()) || p.name.toLowerCase().includes(lowerName));
+      if (partialP) return `prescriber-${partialP.idx}`;
+      // Last-name extraction: "Dr. Sarah Chen" → "chen", match against "Dr. Chen" → "chen"
+      const lastWord = lowerName.split(/\s+/).pop();
+      if (lastWord && lastWord.length > 2) {
+        const lastNameP = PRESCRIBERS.find(p => p.name.toLowerCase().split(/\s+/).pop() === lastWord);
+        if (lastNameP) return `prescriber-${lastNameP.idx}`;
+      }
+    }
+
+    // Pharmacies — exact, then partial (storeName may differ from short name)
+    if (type === 'pharmacy' || !type) {
+      const exactPh = PHARMACIES.find(p => p.name.toLowerCase() === lowerName);
+      if (exactPh) return `pharmacy-${exactPh.idx}`;
+      // "CVS Pharmacy #1001 (Downtown)" contains "CVS #1001"? No — try both directions
+      const partialPh = PHARMACIES.find(p => lowerName.includes(p.name.toLowerCase()) || p.name.toLowerCase().includes(lowerName));
+      if (partialPh) return `pharmacy-${partialPh.idx}`;
+      // Chain-name match: extract chain prefix (letters before #)
+      const chainMatch = lowerName.match(/^([a-z\s]+)/);
+      if (chainMatch) {
+        const chain = chainMatch[1].trim();
+        const chainPh = PHARMACIES.find(p => p.name.toLowerCase().startsWith(chain));
+        if (chainPh) return `pharmacy-${chainPh.idx}`;
+      }
+    }
+
+    // Universal scan for untyped names
     if (!type) {
-      for (const m of MEMBERS) {
-        if (m.name.toLowerCase() === lowerName) return `member-${m.idx}`;
-      }
-      for (const p of PRESCRIBERS) {
-        if (p.name.toLowerCase() === lowerName) return `prescriber-${p.idx}`;
-      }
-      for (const ph of PHARMACIES) {
-        if (ph.name.toLowerCase() === lowerName) return `pharmacy-${ph.idx}`;
-      }
       if (lowerName.includes('insurer') || lowerName.includes('attestation')) return 'insurer';
       if (lowerName.includes('employer') || lowerName.includes('acme') || lowerName.includes('hr')) return 'employer';
+      if (lowerName.includes('system')) return 'insurer';
     }
 
+    return null;
+  }
+
+  /**
+   * Get a default target node for events that lack a target.
+   * Returns a node ID string or null for pulse-only events.
+   */
+  function getDefaultTarget(type, fromId) {
+    // Enrollment flow: member actions directed at the network
+    if (type === 'viz:enrollment:proof_gate') return 'insurer';           // proving identity to attestation authority
+    if (type === 'viz:enrollment:started') return 'lev-alpha';            // submitting proof to sequencer
+    if (type === 'viz:enrollment:terminated') return 'insurer';           // termination processed by insurer
+    // Eligibility/formulary checks directed at insurer
+    if (type === 'viz:eligibility:check') return 'insurer';
+    if (type === 'viz:eligibility:verified' && fromId !== 'insurer') return 'insurer';
+    if (type === 'viz:formulary:check') return 'insurer';
+    // Batch events from leviathan to insurer
+    if (type === 'viz:batch:submitted' && fromId?.startsWith('lev-')) return 'insurer';
+    // Default: no target — will pulse instead
     return null;
   }
 
