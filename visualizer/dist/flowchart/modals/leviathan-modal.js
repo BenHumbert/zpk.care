@@ -139,13 +139,16 @@ class LeviathanModal {
 
   renderPartitionWallets(walletsByPartition) {
     const levNames = ['Alpha', 'Beta', 'Gamma'];
+    const priv = PrivacyMode.isActive();
     let html = '<div class="partition-wallets">';
 
     for (const [partition, members] of walletsByPartition) {
       html += `<div class="partition-section-header">P${partition} (${levNames[partition] || ''}) — ${members.length} wallet${members.length !== 1 ? 's' : ''}</div>`;
       html += '<div style="margin-bottom:8px;">';
       for (const m of members) {
-        html += `<span class="wallet-chip" title="${escapeHtml(m.displayName)}: ${m.walletId}">${escapeHtml(shortMember(m.displayName))}</span>`;
+        const chipLabel = priv ? truncHash(m.walletId) : escapeHtml(shortMember(m.displayName));
+        const chipTitle = priv ? m.walletId : `${escapeHtml(m.displayName)}: ${m.walletId}`;
+        html += `<span class="wallet-chip" title="${chipTitle}">${chipLabel}</span>`;
       }
       html += '</div>';
     }

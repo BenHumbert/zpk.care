@@ -223,7 +223,9 @@ class BlockTimeline {
         row.className = 'bc-receipt';
 
         const op = OP_CONFIG[r.operationType] || OP_CONFIG.transition;
-        const memberLabel = shortMember(r.memberName) || truncHash(r.walletId);
+        const memberLabel = PrivacyMode.isActive()
+          ? truncHash(r.walletId)
+          : (shortMember(r.memberName) || truncHash(r.walletId));
 
         let costHtml = '';
         if (r.patientPayCents || r.planPayCents) {
@@ -286,7 +288,9 @@ class BlockTimeline {
       for (const r of pendingReceipts) {
         const row = document.createElement('div');
         row.className = 'bc-receipt';
-        const memberName = walletNameMap[r.walletId] ? shortMember(walletNameMap[r.walletId]) : truncHash(r.walletId);
+        const memberName = PrivacyMode.isActive()
+          ? truncHash(r.walletId)
+          : (walletNameMap[r.walletId] ? shortMember(walletNameMap[r.walletId]) : truncHash(r.walletId));
         const opColor = r.isRegistration ? '#4fc3f7' : '#ab47bc';
         const opLabel = r.isRegistration ? 'REG' : 'TX';
         row.innerHTML = `
@@ -343,7 +347,7 @@ class BlockTimeline {
       ` : ''}
       <table>
         <thead><tr>
-          <th>Op</th><th>Member</th><th>Drug</th><th>Patient</th><th>Plan</th>
+          <th>Op</th><th>${PrivacyMode.isActive() ? 'Wallet' : 'Member'}</th><th>Drug</th><th>Patient</th><th>Plan</th>
         </tr></thead>
         <tbody>
     `;
@@ -351,7 +355,7 @@ class BlockTimeline {
       const op = OP_CONFIG[r.operationType] || OP_CONFIG.transition;
       html += `<tr>
         <td><span class="badge" style="background:${op.color}20;color:${op.color}">${op.label}</span></td>
-        <td>${shortMember(r.memberName) || truncHash(r.walletId)}</td>
+        <td>${PrivacyMode.isActive() ? truncHash(r.walletId) : (shortMember(r.memberName) || truncHash(r.walletId))}</td>
         <td>${r.brandName ? escapeHtml(r.brandName) : '—'}</td>
         <td>${r.patientPayCents ? formatCents(r.patientPayCents) : '—'}</td>
         <td>${r.planPayCents ? formatCents(r.planPayCents) : '—'}</td>

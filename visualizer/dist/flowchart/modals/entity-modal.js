@@ -68,6 +68,7 @@ class EntityModal {
     const idx = d.memberIndex;
     const enrolled = state?.enrolledMembers?.find(m => m.memberIndex === idx);
     const demoMember = state?.demoData?.members?.find(m => m.index === idx);
+    const priv = PrivacyMode.isActive();
 
     const stateLabel = d.enrollmentState === 'enrolled' ? 'Enrolled'
       : d.enrollmentState === 'enrolling' ? 'Enrolling...'
@@ -76,15 +77,20 @@ class EntityModal {
       : d.enrollmentState === 'enrolling' ? 'badge-info'
       : 'badge-muted';
 
+    const displayLabel = priv
+      ? PrivacyMode.memberLabel(d.label, idx, enrolled?.walletId || null)
+      : d.label;
+
     let sections = `
-      ${this.titleRow(d.label, 'member', '#4fc3f7', 'M')}
+      ${this.titleRow(displayLabel, 'member', '#4fc3f7', 'M')}
       <div class="modal-section">
         <h4>Identity</h4>
         ${this.row('Status', `<span class="badge ${stateBadge}">${stateLabel}</span>`)}
-        ${demoMember ? this.row('Cardholder ID', demoMember.cardholderId) : ''}
-        ${demoMember ? this.row('DOB', demoMember.dateOfBirth) : ''}
-        ${demoMember ? this.row('Relationship', demoMember.relationship) : ''}
-        ${demoMember ? this.row('Family ID', demoMember.familyId) : ''}
+        ${!priv && demoMember ? this.row('Cardholder ID', demoMember.cardholderId) : ''}
+        ${!priv && demoMember ? this.row('DOB', demoMember.dateOfBirth) : ''}
+        ${!priv && demoMember ? this.row('Relationship', demoMember.relationship) : ''}
+        ${!priv && demoMember ? this.row('Family ID', demoMember.familyId) : ''}
+        ${priv ? this.row('Visibility', '<span class="badge badge-info">Opaque — identity unknown to network</span>') : ''}
       </div>
     `;
 
@@ -229,6 +235,7 @@ class EntityModal {
     `;
 
     // PCP patients
+    const priv = PrivacyMode.isActive();
     const assignedPatients = (state?.enrolledMembers || []).filter(m =>
       m.pcpAssignment && m.pcpAssignment.prescriberIndex === idx
     );
@@ -238,7 +245,7 @@ class EntityModal {
           <h4>PCP Patients (${assignedPatients.length})</h4>
           ${assignedPatients.map(m => `
             <div class="modal-row">
-              <span class="label">${escapeHtml(m.displayName)}</span>
+              <span class="label">${escapeHtml(priv ? PrivacyMode.memberLabel(m.displayName, m.memberIndex, m.walletId) : m.displayName)}</span>
               <span class="value"><span class="badge badge-success">${m.lifecycle || 'ACTIVE'}</span></span>
             </div>
           `).join('')}
@@ -256,7 +263,7 @@ class EntityModal {
             <label>Patient</label>
             <select id="rx-patient">
               <option value="">— Select Patient —</option>
-              ${assignedPatients.map(m => `<option value="${m.walletId}">${escapeHtml(m.displayName)}</option>`).join('')}
+              ${assignedPatients.map(m => `<option value="${m.walletId}">${escapeHtml(priv ? PrivacyMode.memberLabel(m.displayName, m.memberIndex, m.walletId) : m.displayName)}</option>`).join('')}
             </select>
           </div>
           <div class="form-row">
@@ -299,7 +306,7 @@ class EntityModal {
               <label>Patient</label>
               <select id="pa-patient">
                 <option value="">— Select —</option>
-                ${assignedPatients.map(m => `<option value="${m.walletId}">${escapeHtml(m.displayName)}</option>`).join('')}
+                ${assignedPatients.map(m => `<option value="${m.walletId}">${escapeHtml(priv ? PrivacyMode.memberLabel(m.displayName, m.memberIndex, m.walletId) : m.displayName)}</option>`).join('')}
               </select>
             </div>
             <div class="form-group">
@@ -327,7 +334,7 @@ class EntityModal {
             <div class="rx-action-row">
               <div class="rx-info">
                 <div class="rx-drug">${escapeHtml(rx.medication)} ${rx.medicationStrength || ''}</div>
-                <div class="rx-meta">${escapeHtml(rx.memberName || '')} &middot; ${rx.status}</div>
+                <div class="rx-meta">${escapeHtml(priv ? truncHash(rx.memberWalletId) : (rx.memberName || ''))} &middot; ${rx.status}</div>
               </div>
               <button class="btn-action btn-terminate" style="padding:3px 8px;font-size:9px;" onclick="window._entityModal.cancelRx('${rx.id}', ${idx})">Cancel</button>
             </div>
@@ -365,6 +372,7 @@ class EntityModal {
   renderPharmacy(d, state) {
     const idx = d.pharmacyIndex;
     const demoPharmacy = state?.demoData?.pharmacies?.find(p => p.index === idx);
+    const priv = PrivacyMode.isActive();
 
     let sections = `
       ${this.titleRow(d.label, 'pharmacy', '#ffa726', 'Ph')}
@@ -402,7 +410,7 @@ class EntityModal {
             <div class="rx-action-row">
               <div class="rx-info">
                 <div class="rx-drug">${escapeHtml(rx.medication)} ${rx.medicationStrength || ''}</div>
-                <div class="rx-meta">${escapeHtml(rx.memberName || '')} &middot; Qty: ${rx.quantity || 30}</div>
+                <div class="rx-meta">${escapeHtml(priv ? truncHash(rx.memberWalletId) : (rx.memberName || ''))} &middot; Qty: ${rx.quantity || 30}</div>
               </div>
               <button class="btn-action btn-fill" style="padding:3px 8px;font-size:9px;" onclick="window._entityModal.fillRx('${rx.id}')">Fill</button>
               <button class="btn-action btn-reject" style="padding:3px 8px;font-size:9px;" onclick="window._entityModal.rejectRx('${rx.id}', ${idx})">Reject</button>
@@ -422,7 +430,7 @@ class EntityModal {
             <div class="rx-action-row">
               <div class="rx-info">
                 <div class="rx-drug">${escapeHtml(rx.medication)} ${rx.medicationStrength || ''}</div>
-                <div class="rx-meta">${escapeHtml(rx.memberName || '')} &middot; Pt: ${formatCents(rx.patientPayCents)} / Plan: ${formatCents(rx.planPayCents)}</div>
+                <div class="rx-meta">${escapeHtml(priv ? truncHash(rx.memberWalletId) : (rx.memberName || ''))} &middot; Pt: ${formatCents(rx.patientPayCents)} / Plan: ${formatCents(rx.planPayCents)}</div>
               </div>
               ${rx.status !== 'REVERSED' ? `<button class="btn-action btn-terminate" style="padding:3px 8px;font-size:9px;" onclick="window._entityModal.reverseRx('${rx.id}')">Reverse</button>` : '<span class="badge badge-danger">REVERSED</span>'}
             </div>
@@ -583,6 +591,7 @@ class EntityModal {
     const token = state?.demoData?.token || {};
     const enrolledCount = state?.enrolledMembers?.length || 0;
     const members = state?.demoData?.members || [];
+    const priv = PrivacyMode.isActive();
 
     const families = new Map();
     for (const m of members) {
@@ -610,6 +619,7 @@ class EntityModal {
     `;
 
     if (families.size > 0) {
+      let famIdx = 0;
       sections += `
         <div class="modal-section">
           <h4>Roster by Family</h4>
@@ -617,9 +627,10 @@ class EntityModal {
             const enrolledFam = fam.filter(m =>
               state?.enrolledMembers?.some(em => em.memberIndex === m.index)
             );
+            const displayFamId = priv ? `Family F-${famIdx++}` : escapeHtml(famId);
             return `
               <div class="modal-row">
-                <span class="label">${escapeHtml(famId)}</span>
+                <span class="label">${displayFamId}</span>
                 <span class="value">${enrolledFam.length}/${fam.length} enrolled</span>
               </div>
             `;
@@ -1210,6 +1221,7 @@ class EntityModal {
 
   async loadMemberReport(container, state) {
     const members = state?.enrolledMembers || [];
+    const priv = PrivacyMode.isActive();
     if (members.length === 0) {
       container.innerHTML = '<div style="font-size:11px;color:var(--text-muted);padding:8px;">No enrolled members</div>';
       return;
@@ -1218,7 +1230,7 @@ class EntityModal {
     // Aggregate from prescriptions in state
     const rxs = state?.prescriptions || [];
     let html = `<table class="report-table">
-      <thead><tr><th>Member</th><th>Rxs</th><th>Filled</th><th>Patient</th><th>Plan</th></tr></thead>
+      <thead><tr><th>${priv ? 'Wallet' : 'Member'}</th><th>Rxs</th><th>Filled</th><th>Patient</th><th>Plan</th></tr></thead>
       <tbody>`;
 
     for (const m of members) {
@@ -1231,7 +1243,7 @@ class EntityModal {
       }
 
       html += `<tr>
-        <td>${escapeHtml(m.displayName)}</td>
+        <td>${escapeHtml(priv ? PrivacyMode.memberLabel(m.displayName, m.memberIndex, m.walletId) : m.displayName)}</td>
         <td>${memberRxs.length}</td>
         <td>${filledRxs.length}</td>
         <td class="amount">${formatCents(ptTotal)}</td>

@@ -84,6 +84,22 @@ body {
 }
 .btn-icon:hover { color: var(--text-primary); }
 
+/* ─── Privacy Mode Toggle ─────────────────────────── */
+.btn-privacy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s ease;
+}
+.btn-privacy.privacy-active {
+  background: rgba(171,71,188,0.2);
+  color: #ce93d8;
+  border-color: rgba(171,71,188,0.4);
+}
+.btn-privacy.privacy-active:hover {
+  background: rgba(171,71,188,0.3);
+}
+
 /* ─── Badges ───────────────────────────────────────── */
 .badge {
   display: inline-block;

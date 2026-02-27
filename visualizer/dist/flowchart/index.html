@@ -49,6 +49,9 @@
       </div>
     </div>
     <div class="header-right">
+      <button id="btn-privacy-toggle" class="btn btn-secondary btn-privacy" title="Toggle privacy mode — show what the network sees">
+        <span id="privacy-icon">&#128065;</span> <span id="privacy-label">Identity</span>
+      </button>
       <button id="btn-smoke-test" class="btn btn-primary" disabled>Run Smoke Test</button>
       <button id="btn-toggle-log" class="btn btn-secondary">Activity Log <span id="log-count" class="log-badge">0</span></button>
       <button id="btn-reset" class="btn btn-danger">Reset</button>
@@ -122,6 +125,7 @@
   <script src="block-timeline.js"></script>
   <script src="modals/leviathan-modal.js"></script>
   <script src="modals/entity-modal.js"></script>
+  <script src="privacy-mode.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

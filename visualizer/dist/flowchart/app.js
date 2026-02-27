@@ -162,6 +162,30 @@
     window._dashboardPollStatus = pollStatus;
     window._lastStateData = () => lastStateData;
     window._lastStatusData = () => lastStatusData;
+
+    // ─── Privacy Mode Toggle ──────────────────────────────
+    const privacyBtn = document.getElementById('btn-privacy-toggle');
+    const privacyIcon = document.getElementById('privacy-icon');
+    const privacyLabel = document.getElementById('privacy-label');
+
+    privacyBtn.addEventListener('click', () => PrivacyMode.toggle());
+
+    PrivacyMode.onChange((active) => {
+      privacyBtn.classList.toggle('privacy-active', active);
+      privacyIcon.innerHTML = active ? '&#128274;' : '&#128065;';
+      privacyLabel.textContent = active ? 'Network' : 'Identity';
+      rebuildNodeLabels();
+      // Close any open modals so they re-render with correct privacy state
+      document.getElementById('entity-modal').classList.add('hidden');
+      document.getElementById('leviathan-modal').classList.add('hidden');
+    });
+
+    // Apply initial state if persisted
+    if (PrivacyMode.isActive()) {
+      privacyBtn.classList.add('privacy-active');
+      privacyIcon.innerHTML = '&#128274;';
+      privacyLabel.textContent = 'Network';
+    }
   });
 
   // ─── Activity Log ──────────────────────────────────────
@@ -174,12 +198,14 @@
     // Skip heartbeats from cluttering the log
     if (event.type === 'viz:leviathan:heartbeat') return;
 
-    const { actor, target, data = {} } = event;
+    const { actor, actorType, target, targetType, data = {} } = event;
     logCount++;
 
-    // Build description
-    let desc = `<strong>${escapeHtml(actor || 'System')}</strong> ${info.verb}`;
-    if (target) desc += ` → <strong>${escapeHtml(target)}</strong>`;
+    // Build description — filter member names through privacy mode
+    const actorDisplay = PrivacyMode.actorLabel(actor, actorType, data, MEMBERS);
+    const targetDisplay = target ? PrivacyMode.actorLabel(target, targetType, data, MEMBERS) : null;
+    let desc = `<strong>${escapeHtml(actorDisplay || 'System')}</strong> ${info.verb}`;
+    if (targetDisplay) desc += ` → <strong>${escapeHtml(targetDisplay)}</strong>`;
 
     // Add contextual detail from data
     const detail = buildLogDetail(event.type, data);
@@ -254,7 +280,9 @@
     // All 8 members — start as gray (unenrolled)
     for (const m of MEMBERS) {
       entities.push({
-        id: `member-${m.idx}`, label: m.name, sublabel: m.rel,
+        id: `member-${m.idx}`,
+        label: PrivacyMode.memberLabel(m.name, m.idx, null),
+        sublabel: PrivacyMode.memberSublabel(m.rel, m.idx, null),
         entityType: 'member', memberIndex: m.idx,
         enrollmentState: 'unenrolled',
       });
@@ -373,7 +401,8 @@
           if (entity) {
             entity.enrollmentState = 'enrolled';
             entity.walletId = m.walletId;
-            entity.sublabel = truncHash(m.walletId);
+            entity.label = PrivacyMode.memberLabel(MEMBERS[m.memberIndex]?.name || entity.label, m.memberIndex, m.walletId);
+            entity.sublabel = PrivacyMode.memberSublabel(truncHash(m.walletId), m.memberIndex, m.walletId);
           }
         }
 
@@ -425,7 +454,9 @@
 
     for (const m of MEMBERS) {
       entities.push({
-        id: `member-${m.idx}`, label: m.name, sublabel: m.rel,
+        id: `member-${m.idx}`,
+        label: PrivacyMode.memberLabel(m.name, m.idx, null),
+        sublabel: PrivacyMode.memberSublabel(m.rel, m.idx, null),
         entityType: 'member', memberIndex: m.idx,
         enrollmentState: 'unenrolled',
       });
@@ -553,6 +584,27 @@
       }
       pollStatus();
     }
+  }
+
+  // ─── Privacy Mode: Rebuild Node Labels ────────────────
+  function rebuildNodeLabels() {
+    if (!forceGraph || !forceGraph.nodeSelection) return;
+    forceGraph.nodeSelection.each(function(d) {
+      if (d.entityType !== 'member') return; // Only redact members
+      const g = d3.select(this);
+      const m = MEMBERS.find(m => m.idx === d.memberIndex);
+      if (!m) return;
+
+      const isEnrolled = d.enrollmentState === 'enrolled';
+      const label = PrivacyMode.memberLabel(m.name, m.idx, isEnrolled ? d.walletId : null);
+      const sublabel = isEnrolled
+        ? PrivacyMode.memberSublabel(truncHash(d.walletId), m.idx, d.walletId)
+        : PrivacyMode.memberSublabel(m.rel, m.idx, null);
+
+      g.select('.node-label').text(label);
+      const sublabelEl = g.select('.node-sublabel');
+      if (!sublabelEl.empty()) sublabelEl.text(sublabel);
+    });
   }
 
   function resolveNodeId(name, type, event) {
