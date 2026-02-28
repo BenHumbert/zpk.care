@@ -235,6 +235,32 @@ export class L2PeerNetwork {
     await Promise.allSettled(promises);
   }
 
+  /**
+   * Send a gossip message to a specific peer (directed messaging).
+   *
+   * Used for quorum vote responses where the vote goes back to
+   * the original proposer, not broadcast to everyone.
+   *
+   * @returns true if the message was sent, false if peer not found/connected.
+   */
+  async sendTo(peerId: string, message: GossipMessage): Promise<boolean> {
+    const client = this.clients.get(peerId);
+    const peer = this.peers.get(peerId);
+    if (!client || !peer || peer.status !== 'connected') return false;
+
+    message.signature = this.signGossip(message);
+    this.markSeen(message.messageId);
+
+    try {
+      await client.gossipRelay(message);
+      peer.lastSeen = Date.now();
+      return true;
+    } catch {
+      peer.status = 'disconnected';
+      return false;
+    }
+  }
+
   // ─── Gossip Reception ─────────────────────────────────
 
   /**

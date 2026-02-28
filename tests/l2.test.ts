@@ -218,22 +218,13 @@ describe('L2SequencerService', () => {
     expect(custom.getBatchIntervalMs()).toBe(60_000);
   });
 
-  test('buildBatch returns null when no pending proofs', async () => {
+  test('buildBatch returns empty batch when no pending proofs', async () => {
     const result = await service.buildBatch();
-    expect(result).toBeNull();
-  });
-
-  test('buildBatch returns null when only 1 pending proof (needs pair)', async () => {
-    // wrapPair requires 2 proofs — a single pending proof must wait for a partner
-    const s = service as any;
-    s.pendingPool = [{ proof: {}, receipt: { receiptId: 'l2-solo' } }];
-    expect(s.pendingPool).toHaveLength(1);
-
-    const result = await service.buildBatch();
-    expect(result).toBeNull();
-
-    // Single proof remains in pool, waiting for a partner
-    expect(s.pendingPool).toHaveLength(1);
+    expect(result).not.toBeNull();
+    expect(result!.transitionCount).toBe(0);
+    expect(result!.blockNumbers).toHaveLength(0);
+    expect(result!.batchProofJson).toBe('');
+    expect(result!.l1Status).toBe('settled'); // nothing to settle
   });
 
   test('drainAdminQueue returns operations and clears queue', () => {
@@ -306,11 +297,12 @@ describe('L2SequencerService — Batch Failure & Retry', () => {
       .toThrow('Batch 999 not found');
   });
 
-  test('buildBatch returns null with no pending and no in-flight', async () => {
+  test('buildBatch returns empty batch with no pending and no in-flight', async () => {
     // Verify in-flight guard doesn't interfere with the empty-pool case
     expect(service.getInFlightBatchNumber()).toBeNull();
     const result = await service.buildBatch();
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.transitionCount).toBe(0);
     expect(service.getInFlightBatchNumber()).toBeNull();
   });
 });
@@ -725,10 +717,12 @@ describe('L2SequencerService — AdminState & ChainProof', () => {
     expect(service.getLatestChainProofJson()).toBeNull();
   });
 
-  test('buildBatch returns null when no pending (chain proofs enabled)', async () => {
+  test('buildBatch returns empty batch when no pending (chain proofs enabled)', async () => {
     service.setAdminState(adminConfig);
     const result = await service.buildBatch();
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.transitionCount).toBe(0);
+    expect(result!.batchProofJson).toBe('');
   });
 });
 

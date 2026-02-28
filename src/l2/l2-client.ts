@@ -302,6 +302,32 @@ export class L2Client {
     return this.rpcCall('l2_getPartitionInfo');
   }
 
+  // ─── Quorum Protocol ───────────────────────────────────
+
+  /** Get quorum protocol status from a leviathan */
+  async getQuorumStatus(): Promise<{
+    enabled: boolean;
+    publicKeyHex?: string;
+    quorumThreshold?: number;
+    pendingProposals?: number;
+    knownPeerKeys: number;
+    stateCertificates?: number;
+  }> {
+    return this.rpcCall('l2_getQuorumStatus');
+  }
+
+  /** Get the latest state certificate for a partition */
+  async getStateCertificate(partitionIndex: number): Promise<unknown> {
+    return this.rpcCall('l2_getStateCertificate', { partitionIndex });
+  }
+
+  /** Verify a state certificate */
+  async verifyStateCertificate(certificate: unknown): Promise<{ valid: boolean }> {
+    return this.rpcCall('l2_verifyStateCertificate', {
+      certificate: certificate as Record<string, unknown>,
+    });
+  }
+
   /** Health check — returns true if sequencer is reachable and running */
   async isHealthy(): Promise<boolean> {
     try {

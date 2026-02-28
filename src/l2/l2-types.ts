@@ -6,6 +6,8 @@
  * batches, node configuration, and admin state deltas.
  */
 
+import type { QuorumCertificate, StateCertificate } from './l2-quorum-types.js';
+
 // ─── L2 Receipt ─────────────────────────────────────────────
 
 /** Status of an L2 receipt relative to L1 settlement */
@@ -47,6 +49,8 @@ export interface L2Receipt {
   auditEventHash?: string;
   /** Leaf index in the Claim Accumulator Tree (set when claim metadata is provided) */
   claimLeafIndex?: bigint;
+  /** Quorum certificate proving N/2+1 leviathans durably wrote this proof */
+  quorumCertificate?: QuorumCertificate;
 }
 
 // ─── L2 Block ───────────────────────────────────────────────
@@ -126,6 +130,8 @@ export interface L2Batch {
   claimAccumulatorRoot?: string;
   /** Message Store root at the time this batch was created */
   messageStoreRoot?: string;
+  /** State certificate proving N/2+1 leviathans agreed on state at this batch */
+  stateCertificate?: StateCertificate;
 }
 
 // ─── L2 Node Config ─────────────────────────────────────────

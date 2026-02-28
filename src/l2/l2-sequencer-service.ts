@@ -29,6 +29,7 @@ import type { PartitionConfig } from './l2-partition.js';
 import { isMyPartition, getPartition } from './l2-partition.js';
 import { WalletRegistry, WALLET_TREE_HEIGHT } from '../wallets/wallet-state.js';
 import { lifecycleLeafCommitment, LIFECYCLE_REGISTERED, LifecycleWitness } from '../engine/lifecycle.js';
+import type { IWalProvider, WalEntry } from './l2-wal.js';
 
 /** Default batch interval: 3 minutes (matches MINA L1 block time) */
 export const DEFAULT_BATCH_INTERVAL_MS = 180_000;
@@ -175,6 +176,9 @@ export class L2SequencerService {
   // Partition config (optional — when set, rejects proofs for wrong partition)
   private partitionConfig: PartitionConfig | null = null;
 
+  // Write-Ahead Log (optional — when set, mutations are WAL'd before application)
+  private walProvider: IWalProvider | null = null;
+
   constructor(
     store: ILocalStore,
     initialRegistryRoot: Field,
@@ -258,6 +262,26 @@ export class L2SequencerService {
           ' but L2 state is ' +
           this.currentLifecycleRoot.toString(),
       );
+    }
+
+    // 2b. WAL: write entry BEFORE applying mutations (crash-safe durability)
+    const walPartitionIndex = this.partitionConfig?.partitionIndex ?? 0;
+    let walEntryId: string | undefined;
+    if (this.walProvider) {
+      walEntryId = await this.walProvider.append({
+        type: 'proof',
+        partitionIndex: walPartitionIndex,
+        sequenceNumber: this.nextSequenceNumber,
+        walletId: output.walletId.toString(),
+        proofJson: l2Stringify(proof),
+        stateSnapshot: {
+          registryRoot: this.currentRegistryRoot.toString(),
+          lifecycleRoot: this.currentLifecycleRoot.toString(),
+          walletCount: this.currentWalletCount.toString(),
+          auditChainHash: this.latestChainHash.toString(),
+        },
+        timestamp: Date.now(),
+      });
     }
 
     // 3. Apply the transition
@@ -362,6 +386,11 @@ export class L2SequencerService {
 
     // Persist receipt as proof metadata
     await this.store.saveProof(receiptId, l2Stringify(receipt));
+
+    // WAL: commit entry (mutations applied successfully)
+    if (this.walProvider && walEntryId) {
+      await this.walProvider.commit(walEntryId);
+    }
 
     return receipt;
   }
@@ -1185,6 +1214,16 @@ export class L2SequencerService {
   /** Get the current partition config, or null if not partitioned */
   getPartitionConfig(): PartitionConfig | null {
     return this.partitionConfig ? { ...this.partitionConfig } : null;
+  }
+
+  /** Set the Write-Ahead Log provider (optional — enables crash-safe durability) */
+  setWal(provider: IWalProvider): void {
+    this.walProvider = provider;
+  }
+
+  /** Get the WAL provider (for external WAL operations) */
+  getWal(): IWalProvider | null {
+    return this.walProvider;
   }
 
   /** Look up a receipt by ID */
@@ -2034,5 +2073,75 @@ export class L2SequencerService {
 
     // Pending pool is NOT restored — proofs are transient
     this.pendingPool = [];
+  }
+
+  // ─── WAL Recovery ──────────────────────────────────────
+
+  /**
+   * Recover state from uncommitted WAL entries.
+   *
+   * Called after restoreState() to replay any proofs that were accepted
+   * but not yet checkpointed. Uses applyReplicatedReceipt() for idempotent
+   * replay (skips duplicates automatically).
+   *
+   * @returns Number of entries replayed
+   */
+  async recoverFromWal(): Promise<number> {
+    if (!this.walProvider) return 0;
+
+    const partitionIndex = this.partitionConfig?.partitionIndex ?? 0;
+    const uncommitted = await this.walProvider.getUncommitted(partitionIndex);
+
+    let replayed = 0;
+    for (const entry of uncommitted) {
+      if (entry.type === 'proof' && entry.receiptData) {
+        // Replay the proof by applying it as a replicated receipt.
+        // applyReplicatedReceipt is idempotent — it skips if the receipt already exists.
+        const receipt = entry.receiptData as unknown as L2Receipt;
+        if (!this.receipts.has(receipt.receiptId)) {
+          // Apply the receipt data directly
+          this.receipts.set(receipt.receiptId, receipt);
+
+          // Apply audit event if present
+          if (entry.auditEventData) {
+            const auditEvent = entry.auditEventData as unknown as AuditEvent;
+            this.auditLog.push(auditEvent);
+            if (auditEvent.chainHash) {
+              this.latestChainHash = Field(BigInt(auditEvent.chainHash));
+            }
+          }
+
+          // Update roots from state snapshot
+          if (entry.stateSnapshot) {
+            // Only advance roots if they're newer than current state
+            const entryRegRoot = entry.stateSnapshot.registryRoot;
+            const entryLcRoot = entry.stateSnapshot.lifecycleRoot;
+            if (entryRegRoot && entryLcRoot) {
+              // The snapshot contains pre-mutation roots; receipt has post-mutation
+              if (receipt.newRegistryRoot) {
+                this.currentRegistryRoot = Field(BigInt(receipt.newRegistryRoot));
+              }
+              if (receipt.newLifecycleRoot) {
+                this.currentLifecycleRoot = Field(BigInt(receipt.newLifecycleRoot));
+              }
+            }
+          }
+
+          // Advance sequence number
+          if (receipt.sequenceNumber >= this.nextSequenceNumber) {
+            this.nextSequenceNumber = receipt.sequenceNumber + 1n;
+          }
+
+          replayed++;
+        }
+
+        // Mark as committed in the WAL
+        await this.walProvider.commit(entry.entryId);
+      }
+      // batch_begin without batch_commit → discard
+      // The pending pool is empty after recovery; clients resubmit
+    }
+
+    return replayed;
   }
 }

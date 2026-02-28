@@ -94,6 +94,9 @@ export interface LeaderHeartbeatPayload {
 
   /** Timestamp when heartbeat was generated */
   timestamp: number;
+
+  /** Ed25519 public key hex for quorum signing (64 hex chars, optional for backward compat) */
+  publicKeyHex?: string;
 }
 
 /**

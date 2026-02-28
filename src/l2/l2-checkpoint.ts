@@ -206,6 +206,8 @@ export interface LeviathanCheckpoint {
     primaryPartition: number;
     failoverChain: Record<number, string[]>;
   };
+  /** Per-partition last WAL sequence number at checkpoint time (for WAL recovery resume point) */
+  walSequenceNumbers?: Record<number, string>;
 }
 
 // ─── Constants ──────────────────────────────────────────────
@@ -251,7 +253,17 @@ export class L2CheckpointStore {
     const filepath = path.join(this.dataDir, filename);
 
     const content = l2Stringify(checkpoint);
-    await fs.writeFile(filepath, content, 'utf-8');
+
+    // Atomic write: write to temp file + fsync + rename
+    const tmpPath = filepath + '.tmp';
+    const fh = await fs.open(tmpPath, 'w');
+    try {
+      await fh.writeFile(content, 'utf-8');
+      await fh.sync(); // fsync guarantees data is on disk
+    } finally {
+      await fh.close();
+    }
+    await fs.rename(tmpPath, filepath); // atomic on same filesystem
 
     return filename;
   }

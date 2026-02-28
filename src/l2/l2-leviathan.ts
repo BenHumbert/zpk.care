@@ -55,6 +55,10 @@ import type {
   LeaderHeartbeatPayload,
   LeaderPromotionPayload,
 } from './l2-leviathan-types.js';
+import type { IWalProvider } from './l2-wal.js';
+import { L2QuorumService, QuorumKeyAuthority, computeStateDigestHash } from './l2-quorum-service.js';
+import type { QuorumConfig, QuorumProposal, QuorumVote, QuorumCertificate, StateCertificate } from './l2-quorum-types.js';
+import type { StateDigest } from './l2-peer-types.js';
 
 // ─── L2Leviathan ──────────────────────────────────────────
 
@@ -94,6 +98,16 @@ export class L2Leviathan {
 
   // Proving mutex — o1js requires serial ZkProgram proving
   private _provingLockQueue: Promise<void> = Promise.resolve();
+
+  // Write-Ahead Log (optional — enables crash-safe durability)
+  private walProvider: IWalProvider | null = null;
+
+  // Quorum service (optional — enables N/2+1 consensus on proof acceptance)
+  private quorumService: L2QuorumService | null = null;
+  private quorumKeyAuthority: QuorumKeyAuthority | null = null;
+
+  // Peer public keys collected from heartbeats
+  private peerPublicKeys: Map<string, string> = new Map();
 
   constructor(
     config: LeviathanConfig,
@@ -138,10 +152,22 @@ export class L2Leviathan {
       this.batchInProgress.set(i, false);
     }
 
+    // 3f fix: Validate failover chain completeness
+    // Every partition must have a failover chain entry, otherwise
+    // checkHeartbeats() will silently skip the partition forever.
+    for (let i = 0; i < config.partitionCount; i++) {
+      if (!config.failoverChain.has(i)) {
+        // Auto-generate a minimal chain: primary leader = first known node
+        // This ensures heartbeat monitoring works for all partitions
+        const defaultChain = [this.nodeId];
+        config.failoverChain.set(i, defaultChain);
+      }
+    }
+
     // Initialize leader map — this node leads its primary partition
     for (let i = 0; i < config.partitionCount; i++) {
       const chain = config.failoverChain.get(i);
-      const primaryLeader = chain?.[0] ?? (i === config.primaryPartition ? this.nodeId : 'unknown');
+      const primaryLeader = chain?.[0] ?? this.nodeId;
       this.leaderMap.set(i, {
         partitionIndex: i,
         currentLeader: primaryLeader,
@@ -149,6 +175,64 @@ export class L2Leviathan {
         isLocalLeader: i === config.primaryPartition,
       });
     }
+  }
+
+  // ─── WAL + Quorum Configuration ─────────────────────────
+
+  /**
+   * Set the Write-Ahead Log provider for crash-safe durability.
+   * Also sets the WAL on each partition sequencer.
+   */
+  setWal(provider: IWalProvider): void {
+    this.walProvider = provider;
+    for (const seq of this.partitionSequencers.values()) {
+      seq.setWal(provider);
+    }
+  }
+
+  /** Get the WAL provider */
+  getWal(): IWalProvider | null {
+    return this.walProvider;
+  }
+
+  /**
+   * Enable quorum writes with Ed25519-based consensus.
+   *
+   * @param seed — optional seed for deterministic keypair (e.g., Buffer.from(nodeId))
+   */
+  enableQuorum(config?: {
+    quorumThreshold?: number;
+    quorumTimeoutMs?: number;
+    seed?: Buffer;
+  }): void {
+    const seed = config?.seed ?? Buffer.from(this.nodeId);
+    this.quorumKeyAuthority = new QuorumKeyAuthority(seed);
+
+    // Register self in peer public keys
+    this.peerPublicKeys.set(this.nodeId, this.quorumKeyAuthority.publicKeyHex);
+
+    const quorumThreshold = config?.quorumThreshold ??
+      Math.floor(this.config.partitionCount / 2) + 1;
+
+    const quorumConfig: QuorumConfig = {
+      quorumThreshold,
+      quorumTimeoutMs: config?.quorumTimeoutMs ?? 5_000,
+      privateKey: this.quorumKeyAuthority.getPrivateKey(),
+      publicKeyHex: this.quorumKeyAuthority.publicKeyHex,
+      peerPublicKeys: this.peerPublicKeys,
+    };
+
+    this.quorumService = new L2QuorumService(quorumConfig);
+  }
+
+  /** Get the quorum service (for external access) */
+  getQuorumService(): L2QuorumService | null {
+    return this.quorumService;
+  }
+
+  /** Get this node's quorum public key hex */
+  getQuorumPublicKeyHex(): string | undefined {
+    return this.quorumKeyAuthority?.publicKeyHex;
   }
 
   // ─── Lifecycle ──────────────────────────────────────────
@@ -282,24 +366,101 @@ export class L2Leviathan {
         },
       });
 
-      // Broadcast proof:accepted gossip with partitionIndex
-      if (this.peerNetwork) {
-        const auditLog = seq.getAuditLog();
-        const latestAuditEvent = auditLog.events[auditLog.events.length - 1];
-        const claimEntry = metadata
-          ? seq.getClaimsByMember(receipt.walletId).slice(-1)[0]
-          : undefined;
+      // Build gossip payload for proof:accepted
+      const auditLog = seq.getAuditLog();
+      const latestAuditEvent = auditLog.events[auditLog.events.length - 1];
+      const claimEntry = metadata
+        ? seq.getClaimsByMember(receipt.walletId).slice(-1)[0]
+        : undefined;
 
-        const payload: ProofAcceptedPayload = {
-          receipt,
-          auditEvent: latestAuditEvent,
-          claimEntry,
-          currentRegistryRoot: seq.getCurrentRegistryRoot().toString(),
-          currentLifecycleRoot: seq.getCurrentLifecycleRoot().toString(),
-          currentWalletCount: seq.getCurrentWalletCount().toString(),
-          partitionIndex: partition,
+      const payload: ProofAcceptedPayload = {
+        receipt,
+        auditEvent: latestAuditEvent,
+        claimEntry,
+        currentRegistryRoot: seq.getCurrentRegistryRoot().toString(),
+        currentLifecycleRoot: seq.getCurrentLifecycleRoot().toString(),
+        currentWalletCount: seq.getCurrentWalletCount().toString(),
+        partitionIndex: partition,
+      };
+
+      // Quorum write: propose and wait for N/2+1 votes before returning
+      if (this.quorumService && this.peerNetwork) {
+        const walEntryHash = generateMessageId(
+          'quorum:propose', this.nodeId, Date.now(), receipt.receiptId,
+        );
+
+        const stateDigest: StateDigest = {
+          latestSequenceNumber: receipt.sequenceNumber,
+          latestBatchNumber: seq.getLatestBatchNumber(),
+          auditChainHash: seq.getLatestChainHash(),
+          claimAccumulatorRoot: seq.getClaimAccumulatorRoot(),
+          registryRoot: seq.getCurrentRegistryRoot().toString(),
+          lifecycleRoot: seq.getCurrentLifecycleRoot().toString(),
+          walletCount: seq.getCurrentWalletCount().toString(),
         };
 
+        const proposal: QuorumProposal = {
+          proposalId: receipt.receiptId,
+          partitionIndex: partition,
+          sequenceNumber: receipt.sequenceNumber.toString(),
+          walEntryHash,
+          stateDigestHash: computeStateDigestHash(stateDigest),
+          leaderId: this.nodeId,
+          timestamp: Date.now(),
+        };
+
+        // Broadcast proposal to peers
+        const proposalGossip: GossipMessage = {
+          messageId: generateMessageId(
+            'quorum:propose', this.nodeId, Date.now(), receipt.receiptId,
+          ),
+          type: 'quorum:propose',
+          senderId: this.nodeId,
+          timestamp: Date.now(),
+          payload: proposal,
+        };
+        this.peerNetwork.broadcast(proposalGossip).catch(() => {});
+
+        try {
+          // Wait for quorum (includes self-vote)
+          const certificate = await this.quorumService.proposeAndWait(proposal);
+          receipt.quorumCertificate = certificate;
+
+          this.emit({
+            type: 'quorum:achieved',
+            timestamp: Date.now(),
+            data: {
+              proposalId: proposal.proposalId,
+              partitionIndex: partition,
+              voteCount: certificate.votes.length,
+              quorumThreshold: this.quorumService.getQuorumThreshold(),
+            },
+          });
+        } catch {
+          // Quorum timeout — still return receipt but without certificate
+          this.emit({
+            type: 'quorum:timeout',
+            timestamp: Date.now(),
+            data: {
+              proposalId: proposal.proposalId,
+              partitionIndex: partition,
+            },
+          });
+        }
+
+        // Also broadcast proof:accepted for non-leviathan replicas (backward compat)
+        const gossipMsg: GossipMessage = {
+          messageId: generateMessageId(
+            'proof:accepted', this.nodeId, Date.now(), receipt.receiptId,
+          ),
+          type: 'proof:accepted',
+          senderId: this.nodeId,
+          timestamp: Date.now(),
+          payload,
+        };
+        this.peerNetwork.broadcast(gossipMsg).catch(() => {});
+      } else if (this.peerNetwork) {
+        // No quorum — fire-and-forget gossip (backward compatible)
         const gossipMsg: GossipMessage = {
           messageId: generateMessageId(
             'proof:accepted', this.nodeId, Date.now(), receipt.receiptId,
@@ -995,6 +1156,56 @@ export class L2Leviathan {
         break;
       }
 
+      // ─── Quorum Protocol ────────────────────────────────
+
+      case 'quorum:propose': {
+        // Peer received a proposal — write to WAL and send signed vote back
+        if (!this.quorumService || !this.peerNetwork) break;
+        const proposal = msg.payload as QuorumProposal;
+        const propSeq = this.partitionSequencers.get(proposal.partitionIndex);
+        if (!propSeq) break;
+
+        // Write to local WAL if available
+        if (this.walProvider) {
+          await this.walProvider.append({
+            type: 'proof',
+            partitionIndex: proposal.partitionIndex,
+            sequenceNumber: BigInt(proposal.sequenceNumber),
+            walletId: undefined, // Replicated entry — walletId from receipt
+            stateSnapshot: undefined,
+            timestamp: Date.now(),
+            originNodeId: proposal.leaderId,
+          });
+        }
+
+        // Create and send signed vote back to the proposer
+        const vote = this.quorumService.createVote(proposal, proposal.walEntryHash);
+        const voteGossip: GossipMessage = {
+          messageId: generateMessageId(
+            'quorum:vote', this.nodeId, Date.now(), proposal.proposalId,
+          ),
+          type: 'quorum:vote',
+          senderId: this.nodeId,
+          timestamp: Date.now(),
+          payload: vote,
+        };
+        this.peerNetwork.sendTo(msg.senderId, voteGossip).catch(() => {});
+        break;
+      }
+
+      case 'quorum:vote': {
+        // Leader received a vote — add to collection
+        if (!this.quorumService) break;
+        this.quorumService.handleVote(msg.payload as QuorumVote);
+        break;
+      }
+
+      case 'quorum:certificate': {
+        // Peer received a completed certificate — informational only
+        // The actual receipt replication happens via proof:accepted gossip
+        break;
+      }
+
       // peer:announce and state:snapshot handled by L2PeerNetwork directly
       default:
         break;
@@ -1029,6 +1240,7 @@ export class L2Leviathan {
       partitions: ledPartitions,
       partitionSequences,
       timestamp: Date.now(),
+      publicKeyHex: this.quorumKeyAuthority?.publicKeyHex,
     };
 
     const msg: GossipMessage = {
@@ -1045,6 +1257,12 @@ export class L2Leviathan {
   }
 
   private handleHeartbeat(payload: LeaderHeartbeatPayload): void {
+    // Collect peer public key for quorum certificate verification
+    if (payload.publicKeyHex && payload.nodeId !== this.nodeId) {
+      this.peerPublicKeys.set(payload.nodeId, payload.publicKeyHex);
+      this.quorumService?.updatePeerPublicKey(payload.nodeId, payload.publicKeyHex);
+    }
+
     for (const partIdx of payload.partitions) {
       const entry = this.leaderMap.get(partIdx);
       if (!entry) continue;
@@ -1309,5 +1527,52 @@ export class L2Leviathan {
     const lev = new L2Leviathan(config, options ?? {}, store, regRoot, lcRoot, wc);
     lev.restoreFromCheckpoint(checkpoint);
     return lev;
+  }
+
+  // ─── WAL Recovery ──────────────────────────────────────
+
+  /**
+   * Recover all partitions from uncommitted WAL entries.
+   * Called after restoreFromCheckpoint() to replay any accepted
+   * proofs that weren't checkpointed.
+   *
+   * @returns Total number of entries replayed across all partitions
+   */
+  async recoverFromWal(): Promise<number> {
+    let totalReplayed = 0;
+    for (const seq of this.partitionSequencers.values()) {
+      totalReplayed += await seq.recoverFromWal();
+    }
+    return totalReplayed;
+  }
+
+  // ─── Quorum Status ────────────────────────────────────
+
+  /** Get quorum protocol status */
+  getQuorumStatus(): {
+    enabled: boolean;
+    publicKeyHex?: string;
+    quorumThreshold?: number;
+    pendingProposals?: number;
+    knownPeerKeys: number;
+    stateCertificates?: number;
+  } {
+    if (!this.quorumService) {
+      return { enabled: false, knownPeerKeys: this.peerPublicKeys.size };
+    }
+    const status = this.quorumService.getStatus();
+    return {
+      enabled: true,
+      publicKeyHex: this.quorumKeyAuthority?.publicKeyHex,
+      quorumThreshold: status.quorumThreshold,
+      pendingProposals: status.pendingProposals,
+      knownPeerKeys: status.knownPeers,
+      stateCertificates: status.stateCertificateCount,
+    };
+  }
+
+  /** Get the latest state certificate for a partition */
+  getLatestStateCertificate(partitionIndex: number): StateCertificate | undefined {
+    return this.quorumService?.getLatestStateCertificate(partitionIndex);
   }
 }

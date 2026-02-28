@@ -965,6 +965,44 @@ export class L2RpcServer {
         return this.node.getPartitionStatus(pIdx) ?? null;
       }
 
+      // ── Quorum Protocol Methods ────────────────────────
+
+      case 'l2_getQuorumStatus': {
+        if (!(this.node instanceof L2Leviathan)) {
+          throw new Error('Not a leviathan node');
+        }
+        return this.node.getQuorumStatus();
+      }
+
+      case 'l2_getStateCertificate': {
+        if (!(this.node instanceof L2Leviathan)) {
+          throw new Error('Not a leviathan node');
+        }
+        const certPartIdx = params.partitionIndex;
+        if (typeof certPartIdx !== 'number') {
+          throw new Error('Missing or invalid partitionIndex parameter');
+        }
+        return this.node.getLatestStateCertificate(certPartIdx) ?? null;
+      }
+
+      case 'l2_verifyStateCertificate': {
+        if (!(this.node instanceof L2Leviathan)) {
+          throw new Error('Not a leviathan node');
+        }
+        const cert = params.certificate;
+        if (!cert) {
+          throw new Error('Missing certificate parameter');
+        }
+        const quorumSvc = this.node.getQuorumService();
+        if (!quorumSvc) {
+          throw new Error('Quorum not enabled');
+        }
+        const valid = quorumSvc.verifyStateCertificate(
+          cert as import('./l2-quorum-types.js').StateCertificate,
+        );
+        return { valid };
+      }
+
       default:
         throw new Error(`Unknown method: ${method}`);
     }
@@ -1053,11 +1091,9 @@ export class L2RpcServer {
 
     this.vizSseClients.add(res);
 
-    // Replay buffer so late joiners see full history
-    res.write(`data: ${JSON.stringify({ type: 'connected', timestamp: Date.now(), buffered: this.vizEventBuffer.length })}\n\n`);
-    for (const event of this.vizEventBuffer) {
-      res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
-    }
+    // Send connection acknowledgement only — no replay of past events.
+    // Replaying the buffer caused a burst of stale animations on every page refresh.
+    res.write(`data: ${JSON.stringify({ type: 'connected', timestamp: Date.now(), buffered: 0 })}\n\n`);
 
     req.on('close', () => {
       this.vizSseClients.delete(res);

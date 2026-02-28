@@ -183,3 +183,43 @@ export type {
   EpochInfo,
   EpochAccumulatorServiceState,
 } from './epoch-accumulator-service.js';
+
+// Write-Ahead Log — crash-safe proof durability
+export {
+  InMemoryWalProvider,
+  FileWalProvider,
+  computeWalIntegrityHash,
+} from './l2-wal.js';
+export type {
+  WalEntry,
+  WalEntryType,
+  WalConfig,
+  IWalProvider,
+} from './l2-wal.js';
+export { DEFAULT_WAL_CONFIG } from './l2-wal.js';
+
+// Quorum Protocol — Ed25519-based consensus
+export {
+  L2QuorumService,
+  QuorumKeyAuthority,
+  computeStateDigestHash,
+  computePartitionDigestHash,
+  computeQuorumThreshold,
+} from './l2-quorum-service.js';
+export type {
+  QuorumConfig,
+  QuorumProposal,
+  QuorumVote,
+  QuorumCertificate,
+  StateCertificate,
+  StateCertSignature,
+  PartitionDigest,
+  ReconciliationConfig,
+  ReconciliationResult,
+} from './l2-quorum-types.js';
+export {
+  DEFAULT_QUORUM_TIMEOUT_MS,
+  DEFAULT_RECONCILIATION_CONFIG,
+  buildQuorumVoteMessage,
+  buildStateCertMessage,
+} from './l2-quorum-types.js';

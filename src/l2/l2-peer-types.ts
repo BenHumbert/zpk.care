@@ -20,6 +20,7 @@ import type { ClaimAccumulatorEntry } from './claim-accumulator-types.js';
 import type { StoredMessage, MessagePayload } from './message-store-types.js';
 import type { L2SequencerState } from './l2-checkpoint.js';
 import type { LeaderHeartbeatPayload, LeaderPromotionPayload } from './l2-leviathan-types.js';
+import type { QuorumProposal, QuorumVote, QuorumCertificate } from './l2-quorum-types.js';
 
 // ─── Node Role ──────────────────────────────────────────
 
@@ -66,7 +67,10 @@ export type GossipMessageType =
   | 'peer:announce'       // Peer discovery + exchange peer lists
   | 'message:stored'      // New encrypted message stored in Message Store
   | 'leader:heartbeat'    // Leviathan leader heartbeat (partition leadership)
-  | 'leader:promotion';   // Leviathan leader promotion (failover)
+  | 'leader:promotion'    // Leviathan leader promotion (failover)
+  | 'quorum:propose'      // Leader proposes WAL entry for quorum consensus
+  | 'quorum:vote'         // Peer votes (ack + Ed25519 signature)
+  | 'quorum:certificate'; // Leader broadcasts completed quorum certificate
 
 // ─── Gossip Payloads ─────────────────────────────────────
 
@@ -168,7 +172,10 @@ export type GossipPayload =
   | PeerAnnouncePayload
   | L2SequencerState         // For state:snapshot (IBD)
   | LeaderHeartbeatPayload   // For leader:heartbeat (leviathan)
-  | LeaderPromotionPayload;  // For leader:promotion (leviathan)
+  | LeaderPromotionPayload   // For leader:promotion (leviathan)
+  | QuorumProposal           // For quorum:propose
+  | QuorumVote               // For quorum:vote
+  | QuorumCertificate;       // For quorum:certificate
 
 // ─── Gossip Message ──────────────────────────────────────
 
