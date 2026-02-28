@@ -24,6 +24,7 @@ import { L2CheckpointStore } from '../../src/l2/l2-checkpoint.js';
 import type { VizEvent } from '../../src/l2/l2-rpc-server.js';
 import { InteractiveDemoService, type ConsoleEvent } from './interactive-service.js';
 import { registerInteractiveRoutes, getConsoleEmitter } from './interactive-routes.js';
+import { AutoModeController } from './auto-mode-controller.js';
 import { FlowchartDashboardServer } from '../../src/poc/flowchart-dashboard-server.js';
 
 const REGISTRY_TREE_HEIGHT = 11;
@@ -251,8 +252,8 @@ async function main() {
   const node = new L2Node(
     {
       batchIntervalMs: BATCH_INTERVAL,
-      autoSettle: true,
-      settlementDelayMs: 1_000,
+      l2Only: true, // No L1 settlement — batches finalize immediately at build time
+      autoSettle: false,
       maxBatchRetries: 3,
     },
     store,
@@ -304,6 +305,9 @@ async function main() {
 
   // 3. Create the InteractiveDemoService
   const service = new InteractiveDemoService(bufferedConsoleEmitter, vizEmitter, node);
+
+  // 3b. Create AutoModeController
+  const autoModeController = new AutoModeController(service, node);
 
   // 4. Register interactive routes on the RPC server
   registerInteractiveRoutes(rpcServer, service);
@@ -470,6 +474,7 @@ function registerFlowchartRoutes(
       },
       leviathans: leviathanVisuals,
       partitionMap: { ...leaderMap },
+      failoverChain: { ...failoverChain },
       partitionCount: PARTITION_COUNT,
       chain: {
         blockHeight: Number(seq.getCurrentBlockHeight().toBigInt()),
@@ -487,6 +492,7 @@ function registerFlowchartRoutes(
         })(),
       },
       smokeTest: smokeTestState,
+      autoMode: autoModeController.getState(),
       ready: compilationState.status === 'complete',
     };
 
@@ -543,6 +549,9 @@ function registerFlowchartRoutes(
       return;
     }
 
+    // Stop auto mode if running
+    autoModeController.reset();
+
     // 1. Stop the L2 node (clears batch timer, waits for in-progress batches)
     await node.stop();
 
@@ -590,6 +599,11 @@ function registerFlowchartRoutes(
       res.end(JSON.stringify({ error: 'Smoke test already running' }));
       return;
     }
+    if (autoModeController.getState().status === 'running') {
+      res.writeHead(409, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: 'Cannot run smoke test while Auto Mode is active' }));
+      return;
+    }
 
     // Auto-reset before each smoke test run (full clean slate)
     await node.stop();
@@ -606,6 +620,7 @@ function registerFlowchartRoutes(
       Field(freshLcTree.getRoot()),
     );
     service.reset();
+    autoModeController.reset();
     for (const lev of leviathanVisuals) {
       lev.status = 'running';
       lev.isPrimary = lev.id === 'lev-alpha';
@@ -623,8 +638,8 @@ function registerFlowchartRoutes(
         { id: 'assign-pcp', description: 'Assign PCP: Alice → Dr. Chen', status: 'pending' },
         { id: 'prescribe-alice', description: 'Prescribe: Alice → Lisinopril', status: 'pending' },
         { id: 'prescribe-bob', description: 'Prescribe: Bob → Metformin', status: 'pending' },
-        { id: 'fill-alice', description: 'Fill: Alice Lisinopril at CVS', status: 'pending' },
-        { id: 'fill-bob', description: 'Fill: Bob Metformin at CVS', status: 'pending' },
+        { id: 'fill-alice', description: 'Fill: Alice Lisinopril at Main Street Pharmacy', status: 'pending' },
+        { id: 'fill-bob', description: 'Fill: Bob Metformin at Main Street Pharmacy', status: 'pending' },
         { id: 'reverse-alice', description: 'Reverse: Alice Lisinopril fill', status: 'pending' },
         { id: 'prior-auth', description: 'Prior Auth: Humira for Alice', status: 'pending' },
         { id: 'batch-verify', description: 'Force batch + verify chain', status: 'pending' },
@@ -645,6 +660,35 @@ function registerFlowchartRoutes(
   server.registerRoute('GET', '/flowchart/smoke-test-status', async (_req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify(smokeTestState));
+  });
+
+  // POST /flowchart/auto-mode/start — begin continuous simulation
+  server.registerRoute('POST', '/flowchart/auto-mode/start', async (_req, res) => {
+    if (compilationState.status !== 'complete') {
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: 'Programs not yet compiled' }));
+      return;
+    }
+    if (smokeTestState.status === 'running') {
+      res.writeHead(409, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: 'Cannot start Auto Mode while smoke test is running' }));
+      return;
+    }
+    if (autoModeController.getState().status === 'running') {
+      res.writeHead(409, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: 'Auto Mode already running' }));
+      return;
+    }
+    autoModeController.start().catch(() => {}); // fire-and-forget
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({ ok: true, status: 'started' }));
+  });
+
+  // POST /flowchart/auto-mode/stop — stop continuous simulation
+  server.registerRoute('POST', '/flowchart/auto-mode/stop', async (_req, res) => {
+    autoModeController.stop();
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({ ok: true, status: 'stopping' }));
   });
 
   // GET /flowchart/batch-detail — enriched per-batch data for block visualization
@@ -809,7 +853,7 @@ async function runSmokeTest(service: InteractiveDemoService): Promise<void> {
         prescriberIndex: 0,
         memberWalletId: aliceWalletId,
         medicationIndex: 0, // Lisinopril
-        pharmacyIndex: 0,   // CVS
+        pharmacyIndex: 0,   // Main Street Pharmacy
         quantity: 30,
         refills: 3,
       }));
@@ -824,7 +868,7 @@ async function runSmokeTest(service: InteractiveDemoService): Promise<void> {
         prescriberIndex: 1,
         memberWalletId: bobWalletId,
         medicationIndex: 1, // Metformin
-        pharmacyIndex: 0,   // CVS
+        pharmacyIndex: 0,   // Main Street Pharmacy
         quantity: 60,
         refills: 2,
       }));

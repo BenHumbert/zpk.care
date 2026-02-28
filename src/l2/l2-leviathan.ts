@@ -1003,9 +1003,18 @@ export class L2Leviathan {
 
   private async withProvingLock<T>(fn: () => Promise<T>): Promise<T> {
     const release = await this.acquireProvingLock();
+    let timer: ReturnType<typeof setTimeout> | null = null;
     try {
-      return await fn();
+      return await Promise.race([
+        fn(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error('Proving lock timeout: operation exceeded 5 minutes'));
+          }, 5 * 60 * 1000);
+        }),
+      ]);
     } finally {
+      if (timer) clearTimeout(timer);
       release();
     }
   }

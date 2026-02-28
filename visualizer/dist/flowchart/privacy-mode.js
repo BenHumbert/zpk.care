@@ -4,6 +4,11 @@
  * When active ("Network View"), replaces all member PHI/PII with opaque
  * Poseidon wallet hashes — showing what the leviathan network actually sees.
  *
+ * Wallet IDs are displayed across 3 lines on the node for readability:
+ *   line 1: first 8 digits
+ *   line 2: middle 8 digits
+ *   line 3: last 8 digits
+ *
  * Prescribers, pharmacies, insurer, employer, and leviathans remain fully
  * visible. Only member identity is redacted.
  */
@@ -24,39 +29,67 @@ const PrivacyMode = (() => {
   function onChange(cb) { _callbacks.push(cb); }
 
   /**
-   * Transform a member display label.
-   * @param {string} name   Original display name (e.g. "Alice Johnson")
-   * @param {number} index  Member index (0-7)
-   * @param {string|null} walletId  Enrolled wallet ID string, or null if unenrolled
-   * @returns {string}
+   * Split a wallet ID into 3 compact lines for node display.
+   * Returns [line1, line2, line3].
    */
-  function memberLabel(name, index, walletId) {
-    if (!_active) return name;
-    if (walletId) return 'W-' + truncHash(walletId, 6, 4);
-    return 'Member M-' + index;
+  function walletLines(walletId) {
+    if (!walletId) return null;
+    const s = String(walletId);
+    if (s.length <= 16) return [s, '', ''];
+    // Show first 8, middle 8, last 8 — enough to be unique
+    const first = s.slice(0, 8);
+    const mid = s.length > 24
+      ? s.slice(Math.floor(s.length / 2) - 4, Math.floor(s.length / 2) + 4)
+      : s.slice(8, 16);
+    const last = s.slice(-8);
+    return [first, mid, last];
   }
 
   /**
-   * Transform a member sublabel.
-   * @param {string} sublabel  Original sublabel (e.g. "SELF", "SPOUSE")
-   * @param {number} index     Member index
-   * @param {string|null} walletId  Wallet ID if enrolled
-   * @returns {string}
+   * Transform a member display label (line 1 on node).
+   * Privacy on + enrolled: first 8 digits of wallet hash.
+   * Privacy on + unenrolled: generic opaque marker.
+   */
+  function memberLabel(name, index, walletId) {
+    if (!_active) return name;
+    if (walletId) {
+      const lines = walletLines(walletId);
+      return lines[0];
+    }
+    return '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'; // ••••••••
+  }
+
+  /**
+   * Transform a member sublabel (line 2 on node).
+   * Privacy on + enrolled: middle 8 digits of wallet hash.
+   * Privacy on + unenrolled: opaque partition hint.
    */
   function memberSublabel(sublabel, index, walletId) {
     if (!_active) return sublabel;
-    if (walletId) return truncHash(walletId, 8, 4);
+    if (walletId) {
+      const lines = walletLines(walletId);
+      return lines[1];
+    }
     return 'Partition ' + (index % 3);
+  }
+
+  /**
+   * Third line for node display (line 3).
+   * Privacy on + enrolled: last 8 digits of wallet hash.
+   * Returns null when not applicable.
+   */
+  function memberLine3(walletId) {
+    if (!_active) return null;
+    if (walletId) {
+      const lines = walletLines(walletId);
+      return lines[2];
+    }
+    return null;
   }
 
   /**
    * Transform an actor or target name from a VizEvent for display.
    * Only member types are transformed; all others pass through unchanged.
-   * @param {string} name  Display name
-   * @param {string} type  Entity type (member, prescriber, pharmacy, insurer, etc.)
-   * @param {object} data  Event data (may contain memberIndex, walletId)
-   * @param {Array}  members  MEMBERS array for reverse lookup
-   * @returns {string}
    */
   function actorLabel(name, type, data, members) {
     if (!_active) return name;
@@ -77,7 +110,7 @@ const PrivacyMode = (() => {
         );
         if (partial) return memberLabel(name, partial.idx, wid);
       }
-      return wid ? 'W-' + truncHash(wid, 6, 4) : 'Member (opaque)';
+      return wid ? walletLines(wid)[0] : '\u2022\u2022\u2022\u2022';
     }
 
     // All non-member types pass through unchanged
@@ -86,6 +119,6 @@ const PrivacyMode = (() => {
 
   return {
     isActive, toggle, onChange,
-    memberLabel, memberSublabel, actorLabel,
+    memberLabel, memberSublabel, memberLine3, actorLabel,
   };
 })();

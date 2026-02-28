@@ -71,7 +71,7 @@ function getNodeStroke(type, d) {
 
 class NodeRenderer {
 
-  /** Install SVG <defs> for glow filters. Call once on svg element. */
+  /** Install SVG <defs> for glow filters and arrow markers. Call once on svg element. */
   static installDefs(svg) {
     const defs = svg.append('defs');
 
@@ -87,6 +87,9 @@ class NodeRenderer {
     const merge = glow.append('feMerge');
     merge.append('feMergeNode').attr('in', 'blur');
     merge.append('feMergeNode').attr('in', 'SourceGraphic');
+
+    // Arrow marker template — one per color so each connection gets a matching arrowhead.
+    // New markers are created dynamically by ForceGraph.getArrowMarkerId().
   }
 
   /**
@@ -130,6 +133,14 @@ class NodeRenderer {
           .attr('class', 'node-sublabel')
           .attr('y', r + 25)
           .text(d.sublabel);
+      }
+
+      // Third label line (privacy mode wallet hash)
+      if (d.line3) {
+        el.append('text')
+          .attr('class', 'node-sublabel node-line3')
+          .attr('y', r + 36)
+          .text(d.line3);
       }
     });
 

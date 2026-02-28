@@ -45,6 +45,7 @@ export type VizEventType =
   | 'viz:enrollment:registration' | 'viz:enrollment:credential_mint'
   | 'viz:enrollment:lifecycle' | 'viz:enrollment:provider_notify'
   | 'viz:enrollment:terminated'
+  | 'viz:credential:generated'
   | 'viz:leviathan:heartbeat' | 'viz:leviathan:failover' | 'viz:leviathan:gossip';
 
 /** Lane names for the horse-race view */
@@ -361,6 +362,10 @@ export class L2RpcServer {
 
     if (pathname === '/viz/state' && req.method === 'GET') {
       return this.handleVizState(res);
+    }
+
+    if (pathname === '/viz/history' && req.method === 'GET') {
+      return this.handleVizHistory(res);
     }
 
     if (pathname === '/viz/clear' && req.method === 'POST') {
@@ -1098,6 +1103,15 @@ export class L2RpcServer {
     req.on('close', () => {
       this.vizSseClients.delete(res);
     });
+  }
+
+  /** Return viz event history as JSON array (GET /viz/history) */
+  private handleVizHistory(res: ServerResponse): void {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    });
+    res.end(JSON.stringify(this.vizEventBuffer));
   }
 
   /** Clear viz event buffer and entity registry (POST /viz/clear) */

@@ -33,10 +33,13 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { L2RpcServer } from '../../src/l2/l2-rpc-server.js';
 import type { InteractiveDemoService, ConsoleEvent } from './interactive-service.js';
+import type { NfcBridge, NfcTagEvent, NdefPayload } from './nfc-bridge.js';
+import type { NfcCredentialAttestation } from '../../src/credentials/nfc-attestation.js';
 
 export function registerInteractiveRoutes(
   server: L2RpcServer,
   service: InteractiveDemoService,
+  nfcBridge?: NfcBridge,
 ): void {
   // Console SSE clients
   const consoleSseClients: Set<ServerResponse> = new Set();
@@ -1075,6 +1078,7 @@ export function registerInteractiveRoutes(
           specialty: p.specialty,
           npi: p.localData.prescriberId,
           state: p.state,
+          deaNumber: p.deaNumber,
         })),
         pharmacies: DEMO_PHARMACIES.map((p, i) => ({
           index: i,
@@ -1083,8 +1087,10 @@ export function registerInteractiveRoutes(
           pharmacyType: p.pharmacyTypeDesc,
           npi: p.localData.serviceProviderId,
           ncpdpId: p.ncpdpProviderId,
+          address: p.address,
           city: p.city,
           state: p.state,
+          phone: p.phone,
         })),
         medications: DEMO_MEDICATIONS.map((m, i) => ({
           index: i,
@@ -1472,6 +1478,200 @@ export function registerInteractiveRoutes(
       sendError(res, 500, message);
     }
   });
+
+  // ─── NFC Bridge Routes ─────────────────────────────────────
+  // Only registered if nfcBridge is provided. Graceful no-op if NFC reader is absent.
+
+  if (nfcBridge) {
+    const nfcSseClients: Set<ServerResponse> = new Set();
+
+    /** Broadcast an NFC event to all SSE clients */
+    const emitNfcEvent = (eventType: string, data: unknown): void => {
+      const payload = JSON.stringify(data);
+      for (const client of nfcSseClients) {
+        try {
+          client.write(`event: ${eventType}\ndata: ${payload}\n\n`);
+        } catch {
+          nfcSseClients.delete(client);
+        }
+      }
+    };
+
+    // Forward all bridge events to SSE clients
+    nfcBridge.on('status', (status) => {
+      emitNfcEvent('nfc:status', status);
+    });
+
+    nfcBridge.on('tag:detected', (evt: NfcTagEvent) => {
+      emitNfcEvent('nfc:tag_detected', evt);
+    });
+
+    nfcBridge.on('tag:read', async (evt: NfcTagEvent) => {
+      if (evt.attestation) {
+        // ── Attestation-based verification (Ed25519, instant) ──
+        const att = evt.attestation as unknown as NfcCredentialAttestation;
+        const result = service.verifyAttestation(att);
+
+        // Look up member display name
+        const state = service.getState() as any;
+        const members = Array.isArray(state.members) ? state.members : [];
+        const member = members.find((m: any) => m.enrolled?.walletId === att.w);
+        const memberName = member?.enrolled?.displayName ?? member?.name ?? null;
+
+        emitNfcEvent('nfc:tag_read', {
+          ...evt,
+          verified: result.valid && !result.expired && !result.revoked,
+          verificationMethod: 'ed25519-attestation',
+          memberName,
+          walletId: att.w,
+          attestationDetails: {
+            lifecycleState: att.ls,
+            forestRoot: att.fr,
+            credentialCommitment: att.cc,
+            issuedAt: att.ts,
+            expiresAt: att.exp,
+            signatureValid: result.valid,
+            expired: result.expired,
+            revoked: result.revoked,
+          },
+        });
+      } else if (evt.walletId) {
+        // ── Legacy walletId-only verification (full ZK proof) ──
+        let verificationResult: Record<string, unknown> | null = null;
+        try {
+          const state = service.getState() as any;
+          const members = Array.isArray(state.members) ? state.members : [];
+          const member = members.find((m: any) => m.enrolled?.walletId === evt.walletId);
+          const credentialJson = member?.enrolled?.lastCredentialJson ?? member?.enrolled?.credentialJson;
+          if (credentialJson) {
+            verificationResult = await service.verifyCredential(
+              typeof credentialJson === 'string' ? credentialJson : JSON.stringify(credentialJson),
+            );
+          } else {
+            verificationResult = { valid: false, reason: 'No credential found for this walletId' };
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          verificationResult = { valid: false, reason: `Verification error: ${msg}` };
+        }
+
+        emitNfcEvent('nfc:tag_read', {
+          ...evt,
+          verified: verificationResult?.valid ?? false,
+          verificationMethod: 'zk-proof',
+          verification: verificationResult,
+        });
+      } else {
+        emitNfcEvent('nfc:tag_read', {
+          ...evt,
+          verified: false,
+          verificationMethod: 'none',
+        });
+      }
+    });
+
+    nfcBridge.on('tag:written', (evt: NfcTagEvent) => {
+      emitNfcEvent('nfc:tag_written', evt);
+    });
+
+    nfcBridge.on('tag:removed', (evt: NfcTagEvent) => {
+      emitNfcEvent('nfc:tag_removed', evt);
+    });
+
+    nfcBridge.on('tag:error', (evt: NfcTagEvent) => {
+      emitNfcEvent('nfc:tag_error', evt);
+    });
+
+    // GET /interactive/nfc/events — SSE stream for NFC events
+    server.registerRoute('GET', '/interactive/nfc/events', async (_req: IncomingMessage, res: ServerResponse) => {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+      });
+
+      // Send initial status
+      const status = nfcBridge.getStatus();
+      res.write(`event: nfc:status\ndata: ${JSON.stringify(status)}\n\n`);
+
+      nfcSseClients.add(res);
+      res.on('close', () => nfcSseClients.delete(res));
+    });
+
+    // POST /interactive/nfc/write — queue a write to the next NFC tag
+    // Auto-upgrades to attestation format if an attestation exists for the walletId
+    server.registerRoute('POST', '/interactive/nfc/write', async (req: IncomingMessage, res: ServerResponse) => {
+      try {
+        const body = await readBody(req);
+        const params = JSON.parse(body);
+        if (!params.walletId) {
+          sendError(res, 400, 'Missing required field: walletId');
+          return;
+        }
+
+        if (nfcBridge.getStatus().state === 'disconnected') {
+          sendError(res, 503, 'NFC reader not connected');
+          return;
+        }
+
+        // Auto-upgrade: if an attestation exists, write that instead of bare walletId
+        const attestation = service.getAttestation(params.walletId);
+        let payload: NdefPayload;
+        let format: string;
+
+        if (attestation) {
+          payload = { type: 'credential-attestation', attestation: attestation as unknown as Record<string, unknown> };
+          format = 'attestation';
+        } else {
+          payload = { type: 'member-id', walletId: params.walletId };
+          format = 'member-id';
+        }
+
+        // Queue the write — resolves when tag is placed and written
+        nfcBridge.queueWrite(payload).catch(() => {
+          // Error is emitted via SSE tag:error event
+        });
+
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(JSON.stringify({ status: 'queued', walletId: params.walletId, format }));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        sendError(res, 500, message);
+      }
+    });
+
+    // POST /interactive/nfc/cancel — cancel a pending write
+    server.registerRoute('POST', '/interactive/nfc/cancel', async (_req: IncomingMessage, res: ServerResponse) => {
+      nfcBridge.cancelWrite();
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.end(JSON.stringify({ status: 'cancelled' }));
+    });
+
+    // GET /interactive/nfc/status — get current NFC bridge status
+    server.registerRoute('GET', '/interactive/nfc/status', async (_req: IncomingMessage, res: ServerResponse) => {
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.end(JSON.stringify(nfcBridge.getStatus()));
+    });
+
+    // GET /interactive/nfc/sequencer-pubkey — sequencer's Ed25519 public key for offline verification
+    server.registerRoute('GET', '/interactive/nfc/sequencer-pubkey', async (_req: IncomingMessage, res: ServerResponse) => {
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.end(JSON.stringify({ publicKey: service.getSequencerPublicKey() }));
+    });
+  }
 
   // Return the emitter so the startup script can wire it to the service
   (server as any).__interactiveConsoleEmitter = consoleEmitter;

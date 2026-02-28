@@ -20,6 +20,7 @@ import { L2CheckpointStore } from '../../src/l2/l2-checkpoint.js';
 import type { VizEvent } from '../../src/l2/l2-rpc-server.js';
 import { InteractiveDemoService, type ConsoleEvent } from './interactive-service.js';
 import { registerInteractiveRoutes, getConsoleEmitter } from './interactive-routes.js';
+import { NfcBridge } from './nfc-bridge.js';
 
 const REGISTRY_TREE_HEIGHT = 11;
 const PORT = parseInt(process.env.PORT || '3030', 10);
@@ -97,11 +98,20 @@ async function main() {
   const checkpointStore = new L2CheckpointStore(checkpointDir);
   node.setCheckpointStore(checkpointStore, { autoCheckpoint: true, maxCheckpoints: 5 });
 
-  // 3. Create the service (pass L2Node for real settlement)
+  // 3. Initialize NFC Bridge (non-blocking — demo works without NFC reader)
+  //    MIKROE-2540 is USB HID (VID 0x1FC9, PID 0x0088), auto-detected.
+  const nfcBridge = new NfcBridge();
+  nfcBridge.connect().then(() => {
+    console.log(`  [NFC] Reader connected via HID (${nfcBridge.getStatus().devicePath})`);
+  }).catch(() => {
+    console.log('  [NFC] No NFC reader detected — NFC features disabled (demo continues normally).');
+  });
+
+  // 4. Create the service (pass L2Node for real settlement)
   const service = new InteractiveDemoService(bufferedConsoleEmitter, vizEmitter, node);
 
-  // 4. Register interactive routes
-  registerInteractiveRoutes(server, service);
+  // 5. Register interactive routes (including NFC endpoints)
+  registerInteractiveRoutes(server, service, nfcBridge);
   realConsoleEmitter = getConsoleEmitter(server);
 
   // Replay buffered events
@@ -126,6 +136,11 @@ async function main() {
   console.log(`    POST  http://127.0.0.1:${PORT}/interactive/reset     — Reset session`);
   console.log(`    GET   http://127.0.0.1:${PORT}/health                — Health check`);
   console.log(`    GET   http://127.0.0.1:${PORT}/viz/events            — Viz SSE stream`);
+  console.log(`    GET   http://127.0.0.1:${PORT}/interactive/nfc/events — NFC SSE stream`);
+  console.log(`    POST  http://127.0.0.1:${PORT}/interactive/nfc/write  — Write attestation to NFC tag`);
+  console.log(`    GET   http://127.0.0.1:${PORT}/interactive/nfc/sequencer-pubkey — Ed25519 public key`);
+  console.log('');
+  console.log(`  [Attestation] Sequencer Ed25519 pubkey: ${service.getSequencerPublicKey().slice(0, 16)}...`);
   console.log('');
 
   // 6. Compile ZkPrograms (streams progress to console SSE clients)
@@ -144,6 +159,7 @@ async function main() {
   // 7. Graceful shutdown
   const shutdown = async () => {
     console.log('\n[Interactive] Shutting down...');
+    await nfcBridge.disconnect();
     await node.stop();
     await server.stop();
     console.log('[Interactive] Done.');

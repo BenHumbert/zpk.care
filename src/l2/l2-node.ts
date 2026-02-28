@@ -1129,12 +1129,25 @@ export class L2Node {
   /**
    * Execute an async function while holding the proving lock.
    * Convenience wrapper around acquireProvingLock().
+   *
+   * Includes a 5-minute safety timeout: if `fn` hasn't resolved by then,
+   * the lock is released and the promise rejects. This prevents a hung
+   * o1js proof from permanently blocking the entire proof pipeline.
    */
   async withProvingLock<T>(fn: () => Promise<T>): Promise<T> {
     const release = await this.acquireProvingLock();
+    let timer: ReturnType<typeof setTimeout> | null = null;
     try {
-      return await fn();
+      return await Promise.race([
+        fn(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error('Proving lock timeout: operation exceeded 5 minutes'));
+          }, 5 * 60 * 1000);
+        }),
+      ]);
     } finally {
+      if (timer) clearTimeout(timer);
       release();
     }
   }

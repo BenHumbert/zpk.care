@@ -68,6 +68,9 @@ class ForceGraph {
     // Active animated connections (for dynamic position tracking)
     this.activeConnections = [];
 
+    // Animation frame loop ID (runs independently of simulation)
+    this._animFrameId = null;
+
     // Relationship tracker for PCP/pharmacy links
     this.relationshipTracker = new RelationshipTracker();
 
@@ -187,8 +190,8 @@ class ForceGraph {
       .attr('x2', d => { const n = this.findNode(d.target); return n ? n.x : 0; })
       .attr('y2', d => { const n = this.findNode(d.target); return n ? n.y : 0; });
 
-    // Update active animated connections to follow nodes
-    this.tickActiveConnections();
+    // Note: animated connections are driven by _ensureAnimationLoop / rAF,
+    // not by the simulation tick, so they keep running after simulation cools.
   }
 
   findNode(id) {
@@ -339,8 +342,39 @@ class ForceGraph {
 
   /**
    * Animate a viz event connection between two entities.
-   * The connection dynamically follows the source/target nodes.
+   *
+   * Animation phases (tick-driven, not CSS transitions):
+   *   Phase 1 (0–45%):  Leading edge extends from A toward B (trailing edge at A)
+   *   Phase 2 (45–90%): Trailing edge retracts from A toward B (leading edge at B)
+   *   Phase 3 (90–100%): Opacity fades to 0
+   *
+   * No particles — all animation is line-based to avoid lingering dots.
    */
+  /**
+   * Get or create an SVG arrow marker for a given color.
+   * Markers are cached in <defs> so each color only creates one marker.
+   */
+  _getArrowMarkerId(color) {
+    const safeColor = color.replace(/[^a-zA-Z0-9]/g, '');
+    const markerId = `arrow-${safeColor}`;
+    if (!this.svg.select(`#${markerId}`).empty()) return markerId;
+
+    const defs = this.svg.select('defs');
+    const marker = defs.append('marker')
+      .attr('id', markerId)
+      .attr('viewBox', '0 0 10 6')
+      .attr('refX', 10)
+      .attr('refY', 3)
+      .attr('markerWidth', 8)
+      .attr('markerHeight', 6)
+      .attr('orient', 'auto');
+    marker.append('path')
+      .attr('d', 'M0,0 L10,3 L0,6 Z')
+      .attr('fill', color);
+
+    return markerId;
+  }
+
   animateEvent(fromId, toId, eventType) {
     const config = EVENT_CONFIG[eventType];
     if (!config) return;
@@ -349,80 +383,153 @@ class ForceGraph {
     const toNode = this.findNode(toId);
     if (!fromNode || !toNode) return;
 
-    // Create line that will track nodes
-    const line = this.connectionLayer.append('line')
+    const markerId = this._getArrowMarkerId(config.color);
+
+    // Create curved path starting at fromNode — extends toward toNode via tick.
+    // Uses a quadratic Bezier with a perpendicular control-point offset for a slight arc.
+    const path = this.connectionLayer.append('path')
       .attr('class', 'connection-line')
-      .attr('x1', fromNode.x).attr('y1', fromNode.y)
-      .attr('x2', toNode.x).attr('y2', toNode.y)
+      .attr('d', `M${fromNode.x},${fromNode.y} L${fromNode.x},${fromNode.y}`)
+      .attr('fill', 'none')
       .attr('stroke', config.color)
       .attr('stroke-width', config.width)
+      .attr('stroke-linecap', 'round')
       .attr('stroke-dasharray', config.dash || 'none')
-      .attr('opacity', 0);
+      .attr('opacity', 0.55)
+      .attr('marker-end', `url(#${markerId})`);
 
-    // Fade in then out
-    line.transition().duration(200)
-      .attr('opacity', 0.7)
-      .transition().duration(config.duration)
-      .attr('opacity', 0)
-      .remove();
+    // Register for tick-based extend/retract animation
+    this.activeConnections.push({
+      fromId, toId,
+      el: path.node(),
+      startTime: Date.now(),
+      duration: config.duration,
+      color: config.color,
+      pulsed: false, // track whether we've pulsed the target node
+    });
 
-    // Register for dynamic tracking
-    const conn = { fromId, toId, line: line.node(), startTime: Date.now(), duration: config.duration + 200 };
-    this.activeConnections.push(conn);
+    // Ensure the rAF loop is running (survives simulation cooldown)
+    this._ensureAnimationLoop();
+  }
 
-    // Traveling particle
-    if (config.particle) {
-      const particle = this.connectionLayer.append('circle')
-        .attr('class', 'connection-particle')
-        .attr('r', 4)
-        .attr('cx', fromNode.x).attr('cy', fromNode.y)
-        .attr('fill', config.color)
-        .attr('opacity', 0.9);
-
-      conn.particle = particle.node();
-      conn.particleDuration = config.duration * 0.8;
-      conn.particleStart = Date.now();
-    }
+  /**
+   * Start the rAF animation loop if not already running.
+   * This loop drives connection animations independently of the D3 simulation,
+   * so animations complete even after the simulation cools down and stops ticking.
+   */
+  _ensureAnimationLoop() {
+    if (this._animFrameId != null) return;
+    const loop = () => {
+      this.tickActiveConnections();
+      if (this.activeConnections.length > 0) {
+        this._animFrameId = requestAnimationFrame(loop);
+      } else {
+        this._animFrameId = null;
+      }
+    };
+    this._animFrameId = requestAnimationFrame(loop);
   }
 
   /**
    * Update active animated connections to follow node positions.
-   * Called on every simulation tick.
+   * Driven by rAF loop (_ensureAnimationLoop), independent of D3 simulation.
+   *
+   * The arrow travels along a FIXED curved arc from A to B.
+   * The arc shape is defined by the full A→B distance (not the visible segment),
+   * so it stays consistent as the arrow slides along the path.
+   *
+   * Sub-curve extraction uses quadratic Bezier math:
+   *   B(t) = (1-t)²·P0 + 2(1-t)t·P1 + t²·P2
+   *   Sub-curve control point derived from 3 sampled points via midpoint inversion.
+   *
+   *   Phase 1 (0–45%):  Arrow head extends from A toward B along the arc
+   *   Phase 2 (45–90%): Arrow tail retracts from A toward B along the arc
+   *   Phase 3 (90–100%): Opacity fades to 0
    */
   tickActiveConnections() {
     const now = Date.now();
     const alive = [];
 
+    // Smooth ease-in-out
+    const ease = (v) => v < 0.5 ? 2 * v * v : 1 - Math.pow(-2 * v + 2, 2) / 2;
+
+    // Evaluate quadratic Bezier at parameter t
+    const qB = (t, p0, p1, p2) => (1 - t) * (1 - t) * p0 + 2 * (1 - t) * t * p1 + t * t * p2;
+
     for (const conn of this.activeConnections) {
       const elapsed = now - conn.startTime;
+
+      // Expired — clean up
       if (elapsed > conn.duration) {
-        // Cleanup
-        if (conn.particle && conn.particle.parentNode) conn.particle.remove();
+        if (conn.el && conn.el.parentNode) conn.el.remove();
         continue;
       }
 
       const fromNode = this.findNode(conn.fromId);
       const toNode = this.findNode(conn.toId);
-      if (!fromNode || !toNode) continue;
-
-      // Update line endpoints to follow nodes
-      if (conn.line && conn.line.parentNode) {
-        d3.select(conn.line)
-          .attr('x1', fromNode.x).attr('y1', fromNode.y)
-          .attr('x2', toNode.x).attr('y2', toNode.y);
+      if (!fromNode || !toNode) {
+        if (conn.el && conn.el.parentNode) conn.el.remove();
+        continue;
       }
 
-      // Update particle position — interpolate along the line
-      if (conn.particle && conn.particle.parentNode) {
-        const pElapsed = now - conn.particleStart;
-        const t = Math.min(1, pElapsed / conn.particleDuration);
-        const px = fromNode.x + (toNode.x - fromNode.x) * t;
-        const py = fromNode.y + (toNode.y - fromNode.y) * t;
-        d3.select(conn.particle)
-          .attr('cx', px).attr('cy', py)
-          .attr('opacity', 0.9 - t * 0.6);
-        if (t >= 1 && conn.particle.parentNode) {
-          conn.particle.remove();
+      const t = elapsed / conn.duration;
+
+      let headT, tailT, opacity;
+      if (t <= 0.45) {
+        headT = ease(t / 0.45);
+        tailT = 0;
+        opacity = 0.55;
+      } else if (t <= 0.9) {
+        headT = 1;
+        tailT = ease((t - 0.45) / 0.45);
+        opacity = 0.55;
+
+        // Pulse the target node when the arrow first arrives
+        if (!conn.pulsed) {
+          conn.pulsed = true;
+          this._pulseTargetNode(conn.toId, conn.color);
+        }
+      } else {
+        headT = 1;
+        tailT = 1;
+        opacity = 0.55 * (1 - (t - 0.9) / 0.1);
+      }
+
+      // Full A→B arc — control point is FIXED relative to the full path, not the visible segment
+      const ax = fromNode.x, ay = fromNode.y;
+      const bx = toNode.x, by = toNode.y;
+      const fullDx = bx - ax, fullDy = by - ay;
+      const fullLen = Math.sqrt(fullDx * fullDx + fullDy * fullDy) || 1;
+      const curvature = 0.18;
+      // Perpendicular offset for the fixed arc control point
+      const cpx = (ax + bx) / 2 + (-fullDy / fullLen) * fullLen * curvature;
+      const cpy = (ay + by) / 2 + (fullDx / fullLen) * fullLen * curvature;
+
+      // Sample 3 points on the full Bezier at tailT, midT, headT
+      const sx = qB(tailT, ax, cpx, bx);
+      const sy = qB(tailT, ay, cpy, by);
+      const ex = qB(headT, ax, cpx, bx);
+      const ey = qB(headT, ay, cpy, by);
+      const midT = (tailT + headT) / 2;
+      const mx = qB(midT, ax, cpx, bx);
+      const my = qB(midT, ay, cpy, by);
+
+      // Derive sub-curve control point from the midpoint:
+      // For a quadratic Bezier, B(0.5) = P0/4 + P1/2 + P2/4
+      // So P1 = 2*B(0.5) - P0/2 - P2/2
+      const scx = 2 * mx - sx / 2 - ex / 2;
+      const scy = 2 * my - sy / 2 - ey / 2;
+
+      if (conn.el && conn.el.parentNode) {
+        const sel = d3.select(conn.el);
+        sel.attr('d', `M${sx},${sy} Q${scx},${scy} ${ex},${ey}`)
+           .attr('opacity', opacity);
+
+        // Remove arrowhead once the leading edge arrives at destination (Phase 2+)
+        // to prevent the marker spinning on near-zero-length path segments.
+        if (headT >= 1 && !conn.markerRemoved) {
+          conn.markerRemoved = true;
+          sel.attr('marker-end', null);
         }
       }
 
@@ -433,7 +540,31 @@ class ForceGraph {
   }
 
   /**
-   * Animate gossip relay between two leviathans (particle only, no persistent line).
+   * Pulse a target node when an arrow arrives — quick scale-up then ease back.
+   * Scales the .node-shape element (not the group) to avoid conflict with
+   * the simulation tick's translate transform on the parent group.
+   */
+  _pulseTargetNode(nodeId, color) {
+    const g = this.nodeLayer.select(`[data-id="${nodeId}"]`);
+    if (g.empty()) return;
+
+    const shape = g.select('.node-shape');
+    if (shape.empty()) return;
+
+    // Cancel any in-progress pulse so they don't stack
+    shape.interrupt('arrival-pulse');
+
+    shape.transition('arrival-pulse')
+      .duration(100)
+      .attr('transform', 'scale(1.2)')
+      .transition()
+      .duration(400)
+      .ease(d3.easeCubicOut)
+      .attr('transform', 'scale(1)');
+  }
+
+  /**
+   * Animate gossip relay between two leviathans.
    */
   animateGossipRelay(fromId, toId) {
     this.animateEvent(fromId, toId, 'viz:leviathan:gossip');

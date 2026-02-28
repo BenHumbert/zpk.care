@@ -34,14 +34,14 @@
   ];
 
   const PHARMACIES = [
-    { idx: 0, name: 'CVS #1001' },
-    { idx: 1, name: 'Walgreens #2001' },
-    { idx: 2, name: 'Rite Aid #3001' },
-    { idx: 3, name: 'Walmart #4001' },
-    { idx: 4, name: 'Costco #5001' },
-    { idx: 5, name: 'Kroger #6001' },
-    { idx: 6, name: 'Express Scripts' },
-    { idx: 7, name: 'OptumRx' },
+    { idx: 0, name: 'Main Street Pharm.' },
+    { idx: 1, name: 'WellCare Drugs #1042' },
+    { idx: 2, name: 'HealthMart #8871' },
+    { idx: 3, name: 'RxDirect Mail' },
+    { idx: 4, name: 'BioSpecialty Pharm.' },
+    { idx: 5, name: 'Precision Compound.' },
+    { idx: 6, name: 'Sunrise LTC Pharm.' },
+    { idx: 7, name: 'Campus Health Pharm.' },
   ];
 
   // ─── Human-readable event descriptions ────────────────
@@ -67,6 +67,7 @@
     'viz:fulfillment:reversed':     { verb: 'reversed fulfillment', icon: '↩️', color: '#ef5350' },
     'viz:pharmacy:dispensed':       { verb: 'dispensed medication', icon: '💊', color: '#ffa726' },
     'viz:pharmacy:rejected':        { verb: 'rejected prescription', icon: '❌', color: '#ef5350' },
+    'viz:credential:generated':     { verb: 'generated credential', icon: '🪪', color: '#ab47bc' },
     'viz:pharmacy:credential_scan': { verb: 'scanned credential', icon: '📱', color: '#ffa726' },
     'viz:accumulator:updated':      { verb: 'accumulator updated', icon: '📊', color: '#26c6da' },
     'viz:reversal:processed':       { verb: 'reversal processed', icon: '↩️', color: '#ef5350' },
@@ -140,6 +141,7 @@
     };
 
     document.getElementById('btn-smoke-test').addEventListener('click', runSmokeTest);
+    document.getElementById('btn-auto-mode').addEventListener('click', toggleAutoMode);
     document.getElementById('btn-reset').addEventListener('click', resetDashboard);
     document.getElementById('btn-close-smoke').addEventListener('click', () => {
       document.getElementById('smoke-test-panel').classList.add('hidden');
@@ -157,6 +159,7 @@
     connectConsoleSse();
     initConsolePanel();
     blockTimeline.start();
+    loadVizHistory();
 
     // Expose pollStatus globally so modals can trigger data refresh after actions
     window._dashboardPollStatus = pollStatus;
@@ -283,6 +286,7 @@
         id: `member-${m.idx}`,
         label: PrivacyMode.memberLabel(m.name, m.idx, null),
         sublabel: PrivacyMode.memberSublabel(m.rel, m.idx, null),
+        line3: PrivacyMode.memberLine3(null),
         entityType: 'member', memberIndex: m.idx,
         enrollmentState: 'unenrolled',
       });
@@ -316,6 +320,7 @@
       if (data.status === 'complete' && !compilationReady) {
         compilationReady = true;
         document.getElementById('btn-smoke-test').disabled = false;
+        document.getElementById('btn-auto-mode').disabled = false;
         clearInterval(compilationPollInterval);
       }
     } catch { /* ignore */ }
@@ -403,6 +408,7 @@
             entity.walletId = m.walletId;
             entity.label = PrivacyMode.memberLabel(MEMBERS[m.memberIndex]?.name || entity.label, m.memberIndex, m.walletId);
             entity.sublabel = PrivacyMode.memberSublabel(truncHash(m.walletId), m.memberIndex, m.walletId);
+            entity.line3 = PrivacyMode.memberLine3(m.walletId);
           }
         }
 
@@ -421,6 +427,17 @@
 
       if (statusData.smokeTest && statusData.smokeTest.status !== 'idle') {
         renderSmokeTestPanel(statusData.smokeTest);
+      }
+
+      // Sync auto mode button state
+      const autoBtn = document.getElementById('btn-auto-mode');
+      if (statusData.autoMode && autoBtn) {
+        const isRunning = statusData.autoMode.status === 'running';
+        autoBtn.classList.toggle('active', isRunning);
+        // Disable smoke test while auto mode is running
+        if (compilationReady) {
+          document.getElementById('btn-smoke-test').disabled = isRunning;
+        }
       }
     } catch { /* ignore */ }
   }
@@ -457,6 +474,7 @@
         id: `member-${m.idx}`,
         label: PrivacyMode.memberLabel(m.name, m.idx, null),
         sublabel: PrivacyMode.memberSublabel(m.rel, m.idx, null),
+        line3: PrivacyMode.memberLine3(null),
         entityType: 'member', memberIndex: m.idx,
         enrollmentState: 'unenrolled',
       });
@@ -498,6 +516,19 @@
     evtSource.onerror = () => {};
   }
 
+  // ─── Viz History (populate activity log on load/refresh) ───
+  async function loadVizHistory() {
+    try {
+      const res = await fetch('/viz/history');
+      if (!res.ok) return;
+      const events = await res.json();
+      for (const event of events) {
+        // Populate log entries only — no animations, no node state changes
+        addLogEntry(event);
+      }
+    } catch { /* ignore */ }
+  }
+
   // ─── VizEvent Handler ──────────────────────────────────
   function handleVizEvent(event) {
     const { type, actor, actorType, target, targetType } = event;
@@ -536,6 +567,9 @@
         forceGraph.setMemberState(memberId, 'enrolled');
         forceGraph.setEnrollingOverlay(memberId, false);
       }
+      // Clear proving spinners on both actor and target (PCP flow sets spinner on prescriber)
+      if (fromId) forceGraph.setProvingSpinner(fromId, false);
+      if (toId) forceGraph.setProvingSpinner(toId, false);
       pollStatus();
     }
 
@@ -544,6 +578,13 @@
     }
     if (type === 'viz:enrollment:registration' || type === 'viz:fulfillment:settled') {
       if (fromId) forceGraph.setProvingSpinner(fromId, false);
+    }
+
+    // State-changing events — refresh dashboard data immediately
+    if (type === 'viz:fulfillment:settled' || type === 'viz:prescription:written' ||
+        type === 'viz:pharmacy:dispensed' || type === 'viz:credential:generated' ||
+        type === 'viz:prescription:status' || type === 'viz:accumulator:updated') {
+      pollStatus();
     }
 
     // If no target resolved, try a default target based on event semantics
@@ -596,14 +637,34 @@
       if (!m) return;
 
       const isEnrolled = d.enrollmentState === 'enrolled';
-      const label = PrivacyMode.memberLabel(m.name, m.idx, isEnrolled ? d.walletId : null);
+      const wid = isEnrolled ? d.walletId : null;
+      const label = PrivacyMode.memberLabel(m.name, m.idx, wid);
       const sublabel = isEnrolled
         ? PrivacyMode.memberSublabel(truncHash(d.walletId), m.idx, d.walletId)
         : PrivacyMode.memberSublabel(m.rel, m.idx, null);
+      const line3 = PrivacyMode.memberLine3(wid);
+
+      d.label = label;
+      d.sublabel = sublabel;
+      d.line3 = line3;
 
       g.select('.node-label').text(label);
       const sublabelEl = g.select('.node-sublabel');
       if (!sublabelEl.empty()) sublabelEl.text(sublabel);
+
+      // Third line — add/remove/update
+      let line3El = g.select('.node-line3');
+      if (line3) {
+        if (line3El.empty()) {
+          const r = 18; // member node radius
+          line3El = g.append('text')
+            .attr('class', 'node-sublabel node-line3')
+            .attr('y', r + 36);
+        }
+        line3El.text(line3);
+      } else if (!line3El.empty()) {
+        line3El.remove();
+      }
     });
   }
 
@@ -712,6 +773,27 @@
   }
 
   // ─── Smoke Test ─────────────────────────────────────────
+  async function toggleAutoMode() {
+    const btn = document.getElementById('btn-auto-mode');
+    if (btn.classList.contains('active')) {
+      // Stop
+      try {
+        await fetch('/flowchart/auto-mode/stop', { method: 'POST' });
+      } catch { /* ignore */ }
+      btn.classList.remove('active');
+      btn.textContent = 'Auto Mode';
+    } else {
+      // Start
+      try {
+        const res = await fetch('/flowchart/auto-mode/start', { method: 'POST' });
+        if (res.ok) {
+          btn.classList.add('active');
+          btn.textContent = 'Auto Mode';
+        }
+      } catch { /* ignore */ }
+    }
+  }
+
   async function runSmokeTest() {
     try {
       const res = await fetch('/flowchart/smoke-test', { method: 'POST' });

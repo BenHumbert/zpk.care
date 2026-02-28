@@ -19,8 +19,11 @@
     "start:old": "concurrently -n SEQ,VIZ,DEMO -c blue,green,yellow \"npx tsx demo/start-sequencer.ts\" \"parcel src/index.html --port 1234\" \"npx tsx demo/scenario-runner.ts\""
   },
   "devDependencies": {
-    "parcel": "^2.12.0",
     "concurrently": "^9.0.0",
+    "parcel": "^2.12.0",
     "tsx": "^4.19.0"
+  },
+  "dependencies": {
+    "node-hid": "^3.3.0"
   }
 }

@@ -47,6 +47,8 @@ import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY, CREDENTIAL_TYPE_PRESCRIPTI
 import { CredentialProgram } from '../../src/credentials/credential-program.js';
 import { serializeCredential, verifyCredentialOffline } from '../../src/credentials/portable-credential.js';
 import type { PortableCredential } from '../../src/credentials/portable-credential.js';
+import { SequencerAttestationAuthority } from '../../src/credentials/nfc-attestation.js';
+import type { NfcCredentialAttestation } from '../../src/credentials/nfc-attestation.js';
 
 // Eligibility
 import { EligibilityData, buildEligibilityData } from '../../src/eligibility/eligibility-data.js';
@@ -200,11 +202,13 @@ interface EnrolledMember {
   l2Receipts: string[];
   /** Last generated portable credential JSON (for pharmacy fill) */
   lastCredentialJson?: string;
+  /** Last sequencer-signed NFC attestation (for NFC tag writing) */
+  lastAttestation?: NfcCredentialAttestation;
 }
 
 // ─── Prescription State ─────────────────────────────────
 
-type RxStatus = 'ACTIVE' | 'PARTIALLY_FILLED' | 'FILLED' | 'CANCELLED' | 'REJECTED' | 'REVERSED' | 'COMPLETED';
+type RxStatus = 'ACTIVE' | 'PARTIALLY_FILLED' | 'FILLED' | 'DISPENSED' | 'CANCELLED' | 'REJECTED' | 'REVERSED' | 'COMPLETED';
 
 interface RxStatusEntry {
   from: RxStatus;
@@ -340,6 +344,7 @@ export class InteractiveDemoService {
   private reportingService = new ReportingService();
   private credentialProgramVk: string | null = null;
   private credentialProgramVkHash: Field | null = null;
+  private attestationAuthority = new SequencerAttestationAuthority();
 
   // Formulary management state
   private formularyChangeHistory: Array<{
@@ -1686,6 +1691,14 @@ export class InteractiveDemoService {
     });
 
     // 2. EligibilityProgram: Member is eligible
+    this.emitViz('viz:eligibility:check', 'eligibility', {
+      actor: enrolled.displayName,
+      actorType: 'member',
+      target: 'Insurer',
+      targetType: 'insurer',
+      data: { step: 'eligibility-check', medication: medication.brandName, memberIndex: enrolled.memberIndex },
+    });
+
     const eligForest = enrolled.forest;
     const eligForestRoots = ForestRoots.fromForest(eligForest);
     const eligWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
@@ -1716,6 +1729,14 @@ export class InteractiveDemoService {
     });
 
     // 3. AccessControl: Medication on formulary
+    this.emitViz('viz:formulary:check', 'eligibility', {
+      actor: enrolled.displayName,
+      actorType: 'member',
+      target: 'Insurer',
+      targetType: 'insurer',
+      data: { step: 'formulary-check', medication: medication.brandName, ndc: medication.ndcFormatted, memberIndex: enrolled.memberIndex },
+    });
+
     const formEligWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
     const formIdx = BigInt(opts.medicationIndex);
     const formWitness = this.formularyRegistry.getEntryWitness(formIdx);
@@ -1988,6 +2009,8 @@ export class InteractiveDemoService {
     if (rxState.status === 'FILLED') throw new Error(`Prescription already filled: ${opts.prescriptionId}`);
     if (rxState.status === 'CANCELLED') throw new Error(`Prescription was cancelled: ${opts.prescriptionId}`);
     if (rxState.status === 'REJECTED') throw new Error(`Prescription was rejected: ${opts.prescriptionId}`);
+    // NCPDP: ACTIVE/PARTIALLY_FILLED → FILLED (direct adjudication)
+    //        DISPENSED → FILLED (member pickup with credential)
     if (rxState.status !== 'ACTIVE' && rxState.status !== 'PARTIALLY_FILLED' && rxState.status !== 'DISPENSED') {
       throw new Error(`Cannot fill prescription in ${rxState.status} status: ${opts.prescriptionId}`);
     }
@@ -2037,6 +2060,14 @@ export class InteractiveDemoService {
     this.emit('info', 'fill', '');
 
     // 1. ProofGate: Pharmacy identity
+    this.emitViz('viz:pharmacy:credential_scan', 'fulfillment', {
+      actor: pharmacy.storeName,
+      actorType: 'pharmacy',
+      target: enrolled.displayName,
+      targetType: 'member',
+      data: { step: 'credential-scan', medication: medication.brandName, pharmacyIndex: opts.pharmacyIndex, memberIndex: enrolled.memberIndex },
+    });
+
     this.emit('proof', 'fill', `[1/3] Generating ProofGate.verifyPharmacy proof...`, 'start');
     const startPG = performance.now();
     await ProofGateProgram.verifyPharmacy(
@@ -2535,7 +2566,7 @@ export class InteractiveDemoService {
     const rxState = this.prescriptions.get(opts.prescriptionId);
     if (!rxState) throw new Error(`Prescription not found: ${opts.prescriptionId}`);
 
-    // COMPLETED is a service-layer-only status (not in ZK circuit state machine)
+    // COMPLETED is a service-layer-only terminal status (member confirmed pickup)
     if (opts.newStatus === 'COMPLETED') {
       if (rxState.status !== 'FILLED') {
         throw new Error(`Cannot complete prescription in ${rxState.status} status. Must be FILLED first.`);
@@ -2544,7 +2575,8 @@ export class InteractiveDemoService {
         throw new Error('Only pharmacies can mark prescriptions as completed');
       }
     } else if (opts.newStatus === 'DISPENSED') {
-      // DISPENSED is a service-layer status change (pharmacy prepares medication, no credential needed)
+      // NCPDP: DISPENSED = pharmacy has prepared/dispensed the medication, awaiting member pickup.
+      // DISPENSED → FILLED happens when member presents credential and picks up.
       if (rxState.status !== 'ACTIVE') {
         throw new Error(`Cannot dispense prescription in ${rxState.status} status. Must be ACTIVE.`);
       }
@@ -3413,7 +3445,13 @@ export class InteractiveDemoService {
       newRegistryRoot: this.walletRegistry.getRoot(),
     });
 
-    // 2. Update local EnrolledMember state
+    // 2. Revoke NFC attestation nonce (if one exists)
+    if (enrolled.lastAttestation) {
+      this.attestationAuthority.revokeNonce(enrolled.lastAttestation.n);
+      this.emit('info', 'terminate', '  NFC attestation nonce revoked');
+    }
+
+    // 3. Update local EnrolledMember state
     enrolled.lifecycle = 'REVOKED';
     enrolled.terminationDate = termDate;
     // Update credentialData to reflect revocation
@@ -4059,6 +4097,14 @@ export class InteractiveDemoService {
     this.emit('proof', 'pcp', `[1/2] ProofGate.verifyPrescriber proof generated`, 'complete', elapsedPG);
     this.emit('info', 'pcp', `       ${prescriberName} proved identity (NPI ownership)`);
 
+    this.emitViz('viz:enrollment:proof_gate', 'enrollment', {
+      actor: prescriberName,
+      actorType: 'prescriber',
+      target: enrolled.displayName,
+      targetType: 'member',
+      data: { step: 'pcp-identity', prescriberIndex: opts.prescriberIndex, memberIndex: enrolled.memberIndex },
+    });
+
     // 2. Build PCP assignment data
     this.emit('offchain', 'pcp', 'Building PCP assignment data...', 'start');
     const startBuild = performance.now();
@@ -4650,9 +4696,36 @@ export class InteractiveDemoService {
     // Store on enrolled member so pharmacy can access it via getState()
     enrolled.lastCredentialJson = credentialJson;
 
+    // Create sequencer-signed attestation for NFC tag (~500 bytes, fits NTAG216)
+    const attestation = this.attestationAuthority.createAttestation({
+      walletId: credential.publicOutput.walletId,
+      credentialCommitment: credential.publicOutput.credentialCommitment,
+      lifecycleState: 3, // ACTIVE
+      forestRoot: credentialData.forestRoot.toString(),
+    });
+    enrolled.lastAttestation = attestation;
+    this.emit('info', 'credential', `  NFC attestation created (Ed25519 signed, expires ${new Date(attestation.exp * 1000).toLocaleString()})`);
+
+    // Emit visualization event for credential generation at pharmacy
+    this.emitViz('viz:credential:generated', 'fulfillment', {
+      actor: enrolled.displayName,
+      actorType: 'member',
+      target: 'Insurer',
+      targetType: 'insurer',
+      data: {
+        walletId: enrolled.walletIdStr,
+        proofType: credentialProofType,
+        proofGateTimeMs: Math.round(pgElapsed),
+        credentialProgramTimeMs: Math.round(credentialElapsed),
+        totalTimeMs: Math.round(totalMs),
+        hasAttestation: true,
+      },
+    });
+
     return {
       credential,
       credentialJson,
+      attestation,
       proofGateTimeMs: pgElapsed,
       credentialProgramTimeMs: credentialElapsed,
       totalTimeMs: totalMs,
@@ -4754,6 +4827,39 @@ export class InteractiveDemoService {
     };
   }
 
+  // ─── NFC Attestation Methods ─────────────────────────────
+
+  /** Get the sequencer's Ed25519 public key (hex string) */
+  getSequencerPublicKey(): string {
+    return this.attestationAuthority.publicKeyHex;
+  }
+
+  /** Get the last attestation for a walletId (if one exists) */
+  getAttestation(walletId: string): NfcCredentialAttestation | null {
+    for (const [_, m] of this.enrolledMembers) {
+      if (m.walletId.toString() === walletId && m.lastAttestation) {
+        return m.lastAttestation;
+      }
+    }
+    return null;
+  }
+
+  /** Verify an attestation's Ed25519 signature and expiry */
+  verifyAttestation(att: NfcCredentialAttestation): { valid: boolean; expired: boolean; revoked: boolean; reason?: string } {
+    const result = SequencerAttestationAuthority.verifyAttestation(att);
+    const revoked = this.attestationAuthority.isRevoked(att.n);
+    return {
+      ...result,
+      revoked,
+      reason: revoked ? 'Attestation has been revoked (member terminated)' : result.reason,
+    };
+  }
+
+  /** Check if an attestation nonce has been revoked */
+  isAttestationRevoked(nonce: string): boolean {
+    return this.attestationAuthority.isRevoked(nonce);
+  }
+
   // ─── State & Reset ─────────────────────────────────────
 
   getState(): Record<string, unknown> {
@@ -4788,6 +4894,7 @@ export class InteractiveDemoService {
         nonce: m.nonce,
         l2Receipts: m.l2Receipts,
         credentialJson: m.lastCredentialJson ?? null,
+        lastAttestation: m.lastAttestation ?? null,
         credentialInventory: {
           count: m.credentialInventory.count,
           inventoryRoot: fieldToStr(m.credentialInventory.getRoot()),
