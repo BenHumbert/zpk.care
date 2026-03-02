@@ -788,11 +788,22 @@ function registerFlowchartRoutes(
   });
 
   // GET /flowchart/batch-detail — enriched per-batch data for block visualization
+  // Query params: zoom (0-4), from (ISO date), to (ISO date)
+  //   zoom=0: individual batch cards (default, last 50)
+  //   zoom=1: group by day, zoom=2: month, zoom=3: quarter, zoom=4: year
   server.registerRoute('GET', '/flowchart/batch-detail', async (_req, res) => {
     const seq = node.getSequencer();
     const nodeStatus = node.getStatus();
     const allBatches = seq.getAllBatches();
     const allReceipts = seq.getAllReceipts();
+
+    // Parse query params
+    const reqUrl = new URL(_req.url ?? '/', `http://${_req.headers.host ?? 'localhost'}`);
+    const zoom = Math.max(0, Math.min(4, parseInt(reqUrl.searchParams.get('zoom') ?? '0', 10) || 0));
+    const fromParam = reqUrl.searchParams.get('from');
+    const toParam = reqUrl.searchParams.get('to');
+    const fromTs = fromParam ? new Date(fromParam).getTime() : null;
+    const toTs = toParam ? new Date(toParam).getTime() : null;
 
     // Build walletId → member name lookup from enrolled members
     const stateData = service.getState() as Record<string, unknown>;
@@ -804,74 +815,12 @@ function registerFlowchartRoutes(
       }
     }
 
-    // Recent batches (last 50) — flattened receipt data for easy frontend rendering
-    const recentBatches = allBatches.slice(-50).map(batch => {
-      const batchReceipts = allReceipts
-        .filter(r => r.l1BatchNumber === batch.batchNumber)
-        .map(r => {
-          // Resolve member display name
-          const memberName = walletNameMap[r.walletId] ?? null;
+    // Filter batches by date range if specified
+    let filteredBatches = allBatches;
+    if (fromTs != null) filteredBatches = filteredBatches.filter(b => b.createdAt >= fromTs);
+    if (toTs != null) filteredBatches = filteredBatches.filter(b => b.createdAt <= toTs);
 
-          // Determine operation type and flatten claim detail
-          let operationType: string = r.isRegistration ? 'registration' : 'transition';
-          let patientPayCents = 0;
-          let planPayCents = 0;
-          let brandName: string | null = null;
-          let ndc: string | null = null;
-          let tierLevel: number | null = null;
-          let daysSupply: number | null = null;
-
-          if (r.claimLeafIndex !== undefined) {
-            try {
-              const result = seq.getClaimWithProof(r.claimLeafIndex);
-              if (result) {
-                patientPayCents = Number(result.entry.leaf.patientPayCents);
-                planPayCents = Number(result.entry.leaf.planPayCents);
-                const op = String(result.entry.leaf.operationType);
-                operationType = op === '1' ? 'fulfillment' : op === '2' ? 'reversal' : operationType;
-                brandName = (result.entry.metadata.brandName as string) ?? null;
-                ndc = (result.entry.metadata.ndc as string) ?? null;
-                tierLevel = (result.entry.metadata.tierLevel as number) ?? null;
-                daysSupply = (result.entry.metadata.daysSupply as number) ?? null;
-              }
-            } catch {
-              // Claim data not available — skip enrichment
-            }
-          }
-
-          return {
-            receiptId: r.receiptId,
-            walletId: r.walletId,
-            memberName,
-            isRegistration: r.isRegistration,
-            operationType,
-            sequenceNumber: Number(r.sequenceNumber),
-            acceptedAt: r.acceptedAt,
-            l1Status: r.l1Status,
-            patientPayCents,
-            planPayCents,
-            brandName,
-            ndc,
-            tierLevel,
-            daysSupply,
-          };
-        });
-
-      return {
-        batchNumber: Number(batch.batchNumber),
-        transitionCount: batch.transitionCount,
-        registrationCount: batch.registrationCount,
-        createdAt: batch.createdAt,
-        l1Status: batch.l1Status,
-        claimAccumulatorRoot: batch.claimAccumulatorRoot ?? null,
-        messageStoreRoot: batch.messageStoreRoot ?? null,
-        workerId: batch.workerId ?? null,
-        proveTimeMs: batch.proveTimeMs ?? null,
-        receipts: batchReceipts,
-      };
-    });
-
-    // Pending receipts (not yet batched)
+    // Pending receipts (not yet batched) — always included regardless of zoom
     const pendingReceipts = allReceipts
       .filter(r => r.l1Status === 'pending')
       .map(r => ({
@@ -883,12 +832,154 @@ function registerFlowchartRoutes(
         l1Status: r.l1Status,
       }));
 
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-    res.end(JSON.stringify({
-      batches: recentBatches,
-      pendingReceipts,
+    const baseResponse = {
+      totalBatches: allBatches.length,
       batchIntervalMs: nodeStatus.batchIntervalMs,
       nextBatchInMs: nodeStatus.nextBatchInMs,
+      pendingReceipts,
+    };
+
+    if (zoom === 0) {
+      // ─── Individual batch cards (existing logic) ───
+      const recentBatches = filteredBatches.slice(-50).map(batch => {
+        const batchReceipts = allReceipts
+          .filter(r => r.l1BatchNumber === batch.batchNumber)
+          .map(r => {
+            const memberName = walletNameMap[r.walletId] ?? null;
+            let operationType: string = r.isRegistration ? 'registration' : 'transition';
+            let patientPayCents = 0;
+            let planPayCents = 0;
+            let brandName: string | null = null;
+            let ndc: string | null = null;
+            let tierLevel: number | null = null;
+            let daysSupply: number | null = null;
+
+            if (r.claimLeafIndex !== undefined) {
+              try {
+                const result = seq.getClaimWithProof(r.claimLeafIndex);
+                if (result) {
+                  patientPayCents = Number(result.entry.leaf.patientPayCents);
+                  planPayCents = Number(result.entry.leaf.planPayCents);
+                  const op = String(result.entry.leaf.operationType);
+                  operationType = op === '1' ? 'fulfillment' : op === '2' ? 'reversal' : operationType;
+                  brandName = (result.entry.metadata.brandName as string) ?? null;
+                  ndc = (result.entry.metadata.ndc as string) ?? null;
+                  tierLevel = (result.entry.metadata.tierLevel as number) ?? null;
+                  daysSupply = (result.entry.metadata.daysSupply as number) ?? null;
+                }
+              } catch { /* skip */ }
+            }
+
+            return {
+              receiptId: r.receiptId, walletId: r.walletId, memberName,
+              isRegistration: r.isRegistration, operationType,
+              sequenceNumber: Number(r.sequenceNumber), acceptedAt: r.acceptedAt,
+              l1Status: r.l1Status,
+              patientPayCents, planPayCents, brandName, ndc, tierLevel, daysSupply,
+            };
+          });
+
+        return {
+          batchNumber: Number(batch.batchNumber),
+          transitionCount: batch.transitionCount,
+          registrationCount: batch.registrationCount,
+          createdAt: batch.createdAt,
+          l1Status: batch.l1Status,
+          claimAccumulatorRoot: batch.claimAccumulatorRoot ?? null,
+          messageStoreRoot: batch.messageStoreRoot ?? null,
+          workerId: batch.workerId ?? null,
+          proveTimeMs: batch.proveTimeMs ?? null,
+          receipts: batchReceipts,
+        };
+      });
+
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ type: 'individual', batches: recentBatches, ...baseResponse }));
+      return;
+    }
+
+    // ─── Grouped view (zoom 1-4) ───
+    const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    function getTimeKey(timestamp: number, z: number): string {
+      const d = new Date(timestamp);
+      const y = d.getFullYear();
+      const m = d.getMonth();
+      if (z === 4) return `${y}`;
+      if (z === 3) return `${y}-Q${Math.floor(m / 3) + 1}`;
+      if (z === 2) return `${y}-${String(m + 1).padStart(2, '0')}`;
+      return `${y}-${String(m + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    function getTimeLabel(key: string, z: number): string {
+      if (z === 4) return key; // "2026"
+      if (z === 3) { // "2026-Q1" → "Q1 2026"
+        const [y, q] = key.split('-');
+        return `${q} ${y}`;
+      }
+      if (z === 2) { // "2026-01" → "Jan 2026"
+        const [y, m] = key.split('-');
+        return `${MONTH_NAMES[parseInt(m, 10) - 1]} ${y}`;
+      }
+      // z === 1: "2026-01-15" → "Jan 15"
+      const [, m, d] = key.split('-');
+      return `${MONTH_NAMES[parseInt(m, 10) - 1]} ${parseInt(d, 10)}`;
+    }
+
+    interface BatchGroup {
+      key: string; label: string; zoom: number;
+      batchCount: number; registrationCount: number;
+      fulfillmentCount: number; reversalCount: number;
+      totalPatientPayCents: number; totalPlanPayCents: number;
+      firstBatchAt: number; lastBatchAt: number;
+      workerIds: number[];
+    }
+
+    const groups = new Map<string, BatchGroup>();
+    for (const batch of filteredBatches) {
+      const key = getTimeKey(batch.createdAt, zoom);
+      if (!groups.has(key)) {
+        groups.set(key, {
+          key, label: getTimeLabel(key, zoom), zoom,
+          batchCount: 0, registrationCount: 0,
+          fulfillmentCount: 0, reversalCount: 0,
+          totalPatientPayCents: 0, totalPlanPayCents: 0,
+          firstBatchAt: batch.createdAt, lastBatchAt: batch.createdAt,
+          workerIds: [],
+        });
+      }
+      const g = groups.get(key)!;
+      g.batchCount++;
+      g.registrationCount += batch.registrationCount ?? 0;
+      if (batch.createdAt < g.firstBatchAt) g.firstBatchAt = batch.createdAt;
+      if (batch.createdAt > g.lastBatchAt) g.lastBatchAt = batch.createdAt;
+      if (batch.workerId != null && !g.workerIds.includes(batch.workerId)) {
+        g.workerIds.push(batch.workerId);
+      }
+
+      // Aggregate receipt-level stats
+      const batchReceipts = allReceipts.filter(r => r.l1BatchNumber === batch.batchNumber);
+      for (const r of batchReceipts) {
+        if (r.claimLeafIndex !== undefined) {
+          try {
+            const result = seq.getClaimWithProof(r.claimLeafIndex);
+            if (result) {
+              g.totalPatientPayCents += Number(result.entry.leaf.patientPayCents);
+              g.totalPlanPayCents += Number(result.entry.leaf.planPayCents);
+              const op = String(result.entry.leaf.operationType);
+              if (op === '1') g.fulfillmentCount++;
+              else if (op === '2') g.reversalCount++;
+            }
+          } catch { /* skip */ }
+        }
+      }
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({
+      type: 'grouped',
+      groups: [...groups.values()],
+      ...baseResponse,
     }));
   });
 }

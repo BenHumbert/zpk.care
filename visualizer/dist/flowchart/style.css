@@ -511,6 +511,104 @@ body {
   );
 }
 
+/* ─── LIVE Button ─────────────────────────────────── */
+.live-btn {
+  display: flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 10px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+  border: 1px solid transparent; cursor: pointer;
+  transition: all 0.2s ease;
+  margin-left: 8px;
+}
+.live-active {
+  background: rgba(76, 175, 80, 0.15);
+  color: #66bb6a; border-color: rgba(76, 175, 80, 0.3);
+}
+.live-inactive {
+  background: var(--bg-tertiary);
+  color: var(--text-muted); border-color: var(--border);
+}
+.live-inactive:hover { color: #66bb6a; border-color: rgba(76, 175, 80, 0.3); }
+.live-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #66bb6a; display: inline-block;
+}
+.live-active .live-dot {
+  animation: live-pulse 1.5s ease-in-out infinite;
+}
+.live-inactive .live-dot { background: var(--text-muted); animation: none; }
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.4); }
+  50% { opacity: 0.6; box-shadow: 0 0 0 4px rgba(76, 175, 80, 0); }
+}
+
+/* ─── Zoom Controls ───────────────────────────────── */
+.timeline-zoom {
+  display: flex; align-items: center; gap: 6px;
+  margin-left: auto;
+  margin-right: 12px;
+}
+.zoom-btn {
+  width: 22px; height: 22px;
+  background: var(--bg-tertiary); border: 1px solid var(--border);
+  color: var(--text-secondary); border-radius: 4px;
+  cursor: pointer; font-size: 14px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s ease;
+}
+.zoom-btn:hover { background: var(--bg-primary); color: var(--text-primary); }
+.zoom-label {
+  font-size: 11px; color: var(--text-secondary);
+  min-width: 60px; text-align: center;
+  font-weight: 600;
+}
+
+/* ─── Breadcrumb ──────────────────────────────────── */
+.timeline-breadcrumb {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 10px; color: var(--text-muted);
+  margin-left: 8px;
+}
+.breadcrumb-item {
+  cursor: pointer; color: var(--accent-teal);
+  text-decoration: none;
+}
+.breadcrumb-item:hover { color: var(--text-primary); text-decoration: underline; }
+.breadcrumb-sep { color: var(--text-muted); }
+
+/* ─── Group Card ──────────────────────────────────── */
+.bc-group {
+  border-left: 3px solid var(--accent-teal);
+  cursor: pointer;
+  min-width: 180px;
+}
+.bc-group:hover {
+  background: var(--bg-primary);
+  transform: translateY(-2px);
+  transition: all 0.15s ease;
+}
+.bc-group-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 2px 8px;
+  font-size: 10px;
+  margin-top: 4px;
+}
+.bc-group-stats > div {
+  display: flex; gap: 4px; align-items: center;
+}
+.bc-group-stat-label { color: var(--text-muted); }
+.bc-group-stat-value { color: var(--text-primary); font-weight: 600; }
+.bc-group-total {
+  margin-top: 4px; padding-top: 4px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+}
+.bc-group-workers {
+  margin-top: 3px;
+  display: flex; gap: 3px; flex-wrap: wrap;
+}
+
 /* ─── Batch Popup ──────────────────────────────────── */
 .batch-popup {
   position: fixed;
