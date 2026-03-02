@@ -81,6 +81,14 @@
     'viz:leviathan:heartbeat':      { verb: 'heartbeat', icon: '💚', color: '#26c6da' },
     'viz:leviathan:gossip':         { verb: 'gossip relay', icon: '📡', color: '#26c6da' },
     'viz:leviathan:failover':       { verb: 'failover', icon: '⚠️', color: '#ef5350' },
+    'viz:worker:spawned':           { verb: 'worker spawned',        icon: '⚙', color: '#ffc107' },
+    'viz:worker:compiling':         { verb: 'worker compiling',      icon: '🔧', color: '#ffc107' },
+    'viz:worker:ready':             { verb: 'worker ready',          icon: '✅', color: '#66bb6a' },
+    'viz:worker:compile_timeout':   { verb: 'worker compile timeout', icon: '⏱', color: '#ef5350' },
+    'viz:worker:compile_failed':    { verb: 'worker compile failed', icon: '❌', color: '#ef5350' },
+    'viz:worker:assigned':          { verb: 'proving job',           icon: '⚡', color: '#ffc107' },
+    'viz:worker:completed':         { verb: 'proof complete',        icon: '✅', color: '#66bb6a' },
+    'viz:worker:crashed':           { verb: 'worker crashed',        icon: '💥', color: '#ef5350' },
   };
 
   // ─── State ──────────────────────────────────────────────
@@ -494,6 +502,29 @@
       });
     }
 
+    // Workers from proving pool
+    if (statusData.provingPool && statusData.provingPool.workers) {
+      for (const w of statusData.provingPool.workers) {
+        // Map server status to display label and workerStatus class
+        const statusMap = {
+          compiling: { sublabel: 'Compiling...', workerStatus: 'compiling' },
+          idle:      { sublabel: 'Idle',         workerStatus: 'idle' },
+          proving:   { sublabel: 'Proving',      workerStatus: 'proving' },
+          dead:      { sublabel: 'Dead',         workerStatus: 'dead' },
+        };
+        const info = statusMap[w.status] || statusMap.idle;
+        entities.push({
+          id: `worker-${w.id}`,
+          label: `Worker ${w.id}`,
+          sublabel: info.sublabel,
+          entityType: 'worker',
+          workerIndex: w.id,
+          parentLeviathanId: 'lev-alpha',
+          workerStatus: info.workerStatus,
+        });
+      }
+    }
+
     return entities;
   }
 
@@ -550,6 +581,55 @@
       return;
     }
 
+    // ─── Worker events ─────────────────────────────────────
+    if (type === 'viz:worker:spawned') {
+      // Worker process created — appears on graph in compiling state
+      const nodeId = `worker-${event.data?.workerId}`;
+      forceGraph.spawnWorkerNode(nodeId);
+      forceGraph.setWorkerCompiling(nodeId);
+      return;
+    }
+    if (type === 'viz:worker:compiling') {
+      const nodeId = `worker-${event.data?.workerId}`;
+      forceGraph.setWorkerCompiling(nodeId);
+      return;
+    }
+    if (type === 'viz:worker:ready') {
+      // Compilation complete — transition to idle with green pulse
+      const nodeId = `worker-${event.data?.workerId}`;
+      forceGraph.setWorkerReady(nodeId);
+      return;
+    }
+    if (type === 'viz:worker:compile_timeout') {
+      // Compilation timed out — red warning animation
+      const nodeId = `worker-${event.data?.workerId}`;
+      forceGraph.setWorkerTimeout(nodeId);
+      return;
+    }
+    if (type === 'viz:worker:compile_failed') {
+      // Compilation crashed — collapse animation
+      const nodeId = `worker-${event.data?.workerId}`;
+      forceGraph.crashWorkerNode(nodeId);
+      return;
+    }
+    if (type === 'viz:worker:assigned') {
+      const workerId = `worker-${event.data?.workerId}`;
+      forceGraph.animateEvent('lev-alpha', workerId, type);
+      forceGraph.setWorkerProving(workerId, true);
+      return;
+    }
+    if (type === 'viz:worker:completed') {
+      const workerId = `worker-${event.data?.workerId}`;
+      forceGraph.animateEvent(workerId, 'lev-alpha', type);
+      forceGraph.setWorkerProving(workerId, false);
+      return;
+    }
+    if (type === 'viz:worker:crashed') {
+      const workerId = `worker-${event.data?.workerId}`;
+      forceGraph.crashWorkerNode(workerId);
+      return;
+    }
+
     const fromId = resolveNodeId(actor, actorType, event);
     let toId = target ? resolveNodeId(target, targetType, event) : null;
 
@@ -573,10 +653,10 @@
       pollStatus();
     }
 
-    if (type === 'viz:enrollment:proof_gate' || type === 'viz:fulfillment:started') {
+    if (type === 'viz:enrollment:proof_gate' || type === 'viz:fulfillment:started' || type === 'viz:proving:started') {
       if (fromId) forceGraph.setProvingSpinner(fromId, true);
     }
-    if (type === 'viz:enrollment:registration' || type === 'viz:fulfillment:settled') {
+    if (type === 'viz:enrollment:registration' || type === 'viz:fulfillment:settled' || type === 'viz:proving:completed') {
       if (fromId) forceGraph.setProvingSpinner(fromId, false);
     }
 
@@ -674,6 +754,7 @@
     // Already a node ID
     if (name.startsWith('member-') || name.startsWith('prescriber-') ||
         name.startsWith('pharmacy-') || name.startsWith('lev-') ||
+        name.startsWith('worker-') ||
         name === 'insurer' || name === 'employer') {
       return name;
     }
@@ -779,7 +860,7 @@
       // Stop
       try {
         await fetch('/flowchart/auto-mode/stop', { method: 'POST' });
-      } catch { /* ignore */ }
+      } catch (err) { console.warn('[AutoMode] Stop request failed:', err); }
       btn.classList.remove('active');
       btn.textContent = 'Auto Mode';
     } else {
@@ -789,8 +870,11 @@
         if (res.ok) {
           btn.classList.add('active');
           btn.textContent = 'Auto Mode';
+        } else {
+          const data = await res.json().catch(() => ({}));
+          console.warn('[AutoMode] Start rejected:', res.status, data.error || '');
         }
-      } catch { /* ignore */ }
+      } catch (err) { console.warn('[AutoMode] Start request failed:', err); }
     }
   }
 

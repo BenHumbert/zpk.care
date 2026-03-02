@@ -270,12 +270,22 @@ export class AutoModeController {
         [this.unenrolledIndices[j], this.unenrolledIndices[i]];
     }
 
+    console.log(`  [AutoMode] Starting (${this.unenrolledIndices.length} unenrolled, pool scan each cycle)...`);
+
+    // Pause the L2 node's automatic batch timer — auto-mode builds batches
+    // explicitly after proof-generating actions. This prevents the batch timer's
+    // wrapSingle/wrapPair from racing with action proofs and avoids the o1js WASM
+    // hang that occurs after ~60-70 proofs when the batch timer contends for the
+    // proving lock during WASM execution.
+    this.l2Node.pauseBatchTimer();
+
     try {
       await this.loop();
     } catch (err) {
       this.lastError = err instanceof Error ? err.message : String(err);
       console.log(`  [AutoMode] Fatal error: ${this.lastError}`);
     } finally {
+      this.l2Node.resumeBatchTimer();
       this.status = 'idle';
       console.log(`  [AutoMode] Stopped. ${this.cyclesCompleted} cycles completed.`);
     }
@@ -323,8 +333,18 @@ export class AutoModeController {
 
         this.cyclesCompleted++;
         this.consecutiveErrors = 0;
-        // Breathing room — lets the batch timer acquire the proving lock
-        await this.interruptibleSleep(3000);
+        // Hint GC to reclaim o1js WASM memory between proof-heavy operations
+        (globalThis as unknown as { gc?: () => void }).gc?.();
+
+        // Cooperative batch building — the automatic batch timer is paused,
+        // so we explicitly flush pending transitions after each action.
+        // This eliminates the race condition where the batch timer's WASM
+        // execution blocks the event loop and causes the o1js prover to hang.
+        if (this.abortFlag) break;
+        await this.maybeFlushBatch();
+
+        // Brief pause between cycles
+        await this.interruptibleSleep(2000);
       } catch (err) {
         if (this.abortFlag) break;
         this.consecutiveErrors++;
@@ -333,6 +353,35 @@ export class AutoModeController {
         const backoff = Math.min(3000 * Math.pow(2, this.consecutiveErrors - 1), 30000);
         await this.interruptibleSleep(backoff);
       }
+    }
+  }
+
+  /**
+   * Flush ALL pending transitions into batches.
+   * Called cooperatively from the main loop (batch timer is paused).
+   * Loops because MAX_TRANSITIONS_PER_BATCH=2, so a formulary cascade
+   * with 8 transitions needs 4 batch cycles.
+   */
+  private async maybeFlushBatch(): Promise<void> {
+    let pending = this.l2Node.getPendingCount();
+    if (pending === 0) return;
+
+    while (pending > 0 && !this.abortFlag) {
+      console.log(`  [AutoMode] Flushing batch (${pending} pending)...`);
+      try {
+        const batch = await this.l2Node.forceBatch();
+        if (batch) {
+          console.log(`  [AutoMode] Batch ${batch.batchNumber} built (${batch.transitionCount} tx, ${batch.registrationCount} reg)`);
+        } else {
+          break; // forceBatch returned null (e.g., batchInProgress or root mismatch)
+        }
+      } catch (err) {
+        console.log(`  [AutoMode] Batch flush error: ${err instanceof Error ? err.message : String(err)}`);
+        break; // Don't retry on error — let the next cycle handle it
+      }
+      // GC between batch proofs
+      (globalThis as unknown as { gc?: () => void }).gc?.();
+      pending = this.l2Node.getPendingCount();
     }
   }
 
@@ -1059,7 +1108,15 @@ export class AutoModeController {
 
   private async doFormularyUpdate(): Promise<void> {
     const medIndex = randInt(0, 21);
-    const action = pick(FORMULARY_ACTIONS);
+    let action = pick(FORMULARY_ACTIONS);
+
+    // Guard: don't ADD if already on formulary, don't REMOVE if already off.
+    // The service throws inside o1js context which can bypass JS try/catch.
+    const isActive = (this.service as unknown as { formularyActive: boolean[] }).formularyActive?.[medIndex] ?? true;
+    if (action === 'ADD' && isActive) action = 'MODIFY';
+    if (action === 'REMOVE' && !isActive) action = 'ADD';
+    // If still invalid after swap (ADD on active after REMOVE→ADD swap when not active is impossible, but guard anyway)
+    if (action === 'ADD' && isActive) action = 'MODIFY';
 
     this.lastAction = `Insurer updating formulary (med ${medIndex}, ${action})`;
     console.log(`  [AutoMode] Insurer updating formulary: med ${medIndex} → ${action}...`);
@@ -1071,12 +1128,16 @@ export class AutoModeController {
         payload.newRequiresPriorAuth = Math.random() < 0.3;
       }
 
-      this.service.updateFormularyEntry(payload as {
-        medicationIndex: number;
-        action: 'MODIFY' | 'REMOVE' | 'ADD';
-        newTierLevel?: number;
-        newRequiresPriorAuth?: boolean;
-      });
+      // Formulary updates cascade credential changes to all enrolled members,
+      // generating a StateTransitionProof per member. Must hold the proving lock.
+      await this.l2Node.withProvingLock(() =>
+        this.service.updateFormularyEntry(payload as {
+          medicationIndex: number;
+          action: 'MODIFY' | 'REMOVE' | 'ADD';
+          newTierLevel?: number;
+          newRequiresPriorAuth?: boolean;
+        }),
+      );
     } catch (err) {
       console.log(`  [AutoMode] Formulary update skipped: ${(err as Error).message}`);
     }

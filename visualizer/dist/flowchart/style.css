@@ -26,6 +26,7 @@
   --node-insurer: #ab47bc;
   --node-leviathan: #26c6da;
   --node-employer: #ffee58;
+  --node-worker: #ffc107;
 }
 
 /* ─── Reset ────────────────────────────────────────── */
@@ -175,6 +176,122 @@ body {
 }
 .node-shape {
   animation: node-breathe 3s ease-in-out infinite;
+}
+
+/* ─── Leviathan Organic Animations ─────────────────── */
+
+/* Core glow — inner "life force" that pulses independently per leviathan */
+@keyframes leviathan-core-glow {
+  0%, 100% { opacity: 0.2; stroke-width: 3; }
+  50%      { opacity: 0.5; stroke-width: 6; }
+}
+.leviathan-core-glow {
+  animation: leviathan-core-glow 4s ease-in-out infinite;
+  pointer-events: none;
+}
+/* Phase offsets — prime-ish spacing so leviathans never sync */
+.leviathan-core-glow.lev-phase-0 { animation-delay: 0s; }
+.leviathan-core-glow.lev-phase-1 { animation-delay: -1.3s; }
+.leviathan-core-glow.lev-phase-2 { animation-delay: -2.7s; }
+
+/* Heartbeat double-pulse — lub-dub rhythm, triggered by JS */
+@keyframes leviathan-heartbeat {
+  0%   { transform: scale(1);    filter: drop-shadow(0 0 4px #26c6da); }
+  10%  { transform: scale(1.12); filter: drop-shadow(0 0 12px #4dd0e1); }  /* LUB */
+  22%  { transform: scale(1.0);  filter: drop-shadow(0 0 4px #26c6da); }
+  32%  { transform: scale(1.07); filter: drop-shadow(0 0 8px #4dd0e1); }   /* DUB */
+  48%  { transform: scale(1.0);  filter: drop-shadow(0 0 4px #26c6da); }
+  100% { transform: scale(1.0);  filter: drop-shadow(0 0 3px #26c6da); }
+}
+.leviathan-heartbeat-active .leviathan-outer-ring {
+  animation: leviathan-heartbeat 1.2s ease-out;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+/* Sonar ripple — gossip emission rings (animated via D3 transitions in JS) */
+.leviathan-sonar {
+  pointer-events: none;
+}
+
+/* Dead leviathan — all animation ceases, node goes dim and grayscale */
+.leviathan-dead .leviathan-core-glow { animation: none !important; opacity: 0 !important; }
+.leviathan-dead .leviathan-outer-ring { animation: none !important; }
+.leviathan-dead .node-shape { animation: none !important; opacity: 0.35 !important; }
+.leviathan-dead { filter: saturate(0.2) brightness(0.6); }
+
+/* ─── Worker Organic Animations ───────────────────── */
+
+/* Worker badge text inside octagon */
+.node-worker-badge {
+  fill: #fff;
+  font-size: 8px;
+  font-weight: 700;
+  text-anchor: middle;
+}
+
+/* Idle: slow organic rotation — "living cell" feel */
+@keyframes worker-idle-rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.worker-idle .node-shape {
+  animation: node-breathe 3s ease-in-out infinite,
+             worker-idle-rotate 12s linear infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+/* Proving: accelerated glow + faster rotation — "fusion reaction" */
+@keyframes worker-proving-glow {
+  0%, 100% { stroke-width: 2; opacity: 0.8; filter: drop-shadow(0 0 4px #ffc107); }
+  50%      { stroke-width: 3.5; opacity: 1; filter: drop-shadow(0 0 12px #ffc107); }
+}
+.worker-proving .node-shape {
+  animation: worker-proving-glow 1.2s ease-in-out infinite,
+             worker-idle-rotate 3s linear infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+/* Compiling: pulsing dashed outline + staggered rotation — "building up" feel */
+@keyframes worker-compile-pulse {
+  0%, 100% { stroke-width: 2; stroke-dasharray: 4 3; opacity: 0.5; filter: drop-shadow(0 0 3px #ffc107); }
+  50%      { stroke-width: 3; stroke-dasharray: 8 4; opacity: 0.9; filter: drop-shadow(0 0 8px #ffc107); }
+}
+.worker-compiling .node-shape {
+  animation: worker-compile-pulse 2s ease-in-out infinite,
+             worker-idle-rotate 6s linear infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+/* Compile timeout: red warning pulse — "something went wrong" */
+@keyframes worker-timeout-flash {
+  0%, 100% { stroke: #ef5350; stroke-width: 2; opacity: 0.4; filter: drop-shadow(0 0 4px #ef5350); }
+  50%      { stroke: #ef5350; stroke-width: 3.5; opacity: 0.8; filter: drop-shadow(0 0 10px #ef5350); }
+}
+.worker-timeout .node-shape {
+  animation: worker-timeout-flash 1.5s ease-in-out infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+.worker-timeout { filter: saturate(0.6) brightness(0.7); }
+
+/* Dead worker — dim and desaturate */
+.worker-dead .node-shape { animation: none !important; opacity: 0.3 !important; }
+.worker-dead { filter: saturate(0.2) brightness(0.5); }
+
+/* Worker badge on batch cards */
+.bc-worker-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: rgba(255,193,7,0.15);
+  color: #ffc107;
+  margin-left: 4px;
 }
 
 /* ─── Enrolling overlay animation ──────────────────── */

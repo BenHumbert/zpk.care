@@ -46,13 +46,17 @@ export type VizEventType =
   | 'viz:enrollment:lifecycle' | 'viz:enrollment:provider_notify'
   | 'viz:enrollment:terminated'
   | 'viz:credential:generated'
-  | 'viz:leviathan:heartbeat' | 'viz:leviathan:failover' | 'viz:leviathan:gossip';
+  | 'viz:proving:started' | 'viz:proving:completed'
+  | 'viz:leviathan:heartbeat' | 'viz:leviathan:failover' | 'viz:leviathan:gossip'
+  | 'viz:worker:spawned' | 'viz:worker:compiling' | 'viz:worker:ready'
+  | 'viz:worker:compile_timeout' | 'viz:worker:compile_failed'
+  | 'viz:worker:assigned' | 'viz:worker:completed' | 'viz:worker:crashed';
 
 /** Lane names for the horse-race view */
 export type VizLane = 'enrollment' | 'eligibility' | 'prescription' | 'fulfillment' | 'messaging' | 'batch' | 'leviathan';
 
 /** Actor types in the system */
-export type VizActorType = 'member' | 'prescriber' | 'pharmacy' | 'insurer' | 'employer' | 'leviathan';
+export type VizActorType = 'member' | 'prescriber' | 'pharmacy' | 'insurer' | 'employer' | 'leviathan' | 'worker';
 
 /** A visualization event pushed by the demo scenario script */
 export interface VizEvent {

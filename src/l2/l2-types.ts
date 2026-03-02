@@ -132,6 +132,10 @@ export interface L2Batch {
   messageStoreRoot?: string;
   /** State certificate proving N/2+1 leviathans agreed on state at this batch */
   stateCertificate?: StateCertificate;
+  /** Worker ID that proved this batch (set when ProvingPool is used) */
+  workerId?: number;
+  /** Wall-clock proving time in ms (set when ProvingPool is used) */
+  proveTimeMs?: number;
 }
 
 // ─── L2 Node Config ─────────────────────────────────────────

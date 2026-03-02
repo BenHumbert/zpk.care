@@ -26,11 +26,14 @@ import { InteractiveDemoService, type ConsoleEvent } from './interactive-service
 import { registerInteractiveRoutes, getConsoleEmitter } from './interactive-routes.js';
 import { AutoModeController } from './auto-mode-controller.js';
 import { FlowchartDashboardServer } from '../../src/poc/flowchart-dashboard-server.js';
+import { ProvingPool } from '../../src/l2/l2-proving-pool.js';
 
 const REGISTRY_TREE_HEIGHT = 11;
 const BACKEND_PORT = parseInt(process.env.BACKEND_PORT || '3030', 10);
 const DASHBOARD_PORT = parseInt(process.env.DASHBOARD_PORT || '8080', 10);
 const BATCH_INTERVAL = parseInt(process.env.BATCH_INTERVAL || '90000', 10);
+const POOL_SIZE = parseInt(process.env.POOL_SIZE || '3', 10);
+const POOL_COMPILE_TIMEOUT = parseInt(process.env.POOL_COMPILE_TIMEOUT || '900000', 10); // 15 min default
 
 // ─── Smoke Test State ──────────────────────────────────
 
@@ -57,6 +60,10 @@ let compilationState = {
   programs: [] as Array<{ name: string; status: 'pending' | 'compiling' | 'complete'; elapsedMs?: number }>,
   startedAt: 0,
 };
+
+// Module-level so registerFlowchartRoutes() can access it (initialized in main())
+let autoModeController: AutoModeController;
+let provingPool: ProvingPool | null = null;
 
 // ─── Leviathan Visual State ───────────────────────────
 
@@ -306,8 +313,8 @@ async function main() {
   // 3. Create the InteractiveDemoService
   const service = new InteractiveDemoService(bufferedConsoleEmitter, vizEmitter, node);
 
-  // 3b. Create AutoModeController
-  const autoModeController = new AutoModeController(service, node);
+  // 3b. Create AutoModeController (module-level variable, assigned here)
+  autoModeController = new AutoModeController(service, node);
 
   // 4. Register interactive routes on the RPC server
   registerInteractiveRoutes(rpcServer, service);
@@ -355,6 +362,24 @@ async function main() {
       });
     } else if (event.type === 'batch:empty') {
       // Skip — too noisy (fires every 90s with no pending)
+    } else if (event.type.startsWith('pool:')) {
+      // Forward pool events to viz dashboard
+      const workerId = (event.data as Record<string, unknown>).workerId;
+      const poolSubtype = event.type.replace('pool:', '');
+      const vizType = `viz:${poolSubtype}` as VizEvent['type'];
+      vizEmitter({
+        type: vizType,
+        timestamp: event.timestamp,
+        id: `viz-pool-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        actor: `worker-${workerId}`,
+        actorType: 'worker',
+        target: 'lev-alpha',
+        targetType: 'leviathan',
+        data: event.data as Record<string, unknown>,
+        lane: 'batch',
+        stage: 1,
+        totalStages: 1,
+      });
     }
   });
 
@@ -402,6 +427,69 @@ async function main() {
     compilationState.status = 'complete';
     console.log('');
     console.log('  [Flowchart] All programs compiled. Ready for interaction!');
+
+    // Start proving pool — workers compile in parallel (~5 min each)
+    // Isolated from main compilation so a pool failure doesn't block the dashboard.
+    if (POOL_SIZE > 0) {
+      console.log(`  [Flowchart] Starting proving pool with ${POOL_SIZE} workers (timeout: ${POOL_COMPILE_TIMEOUT / 1000}s)...`);
+      try {
+        provingPool = new ProvingPool(POOL_SIZE, { compileTimeoutMs: POOL_COMPILE_TIMEOUT });
+
+        // Forward worker stderr to console SSE — so users can see compilation errors
+        provingPool.onStderr((workerId, text) => {
+          bufferedConsoleEmitter({
+            type: 'error', phase: 'pool',
+            message: `[Worker ${workerId} stderr] ${text}`,
+            status: 'error', timestamp: Date.now(),
+          });
+        });
+
+        // Forward pool lifecycle events to console SSE
+        provingPool.on((event) => {
+          if (event.type === 'worker:spawned') {
+            bufferedConsoleEmitter({
+              type: 'info', phase: 'pool',
+              message: `Worker ${event.workerId} spawned (compiling ZkPrograms...)`,
+              status: 'start', timestamp: event.timestamp,
+            });
+          } else if (event.type === 'worker:ready') {
+            bufferedConsoleEmitter({
+              type: 'compile', phase: 'pool',
+              message: `Worker ${event.workerId} compiled (${(event.data as Record<string, unknown>).compileTimeMs}ms)`,
+              status: 'complete', timestamp: event.timestamp,
+              elapsedMs: (event.data as Record<string, unknown>).compileTimeMs as number,
+            });
+          } else if (event.type === 'worker:compile_timeout') {
+            bufferedConsoleEmitter({
+              type: 'error', phase: 'pool',
+              message: `Worker ${event.workerId} compilation TIMED OUT after ${((event.data as Record<string, unknown>).timeoutMs as number) / 1000}s`,
+              status: 'error', timestamp: event.timestamp,
+            });
+          } else if (event.type === 'worker:compile_failed') {
+            bufferedConsoleEmitter({
+              type: 'error', phase: 'pool',
+              message: `Worker ${event.workerId} compilation FAILED: ${(event.data as Record<string, unknown>).error}`,
+              status: 'error', timestamp: event.timestamp,
+            });
+          } else if (event.type === 'worker:crashed') {
+            bufferedConsoleEmitter({
+              type: 'error', phase: 'pool',
+              message: `Worker ${event.workerId} CRASHED (code=${(event.data as Record<string, unknown>).code}, signal=${(event.data as Record<string, unknown>).signal})`,
+              status: 'error', timestamp: event.timestamp,
+            });
+          }
+        });
+        await provingPool.start();
+        node.setProvingPool(provingPool);
+        const aliveCount = provingPool.getWorkerStatuses().length;
+        console.log(`  [Flowchart] Proving pool ready (${aliveCount}/${POOL_SIZE} workers).`);
+      } catch (poolErr) {
+        console.warn(`  [Flowchart] Proving pool failed to start: ${poolErr instanceof Error ? poolErr.message : poolErr}`);
+        console.warn('  [Flowchart] Falling back to single-process proving (no pool).');
+        provingPool = null;
+      }
+    }
+
     console.log('');
   } catch (err) {
     compilationState.status = 'error';
@@ -411,6 +499,10 @@ async function main() {
   // 9. Graceful shutdown
   const shutdown = async () => {
     console.log('\n  [Flowchart] Shutting down...');
+    if (provingPool) {
+      console.log('  [Flowchart] Shutting down proving pool...');
+      await provingPool.shutdown();
+    }
     await node.stop();
     await rpcServer.stop();
     await dashboard.stop();
@@ -494,6 +586,10 @@ function registerFlowchartRoutes(
       smokeTest: smokeTestState,
       autoMode: autoModeController.getState(),
       ready: compilationState.status === 'complete',
+      provingPool: provingPool ? {
+        poolSize: provingPool.getPoolSize(),
+        workers: provingPool.getWorkerStatuses(),
+      } : null,
     };
 
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
@@ -708,8 +804,8 @@ function registerFlowchartRoutes(
       }
     }
 
-    // Recent batches (last 8) — flattened receipt data for easy frontend rendering
-    const recentBatches = allBatches.slice(-8).map(batch => {
+    // Recent batches (last 50) — flattened receipt data for easy frontend rendering
+    const recentBatches = allBatches.slice(-50).map(batch => {
       const batchReceipts = allReceipts
         .filter(r => r.l1BatchNumber === batch.batchNumber)
         .map(r => {
@@ -769,6 +865,8 @@ function registerFlowchartRoutes(
         l1Status: batch.l1Status,
         claimAccumulatorRoot: batch.claimAccumulatorRoot ?? null,
         messageStoreRoot: batch.messageStoreRoot ?? null,
+        workerId: batch.workerId ?? null,
+        proveTimeMs: batch.proveTimeMs ?? null,
         receipts: batchReceipts,
       };
     });

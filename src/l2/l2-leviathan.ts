@@ -59,6 +59,7 @@ import type { IWalProvider } from './l2-wal.js';
 import { L2QuorumService, QuorumKeyAuthority, computeStateDigestHash } from './l2-quorum-service.js';
 import type { QuorumConfig, QuorumProposal, QuorumVote, QuorumCertificate, StateCertificate } from './l2-quorum-types.js';
 import type { StateDigest } from './l2-peer-types.js';
+import type { ProvingPool } from './l2-proving-pool.js';
 
 // ─── L2Leviathan ──────────────────────────────────────────
 
@@ -98,6 +99,9 @@ export class L2Leviathan {
 
   // Proving mutex — o1js requires serial ZkProgram proving
   private _provingLockQueue: Promise<void> = Promise.resolve();
+
+  // Proving pool — optional worker fleet for parallel batch proving
+  private provingPool: ProvingPool | null = null;
 
   // Write-Ahead Log (optional — enables crash-safe durability)
   private walProvider: IWalProvider | null = null;
@@ -193,6 +197,29 @@ export class L2Leviathan {
   /** Get the WAL provider */
   getWal(): IWalProvider | null {
     return this.walProvider;
+  }
+
+  /**
+   * Attach a proving pool for parallel batch proving.
+   * When set, executeBatchCycle() dispatches proving to the pool
+   * instead of using the single-process proving lock.
+   */
+  setProvingPool(pool: ProvingPool): void {
+    this.provingPool = pool;
+
+    // Forward pool lifecycle events to the leviathan event stream
+    pool.on((event) => {
+      this.emit({
+        type: `pool:${event.type}` as import('./l2-node.js').L2EventType,
+        timestamp: event.timestamp,
+        data: { workerId: event.workerId, ...event.data },
+      });
+    });
+  }
+
+  /** Get the attached proving pool (if any). */
+  getProvingPool(): ProvingPool | null {
+    return this.provingPool;
   }
 
   /**
@@ -878,8 +905,26 @@ export class L2Leviathan {
         data: { partitionIndex, pendingCount: seq.getPendingCount() },
       });
 
-      // Acquire proving lock — o1js requires serial proving
-      const batch = await this.withProvingLock(() => seq.buildBatch());
+      let batch: L2Batch | null;
+
+      if (this.provingPool) {
+        // Pool path: prepareBatch → pool.prove → finalizeBatch
+        const { job, emptyBatch } = seq.prepareBatch();
+        if (!job) {
+          batch = emptyBatch;
+        } else {
+          try {
+            const result = await this.provingPool.prove(job);
+            batch = await seq.finalizeBatch(result);
+          } catch (err) {
+            seq.restoreDrainedTransitions();
+            throw err;
+          }
+        }
+      } else {
+        // Legacy path: single-process proving with proving lock
+        batch = await this.withProvingLock(() => seq.buildBatch());
+      }
 
       if (!batch) {
         this.batchInProgress.set(partitionIndex, false);

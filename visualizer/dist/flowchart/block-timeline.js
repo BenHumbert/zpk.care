@@ -192,8 +192,11 @@ class BlockTimeline {
 
     const header = document.createElement('div');
     header.className = 'bc-header';
+    const workerBadge = batch.workerId != null
+      ? ` <span class="bc-worker-badge">W${batch.workerId}</span>` : '';
     header.innerHTML = `
       <span class="bc-batch-num">Batch #${batch.batchNumber}</span>
+      ${workerBadge}
       <span class="bc-status-badge">${this.getBatchStatusLabel(batch)}</span>
     `;
     card.appendChild(header);
@@ -338,6 +341,8 @@ class BlockTimeline {
       <div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px;">
         ${formatTimestamp(batch.createdAt)} &middot; ${batch.transitionCount} transitions &middot;
         ${statusBadge(statusCls, statusLabel)}
+        ${batch.workerId != null ? ` &middot; <span class="bc-worker-badge">W${batch.workerId}</span>` : ''}
+        ${batch.proveTimeMs ? ` &middot; ${(batch.proveTimeMs / 1000).toFixed(1)}s prove` : ''}
       </div>
       ${(totalPatient > 0 || totalPlan > 0) ? `
         <div style="font-size:11px;margin-bottom:10px;display:flex;gap:16px;">

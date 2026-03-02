@@ -17,6 +17,7 @@ const NODE_COLORS = {
   insurer:    'var(--node-insurer)',
   leviathan:  'var(--node-leviathan)',
   employer:   'var(--node-employer)',
+  worker:     'var(--node-worker)',
 };
 
 /** Raw hex values for SVG filter/fill operations that can't use CSS vars */
@@ -29,6 +30,7 @@ const NODE_COLORS_HEX = {
   insurer:         '#ab47bc',
   leviathan:       '#26c6da',
   employer:        '#ffee58',
+  worker:          '#ffc107',
 };
 
 const NODE_RADIUS = {
@@ -38,6 +40,7 @@ const NODE_RADIUS = {
   insurer: 24,
   leviathan: 28,
   employer: 20,
+  worker: 17,
 };
 
 /** Get the color for a member based on enrollment state. */
@@ -88,6 +91,42 @@ class NodeRenderer {
     merge.append('feMergeNode').attr('in', 'blur');
     merge.append('feMergeNode').attr('in', 'SourceGraphic');
 
+    // Leviathan-specific teal glow filter (stronger, tinted)
+    const levGlow = defs.append('filter')
+      .attr('id', 'leviathan-glow')
+      .attr('x', '-80%').attr('y', '-80%')
+      .attr('width', '260%').attr('height', '260%');
+    levGlow.append('feGaussianBlur')
+      .attr('in', 'SourceGraphic')
+      .attr('stdDeviation', 5)
+      .attr('result', 'blur');
+    // Tint the blur to teal (#26c6da → r=0.15, g=0.78, b=0.85)
+    levGlow.append('feColorMatrix')
+      .attr('in', 'blur')
+      .attr('type', 'matrix')
+      .attr('values', '0 0 0 0 0.15  0 0 0 0 0.78  0 0 0 0 0.85  0 0 0 0.6 0');
+    const levMerge = levGlow.append('feMerge');
+    levMerge.append('feMergeNode'); // tinted blur
+    levMerge.append('feMergeNode').attr('in', 'SourceGraphic');
+
+    // Amber glow filter for worker nodes
+    const workerGlow = defs.append('filter')
+      .attr('id', 'worker-glow')
+      .attr('x', '-60%').attr('y', '-60%')
+      .attr('width', '220%').attr('height', '220%');
+    workerGlow.append('feGaussianBlur')
+      .attr('in', 'SourceGraphic')
+      .attr('stdDeviation', 4)
+      .attr('result', 'blur');
+    // Tint to amber (#ffc107 → r=1.0, g=0.76, b=0.03)
+    workerGlow.append('feColorMatrix')
+      .attr('in', 'blur')
+      .attr('type', 'matrix')
+      .attr('values', '0 0 0 0 1.0  0 0 0 0 0.76  0 0 0 0 0.03  0 0 0 0.5 0');
+    const wm = workerGlow.append('feMerge');
+    wm.append('feMergeNode');
+    wm.append('feMergeNode').attr('in', 'SourceGraphic');
+
     // Arrow marker template — one per color so each connection gets a matching arrowhead.
     // New markers are created dynamically by ForceGraph.getArrowMarkerId().
   }
@@ -117,6 +156,8 @@ class NodeRenderer {
         NodeRenderer.renderHexagon(el, r, stroke, fill);
       } else if (type === 'employer') {
         NodeRenderer.renderBriefcase(el, r, stroke, fill);
+      } else if (type === 'worker') {
+        NodeRenderer.renderOctagon(el, d, r, stroke, fill);
       } else {
         NodeRenderer.renderCircle(el, r, stroke, fill);
       }
@@ -238,6 +279,19 @@ class NodeRenderer {
   static renderDoubleRing(g, d, r, stroke) {
     const fill = hexToFill(NODE_COLORS_HEX.leviathan, 0.12);
 
+    // Leviathan index for phase offsets (0=alpha, 1=beta, 2=gamma)
+    const levIndex = typeof d.primaryPartition === 'number' ? d.primaryPartition : 0;
+
+    // Core glow circle — sits behind everything, provides the inner "life force" pulse
+    g.append('circle')
+      .attr('class', `leviathan-core-glow lev-phase-${levIndex}`)
+      .attr('r', 22)
+      .attr('fill', 'none')
+      .attr('stroke', stroke)
+      .attr('stroke-width', 3)
+      .attr('opacity', 0.2)
+      .attr('filter', 'url(#leviathan-glow)');
+
     // Outer dashed ring
     g.append('circle')
       .attr('class', 'leviathan-outer-ring')
@@ -271,10 +325,14 @@ class NodeRenderer {
       .attr('y', 10)
       .attr('fill', stroke)
       .text(partitionText);
+
+    // Note: CSS bobbing (translateY) conflicts with D3 simulation's translate() on the
+    // same <g> element. The core glow + heartbeat + sonar provide sufficient "alive" feel.
   }
 
   /**
    * Update leviathan role/partition display on data refresh.
+   * Handles alive → dead and dead → alive transitions with animation class toggling.
    */
   static updateLeviathanInfo(g, d) {
     const roleEl = g.select('.node-role-badge');
@@ -286,15 +344,17 @@ class NodeRenderer {
       const parts = d.activePartitions || [d.primaryPartition];
       partEl.text(parts.map(p => 'P' + p).join(','));
     }
-    // Dim stopped nodes
+    // Dim stopped nodes — apply .leviathan-dead class which kills all animations
     const outerRing = g.select('.leviathan-outer-ring');
     if (!outerRing.empty()) {
       if (d.status === 'stopped') {
+        g.classed('leviathan-dead', true);
         outerRing.attr('opacity', 0.15).attr('stroke', '#555');
         g.select('.leviathan-inner-ring').attr('stroke', '#555').attr('opacity', 0.4);
         roleEl.attr('fill', '#555');
         partEl.attr('fill', '#555');
       } else {
+        g.classed('leviathan-dead', false);
         outerRing.attr('opacity', 0.5).attr('stroke', NODE_COLORS_HEX.leviathan);
         g.select('.leviathan-inner-ring').attr('stroke', NODE_COLORS_HEX.leviathan).attr('opacity', 1);
         roleEl.attr('fill', '#fff');
@@ -366,19 +426,172 @@ class NodeRenderer {
   }
 
   /**
-   * Heartbeat pulse on leviathan outer ring.
+   * Heartbeat double-pulse (lub-dub) on leviathan.
+   * Adds a CSS class that triggers the heartbeat keyframe, plus
+   * a core glow intensification for the biological effect.
    */
   static pulseHeartbeat(g) {
-    const outer = g.select('.leviathan-outer-ring');
-    if (outer.empty()) return;
-    const origR = parseFloat(outer.attr('r'));
-    outer.transition().duration(300)
-      .attr('r', origR + 4)
-      .attr('opacity', 0.9)
-      .attr('stroke', '#fff')
-      .transition().duration(700)
-      .attr('r', origR)
-      .attr('opacity', 0.5)
-      .attr('stroke', NODE_COLORS_HEX.leviathan);
+    // Skip if this leviathan is dead
+    if (g.classed('leviathan-dead')) return;
+
+    // Trigger CSS heartbeat animation via class toggle
+    g.classed('leviathan-heartbeat-active', false);
+    // Force reflow so re-adding the class restarts the animation
+    void g.node().offsetWidth;
+    g.classed('leviathan-heartbeat-active', true);
+
+    // Remove the class after animation completes (1.2s)
+    setTimeout(() => g.classed('leviathan-heartbeat-active', false), 1300);
+
+    // Also intensify the core glow briefly
+    const core = g.select('.leviathan-core-glow');
+    if (!core.empty()) {
+      core.interrupt('hb-glow');
+      core.transition('hb-glow').duration(150)
+        .attr('opacity', 0.7)
+        .attr('stroke-width', 8)
+        .transition().duration(200)
+        .attr('opacity', 0.3)
+        .attr('stroke-width', 5)
+        .transition().duration(150)
+        .attr('opacity', 0.55)
+        .attr('stroke-width', 6)
+        .transition().duration(600)
+        .attr('opacity', 0.2)
+        .attr('stroke-width', 3);
+    }
+  }
+
+  /**
+   * Emit sonar ripple rings from a leviathan node (used on gossip emit).
+   * Creates 2 concentric expanding rings with a staggered delay.
+   * Uses D3 transitions for SVG `r` attribute (more reliable than CSS for SVG).
+   */
+  static emitSonarRipple(g) {
+    if (g.classed('leviathan-dead')) return;
+
+    const stroke = NODE_COLORS_HEX.leviathan;
+    for (let i = 0; i < 2; i++) {
+      setTimeout(() => {
+        const ripple = g.append('circle')
+          .attr('class', 'leviathan-sonar')
+          .attr('r', 28)
+          .attr('fill', 'none')
+          .attr('stroke', stroke)
+          .attr('stroke-width', 2.5)
+          .attr('opacity', 0.5);
+
+        // Animate expanding ring via D3 transition
+        ripple.transition()
+          .duration(1400)
+          .ease(d3.easeCubicOut)
+          .attr('r', 75)
+          .attr('stroke-width', 0.5)
+          .attr('opacity', 0)
+          .on('end', () => ripple.remove());
+      }, i * 250); // 250ms stagger between rings
+    }
+  }
+
+  /**
+   * Brief "absorb" glow when a leviathan receives gossip.
+   */
+  static absorbGlow(g) {
+    if (g.classed('leviathan-dead')) return;
+
+    const core = g.select('.leviathan-core-glow');
+    if (!core.empty()) {
+      core.interrupt('absorb');
+      core.transition('absorb').duration(100)
+        .attr('opacity', 0.65)
+        .attr('stroke-width', 7)
+        .transition().duration(500)
+        .attr('opacity', 0.2)
+        .attr('stroke-width', 3);
+    }
+  }
+
+  /** Octagon node (worker). Flat edge on top, with "W0"/"W1" badge. */
+  static renderOctagon(g, d, r, stroke, fill) {
+    const pts = [];
+    for (let i = 0; i < 8; i++) {
+      const angle = (Math.PI / 4) * i - Math.PI / 8; // flat edge on top
+      pts.push([r * Math.cos(angle), r * Math.sin(angle)]);
+    }
+    g.append('polygon')
+      .attr('class', 'node-shape')
+      .attr('points', pts.map(p => p.join(',')).join(' '))
+      .attr('fill', fill)
+      .attr('stroke', stroke)
+      .attr('stroke-width', 2)
+      .attr('filter', 'url(#worker-glow)');
+
+    // Worker badge: "W0", "W1", etc.
+    g.append('text')
+      .attr('class', 'node-worker-badge')
+      .attr('y', 3)
+      .text('W' + (d.workerIndex ?? '?'));
+
+    // Start with compiling class (workers spawn in compiling state)
+    g.classed('worker-compiling', true);
+  }
+
+  /**
+   * Update worker state — toggle compiling/idle/proving/timeout/dead CSS classes.
+   */
+  static updateWorkerState(g, d) {
+    g.classed('worker-compiling', d.workerStatus === 'compiling');
+    g.classed('worker-idle', d.workerStatus === 'idle');
+    g.classed('worker-proving', d.workerStatus === 'proving');
+    g.classed('worker-timeout', d.workerStatus === 'timeout');
+    g.classed('worker-dead', d.workerStatus === 'dead');
+  }
+
+  /**
+   * Spawn animation — scale from 0 → 1.15 overshoot → 1 with fade-in.
+   */
+  static spawnWorkerAnimation(g) {
+    const shape = g.select('.node-shape');
+    if (shape.empty()) return;
+    shape
+      .attr('transform', 'scale(0)')
+      .attr('opacity', 0);
+    shape.transition().duration(400).ease(d3.easeCubicOut)
+      .attr('transform', 'scale(1.15)')
+      .attr('opacity', 1)
+      .transition().duration(300).ease(d3.easeElasticOut.amplitude(1).period(0.4))
+      .attr('transform', 'scale(1)');
+
+    // Fade in badge too
+    const badge = g.select('.node-worker-badge');
+    if (!badge.empty()) {
+      badge.attr('opacity', 0)
+        .transition().delay(300).duration(300)
+        .attr('opacity', 1);
+    }
+  }
+
+  /**
+   * Crash animation — red flash + collapse to scale 0.
+   */
+  static crashWorkerAnimation(g, onComplete) {
+    const shape = g.select('.node-shape');
+    if (shape.empty()) {
+      if (onComplete) onComplete();
+      return;
+    }
+    g.classed('worker-compiling', false);
+    g.classed('worker-idle', false);
+    g.classed('worker-proving', false);
+    g.classed('worker-timeout', false);
+    g.classed('worker-dead', true);
+
+    shape.transition().duration(100)
+      .attr('stroke', '#ef5350')
+      .attr('stroke-width', 4)
+      .transition().duration(400).ease(d3.easeCubicIn)
+      .attr('transform', 'scale(0)')
+      .attr('opacity', 0)
+      .on('end', () => { if (onComplete) onComplete(); });
   }
 }

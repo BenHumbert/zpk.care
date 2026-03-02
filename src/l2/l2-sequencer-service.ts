@@ -30,6 +30,7 @@ import { isMyPartition, getPartition } from './l2-partition.js';
 import { WalletRegistry, WALLET_TREE_HEIGHT } from '../wallets/wallet-state.js';
 import { lifecycleLeafCommitment, LIFECYCLE_REGISTERED, LifecycleWitness } from '../engine/lifecycle.js';
 import type { IWalProvider, WalEntry } from './l2-wal.js';
+import type { ProvingJobRequest, ProvingJobResult } from './l2-proving-pool-types.js';
 
 /** Default batch interval: 3 minutes (matches MINA L1 block time) */
 export const DEFAULT_BATCH_INTERVAL_MS = 180_000;
@@ -41,7 +42,7 @@ export const DEFAULT_BATCH_INTERVAL_MS = 180_000;
  * This is more efficient than the old approach (4 wraps + 3 merges = 7 ops).
  * Excess proofs remain in the pending pool for the next batch.
  */
-export const MAX_TRANSITIONS_PER_BATCH = 4;
+export const MAX_TRANSITIONS_PER_BATCH = 2;
 
 /**
  * PendingTransition — internal record for a queued proof.
@@ -178,6 +179,9 @@ export class L2SequencerService {
 
   // Write-Ahead Log (optional — when set, mutations are WAL'd before application)
   private walProvider: IWalProvider | null = null;
+
+  // Drained transitions held between prepareBatch() and finalizeBatch()
+  private drainedTransitions: PendingTransition[] = [];
 
   constructor(
     store: ILocalStore,
@@ -438,11 +442,24 @@ export class L2SequencerService {
       return emptyBatch;
     }
 
-    // 1. Drain transitions — pairs for wrapPair, or single for wrapSingle
+    // 1. Drain transitions — only take the longest chainable prefix.
+    // Root discontinuities can occur when applyAdminRootUpdate() changes lifecycle/registry
+    // roots between proof submissions (e.g., enrollment lifecycle advancement REGISTERED→ELIGIBLE).
+    // Unchainable transitions stay in the pool for the next batch cycle.
     const available = Math.min(this.pendingPool.length, MAX_TRANSITIONS_PER_BATCH);
-    const drainCount = available >= 2
-      ? available - (available % 2)  // Even count for wrapPair
-      : available;                   // Single transition → wrapSingle
+    let chainableCount = 1; // First transition is always chainable
+    for (let i = 1; i < available; i++) {
+      const prev = this.pendingPool[i - 1].proof.publicOutput;
+      const curr = this.pendingPool[i].proof.publicOutput;
+      if (prev.newRegistryRoot.toString() !== curr.oldRegistryRoot.toString() ||
+          prev.newLifecycleRoot.toString() !== curr.oldLifecycleRoot.toString()) {
+        break; // Root discontinuity — stop here
+      }
+      chainableCount++;
+    }
+    const drainCount = chainableCount >= 2
+      ? chainableCount - (chainableCount % 2)  // Even count for wrapPair
+      : chainableCount;                         // Single transition → wrapSingle
     const transitions = this.pendingPool.splice(0, drainCount);
 
     // 2. Build base-case BatchProofs
@@ -584,6 +601,217 @@ export class L2SequencerService {
     }
 
     return batch;
+  }
+
+  // ─── Split Batch API (for ProvingPool) ──────────────────
+
+  /**
+   * Phase 1 of the split-batch flow: drain the pending pool, serialize
+   * transitions, and package into a ProvingJobRequest.
+   *
+   * Returns null if there are no pending transitions or an empty batch
+   * was created (no proving needed). The drained transitions are held
+   * internally and must be finalized via finalizeBatch() or restored
+   * via restoreDrainedTransitions() on failure.
+   *
+   * @returns { job, emptyBatch? } — job is null when no proving is needed
+   */
+  prepareBatch(): {
+    job: ProvingJobRequest | null;
+    emptyBatch: L2Batch | null;
+  } {
+    if (this.inFlightBatchNumber !== null) {
+      throw new Error(
+        `Batch ${this.inFlightBatchNumber} is still in-flight. ` +
+        `Call markBatchSettled() or markBatchFailed() before building a new batch.`,
+      );
+    }
+
+    // Empty pool — create empty batch record (no proving needed)
+    if (this.pendingPool.length === 0) {
+      const emptyBatchNumber = this.nextBatchNumber++;
+      const emptyBatch: L2Batch = {
+        batchNumber: emptyBatchNumber,
+        blockNumbers: [],
+        registrationCount: 0,
+        transitionCount: 0,
+        oldRegistryRoot: this.currentRegistryRoot.toString(),
+        newRegistryRoot: this.currentRegistryRoot.toString(),
+        oldLifecycleRoot: this.currentLifecycleRoot.toString(),
+        newLifecycleRoot: this.currentLifecycleRoot.toString(),
+        batchProofJson: '',
+        createdAt: Date.now(),
+        l1Status: 'settled',
+        l1TxHash: `empty-${emptyBatchNumber}`,
+        claimAccumulatorRoot: this.claimAccumulator.getRoot().toString(),
+        messageStoreRoot: this.messageStore.getRoot().toString(),
+      };
+      this.batches.set(emptyBatchNumber, emptyBatch);
+      return { job: null, emptyBatch };
+    }
+
+    // Chainability check + drain (identical to buildBatch Phase A)
+    const available = Math.min(this.pendingPool.length, MAX_TRANSITIONS_PER_BATCH);
+    let chainableCount = 1;
+    for (let i = 1; i < available; i++) {
+      const prev = this.pendingPool[i - 1].proof.publicOutput;
+      const curr = this.pendingPool[i].proof.publicOutput;
+      if (prev.newRegistryRoot.toString() !== curr.oldRegistryRoot.toString() ||
+          prev.newLifecycleRoot.toString() !== curr.oldLifecycleRoot.toString()) {
+        break;
+      }
+      chainableCount++;
+    }
+    const drainCount = chainableCount >= 2
+      ? chainableCount - (chainableCount % 2)
+      : chainableCount;
+    this.drainedTransitions = this.pendingPool.splice(0, drainCount);
+
+    // Serialize transitions for IPC
+    const transitionProofJsons = this.drainedTransitions.map(
+      (t) => t.proof.toJSON(),
+    );
+
+    // Package admin state + chain proof context
+    const job: ProvingJobRequest = {
+      transitionProofJsons,
+      latestChainHash: this.latestChainHash.toString(),
+    };
+
+    if (this.adminState) {
+      job.adminState = {
+        adminPublicKeyHash: this.adminState.adminPublicKeyHash.toString(),
+        benefitPlanRoot: this.adminState.benefitPlanRoot.toString(),
+        credentialRegistryRoot: this.adminState.credentialRegistryRoot.toString(),
+        eligibilityVkHash: this.adminState.eligibilityVkHash.toString(),
+        messagingRoot: this.adminState.messagingRoot.toString(),
+      };
+      job.latestChainProofJson = this.latestChainProofJson;
+    }
+
+    return { job, emptyBatch: null };
+  }
+
+  /**
+   * Phase 3 of the split-batch flow: finalize the batch using the
+   * proving result from the worker.
+   *
+   * Must be called after prepareBatch() returned a non-null job and
+   * the proving pool returned a ProvingJobResult.
+   */
+  async finalizeBatch(result: ProvingJobResult): Promise<L2Batch> {
+    const transitions = this.drainedTransitions;
+    this.drainedTransitions = [];
+
+    if (transitions.length === 0) {
+      throw new Error('finalizeBatch: no drained transitions — call prepareBatch() first');
+    }
+
+    // Create L2Block from result output
+    const blockNumber = this.nextBlockNumber++;
+    const receiptIds = transitions.map((t) => t.receipt.receiptId);
+
+    const block: L2Block = {
+      blockNumber,
+      receiptIds,
+      startRegistryRoot: result.batchOutput.oldRegistryRoot,
+      endRegistryRoot: result.batchOutput.newRegistryRoot,
+      startLifecycleRoot: result.batchOutput.oldLifecycleRoot,
+      endLifecycleRoot: result.batchOutput.newLifecycleRoot,
+      registrationCount: Number(result.batchOutput.registrationCount),
+      transitionCount: Number(result.batchOutput.transitionCount),
+      createdAt: Date.now(),
+      l1Status: 'batched',
+    };
+
+    this.blocks.set(blockNumber, block);
+
+    // Create L2Batch
+    const batchNumber = this.nextBatchNumber++;
+
+    const batch: L2Batch = {
+      batchNumber,
+      blockNumbers: [blockNumber],
+      registrationCount: block.registrationCount,
+      transitionCount: block.transitionCount,
+      oldRegistryRoot: result.batchOutput.oldRegistryRoot,
+      newRegistryRoot: result.batchOutput.newRegistryRoot,
+      oldLifecycleRoot: result.batchOutput.oldLifecycleRoot,
+      newLifecycleRoot: result.batchOutput.newLifecycleRoot,
+      batchProofJson: result.batchProofJson,
+      createdAt: Date.now(),
+      l1Status: 'batched',
+      claimAccumulatorRoot: this.claimAccumulator.getRoot().toString(),
+      messageStoreRoot: this.messageStore.getRoot().toString(),
+      workerId: result.workerId,
+      proveTimeMs: result.proveTimeMs,
+    };
+
+    this.batches.set(batchNumber, batch);
+
+    // Apply chain proof result (if produced by worker)
+    if (result.chainProofJson && result.chainOutput) {
+      this.latestChainProofJson = result.chainProofJson;
+      this.latestChainProof = null; // Lazy reconstruct on next advance
+      this.currentBlockHeight = Field(BigInt(result.chainOutput.blockHeight));
+      this.currentGlobalStateRoot = Field(BigInt(result.chainOutput.globalStateRoot));
+      batch.chainProofJson = result.chainProofJson;
+      batch.globalStateRoot = result.chainOutput.globalStateRoot;
+      batch.blockHeight = BigInt(result.chainOutput.blockHeight);
+    }
+
+    // Update receipt statuses
+    for (const t of transitions) {
+      t.receipt.l1Status = 'batched';
+      t.receipt.l2BlockNumber = blockNumber;
+      t.receipt.l1BatchNumber = batchNumber;
+      this.receipts.set(t.receipt.receiptId, t.receipt);
+    }
+
+    // Sync audit events with batch metadata
+    this.markAuditEventsBatched(receiptIds, batchNumber, blockNumber);
+
+    // Persist batch metadata
+    await this.store.saveProof(
+      `batch-${batchNumber}`,
+      l2Stringify(batch),
+    );
+
+    if (this.l2Only) {
+      // L2-only: batch is immediately final
+      batch.l1Status = 'settled';
+      batch.l1TxHash = `l2-final-${batchNumber}`;
+      block.l1Status = 'settled';
+      block.l1TxHash = batch.l1TxHash;
+      for (const t of transitions) {
+        t.receipt.l1Status = 'settled';
+        this.receipts.set(t.receipt.receiptId, t.receipt);
+      }
+      this.markAuditEventsStatus(batch, 'settled');
+      this.lastSettledRegistryRoot = this.currentRegistryRoot;
+      this.lastSettledLifecycleRoot = this.currentLifecycleRoot;
+      this.lastSettledWalletCount = this.currentWalletCount;
+      this.preBatchAuditLogLength = this.auditLog.length;
+      this.preBatchChainHash = this.latestChainHash;
+      this.preBatchClaimLeafCount = this.claimAccumulator.getLeafCount();
+      this.preBatchAuditMerkleLeafCount = this.auditMerkleIndex.getEventCount();
+      this.preBatchFingerprints = new Set(this.seenProofFingerprints);
+    } else {
+      this.inFlightBatchNumber = batchNumber;
+    }
+
+    return batch;
+  }
+
+  /**
+   * Restore drained transitions to the front of the pending pool.
+   * Called when proving fails and the transitions should be retried.
+   */
+  restoreDrainedTransitions(): void {
+    if (this.drainedTransitions.length > 0) {
+      this.pendingPool.unshift(...this.drainedTransitions);
+      this.drainedTransitions = [];
+    }
   }
 
   /**
@@ -893,10 +1121,39 @@ export class L2SequencerService {
   /**
    * Apply admin root update (lifecycle transitions, benefit plan changes).
    * Simulates sequencer observing an admin op settling on L1.
+   *
+   * Purges stale transitions from the pending pool when the admin update
+   * creates a root gap. These transitions were already applied to state
+   * via submitProof() — their effects are reflected in the roots that
+   * this admin update is now superseding.
    */
   applyAdminRootUpdate(opts: { newLifecycleRoot?: Field; newRegistryRoot?: Field }): void {
     if (opts.newLifecycleRoot) this.currentLifecycleRoot = opts.newLifecycleRoot;
     if (opts.newRegistryRoot) this.currentRegistryRoot = opts.newRegistryRoot;
+
+    // Purge stale transitions orphaned by the root gap.
+    // After submitProof() accepts a transition it advances currentRegistryRoot /
+    // currentLifecycleRoot, so the last pending transition's newRoots == the
+    // pre-admin current roots. If the admin update changes those roots, a gap
+    // exists between the pool's tail and the new current state. New proofs will
+    // chain from the post-admin roots, so stale transitions can never pair with
+    // them. Rather than letting them pile up across enrollment cycles, drain them
+    // now and mark receipts settled (L2-only — state changes already applied).
+    if (this.pendingPool.length > 0 && this.l2Only) {
+      const tail = this.pendingPool[this.pendingPool.length - 1].proof.publicOutput;
+      const gapExists =
+        tail.newRegistryRoot.toString() !== this.currentRegistryRoot.toString() ||
+        tail.newLifecycleRoot.toString() !== this.currentLifecycleRoot.toString();
+
+      if (gapExists) {
+        const stale = this.pendingPool.splice(0);
+        for (const t of stale) {
+          t.receipt.l1Status = 'settled';
+          t.receipt.l1TxHash = `admin-settled-${t.sequenceNumber}`;
+          this.receipts.set(t.receipt.receiptId, t.receipt);
+        }
+      }
+    }
   }
 
   /**

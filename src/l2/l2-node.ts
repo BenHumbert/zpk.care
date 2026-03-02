@@ -47,6 +47,7 @@ import type {
   MessageStoredPayload,
 } from './l2-peer-types.js';
 import type { StoredMessage, MessagePayload, MessageStoreEntry } from './message-store-types.js';
+import type { ProvingPool } from './l2-proving-pool.js';
 
 // ─── Settlement Strategy ─────────────────────────────────
 
@@ -129,7 +130,15 @@ export type L2EventType =
   | 'batch:failed'
   | 'audit:event'
   | 'formulary:updated'
-  | 'network:updated';
+  | 'network:updated'
+  | 'pool:worker:spawned'
+  | 'pool:worker:compiling'
+  | 'pool:worker:ready'
+  | 'pool:worker:compile_timeout'
+  | 'pool:worker:compile_failed'
+  | 'pool:worker:dispatched'
+  | 'pool:worker:completed'
+  | 'pool:worker:crashed';
 
 /** Chain event with typed data payload */
 export interface L2ChainEvent {
@@ -197,6 +206,9 @@ export class L2Node {
   // Proving mutex — o1js requires serial ZkProgram proving (single global context)
   private _provingLockQueue: Promise<void> = Promise.resolve();
 
+  // Proving pool — optional worker fleet for parallel batch proving
+  private provingPool: ProvingPool | null = null;
+
   // Peer network
   private peerNetwork: L2PeerNetwork | null = null;
   private nodeId: string;
@@ -225,6 +237,31 @@ export class L2Node {
     if (this.options.partitionConfig) {
       this.sequencer.setPartitionConfig(this.options.partitionConfig);
     }
+  }
+
+  // ─── Proving Pool ──────────────────────────────────────
+
+  /**
+   * Attach a proving pool for parallel batch proving.
+   * When set, executeBatchCycle() dispatches proving to the pool
+   * instead of using the single-process proving lock.
+   */
+  setProvingPool(pool: ProvingPool): void {
+    this.provingPool = pool;
+
+    // Forward pool lifecycle events as L2ChainEvents
+    pool.on((event) => {
+      this.emit({
+        type: `pool:${event.type}` as L2EventType,
+        timestamp: event.timestamp,
+        data: { workerId: event.workerId, ...event.data },
+      });
+    });
+  }
+
+  /** Get the attached proving pool (if any). */
+  getProvingPool(): ProvingPool | null {
+    return this.provingPool;
   }
 
   // ─── Lifecycle ──────────────────────────────────────────
@@ -378,6 +415,31 @@ export class L2Node {
    */
   async forceBatch(): Promise<L2Batch | null> {
     return this.executeBatchCycle();
+  }
+
+  /** Number of pending (unbatched) transitions in the sequencer queue. */
+  getPendingCount(): number {
+    return this.sequencer.getPendingCount();
+  }
+
+  /**
+   * Pause the automatic batch timer.
+   * Use when an external controller (e.g. auto-mode) manages batch timing.
+   */
+  pauseBatchTimer(): void {
+    if (this.batchTimer !== null) {
+      clearTimeout(this.batchTimer);
+      this.batchTimer = null;
+    }
+  }
+
+  /**
+   * Resume the automatic batch timer after a pause.
+   */
+  resumeBatchTimer(): void {
+    if (this.running && this.batchTimer === null) {
+      this.scheduleBatchTick();
+    }
   }
 
   /**
@@ -875,8 +937,15 @@ export class L2Node {
       });
 
       const buildStart = Date.now();
-      // Acquire proving lock — buildBatch() calls ZkProgram methods (wrapPair, mergeBatches)
-      const batch = await this.withProvingLock(() => this.sequencer.buildBatch());
+      let batch: L2Batch | null;
+
+      if (this.provingPool) {
+        // Pool path: prepareBatch → pool.prove → finalizeBatch
+        batch = await this.executeBatchWithPool();
+      } else {
+        // Legacy path: single-process proving with proving lock
+        batch = await this.withProvingLock(() => this.sequencer.buildBatch());
+      }
 
       if (!batch) {
         this.batchInProgress = false;
@@ -895,6 +964,8 @@ export class L2Node {
           buildTimeMs: Date.now() - buildStart,
           oldRegistryRoot: batch.oldRegistryRoot,
           newRegistryRoot: batch.newRegistryRoot,
+          ...(batch.workerId != null ? { workerId: batch.workerId } : {}),
+          ...(batch.proveTimeMs != null ? { proveTimeMs: batch.proveTimeMs } : {}),
         },
       });
 
@@ -1105,6 +1176,28 @@ export class L2Node {
     // Auto-checkpoint after each settlement
     if (this.checkpointStore && this.autoCheckpoint) {
       await this.saveCheckpoint('batch_settled');
+    }
+  }
+
+  // ─── Pool-Based Batch Building ──────────────────────────
+
+  /**
+   * Execute a batch build cycle using the proving pool.
+   * Splits the batch into prepare → prove (in worker) → finalize.
+   */
+  private async executeBatchWithPool(): Promise<L2Batch | null> {
+    const { job, emptyBatch } = this.sequencer.prepareBatch();
+
+    // Empty batch — no proving needed
+    if (!job) return emptyBatch;
+
+    try {
+      const result = await this.provingPool!.prove(job);
+      return await this.sequencer.finalizeBatch(result);
+    } catch (err) {
+      // Proving failed — restore drained transitions to the pool
+      this.sequencer.restoreDrainedTransitions();
+      throw err;
     }
   }
 

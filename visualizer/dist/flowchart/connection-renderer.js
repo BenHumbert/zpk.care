@@ -50,6 +50,14 @@ const EVENT_CONFIG = {
   'viz:leviathan:heartbeat':      { color: '#26c6da', width: 1.5, duration: 1500, dash: '3 3' },
   'viz:leviathan:gossip':         { color: '#26c6da', width: 3,   duration: 2500, dash: '' },
   'viz:leviathan:failover':       { color: '#ef5350', width: 4,   duration: 4000, dash: '' },
+  'viz:worker:spawned':           { color: '#ffc107', width: 2,   duration: 1500, dash: '4 3' },
+  'viz:worker:compiling':         { color: '#ffc107', width: 1.5, duration: 1500, dash: '4 3' },
+  'viz:worker:ready':             { color: '#66bb6a', width: 2.5, duration: 2000, dash: '' },
+  'viz:worker:compile_timeout':   { color: '#ef5350', width: 3,   duration: 2500, dash: '' },
+  'viz:worker:compile_failed':    { color: '#ef5350', width: 3,   duration: 2000, dash: '' },
+  'viz:worker:assigned':          { color: '#ffc107', width: 2.5, duration: 2000, dash: '6 3' },
+  'viz:worker:completed':         { color: '#66bb6a', width: 2.5, duration: 2000, dash: '' },
+  'viz:worker:crashed':           { color: '#ef5350', width: 3,   duration: 2000, dash: '' },
 };
 
 class ConnectionRenderer {

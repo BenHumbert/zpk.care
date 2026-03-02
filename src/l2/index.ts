@@ -223,3 +223,19 @@ export {
   buildQuorumVoteMessage,
   buildStateCertMessage,
 } from './l2-quorum-types.js';
+
+// Proving Pool — parallel batch proving via child process workers
+export { ProvingPool } from './l2-proving-pool.js';
+export type {
+  ProvingJobRequest,
+  ProvingJobResult,
+  ProvingPoolOptions,
+  ProvingPoolStatus,
+  CoordinatorMessage,
+  WorkerMessage,
+  PoolEvent,
+  PoolEventType,
+  PoolEventHandler,
+  WorkerStatus,
+  WorkerState,
+} from './l2-proving-pool-types.js';

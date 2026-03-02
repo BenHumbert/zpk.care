@@ -1618,6 +1618,15 @@ export class InteractiveDemoService {
       startedAt: Date.now(),
     });
 
+    // Proving spinner — show visual feedback while generating proofs
+    this.emitViz('viz:proving:started', 'prescription', {
+      actor: prescriberName,
+      actorType: 'prescriber',
+      target: enrolled.displayName,
+      targetType: 'member',
+      data: { prescriberIndex: opts.prescriberIndex, memberIndex: enrolled.memberIndex, operation: 'prescription' },
+    });
+
     try {
     // 1. ProofGate: Prescriber identity
     this.emit('proof', 'prescribe', `[1/${totalSteps}] Generating ProofGate.verifyPrescriber proof...`, 'start');
@@ -1990,6 +1999,15 @@ export class InteractiveDemoService {
       // Clean up pending entry on proof failure
       this.pendingPrescriptions.delete(pendingRxId);
       throw err;
+    } finally {
+      // Always clear proving spinner (even on error)
+      this.emitViz('viz:proving:completed', 'prescription', {
+        actor: prescriberName,
+        actorType: 'prescriber',
+        target: enrolled.displayName,
+        targetType: 'member',
+        data: { prescriberIndex: opts.prescriberIndex, memberIndex: enrolled.memberIndex, operation: 'prescription' },
+      });
     }
   }
 
@@ -4181,6 +4199,8 @@ export class InteractiveDemoService {
       targetType: 'prescriber',
       data: {
         pcpAssigned: prescriberName,
+        prescriberIndex: opts.prescriberIndex,
+        memberIndex: enrolled.memberIndex,
         specialty: prescriber.specialty,
         consentScope: 'ALL',
       },

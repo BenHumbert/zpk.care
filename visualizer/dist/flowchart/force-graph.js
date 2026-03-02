@@ -18,6 +18,7 @@ const CLUSTER_ANGLES = {
   insurer:    null, // dead center
   employer:   null, // near center
   leviathan:  -Math.PI / 2,      // top
+  worker:     -Math.PI / 2 + 0.4, // near leviathan, slightly offset
   member:     Math.PI,            // left
   prescriber: 0,                  // right
   pharmacy:   Math.PI / 2,        // bottom
@@ -26,6 +27,7 @@ const CLUSTER_RADIUS = {
   insurer: 0,
   employer: 60,
   leviathan: 180,
+  worker: 130,
   member: 220,
   prescriber: 220,
   pharmacy: 220,
@@ -237,6 +239,25 @@ class ForceGraph {
     // Rebind to simulation
     this.simulation.nodes(this.nodes);
 
+    // Create weak spring links between workers and their parent leviathan
+    const workerLinks = this.nodes
+      .filter(n => n.entityType === 'worker')
+      .map(n => ({
+        source: n.id,
+        target: n.parentLeviathanId || 'lev-alpha',
+        distance: 55,
+        strength: 0.12,
+      }));
+    if (workerLinks.length > 0) {
+      this.simulation.force('workerLinks', d3.forceLink(workerLinks)
+        .id(d => d.id)
+        .distance(d => d.distance)
+        .strength(d => d.strength)
+      );
+    } else {
+      this.simulation.force('workerLinks', null);
+    }
+
     // Update D3 selection
     this.nodeSelection = this.nodeLayer.selectAll('.node-group')
       .data(this.nodes, d => d.id);
@@ -264,13 +285,16 @@ class ForceGraph {
     // Merge
     this.nodeSelection = entered.merge(this.nodeSelection);
 
-    // Update leviathan + member info for existing nodes
+    // Update leviathan + member + worker info for existing nodes
     this.nodeSelection.each(function(d) {
       if (d.entityType === 'leviathan') {
         NodeRenderer.updateLeviathanInfo(d3.select(this), d);
       }
       if (d.entityType === 'member') {
         NodeRenderer.updateMemberState(d3.select(this), d);
+      }
+      if (d.entityType === 'worker') {
+        NodeRenderer.updateWorkerState(d3.select(this), d);
       }
     });
 
@@ -296,13 +320,16 @@ class ForceGraph {
       node.fx = fx; node.fy = fy;
     }
 
-    // Update visual state for leviathans + members
+    // Update visual state for leviathans + members + workers
     this.nodeSelection.each(function(d) {
       if (d.entityType === 'leviathan') {
         NodeRenderer.updateLeviathanInfo(d3.select(this), d);
       }
       if (d.entityType === 'member') {
         NodeRenderer.updateMemberState(d3.select(this), d);
+      }
+      if (d.entityType === 'worker') {
+        NodeRenderer.updateWorkerState(d3.select(this), d);
       }
     });
   }
@@ -565,9 +592,26 @@ class ForceGraph {
 
   /**
    * Animate gossip relay between two leviathans.
+   * Emits sonar ripple from sender, runs connection animation, and
+   * triggers absorb glow on the receiver when the arrow arrives.
    */
   animateGossipRelay(fromId, toId) {
+    // Sonar ripple from sender
+    const fromG = this.nodeLayer.select(`[data-id="${fromId}"]`);
+    if (!fromG.empty()) {
+      NodeRenderer.emitSonarRipple(fromG);
+    }
+
+    // Standard connection animation (arrow A→B)
     this.animateEvent(fromId, toId, 'viz:leviathan:gossip');
+
+    // Absorb glow on receiver when arrow arrives (~45% of 2500ms = 1125ms)
+    setTimeout(() => {
+      const toG = this.nodeLayer.select(`[data-id="${toId}"]`);
+      if (!toG.empty()) {
+        NodeRenderer.absorbGlow(toG);
+      }
+    }, 1100);
   }
 
   /**
@@ -621,6 +665,90 @@ class ForceGraph {
       if (!g.empty()) {
         NodeRenderer.updateMemberState(g, node);
       }
+    }
+  }
+
+  // ─── Worker helpers ─────────────────────────────────────
+
+  /**
+   * Trigger spawn animation on a worker node (called when viz:worker:spawned arrives).
+   */
+  spawnWorkerNode(nodeId) {
+    const g = this.nodeLayer.select(`[data-id="${nodeId}"]`);
+    if (!g.empty()) {
+      NodeRenderer.spawnWorkerAnimation(g);
+    }
+  }
+
+  /**
+   * Toggle a worker between idle and proving state.
+   */
+  setWorkerProving(nodeId, proving) {
+    const node = this.findNode(nodeId);
+    if (node) {
+      node.workerStatus = proving ? 'proving' : 'idle';
+      const g = this.nodeLayer.select(`[data-id="${nodeId}"]`);
+      if (!g.empty()) {
+        NodeRenderer.updateWorkerState(g, node);
+      }
+    }
+  }
+
+  /**
+   * Set worker to compiling state (visible but still starting up).
+   */
+  setWorkerCompiling(nodeId) {
+    const node = this.findNode(nodeId);
+    if (node) {
+      node.workerStatus = 'compiling';
+      const g = this.nodeLayer.select(`[data-id="${nodeId}"]`);
+      if (!g.empty()) {
+        NodeRenderer.updateWorkerState(g, node);
+      }
+    }
+  }
+
+  /**
+   * Set worker to ready (idle) state after compilation completes.
+   */
+  setWorkerReady(nodeId) {
+    const node = this.findNode(nodeId);
+    if (node) {
+      node.workerStatus = 'idle';
+      const g = this.nodeLayer.select(`[data-id="${nodeId}"]`);
+      if (!g.empty()) {
+        NodeRenderer.updateWorkerState(g, node);
+        // Brief green pulse to signal compilation success
+        this.pulseNode(nodeId, '#66bb6a', 2);
+      }
+    }
+  }
+
+  /**
+   * Set worker to timeout state (compilation failed to complete in time).
+   */
+  setWorkerTimeout(nodeId) {
+    const node = this.findNode(nodeId);
+    if (node) {
+      node.workerStatus = 'timeout';
+      const g = this.nodeLayer.select(`[data-id="${nodeId}"]`);
+      if (!g.empty()) {
+        NodeRenderer.updateWorkerState(g, node);
+      }
+    }
+  }
+
+  /**
+   * Crash animation on a worker node — red flash + collapse.
+   */
+  crashWorkerNode(nodeId) {
+    const node = this.findNode(nodeId);
+    if (node) {
+      node.workerStatus = 'dead';
+    }
+    const g = this.nodeLayer.select(`[data-id="${nodeId}"]`);
+    if (!g.empty()) {
+      NodeRenderer.crashWorkerAnimation(g);
     }
   }
 }
