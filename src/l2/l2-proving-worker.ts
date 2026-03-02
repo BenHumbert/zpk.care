@@ -25,6 +25,7 @@ import {
 } from './chain-program.js';
 import type { ChainOutput } from './global-state.js';
 import {
+  StateTransitionProgram,
   StateTransitionProof,
 } from '../engine/state-transition.js';
 import type {
@@ -48,6 +49,9 @@ let compiled = false;
 
 async function handleCompile(): Promise<void> {
   const start = Date.now();
+  // Compile in dependency order: StateTransition → Batch → Chain
+  // BatchProgram verifies StateTransitionProofs, ChainProgram verifies BatchProofs.
+  await StateTransitionProgram.compile();
   await BatchProgram.compile();
   await ChainProgram.compile();
   compiled = true;
