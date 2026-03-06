@@ -1,0 +1,73 @@
+# zkTrident Network — Render.com Blueprint
+#
+# Deploy via: Render Dashboard > New > Blueprint > Connect repo
+# Render reads this file automatically and creates both services.
+#
+# Services:
+#   1. zktrident-leviathan — L2 sequencer (Standard, 2GB)
+#   2. zktrident-prover    — Proof delegate server (Pro, 4GB)
+
+services:
+  # ─── Leviathan Sequencer ──────────────────────────────────
+  - type: web
+    name: zktrident-leviathan
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: standard                    # 2GB RAM, 1 vCPU — $25/mo
+    region: oregon
+    healthCheckPath: /health
+    envVars:
+      - key: ZKTRIDENT_PORT
+        value: "3030"
+      - key: ZKTRIDENT_HOST
+        value: "0.0.0.0"
+      - key: ZKTRIDENT_NODE_ID
+        generateValue: true
+      - key: ZKTRIDENT_BATCH_INTERVAL_MS
+        value: "300000"               # 5 min batches
+      - key: ZKTRIDENT_ADMIN_TOKEN
+        generateValue: true
+      - key: ZKTRIDENT_GOSSIP_SECRET
+        generateValue: true
+      - key: ZKTRIDENT_L2_ONLY
+        value: "true"
+      - key: ZKTRIDENT_SSE
+        value: "true"
+      - key: ZKTRIDENT_MAX_SSE
+        value: "100"
+      - key: ZKTRIDENT_CORS_ORIGINS
+        value: "*"
+      - key: ZKTRIDENT_CHECKPOINT_DIR
+        value: "/data/l2-data"
+      - key: ZKTRIDENT_MAX_CHECKPOINTS
+        value: "10"
+      # ProvingPool — auto-detect workers from available memory
+      - key: ZKTRIDENT_POOL_SIZE
+        value: "auto"                 # auto = detect from available RAM
+      - key: ZKTRIDENT_POOL_RECYCLE
+        value: "3"                    # recycle worker every 3 jobs
+      # Production formulary
+      - key: ZKTRIDENT_PRODUCTION_FORMULARY
+        value: "true"
+      - key: NODE_OPTIONS
+        value: "--max-old-space-size=1800"
+    disk:
+      name: leviathan-data
+      mountPath: /data
+      sizeGB: 10
+
+  # ─── Proof Delegate Server ────────────────────────────────
+  - type: web
+    name: zktrident-prover
+    runtime: docker
+    dockerfilePath: ./Dockerfile.prover
+    plan: pro                         # 4GB RAM, 2 vCPU — $85/mo
+    region: oregon
+    healthCheckPath: /status
+    envVars:
+      - key: ZKTRIDENT_PROVER_PORT
+        value: "4040"
+      - key: ZKTRIDENT_PROVER_API_KEY
+        generateValue: true
+      - key: NODE_OPTIONS
+        value: "--max-old-space-size=6000"

@@ -595,6 +595,7 @@ export class L2SequencerService {
       this.preBatchAuditMerkleLeafCount = this.auditMerkleIndex.getEventCount();
       this.preBatchFingerprints = new Set(this.seenProofFingerprints);
       // No in-flight guard — next batch can build immediately
+      this.evictOldEntries();
     } else {
       // Mark as in-flight (must settle or fail before next buildBatch)
       this.inFlightBatchNumber = batchNumber;
@@ -796,6 +797,7 @@ export class L2SequencerService {
       this.preBatchClaimLeafCount = this.claimAccumulator.getLeafCount();
       this.preBatchAuditMerkleLeafCount = this.auditMerkleIndex.getEventCount();
       this.preBatchFingerprints = new Set(this.seenProofFingerprints);
+      this.evictOldEntries();
     } else {
       this.inFlightBatchNumber = batchNumber;
     }
@@ -812,6 +814,52 @@ export class L2SequencerService {
       this.pendingPool.unshift(...this.drainedTransitions);
       this.drainedTransitions = [];
     }
+  }
+
+  /**
+   * Evict old settled receipts and batches to bound memory growth.
+   * Keeps the most recent `keepReceipts` settled entries (by timestamp).
+   * Un-settled entries are never evicted (needed for retry/recovery).
+   *
+   * For batches: nulls out batchProofJson (large blob) on evicted entries
+   * but keeps metadata. Safe because settled proofs are verified and
+   * never re-submitted.
+   */
+  evictOldEntries(keepReceipts = 200, keepBatches = 50): {
+    evictedReceipts: number;
+    evictedBatches: number;
+  } {
+    let evictedReceipts = 0;
+    let evictedBatches = 0;
+
+    // Evict settled receipts beyond keepCount (oldest first by acceptedAt)
+    const settledReceipts = Array.from(this.receipts.entries())
+      .filter(([, r]) => r.l1Status === 'settled')
+      .sort((a, b) => a[1].acceptedAt - b[1].acceptedAt);
+
+    if (settledReceipts.length > keepReceipts) {
+      const toEvict = settledReceipts.slice(0, settledReceipts.length - keepReceipts);
+      for (const [id] of toEvict) {
+        this.receipts.delete(id);
+        evictedReceipts++;
+      }
+    }
+
+    // Evict old settled batches — null out proof blobs but keep metadata
+    const settledBatches = Array.from(this.batches.entries())
+      .filter(([, b]) => b.l1Status === 'settled' && b.batchProofJson !== '')
+      .sort((a, b) => a[1].createdAt - b[1].createdAt);
+
+    if (settledBatches.length > keepBatches) {
+      const toEvict = settledBatches.slice(0, settledBatches.length - keepBatches);
+      for (const [, batch] of toEvict) {
+        batch.batchProofJson = '';
+        if (batch.chainProofJson) batch.chainProofJson = '';
+        evictedBatches++;
+      }
+    }
+
+    return { evictedReceipts, evictedBatches };
   }
 
   /**

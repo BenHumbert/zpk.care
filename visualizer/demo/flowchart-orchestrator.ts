@@ -433,7 +433,11 @@ async function main() {
     if (POOL_SIZE > 0) {
       console.log(`  [Flowchart] Starting proving pool with ${POOL_SIZE} workers (timeout: ${POOL_COMPILE_TIMEOUT / 1000}s)...`);
       try {
-        provingPool = new ProvingPool(POOL_SIZE, { compileTimeoutMs: POOL_COMPILE_TIMEOUT });
+        const POOL_RECYCLE_JOBS = parseInt(process.env.POOL_RECYCLE_JOBS || '5', 10);
+        provingPool = new ProvingPool(POOL_SIZE, {
+          compileTimeoutMs: POOL_COMPILE_TIMEOUT,
+          recycleAfterJobs: POOL_RECYCLE_JOBS,
+        });
 
         // Forward worker stderr to console SSE — so users can see compilation errors
         provingPool.onStderr((workerId, text) => {
@@ -470,6 +474,12 @@ async function main() {
               type: 'error', phase: 'pool',
               message: `Worker ${event.workerId} compilation FAILED: ${(event.data as Record<string, unknown>).error}`,
               status: 'error', timestamp: event.timestamp,
+            });
+          } else if (event.type === 'worker:recycled') {
+            bufferedConsoleEmitter({
+              type: 'info', phase: 'pool',
+              message: `Worker ${event.workerId} recycled after ${(event.data as Record<string, unknown>).jobsProcessed} jobs (reclaiming WASM heap)`,
+              status: 'info', timestamp: event.timestamp,
             });
           } else if (event.type === 'worker:crashed') {
             bufferedConsoleEmitter({

@@ -10,8 +10,8 @@ import type { L2ClientOptions } from '../l2/l2-client.js';
 
 // ─── Entity Roles ─────────────────────────────────────────
 
-/** The four entity types in the zkpCare system */
-export type EntityRole = 'member' | 'prescriber' | 'pharmacy' | 'insurer';
+/** The five entity types in the zkpCare system */
+export type EntityRole = 'member' | 'prescriber' | 'pharmacy' | 'insurer' | 'employer';
 
 // ─── Node Configuration ──────────────────────────────────
 
@@ -50,6 +50,15 @@ export interface PharmacyNodeConfig extends EntityNodeConfig {
 /** Insurer node config — no wallet ID, admin-gated */
 export interface InsurerNodeConfig extends EntityNodeConfig {
   role: 'insurer';
+}
+
+/** Employer node config — no wallet ID, token authority */
+export interface EmployerNodeConfig extends EntityNodeConfig {
+  role: 'employer';
+  /** Employer identifier used as TokenAuthority issuer */
+  employerId: string;
+  /** Optional insurer Nautilus URL for token submission */
+  insurerUrl?: string;
 }
 
 // ─── Claim View ──────────────────────────────────────────

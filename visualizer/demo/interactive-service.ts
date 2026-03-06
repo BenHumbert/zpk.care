@@ -889,23 +889,14 @@ export class InteractiveDemoService {
     });
 
     // 4b-settle. Batch the 2 enrollment proofs BEFORE the admin lifecycle update.
-    // We call buildBatch() directly (not forceBatch) because we already hold the
-    // proving lock. This drains the pending pool so the admin lifecycle update
-    // won't create an un-proven root gap between this enrollment's proofs and the
-    // next enrollment's proofs when they end up in the same batch (mergeBatches
-    // enforces left.newLifecycleRoot == right.oldLifecycleRoot).
+    // Uses buildBatchDirect() which routes through the proving pool if available
+    // (avoids accumulating WASM heap on the main thread). Falls back to
+    // single-process buildBatch() if no pool. In L2-only mode, both buildBatch()
+    // and finalizeBatch() auto-settle, so no manual markBatchSettled() needed.
     this.emit('offchain', 'enroll', `Batch building... (${this.l2Node.getSequencer().getPendingCount()} pending transitions)`);
     try {
-      const sequencer = this.l2Node.getSequencer();
-      const enrollBatch = await sequencer.buildBatch();
+      const enrollBatch = await this.l2Node.buildBatchDirect();
       if (enrollBatch) {
-        // Settle immediately — buildBatch() sets inFlightBatchNumber which blocks
-        // future batches until settled. Since we're inside the proving lock and need
-        // the next enrollment to also build its batch, we must clear in-flight now.
-        sequencer.markBatchSettled(
-          enrollBatch.batchNumber,
-          `l2-enroll-${enrollBatch.batchNumber}`,
-        );
         this.emit('offchain', 'enroll', `Enrollment batch #${enrollBatch.batchNumber} built & settled (${enrollBatch.transitionCount} transitions)`);
       }
     } catch (e) {

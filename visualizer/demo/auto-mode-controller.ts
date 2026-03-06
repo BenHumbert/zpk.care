@@ -381,6 +381,8 @@ export class AutoModeController {
       }
       // GC between batch proofs
       (globalThis as unknown as { gc?: () => void }).gc?.();
+      const rss = process.memoryUsage().rss;
+      console.log(`  [AutoMode] Post-batch RSS: ${(rss / 1024 / 1024).toFixed(0)}MB`);
       pending = this.l2Node.getPendingCount();
     }
   }

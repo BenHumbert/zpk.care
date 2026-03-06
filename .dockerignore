@@ -1,0 +1,62 @@
+# Dependencies (installed fresh in container)
+node_modules
+npm-debug.log
+
+# Build output
+build
+dist
+
+# Version control
+.git
+.github
+.gitignore
+
+# Environment files
+.env
+.env.local
+.env.*
+
+# Development / IDE
+.claude
+.vscode
+.DS_Store
+*.log
+
+# Tests
+tests
+jest.config.*
+coverage
+
+# Documentation & patents (not needed at runtime)
+*.md
+*.docx
+documents
+patent-studio
+patent_figures
+USPTO*
+uspto_agent
+"Final Submission Version"
+"Presentation Data"
+"USPTO Document Submission"
+
+# Scripts (build-time only)
+scripts
+
+# Visualizer (separate deployment)
+visualizer
+
+# Proof-of-concept
+src/poc
+
+# Docker files (prevent recursive COPY)
+Dockerfile
+Dockerfile.prover
+docker-compose.yml
+render.yaml
+
+# Temporary / generated
+_*.py
+_*.sh
+_*.xml
+*.tmp
+l2-data

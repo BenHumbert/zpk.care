@@ -395,11 +395,39 @@ export class L2RpcServer {
   // ─── Health ───────────────────────────────────────────
 
   private handleHealth(res: ServerResponse): void {
-    const body = JSON.stringify({
+    const mem = process.memoryUsage();
+    const nodeStatus = this.node.getStatus() as unknown as Record<string, unknown>;
+
+    const health: Record<string, unknown> = {
       ok: true,
       running: this.node.isRunning(),
       sseClients: this.sseClients.size,
-    });
+      timestamp: Date.now(),
+      memory: {
+        rssMB: Math.round(mem.rss / 1024 / 1024),
+        heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
+        heapTotalMB: Math.round(mem.heapTotal / 1024 / 1024),
+        externalMB: Math.round(mem.external / 1024 / 1024),
+      },
+      chain: {
+        pendingProofs: nodeStatus.pendingProofs ?? null,
+        inFlightBatch: nodeStatus.inFlightBatch?.toString() ?? null,
+        totalBatchesBuilt: nodeStatus.totalBatchesBuilt ?? null,
+        totalBatchesSettled: nodeStatus.totalBatchesSettled ?? null,
+        totalBatchesFailed: nodeStatus.totalBatchesFailed ?? null,
+      },
+    };
+
+    // Include proving pool status if available (L2Node only, not Leviathan)
+    if (!(this.node instanceof L2Leviathan)) {
+      const pool = (this.node as L2Node).getProvingPool();
+      if (pool) {
+        health.provingPool = pool.getStatus();
+        health.workers = pool.getWorkerStatuses();
+      }
+    }
+
+    const body = JSON.stringify(health);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(body);
   }
@@ -559,6 +587,26 @@ export class L2RpcServer {
 
       case 'l2_getStatus':
         return this.node.getStatus();
+
+      case 'l2_getHealth': {
+        const mem = process.memoryUsage();
+        const pool = !(this.node instanceof L2Leviathan)
+          ? (this.node as L2Node).getProvingPool()
+          : null;
+        return {
+          memory: {
+            rss: mem.rss,
+            heapUsed: mem.heapUsed,
+            heapTotal: mem.heapTotal,
+            external: mem.external,
+            arrayBuffers: mem.arrayBuffers,
+            rssMB: Math.round(mem.rss / 1024 / 1024),
+          },
+          provingPool: pool?.getStatus() ?? null,
+          workers: pool?.getWorkerStatuses() ?? [],
+          timestamp: Date.now(),
+        };
+      }
 
       case 'l2_getReceipt': {
         const receiptId = params.receiptId;

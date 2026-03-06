@@ -24,3 +24,28 @@ nul
 .vscode/
 *.swp
 *.swo
+
+# Patent / legal documents (not source code)
+*.docx
+*.md.bak
+_claims_v2.xml
+_spec_v2.xml
+_fix_patents.py
+_monitor.sh
+USPTO_PATENT_SPECIFICATION_DRAFT*
+zkpcare_patent_claims*
+Final Submission Version/
+Presentation Data/
+USPTO Document Submission/
+patent_figures/
+documents/
+uspto_agent/
+patent-studio/
+pnpm-workspace.yaml
+
+# Nautilus local state
+nautilus-data/
+
+# Temp files
+~$*
+C\357\200\272*

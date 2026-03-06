@@ -25,6 +25,7 @@ import type {
   CoordinatorMessage,
   WorkerMessage,
   PoolEvent,
+  PoolEventType,
   PoolEventHandler,
   WorkerStatus,
   WorkerState,
@@ -69,6 +70,7 @@ interface WorkerHandle {
   restartCount: number;
   currentJobId: string | null;
   status: WorkerState;
+  jobsProcessed: number;
 }
 
 interface PendingJob {
@@ -87,6 +89,7 @@ export class ProvingPool {
   private proveTimeoutMs: number;
   private maxWorkerRestarts: number;
   private shutdownGraceMs: number;
+  private recycleAfterJobs: number;
 
   private workers: Map<number, WorkerHandle> = new Map();
   private nextWorkerId = 0;
@@ -120,6 +123,7 @@ export class ProvingPool {
     this.proveTimeoutMs = options?.proveTimeoutMs ?? DEFAULT_PROVE_TIMEOUT_MS;
     this.maxWorkerRestarts = options?.maxWorkerRestarts ?? DEFAULT_MAX_WORKER_RESTARTS;
     this.shutdownGraceMs = options?.shutdownGraceMs ?? DEFAULT_SHUTDOWN_GRACE_MS;
+    this.recycleAfterJobs = options?.recycleAfterJobs ?? 0;
   }
 
   /**
@@ -348,6 +352,7 @@ export class ProvingPool {
         busy: handle.busy,
         currentJobId: handle.currentJobId,
         status: handle.status,
+        jobsProcessed: handle.jobsProcessed,
       });
     }
     return statuses.sort((a, b) => a.id - b.id);
@@ -376,6 +381,7 @@ export class ProvingPool {
       restartCount: 0,
       currentJobId: null,
       status: 'compiling',
+      jobsProcessed: 0,
     };
 
     // Handle messages from worker
@@ -520,6 +526,7 @@ export class ProvingPool {
         handle.status = 'idle';
         this.totalJobsCompleted++;
         this.totalProveTimeMs += msg.result.proveTimeMs;
+        handle.jobsProcessed++;
 
         // Stamp workerId onto the result (worker doesn't know its own pool index)
         const stampedResult: ProvingJobResult = { ...msg.result, workerId: handle.id };
@@ -527,9 +534,15 @@ export class ProvingPool {
           type: 'worker:completed',
           timestamp: Date.now(),
           workerId: handle.id,
-          data: { jobId: msg.jobId, proveTimeMs: msg.result.proveTimeMs },
+          data: { jobId: msg.jobId, proveTimeMs: msg.result.proveTimeMs, jobsProcessed: handle.jobsProcessed },
         });
         job.resolve(stampedResult);
+
+        // Recycle worker if it has processed enough jobs (reclaims WASM heap)
+        if (this.recycleAfterJobs > 0 && handle.jobsProcessed >= this.recycleAfterJobs) {
+          this.recycleWorker(handle);
+          return; // drainQueue will be called after the new worker compiles
+        }
         this.drainQueue();
       }
     } else if (msg.type === 'error') {
@@ -556,6 +569,9 @@ export class ProvingPool {
 
     // If the pool is shutting down, don't restart
     if (!this.running) return;
+
+    // If worker was already removed from map (recycled), don't treat as crash
+    if (!this.workers.has(handle.id)) return;
 
     this.emitPoolEvent({
       type: 'worker:crashed',
@@ -603,11 +619,64 @@ export class ProvingPool {
     }
   }
 
+  // ─── Worker Recycling ──────────────────────────────────
+
+  /**
+   * Recycle a worker: kill the current process, spawn a fresh one, compile.
+   * Called after a worker completes `recycleAfterJobs` prove jobs to reclaim
+   * o1js WASM heap that grows monotonically (~60MB per proof).
+   *
+   * Recycling is NOT counted as a crash — restartCount is NOT incremented.
+   */
+  private recycleWorker(handle: WorkerHandle): void {
+    const oldId = handle.id;
+    const { jobsProcessed } = handle;
+
+    this.emitPoolEvent({
+      type: 'worker:recycled' as PoolEventType,
+      timestamp: Date.now(),
+      workerId: oldId,
+      data: { jobsProcessed },
+    });
+
+    // Graceful shutdown of old worker
+    handle.status = 'dead';
+    this.workers.delete(oldId);
+    if (handle.process.connected) {
+      this.sendToWorker(handle, { type: 'shutdown' });
+      setTimeout(() => {
+        try { handle.process.kill('SIGTERM'); } catch { /* already dead */ }
+      }, this.shutdownGraceMs);
+    }
+
+    // Spawn replacement — preserve crash restartCount (recycling is not a crash)
+    const newHandle = this.spawnWorker();
+    newHandle.restartCount = handle.restartCount;
+    newHandle.status = 'compiling';
+
+    this.sendToWorker(newHandle, { type: 'compile' });
+    this.emitPoolEvent({
+      type: 'worker:compiling',
+      timestamp: Date.now(),
+      workerId: newHandle.id,
+      data: { recycledFrom: oldId, jobsProcessed },
+    });
+
+    this.waitForReady(newHandle)
+      .then(() => this.drainQueue())
+      .catch(() => {
+        this.workers.delete(newHandle.id);
+      });
+  }
+
   // ─── IPC ────────────────────────────────────────────────
 
-  private sendToWorker(handle: WorkerHandle, msg: CoordinatorMessage): void {
-    if (handle.process.connected) {
-      handle.process.send(msg);
+  private sendToWorker(handle: WorkerHandle, msg: CoordinatorMessage): boolean {
+    if (!handle.process.connected) return false;
+    const sent = handle.process.send(msg);
+    if (!sent) {
+      console.warn(`[ProvingPool] IPC send failed for worker ${handle.id} (msg type: ${msg.type})`);
     }
+    return sent;
   }
 }

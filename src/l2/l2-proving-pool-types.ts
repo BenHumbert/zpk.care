@@ -146,6 +146,13 @@ export interface ProvingPoolOptions {
 
   /** Grace period before SIGTERM on shutdown (ms). Default: 5000. */
   shutdownGraceMs?: number;
+
+  /**
+   * Kill and respawn a worker after this many prove jobs.
+   * Reclaims o1js WASM heap that grows monotonically (~60MB per proof).
+   * Default: 0 (disabled — workers are never recycled).
+   */
+  recycleAfterJobs?: number;
 }
 
 // ─── Pool Events ─────────────────────────────────────────
@@ -158,7 +165,8 @@ export type PoolEventType =
   | 'worker:compile_failed'
   | 'worker:dispatched'
   | 'worker:completed'
-  | 'worker:crashed';
+  | 'worker:crashed'
+  | 'worker:recycled';
 
 export interface PoolEvent {
   type: PoolEventType;
@@ -178,4 +186,5 @@ export interface WorkerStatus {
   busy: boolean;
   currentJobId: string | null;
   status: WorkerState;
+  jobsProcessed: number;
 }

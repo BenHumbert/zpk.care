@@ -49,7 +49,7 @@ const STATE_VERSION = 1;
 /** The plaintext state that gets encrypted */
 export interface NautilusStateData {
   version: number;
-  role: 'member' | 'prescriber' | 'pharmacy' | 'insurer';
+  role: 'member' | 'prescriber' | 'pharmacy' | 'insurer' | 'employer';
   /** Wallet ID (Poseidon hash decimal string) */
   walletId?: string;
   /** Enrollment key (base64url, 43 chars) */

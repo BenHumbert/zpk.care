@@ -8,6 +8,8 @@ export { MemberNode } from './member-node.js';
 export { PrescriberNode } from './prescriber-node.js';
 export { PharmacyNode } from './pharmacy-node.js';
 export { InsurerNode } from './insurer-node.js';
+export { EmployerNode } from './employer-node.js';
+export type { EmployerGroupRecord, EmployerRosterEntry } from './employer-node.js';
 
 // Proof delegation
 export { ProofDelegateClient, ProofDelegateServer } from './proof-delegate.js';
@@ -33,6 +35,7 @@ export { buildMemberRoutes } from './routes/member-routes.js';
 export { buildPrescriberRoutes } from './routes/prescriber-routes.js';
 export { buildPharmacyRoutes } from './routes/pharmacy-routes.js';
 export { buildInsurerRoutes } from './routes/insurer-routes.js';
+export { buildEmployerRoutes } from './routes/employer-routes.js';
 
 // Types
 export type {
@@ -42,6 +45,7 @@ export type {
   PrescriberNodeConfig,
   PharmacyNodeConfig,
   InsurerNodeConfig,
+  EmployerNodeConfig,
   EntityClaimView,
   EntityActivitySummary,
   PrescriberActivitySummary,

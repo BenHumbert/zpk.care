@@ -23,11 +23,17 @@
  *   ZKTRIDENT_SSE              — Enable SSE event streaming (default: true)
  *   ZKTRIDENT_MAX_SSE          — Max concurrent SSE connections (default: 100)
  *   ZKTRIDENT_CORS_ORIGINS     — Comma-separated allowed CORS origins (default: *)
+ *   ZKTRIDENT_POOL_SIZE        — Proving pool workers: number or "auto" (default: 0 = disabled)
+ *   ZKTRIDENT_POOL_RECYCLE     — Recycle worker after N jobs to reclaim WASM heap (default: 3)
+ *   ZKTRIDENT_PRODUCTION_FORMULARY — Load 500 NDC NADAC formulary on startup (default: false)
  *
  * Usage:
  *   npx tsx src/nodes/start-leviathan.ts
  *   ZKTRIDENT_PORT=3030 ZKTRIDENT_PARTITION_COUNT=3 ZKTRIDENT_PARTITION_INDEX=0 npx tsx src/nodes/start-leviathan.ts
  */
+import os from 'os';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { Field, MerkleTree } from 'o1js';
 import { L2Node } from '../l2/l2-node.js';
 import type { L2NodeOptions } from '../l2/l2-node.js';
@@ -129,6 +135,62 @@ async function main(): Promise<void> {
     maxCheckpoints,
   });
 
+  // ── Proving Pool (optional — auto-detect worker count from available RAM) ──
+
+  const poolSizeEnv = env.ZKTRIDENT_POOL_SIZE ?? '0';
+  const recycleAfterJobs = parseInt(env.ZKTRIDENT_POOL_RECYCLE ?? '3', 10);
+  let poolWorkerCount = 0;
+
+  if (poolSizeEnv === 'auto') {
+    // Auto-detect: each worker needs ~800MB for compile + prove.
+    // Reserve 400MB for the main process (L2Node + RPC + overhead).
+    const totalMemMB = Math.floor(os.totalmem() / (1024 * 1024));
+    const freeMemMB = Math.floor(os.freemem() / (1024 * 1024));
+    const usableMemMB = Math.min(totalMemMB, freeMemMB + 200); // allow some reclaim
+    const MAIN_RESERVE_MB = 400;
+    const WORKER_MB = 800;
+    poolWorkerCount = Math.max(0, Math.floor((usableMemMB - MAIN_RESERVE_MB) / WORKER_MB));
+    console.log('  [pool] Memory detection: %dMB total, %dMB free → %d worker(s) feasible',
+      totalMemMB, freeMemMB, poolWorkerCount);
+  } else {
+    poolWorkerCount = parseInt(poolSizeEnv, 10) || 0;
+  }
+
+  if (poolWorkerCount > 0) {
+    const { ProvingPool } = await import('../l2/l2-proving-pool.js');
+    const pool = new ProvingPool(poolWorkerCount, { recycleAfterJobs });
+
+    // Resolve worker script path relative to this module (ESM)
+    const thisDir = path.dirname(fileURLToPath(import.meta.url));
+    const workerPath = path.resolve(thisDir, '..', 'l2', 'l2-proving-worker.ts');
+    pool.setWorkerScriptPath(workerPath);
+
+    pool.on((event) => {
+      if (event.type === 'worker:crashed') {
+        console.error('  [pool] Worker %d crashed', event.workerId);
+      } else if (event.type === 'worker:recycled') {
+        console.log('  [pool] Worker %d recycled (WASM heap reclaimed)', event.workerId);
+      }
+    });
+
+    console.log('  [pool] Starting %d proving worker(s) (recycle every %d jobs)...', poolWorkerCount, recycleAfterJobs);
+    await pool.start();
+    node.setProvingPool(pool);
+    console.log('  [pool] Proving pool ready');
+  }
+
+  // ── Production Formulary (500 NDCs from FDA NADAC) ──
+
+  const loadFormulary = (env.ZKTRIDENT_PRODUCTION_FORMULARY ?? 'false') !== 'false';
+  if (loadFormulary) {
+    try {
+      const { NADAC_MEDICATIONS } = await import('../demo/nadac-formulary.js');
+      console.log('  [formulary] Loaded %d production NDCs from NADAC', NADAC_MEDICATIONS.length);
+    } catch {
+      console.warn('  [formulary] NADAC formulary not found — run scripts/fetch-nadac.ts first');
+    }
+  }
+
   // ── RPC Server ──
 
   const rpcServer = new L2RpcServer(node, rpcOptions);
@@ -149,6 +211,7 @@ async function main(): Promise<void> {
   console.log('  SSE:           %s', enableSSE ? `http://${host}:${port}/events` : 'disabled');
   console.log('  Batch interval: %ds', batchIntervalMs / 1000);
   console.log('  L2-only:       %s', l2Only);
+  console.log('  Proving pool:  %s', poolWorkerCount > 0 ? `${poolWorkerCount} worker(s)` : 'disabled');
   if (partitionConfig) {
     console.log('  Partition:     %d of %d', partitionIndex, partitionCount);
   }
@@ -172,6 +235,7 @@ async function main(): Promise<void> {
     console.log('  [shutdown] Node stopped (checkpoint saved)');
     await rpcServer.stop();
     console.log('  [shutdown] RPC server stopped');
+    // ProvingPool is shut down by node.stop() via provingPool.shutdown()
     console.log('  [shutdown] Leviathan sequencer shut down cleanly');
     process.exit(0);
   };

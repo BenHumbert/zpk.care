@@ -321,6 +321,11 @@ export class L2Node {
       this.peerNetwork = null;
     }
 
+    // Shutdown proving pool workers
+    if (this.provingPool) {
+      await this.provingPool.shutdown();
+    }
+
     // Save shutdown checkpoint
     if (this.checkpointStore) {
       await this.saveCheckpoint('shutdown');
@@ -415,6 +420,22 @@ export class L2Node {
    */
   async forceBatch(): Promise<L2Batch | null> {
     return this.executeBatchCycle();
+  }
+
+  /**
+   * Build a batch using the proving pool if available, falling back to
+   * single-process proving. Unlike forceBatch(), this does NOT check
+   * batchInProgress — the caller must hold the proving lock or otherwise
+   * guarantee serial access.
+   *
+   * Designed for enrollment flows that call buildBatch() mid-ceremony
+   * while holding the proving lock.
+   */
+  async buildBatchDirect(): Promise<L2Batch | null> {
+    if (this.provingPool) {
+      return this.executeBatchWithPool();
+    }
+    return this.sequencer.buildBatch();
   }
 
   /** Number of pending (unbatched) transitions in the sequencer queue. */
@@ -968,6 +989,13 @@ export class L2Node {
           ...(batch.proveTimeMs != null ? { proveTimeMs: batch.proveTimeMs } : {}),
         },
       });
+
+      // Memory watermark check — warn when RSS approaches GC storm threshold
+      const rss = process.memoryUsage().rss;
+      const rssGB = rss / (1024 * 1024 * 1024);
+      if (rssGB > 4.0) {
+        console.warn(`[L2Node] MEMORY WARNING: RSS=${rssGB.toFixed(2)}GB — approaching GC storm threshold`);
+      }
 
       // Broadcast batch:built gossip to peers
       if (this.peerNetwork) {
