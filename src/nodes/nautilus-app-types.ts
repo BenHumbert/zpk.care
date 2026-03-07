@@ -68,6 +68,8 @@ export interface NautilusAppConfig {
   adminToken?: string;
   /** Display name for logging */
   displayName?: string;
+  /** Directory containing static dashboard files (index.html, etc.) */
+  dashboardDir?: string;
 }
 
 // ─── Route Registration ────────────────────────────────────────

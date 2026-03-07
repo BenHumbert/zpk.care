@@ -26,6 +26,9 @@
  *   npx tsx src/nodes/start-member-nautilus.ts
  *   ZKTRIDENT_PORT=4001 ZKTRIDENT_SEQUENCER_URL=http://seq:3030 npx tsx src/nodes/start-member-nautilus.ts
  */
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { NautilusAppServer } from './nautilus-app-server.js';
 import type { NautilusAppConfig } from './nautilus-app-types.js';
 import type { NautilusStateData } from './nautilus-local-state.js';
@@ -54,6 +57,14 @@ const config: NautilusAppConfig = {
   proverUrl: env.ZKTRIDENT_PROVER_URL,
   proverApiKey: env.ZKTRIDENT_PROVER_API_KEY,
 };
+
+// Auto-detect dashboard directory
+const thisDir = path.dirname(fileURLToPath(import.meta.url));
+const dashboardDir = path.resolve(thisDir, '..', '..', 'dashboard-member');
+if (fs.existsSync(path.join(dashboardDir, 'index.html'))) {
+  config.dashboardDir = dashboardDir;
+}
+
 
 const pin = env.ZKTRIDENT_PIN;
 

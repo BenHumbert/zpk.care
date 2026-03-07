@@ -25,6 +25,9 @@
  * Usage:
  *   npx tsx src/nodes/start-pharmacy-nautilus.ts
  */
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { NautilusAppServer } from './nautilus-app-server.js';
 import type { NautilusAppConfig } from './nautilus-app-types.js';
 import type { NautilusStateData } from './nautilus-local-state.js';
@@ -52,6 +55,13 @@ const config: NautilusAppConfig = {
   proverUrl: env.ZKTRIDENT_PROVER_URL,
   proverApiKey: env.ZKTRIDENT_PROVER_API_KEY,
 };
+
+// Auto-detect dashboard directory
+const thisDir = path.dirname(fileURLToPath(import.meta.url));
+const dashboardDir = path.resolve(thisDir, '..', '..', 'dashboard-pharmacy');
+if (fs.existsSync(path.join(dashboardDir, 'index.html'))) {
+  config.dashboardDir = dashboardDir;
+}
 
 const pin = env.ZKTRIDENT_PIN;
 
@@ -118,6 +128,9 @@ async function main(): Promise<void> {
   console.log('  SSE:           %s', config.enableSSE ? 'enabled' : 'disabled');
   console.log('  Phase:         %s', server.getOnboardingPhase());
   console.log('  State dir:     %s', config.stateDir);
+  if (config.dashboardDir) {
+    console.log('  Dashboard:     %s://%s:%d/', proto, config.host === '0.0.0.0' ? 'localhost' : config.host, server.getPort());
+  }
   console.log('');
 
   // ── Graceful Shutdown ──

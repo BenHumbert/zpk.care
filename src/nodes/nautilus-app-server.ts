@@ -23,6 +23,7 @@
 import http from 'http';
 import https from 'https';
 import fs from 'fs';
+import path from 'path';
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { EntityNodeBase } from './entity-node-base.js';
 import type { L2EventHandler, L2ChainEvent } from '../l2/l2-node.js';
@@ -315,6 +316,26 @@ export class NautilusAppServer {
         }
       }
       return;
+    }
+
+    // ── Static dashboard files ──
+    if (method === 'GET' && this.config.dashboardDir) {
+      const safePath = pathname === '/' ? '/index.html' : pathname;
+      if (/^[/a-zA-Z0-9._-]+$/.test(safePath) && !safePath.includes('..')) {
+        const filePath = path.join(this.config.dashboardDir, safePath);
+        try {
+          const content = fs.readFileSync(filePath);
+          const ext = path.extname(filePath).toLowerCase();
+          const mimeTypes: Record<string, string> = {
+            '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript',
+            '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml',
+            '.ico': 'image/x-icon',
+          };
+          res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
+          res.end(content);
+          return;
+        } catch { /* file not found, fall through to 404 */ }
+      }
     }
 
     // No route matched

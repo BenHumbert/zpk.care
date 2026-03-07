@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>zkTrident Prescriber</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-inner">
+      <a href="#overview" class="logo">
+        <span class="logo-text">zkTrident <span class="logo-sub">Prescriber</span></span>
+      </a>
+      <nav class="nav" id="mainNav">
+        <a href="#overview" class="nav-link active" data-tab="overview">Overview</a>
+        <a href="#onboarding" class="nav-link" data-tab="onboarding">Onboarding</a>
+        <a href="#prescriptions" class="nav-link" data-tab="prescriptions">Prescriptions</a>
+        <a href="#formulary" class="nav-link" data-tab="formulary">Formulary</a>
+        <a href="#messaging" class="nav-link" data-tab="messaging">Messaging</a>
+        <a href="#proofs" class="nav-link" data-tab="proofs">Proofs</a>
+      </nav>
+      <div class="header-right">
+        <span class="wallet-display" id="headerWallet" title="">--</span>
+        <span class="header-status">
+          <span class="status-dot" id="statusDot"></span>
+          <span class="status-text" id="statusText">Connecting...</span>
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="main" id="mainContent">
+    <!-- Content rendered by app.js -->
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <span>zkTrident Prescriber Nautilus</span>
+      <span class="footer-sep">&middot;</span>
+      <span>Zero Knowledge Proof Claim Adjudication</span>
+    </div>
+  </footer>
+
+  <!-- Toast container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="rpc.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

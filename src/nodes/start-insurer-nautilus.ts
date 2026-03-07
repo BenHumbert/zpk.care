@@ -22,6 +22,9 @@
  * Usage:
  *   ZKTRIDENT_ADMIN_TOKEN=secret npx tsx src/nodes/start-insurer-nautilus.ts
  */
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { NautilusAppServer } from './nautilus-app-server.js';
 import type { NautilusAppConfig } from './nautilus-app-types.js';
 import { buildInsurerRoutes } from './routes/insurer-routes.js';
@@ -47,6 +50,13 @@ const config: NautilusAppConfig = {
   displayName: env.ZKTRIDENT_DISPLAY_NAME,
   adminToken: env.ZKTRIDENT_ADMIN_TOKEN,
 };
+
+// Auto-detect dashboard directory
+const thisDir = path.dirname(fileURLToPath(import.meta.url));
+const dashboardDir = path.resolve(thisDir, '..', '..', 'dashboard-insurer');
+if (fs.existsSync(path.join(dashboardDir, 'index.html'))) {
+  config.dashboardDir = dashboardDir;
+}
 
 // ─── Main ────────────────────────────────────────────────────
 
@@ -87,6 +97,9 @@ async function main(): Promise<void> {
   console.log('  TLS:           %s', server.isTls() ? 'enabled' : 'disabled');
   console.log('  SSE:           %s', config.enableSSE ? 'enabled' : 'disabled');
   console.log('  Admin token:   %s', config.adminToken ? 'configured' : 'NONE (admin endpoints disabled)');
+  if (config.dashboardDir) {
+    console.log('  Dashboard:     %s://%s:%d/', proto, config.host === '0.0.0.0' ? 'localhost' : config.host, server.getPort());
+  }
   console.log('');
 
   // ── Graceful Shutdown ──
