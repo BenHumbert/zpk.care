@@ -194,19 +194,8 @@ async function main(): Promise<void> {
     });
   }
 
-  // ── Production Formulary (500 NDCs from FDA NADAC) ──
-
-  const loadFormulary = (env.ZKTRIDENT_PRODUCTION_FORMULARY ?? 'false') !== 'false';
-  if (loadFormulary) {
-    try {
-      const { NADAC_MEDICATIONS } = await import('../demo/nadac-formulary.js');
-      console.log('  [formulary] Loaded %d production NDCs from NADAC', NADAC_MEDICATIONS.length);
-    } catch {
-      console.warn('  [formulary] NADAC formulary not found — run scripts/fetch-nadac.ts first');
-    }
-  }
-
   // ── RPC Server (start before pool compilation to pass Render health check) ──
+  // Formulary is published by the Insurer node via l2_storeFormulary — not loaded at startup.
 
   const rpcServer = new L2RpcServer(node, rpcOptions);
   await rpcServer.start();

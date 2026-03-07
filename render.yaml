@@ -46,9 +46,6 @@ services:
         value: "1"                    # 2GB container — 1 worker max
       - key: ZKTRIDENT_POOL_RECYCLE
         value: "3"                    # recycle worker every 3 jobs
-      # Production formulary
-      - key: ZKTRIDENT_PRODUCTION_FORMULARY
-        value: "true"
       - key: NODE_OPTIONS
         value: "--max-old-space-size=1800"
     disk:
