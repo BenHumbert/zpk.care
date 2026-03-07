@@ -6,6 +6,7 @@
 # Services:
 #   1. zktrident-leviathan — L2 sequencer (Standard, 2GB)
 #   2. zktrident-prover    — Proof delegate server (Pro, 4GB)
+#   3. zktrident-insurer   — Insurer Nautilus node (Starter, 512MB)
 
 services:
   # ─── Leviathan Sequencer ──────────────────────────────────
@@ -68,3 +69,31 @@ services:
         generateValue: true
       - key: NODE_OPTIONS
         value: "--max-old-space-size=6000"
+
+  # ─── Insurer Nautilus Node ──────────────────────────────
+  - type: web
+    name: zktrident-insurer
+    runtime: docker
+    dockerfilePath: ./Dockerfile.insurer
+    plan: starter                      # 512MB RAM — $7/mo (no ZK compilation)
+    region: oregon
+    healthCheckPath: /health
+    envVars:
+      - key: ZKTRIDENT_PORT
+        value: "4004"
+      - key: ZKTRIDENT_HOST
+        value: "0.0.0.0"
+      - key: ZKTRIDENT_SEQUENCER_URL
+        value: "https://zktrident-leviathan.onrender.com"
+      - key: ZKTRIDENT_ADMIN_TOKEN
+        generateValue: true
+      - key: ZKTRIDENT_CORS_ORIGINS
+        value: "*"
+      - key: ZKTRIDENT_SSE
+        value: "true"
+      - key: ZKTRIDENT_MAX_SSE
+        value: "50"
+      - key: ZKTRIDENT_STATE_DIR
+        value: "/data/nautilus-data"
+      - key: ZKTRIDENT_DISPLAY_NAME
+        value: "zkTrident Insurer"
