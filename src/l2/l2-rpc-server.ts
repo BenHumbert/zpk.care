@@ -14,6 +14,8 @@
  *   // ... clients connect via L2Client ...
  *   await server.stop();
  */
+import fs from 'fs';
+import path from 'path';
 import http from 'http';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { timingSafeEqual } from 'crypto';
@@ -105,6 +107,8 @@ export interface L2RpcServerOptions {
   maxSseConnections?: number;
   /** Max proof submissions per IP per minute. Default 60. Set to 0 to disable. */
   proofRateLimitPerMinute?: number;
+  /** Directory containing dashboard static files. When set, serves files at /. */
+  dashboardDir?: string;
 }
 
 /** Default server options */
@@ -186,9 +190,13 @@ export class L2RpcServer {
   // Dynamic route registration
   private additionalRoutes: Map<string, (req: IncomingMessage, res: ServerResponse) => Promise<void>> = new Map();
 
+  // Dashboard static file directory
+  private dashboardDir: string | null = null;
+
   constructor(node: L2Node | L2Leviathan, options?: Partial<L2RpcServerOptions>) {
     this.node = node;
     this.options = { ...DEFAULT_RPC_SERVER_OPTIONS, ...options };
+    this.dashboardDir = this.options.dashboardDir ?? null;
 
     // Bridge L2Node events to SSE clients
     this.eventHandler = (event: L2ChainEvent) => {
@@ -386,6 +394,27 @@ export class L2RpcServer {
     const customHandler = this.additionalRoutes.get(routeKey);
     if (customHandler) {
       return customHandler(req, res);
+    }
+
+    // ── Dashboard static files ──
+    if (req.method === 'GET' && this.dashboardDir) {
+      const safePath = pathname === '/' ? '/index.html' : pathname;
+      // Only allow alphanumeric, dots, hyphens, slashes — no ..
+      if (/^[/a-zA-Z0-9._-]+$/.test(safePath) && !safePath.includes('..')) {
+        const filePath = path.join(this.dashboardDir, safePath);
+        try {
+          const content = fs.readFileSync(filePath);
+          const ext = path.extname(filePath).toLowerCase();
+          const mimeTypes: Record<string, string> = {
+            '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript',
+            '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml',
+            '.ico': 'image/x-icon',
+          };
+          res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
+          res.end(content);
+          return;
+        } catch { /* file not found, fall through to 404 */ }
+      }
     }
 
     res.writeHead(404, { 'Content-Type': 'application/json' });

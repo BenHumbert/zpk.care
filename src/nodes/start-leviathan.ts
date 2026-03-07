@@ -90,6 +90,11 @@ const nodeOptions: Partial<L2NodeOptions> = {
   ...(gossipSecret ? { gossipSecret } : {}),
 };
 
+// Resolve dashboard directory (relative to project root)
+const thisDir = path.dirname(fileURLToPath(import.meta.url));
+const dashboardDir = path.resolve(thisDir, '..', '..', 'dashboard');
+const hasDashboard = fs.existsSync(path.join(dashboardDir, 'index.html'));
+
 const rpcOptions: Partial<L2RpcServerOptions> = {
   port,
   host,
@@ -97,6 +102,7 @@ const rpcOptions: Partial<L2RpcServerOptions> = {
   maxSseConnections,
   allowedOrigins,
   ...(adminToken ? { adminToken } : {}),
+  ...(hasDashboard ? { dashboardDir } : {}),
 };
 
 // ─── Main ─────────────────────────────────────────────────────
@@ -167,7 +173,6 @@ async function main(): Promise<void> {
     const pool = new ProvingPool(poolWorkerCount, { recycleAfterJobs });
 
     // Resolve worker script path relative to this module (ESM)
-    const thisDir = path.dirname(fileURLToPath(import.meta.url));
     const workerPath = path.resolve(thisDir, '..', 'l2', 'l2-proving-worker.ts');
     pool.setWorkerScriptPath(workerPath);
 
@@ -219,6 +224,7 @@ async function main(): Promise<void> {
   console.log('  Role:          sequencer');
   console.log('  RPC:           http://%s:%d/rpc', host, port);
   console.log('  SSE:           %s', enableSSE ? `http://${host}:${port}/events` : 'disabled');
+  console.log('  Dashboard:     %s', hasDashboard ? `http://${host}:${port}/` : 'not found');
   console.log('  Batch interval: %ds', batchIntervalMs / 1000);
   console.log('  L2-only:       %s', l2Only);
   console.log('  Proving pool:  %s', poolWorkerCount > 0 ? `${poolWorkerCount} worker(s)` : 'disabled');

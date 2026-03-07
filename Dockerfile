@@ -14,9 +14,10 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --ignore-scripts --omit=dev
 
-# Copy source + config
+# Copy source + config + dashboard
 COPY tsconfig.json ./
 COPY src/ ./src/
+COPY dashboard/ ./dashboard/
 
 # Data directory for checkpoints + WAL (mount as persistent volume)
 RUN mkdir -p /data

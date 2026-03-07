@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>zkTrident Explorer</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-inner">
+      <a href="#/" class="logo">
+        <span class="logo-icon">&#x1F531;</span>
+        <span class="logo-text">zkTrident <span class="logo-sub">Explorer</span></span>
+      </a>
+      <nav class="nav">
+        <a href="#/" class="nav-link active" data-page="overview">Overview</a>
+        <a href="#/batches" class="nav-link" data-page="batches">Batches</a>
+        <a href="#/receipts" class="nav-link" data-page="receipts">Receipts</a>
+        <a href="#/wallets" class="nav-link" data-page="wallets">Wallets</a>
+        <a href="#/formulary" class="nav-link" data-page="formulary">Formulary</a>
+        <a href="#/admin" class="nav-link nav-admin" data-page="admin">Admin</a>
+      </nav>
+      <div class="header-status">
+        <span class="status-dot" id="statusDot"></span>
+        <span class="status-text" id="statusText">Connecting...</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Search Bar -->
+  <div class="search-bar">
+    <div class="search-inner">
+      <input type="text" id="searchInput" placeholder="Search by Receipt ID, Wallet ID, Batch Number, or NDC..." class="search-input">
+      <button id="searchBtn" class="search-btn">Search</button>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <main class="main" id="mainContent">
+    <!-- Overview Page -->
+    <div class="page" id="page-overview">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Chain Height</div>
+          <div class="stat-value" id="statBlockHeight">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Wallets</div>
+          <div class="stat-value" id="statWalletCount">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Batches</div>
+          <div class="stat-value" id="statBatchCount">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Pending Proofs</div>
+          <div class="stat-value" id="statPendingProofs">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Proofs Accepted</div>
+          <div class="stat-value" id="statProofsAccepted">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Uptime</div>
+          <div class="stat-value" id="statUptime">-</div>
+        </div>
+      </div>
+
+      <div class="panels-row">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Latest Batches</h2>
+            <a href="#/batches" class="panel-link">View All &rarr;</a>
+          </div>
+          <div class="panel-body" id="latestBatches">
+            <div class="loading">Loading...</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Latest Receipts</h2>
+            <a href="#/receipts" class="panel-link">View All &rarr;</a>
+          </div>
+          <div class="panel-body" id="latestReceipts">
+            <div class="loading">Loading...</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Chain State</h2>
+        </div>
+        <div class="panel-body" id="chainState">
+          <div class="loading">Loading...</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Live Events</h2>
+          <span class="badge badge-live" id="sseBadge">SSE</span>
+        </div>
+        <div class="panel-body event-log" id="eventLog">
+          <div class="event-placeholder">Waiting for events...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Batches Page -->
+    <div class="page hidden" id="page-batches">
+      <h1 class="page-title">Batches</h1>
+      <div class="panel">
+        <div class="panel-body">
+          <table class="data-table" id="batchesTable">
+            <thead>
+              <tr>
+                <th>Batch #</th>
+                <th>Blocks</th>
+                <th>Registrations</th>
+                <th>Transitions</th>
+                <th>Status</th>
+                <th>Prove Time</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody id="batchesTableBody">
+              <tr><td colspan="7" class="loading">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Batch Detail Page -->
+    <div class="page hidden" id="page-batch-detail">
+      <h1 class="page-title">Batch <span id="batchDetailNum"></span></h1>
+      <div class="panel">
+        <div class="panel-body" id="batchDetailContent">
+          <div class="loading">Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Receipts Page -->
+    <div class="page hidden" id="page-receipts">
+      <h1 class="page-title">Receipts</h1>
+      <div class="panel">
+        <div class="panel-body">
+          <table class="data-table" id="receiptsTable">
+            <thead>
+              <tr>
+                <th>Receipt ID</th>
+                <th>Wallet</th>
+                <th>Seq #</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Batch</th>
+                <th>Accepted</th>
+              </tr>
+            </thead>
+            <tbody id="receiptsTableBody">
+              <tr><td colspan="7" class="loading">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Receipt Detail Page -->
+    <div class="page hidden" id="page-receipt-detail">
+      <h1 class="page-title">Receipt <span id="receiptDetailId"></span></h1>
+      <div class="panel">
+        <div class="panel-body" id="receiptDetailContent">
+          <div class="loading">Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Wallets Page -->
+    <div class="page hidden" id="page-wallets">
+      <h1 class="page-title">Wallet Lookup</h1>
+      <div class="panel">
+        <div class="panel-body">
+          <div class="wallet-search">
+            <input type="text" id="walletInput" placeholder="Enter Wallet ID..." class="search-input">
+            <button id="walletSearchBtn" class="search-btn">Lookup</button>
+          </div>
+          <div id="walletResults" class="wallet-results"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Formulary Page -->
+    <div class="page hidden" id="page-formulary">
+      <h1 class="page-title">Formulary <span class="page-subtitle" id="formularyCount"></span></h1>
+      <div class="panel">
+        <div class="panel-header">
+          <input type="text" id="formularyFilter" placeholder="Filter by NDC, drug name, or therapeutic class..." class="filter-input">
+        </div>
+        <div class="panel-body">
+          <table class="data-table" id="formularyTable">
+            <thead>
+              <tr>
+                <th>NDC</th>
+                <th>Brand Name</th>
+                <th>Generic</th>
+                <th>Tier</th>
+                <th>Class</th>
+                <th>Strength</th>
+                <th>Price/Unit</th>
+              </tr>
+            </thead>
+            <tbody id="formularyTableBody">
+              <tr><td colspan="7" class="loading">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Admin Page -->
+    <div class="page hidden" id="page-admin">
+      <h1 class="page-title">Admin Panel</h1>
+      <div class="admin-auth" id="adminAuth">
+        <div class="panel">
+          <div class="panel-body">
+            <p>Enter admin token to access the admin panel.</p>
+            <div class="admin-login">
+              <input type="password" id="adminTokenInput" placeholder="Admin Token" class="search-input">
+              <button id="adminLoginBtn" class="search-btn">Authenticate</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="admin-content hidden" id="adminContent">
+        <div class="stats-grid">
+          <div class="stat-card stat-accent">
+            <div class="stat-label">Node Status</div>
+            <div class="stat-value" id="adminNodeStatus">-</div>
+          </div>
+          <div class="stat-card stat-accent">
+            <div class="stat-label">Proving Pool</div>
+            <div class="stat-value" id="adminPoolStatus">-</div>
+          </div>
+          <div class="stat-card stat-accent">
+            <div class="stat-label">Memory (RSS)</div>
+            <div class="stat-value" id="adminMemory">-</div>
+          </div>
+          <div class="stat-card stat-accent">
+            <div class="stat-label">SSE Clients</div>
+            <div class="stat-value" id="adminSseClients">-</div>
+          </div>
+        </div>
+
+        <div class="panels-row">
+          <div class="panel">
+            <div class="panel-header">
+              <h2>Node Info</h2>
+              <button class="btn btn-sm" id="adminRefreshBtn">Refresh</button>
+            </div>
+            <div class="panel-body" id="adminNodeInfo">
+              <div class="loading">Loading...</div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-header">
+              <h2>Actions</h2>
+            </div>
+            <div class="panel-body admin-actions">
+              <button class="btn btn-primary" id="forceBatchBtn">Force Batch</button>
+              <button class="btn" id="exportCheckpointBtn">Export Checkpoint</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Audit Log</h2>
+          </div>
+          <div class="panel-body" id="adminAuditLog">
+            <div class="loading">Loading...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <span>zkTrident Network Explorer</span>
+      <span class="footer-sep">&middot;</span>
+      <span>Zero Knowledge Proof Claim Adjudication</span>
+      <span class="footer-sep">&middot;</span>
+      <span id="footerVersion">v1.0.0</span>
+    </div>
+  </footer>
+
+  <script src="rpc.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
