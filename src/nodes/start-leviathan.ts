@@ -31,6 +31,7 @@
  *   npx tsx src/nodes/start-leviathan.ts
  *   ZKTRIDENT_PORT=3030 ZKTRIDENT_PARTITION_COUNT=3 ZKTRIDENT_PARTITION_INDEX=0 npx tsx src/nodes/start-leviathan.ts
  */
+import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -144,8 +145,13 @@ async function main(): Promise<void> {
   if (poolSizeEnv === 'auto') {
     // Auto-detect: each worker needs ~800MB for compile + prove.
     // Reserve 400MB for the main process (L2Node + RPC + overhead).
-    const totalMemMB = Math.floor(os.totalmem() / (1024 * 1024));
-    const freeMemMB = Math.floor(os.freemem() / (1024 * 1024));
+    // In containers, os.totalmem() returns host RAM — read cgroup limit instead.
+    let totalMemMB = Math.floor(os.totalmem() / (1024 * 1024));
+    try {
+      const cgroupLimit = fs.readFileSync('/sys/fs/cgroup/memory.max', 'utf8').trim();
+      if (cgroupLimit !== 'max') totalMemMB = Math.floor(parseInt(cgroupLimit, 10) / (1024 * 1024));
+    } catch { /* not in a cgroup — use os.totalmem() */ }
+    const freeMemMB = Math.min(Math.floor(os.freemem() / (1024 * 1024)), totalMemMB);
     const usableMemMB = Math.min(totalMemMB, freeMemMB + 200); // allow some reclaim
     const MAIN_RESERVE_MB = 400;
     const WORKER_MB = 800;

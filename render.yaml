@@ -43,7 +43,7 @@ services:
         value: "10"
       # ProvingPool — auto-detect workers from available memory
       - key: ZKTRIDENT_POOL_SIZE
-        value: "auto"                 # auto = detect from available RAM
+        value: "1"                    # 2GB container — 1 worker max
       - key: ZKTRIDENT_POOL_RECYCLE
         value: "3"                    # recycle worker every 3 jobs
       # Production formulary
