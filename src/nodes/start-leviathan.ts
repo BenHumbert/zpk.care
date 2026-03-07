@@ -180,9 +180,13 @@ async function main(): Promise<void> {
     });
 
     console.log('  [pool] Starting %d proving worker(s) (recycle every %d jobs)...', poolWorkerCount, recycleAfterJobs);
-    await pool.start();
-    node.setProvingPool(pool);
-    console.log('  [pool] Proving pool ready');
+    // Don't await — compile in background so RPC server starts immediately
+    pool.start().then(() => {
+      node.setProvingPool(pool);
+      console.log('  [pool] Proving pool ready');
+    }).catch((err) => {
+      console.error('  [pool] Failed to start proving pool:', err);
+    });
   }
 
   // ── Production Formulary (500 NDCs from FDA NADAC) ──
@@ -197,7 +201,7 @@ async function main(): Promise<void> {
     }
   }
 
-  // ── RPC Server ──
+  // ── RPC Server (start before pool compilation to pass Render health check) ──
 
   const rpcServer = new L2RpcServer(node, rpcOptions);
   await rpcServer.start();
