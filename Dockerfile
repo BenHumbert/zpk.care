@@ -12,7 +12,7 @@ WORKDIR /app
 
 # Install dependencies first (layer caching)
 COPY package*.json ./
-RUN npm install --ignore-scripts
+RUN npm install --ignore-scripts --omit=dev
 
 # Copy source + config
 COPY tsconfig.json ./
