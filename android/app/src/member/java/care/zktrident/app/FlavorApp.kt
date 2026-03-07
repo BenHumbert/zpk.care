@@ -1,6 +1,10 @@
 package care.zktrident.app
 
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -64,11 +68,23 @@ fun FlavorApp(
                 onBack = { navController.popBackStack() },
             )
         }
+        composable(Routes.PCP_ASSIGN) {
+            MemberPcpScreen(
+                viewModel = dashboardVm,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Routes.PLAN_SPEND) {
+            MemberPlanSpendScreen(
+                viewModel = dashboardVm,
+                onBack = { navController.popBackStack() },
+            )
+        }
         composable(Routes.NFC_SCAN) {
             // Placeholder NFC screen — full implementation requires NFC hardware
-            androidx.compose.material3.Text(
+            Text(
                 "Hold NFC card to back of device",
-                modifier = androidx.compose.ui.Modifier.padding(32.dp),
+                modifier = Modifier.padding(32.dp),
             )
         }
         composable(Routes.SETTINGS) {

@@ -88,6 +88,19 @@ data class L2ChainState(
 )
 
 /**
+ * Registration witnesses for generating ZK registration proofs.
+ * Returned by l2_getRegistrationWitnesses RPC method.
+ */
+@Serializable
+data class RegistrationWitnesses(
+    val registryWitnessJson: String = "",
+    val lifecycleWitnessJson: String = "",
+    val currentRegistryRoot: String = "",
+    val currentLifecycleRoot: String = "",
+    val nextSlotIndex: String = "0",
+)
+
+/**
  * Claim accumulator entry — matches ClaimAccumulatorEntry from TypeScript.
  * The RPC returns nested objects: leaf + metadata.
  */

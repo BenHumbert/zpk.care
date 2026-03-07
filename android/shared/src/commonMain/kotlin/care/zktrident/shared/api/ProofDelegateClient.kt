@@ -1,6 +1,7 @@
 package care.zktrident.shared.api
 
 import io.ktor.client.*
+import io.ktor.client.plugins.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
@@ -20,7 +21,14 @@ import kotlinx.serialization.json.*
 class ProofDelegateClient(
     private val baseUrl: String,
     private val apiKey: String? = null,
-    private val client: HttpClient = HttpClient { expectSuccess = false },
+    private val client: HttpClient = HttpClient {
+        expectSuccess = false
+        install(HttpTimeout) {
+            requestTimeoutMillis = 300_000   // 5 min — proof gen can take 2+ min
+            connectTimeoutMillis = 30_000
+            socketTimeoutMillis = 300_000
+        }
+    },
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 

@@ -35,9 +35,17 @@ object PastaConstants {
 
     /** S-box exponent */
     const val SBOX_EXP = 7
+    const val POWER = SBOX_EXP
+
+    /** Sponge state size (alias for WIDTH) */
+    const val STATE_SIZE = WIDTH
 
     /** Whether ARK is applied before S-box (false = ARK at end of round) */
     const val HAS_INITIAL_ROUND_CONSTANT = false
+
+    /** Round constants — delegated to PoseidonRoundConstants for file size */
+    val ROUND_CONSTANTS: Array<Array<java.math.BigInteger>>
+        get() = PoseidonRoundConstants.ROUND_CONSTANTS
 
     /**
      * MDS matrix (3x3) for the Kimchi Poseidon instance.

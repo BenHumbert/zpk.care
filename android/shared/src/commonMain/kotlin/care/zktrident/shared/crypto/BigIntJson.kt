@@ -1,47 +1,73 @@
 package care.zktrident.shared.crypto
 
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.*
+import java.math.BigInteger
 
 /**
- * BigInt-safe JSON handling for zkpCare L2 protocol.
- *
- * The leviathan serializes BigInt values as "__bigint__:12345" (prefixed string).
- * This utility handles encoding/decoding of these prefixed values.
+ * Serializer for BigInteger values in JSON-RPC communication with the leviathan.
+ * The leviathan uses a custom "__bigint__:" prefix for BigInt serialization.
  */
-object BigIntJson {
-    private const val BIGINT_PREFIX = "__bigint__:"
+object BigIntSerializer : KSerializer<BigInteger> {
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("BigInteger", PrimitiveKind.STRING)
 
-    /** Extract a BigInt string from a JSON element that may be prefixed */
-    fun extractBigInt(element: JsonElement): String = when (element) {
-        is JsonPrimitive -> {
-            val content = element.content
-            if (content.startsWith(BIGINT_PREFIX)) {
-                content.removePrefix(BIGINT_PREFIX)
-            } else {
-                content
-            }
-        }
-        else -> throw IllegalArgumentException("Cannot extract BigInt from $element")
+    override fun serialize(encoder: Encoder, value: BigInteger) {
+        encoder.encodeString(value.toString())
     }
 
-    /** Wrap a BigInt string as a prefixed string for sending to leviathan */
-    fun wrapBigInt(value: String): JsonPrimitive = JsonPrimitive("$BIGINT_PREFIX$value")
+    override fun deserialize(decoder: Decoder): BigInteger {
+        val str = decoder.decodeString()
+        // Handle __bigint__: prefix from leviathan JSON serialization
+        return if (str.startsWith("__bigint__:")) {
+            BigInteger(str.removePrefix("__bigint__:"))
+        } else {
+            BigInteger(str)
+        }
+    }
+}
 
+/**
+ * Parse a JSON value that might contain __bigint__: prefixed strings.
+ */
+/**
+ * Utility for unwrapping __bigint__: prefixed strings in JSON responses.
+ * Matches the TypeScript l2-json.ts BigInt serialization format.
+ */
+object BigIntJson {
     /**
-     * Recursively unwrap all __bigint__: prefixed strings in a JSON tree.
-     * Converts "__bigint__:123" → "123" (JsonPrimitive string).
+     * Recursively unwrap all __bigint__: prefixed strings in a JsonElement tree,
+     * converting them to plain numeric strings for kotlinx.serialization.
      */
     fun unwrapAll(element: JsonElement): JsonElement = when (element) {
-        is JsonObject -> buildJsonObject {
-            element.forEach { (key, value) -> put(key, unwrapAll(value)) }
-        }
-        is JsonArray -> JsonArray(element.map { unwrapAll(it) })
         is JsonPrimitive -> {
-            if (element.isString && element.content.startsWith(BIGINT_PREFIX)) {
-                JsonPrimitive(element.content.removePrefix(BIGINT_PREFIX))
+            val content = element.content
+            if (element.isString && content.startsWith("__bigint__:")) {
+                JsonPrimitive(content.removePrefix("__bigint__:"))
             } else {
                 element
             }
         }
+        is JsonObject -> JsonObject(element.mapValues { (_, v) -> unwrapAll(v) })
+        is JsonArray -> JsonArray(element.map { unwrapAll(it) })
+    }
+}
+
+fun JsonElement.toBigIntOrNull(): BigInteger? {
+    return when (this) {
+        is JsonPrimitive -> {
+            val content = this.content
+            when {
+                content.startsWith("__bigint__:") -> BigInteger(content.removePrefix("__bigint__:"))
+                content.all { it.isDigit() || it == '-' } -> try { BigInteger(content) } catch (_: Exception) { null }
+                else -> null
+            }
+        }
+        else -> null
     }
 }

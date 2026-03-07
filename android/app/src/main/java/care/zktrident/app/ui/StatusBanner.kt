@@ -11,10 +11,6 @@ import androidx.compose.ui.unit.dp
 import care.zktrident.app.viewmodel.SequencerViewModel
 import care.zktrident.app.viewmodel.SseViewModel
 
-/**
- * Connection status banner — shows at the top of the dashboard.
- * Green when connected + SSE streaming, red when disconnected.
- */
 @Composable
 fun StatusBanner(
     sequencerVm: SequencerViewModel,
@@ -58,8 +54,9 @@ fun StatusBanner(
         }
 
         if (status != null) {
+            val s = status!!
             Text(
-                "H:${status!!.chainHeight} B:${status!!.batchCount}",
+                "W:${s.currentWalletCount} B:${s.totalBatchesBuilt}",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

@@ -41,8 +41,8 @@ fun MemberDrugHistoryScreen(viewModel: MemberDashboardViewModel, onBack: () -> U
                             meta?.brandName ?: "NDC: ${meta?.ndc ?: leaf.ndcHash.take(16)}",
                             style = MaterialTheme.typography.titleSmall,
                         )
-                        if (meta?.therapeuticClass != null) {
-                            Text(meta.therapeuticClass, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        meta?.therapeuticClass?.let { tc ->
+                            Text(tc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Spacer(Modifier.height(4.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

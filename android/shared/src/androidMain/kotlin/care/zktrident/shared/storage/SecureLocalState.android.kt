@@ -1,6 +1,7 @@
 package care.zktrident.shared.storage
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import androidx.security.crypto.EncryptedSharedPreferences
@@ -21,15 +22,15 @@ import javax.crypto.spec.GCMParameterSpec
  *   The enrollment key bytes are encrypted with a Keystore-backed AES key
  *   so they never exist in plaintext outside the TEE/StrongBox.
  */
-actual class SecureLocalState(context: Any) {
-    private val context: Context = context as Context
-    private val masterKey = MasterKey.Builder(context)
+actual class SecureLocalState actual constructor(context: Any) {
+    private val ctx: Context = context as Context
+    private val masterKey = MasterKey.Builder(ctx)
         .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
         .build()
 
-    private val prefs by lazy {
+    private val prefs: SharedPreferences by lazy {
         EncryptedSharedPreferences.create(
-            context,
+            ctx,
             "zktrident_state",
             masterKey,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
@@ -65,7 +66,6 @@ actual class SecureLocalState(context: Any) {
         cipher.init(Cipher.ENCRYPT_MODE, wrappingKey)
         val iv = cipher.iv
         val encrypted = cipher.doFinal(key)
-        // Store IV + ciphertext as hex
         prefs.edit()
             .putString("ek_iv", iv.toHex())
             .putString("ek_data", encrypted.toHex())
@@ -75,10 +75,14 @@ actual class SecureLocalState(context: Any) {
     actual fun getEnrollmentKey(): ByteArray? {
         val ivHex = prefs.getString("ek_iv", null) ?: return null
         val dataHex = prefs.getString("ek_data", null) ?: return null
-        val wrappingKey = getOrCreateWrappingKey()
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, wrappingKey, GCMParameterSpec(128, ivHex.fromHex()))
-        return cipher.doFinal(dataHex.fromHex())
+        return try {
+            val wrappingKey = getOrCreateWrappingKey()
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, wrappingKey, GCMParameterSpec(128, ivHex.fromHex()))
+            cipher.doFinal(dataHex.fromHex())
+        } catch (_: Exception) {
+            null
+        }
     }
 
     actual fun clear() {

@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">zkCare</string>
+    <!-- app_name is set per flavor in build.gradle.kts via resValue -->
 </resources>

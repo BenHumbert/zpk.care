@@ -8,10 +8,6 @@ import androidx.compose.ui.unit.dp
 import care.zktrident.app.BuildConfig
 import care.zktrident.app.viewmodel.SequencerViewModel
 
-/**
- * Settings screen shared across all flavors.
- * Allows configuring sequencer URL and viewing connection status.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -42,7 +38,7 @@ fun SettingsScreen(
             Text("Role: ${BuildConfig.ROLE}", style = MaterialTheme.typography.titleMedium)
             Text("Version: ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyMedium)
 
-            HorizontalDivider()
+            Divider()
 
             Text("Sequencer Connection", style = MaterialTheme.typography.titleMedium)
 
@@ -77,14 +73,14 @@ fun SettingsScreen(
             }
 
             if (status != null) {
+                val s = status!!
                 Card {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text("Connected", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                        Text("Node: ${status!!.nodeId}")
-                        Text("Role: ${status!!.role}")
-                        Text("Chain height: ${status!!.chainHeight}")
-                        Text("Receipts: ${status!!.receiptCount}")
-                        Text("Batches: ${status!!.batchCount}")
+                        Text("Wallets: ${s.currentWalletCount}")
+                        Text("Pending proofs: ${s.pendingProofs}")
+                        Text("Batches built: ${s.totalBatchesBuilt}")
+                        Text("Batches settled: ${s.totalBatchesSettled}")
                     }
                 }
             }

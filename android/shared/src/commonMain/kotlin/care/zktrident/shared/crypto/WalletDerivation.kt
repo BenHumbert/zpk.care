@@ -1,155 +1,108 @@
 package care.zktrident.shared.crypto
 
 import java.math.BigInteger
+import java.nio.charset.Charset
 
 /**
- * Wallet ID derivation — mirrors src/wallets/wallet-derivation.ts
+ * Wallet ID derivation matching the TypeScript implementation.
  *
- * walletId = Poseidon.hash([domainTag, ...hashedPHIFields, hash(enrollmentKey)])
- *
- * Domain tags:
- *   0 = Member
- *   1 = Prescriber
- *   2 = Pharmacy
- *
- * IMPORTANT: hashString uses Poseidon(stringToFields(value)) to match o1js.
- * stringToFields packs characters into field elements using radix-256 big-endian
- * packing (31 bytes per field), matching o1js Encoding.stringToFields.
- *
- * The enrollment key is hashed as a string via the same mechanism.
- * PHI is wiped from memory immediately after derivation.
+ * walletId = Poseidon.hash([domainTag, hashString(cardholderId), hashDate(dob),
+ *   hashString(firstName), hashString(lastName), hashString(enrollmentKey)])
  */
 object WalletDerivation {
-    private val p = PastaConstants.FIELD_MODULUS
-
-    /** Domain tag constants matching TypeScript wallet-derivation.ts */
-    const val DOMAIN_MEMBER = 0L
-    const val DOMAIN_PRESCRIBER = 1L
-    const val DOMAIN_PHARMACY = 2L
-
-    /**
-     * Hash a string to a field element (matches src/zkp/hash-utils.ts hashString).
-     *
-     * o1js implementation: Encoding.stringToFields(value) -> Poseidon.hash(fields)
-     */
-    fun hashString(input: String): BigInteger {
-        val fields = stringToFields(input)
-        return PoseidonHasher.hash(fields)
-    }
+    /** Domain tag for member wallets (matches TypeScript DOMAIN_TAG_MEMBER = Field(0)) */
+    val DOMAIN_TAG_MEMBER = BigInteger.ZERO
+    /** Domain tag for prescriber wallets (matches TypeScript DOMAIN_TAG_PRESCRIBER = Field(1)) */
+    val DOMAIN_TAG_PRESCRIBER = BigInteger.ONE
+    /** Domain tag for pharmacy wallets (matches TypeScript DOMAIN_TAG_PHARMACY = Field(2)) */
+    val DOMAIN_TAG_PHARMACY = BigInteger.TWO
 
     /**
-     * Replicate o1js Encoding.stringToFields.
-     *
-     * o1js packs string bytes into field elements using a radix-256 scheme:
-     * each field element holds up to 31 bytes (248 bits < 254-bit field).
-     * Characters are encoded as UTF-8 bytes, packed big-endian into fields.
-     */
-    fun stringToFields(input: String): List<BigInteger> {
-        val bytes = input.toByteArray(Charsets.UTF_8)
-        if (bytes.isEmpty()) return listOf(BigInteger.ZERO)
-
-        val chunkSize = 31 // max bytes per field element (248 bits < 254-bit Pallas field)
-        val fields = mutableListOf<BigInteger>()
-        var i = 0
-        while (i < bytes.size) {
-            val end = minOf(i + chunkSize, bytes.size)
-            val chunk = bytes.sliceArray(i until end)
-            // Big-endian interpretation: first byte is most significant
-            fields.add(BigInteger(1, chunk))
-            i = end
-        }
-        return fields
-    }
-
-    /**
-     * Convert a date string (CCYYMMDD) to a hashed field (matches hashDate in hash-utils.ts).
-     * hashDate = Poseidon.hash([Field(BigInt(dateStr))])
-     */
-    fun hashDate(dateStr: String): BigInteger {
-        val dateField = BigInteger(dateStr)
-        return PoseidonHasher.hash(listOf(dateField))
-    }
-
-    /**
-     * Convert a small integer code to a field element (matches codeToField in hash-utils.ts).
-     */
-    fun codeToField(code: Int): BigInteger = BigInteger.valueOf(code.toLong())
-
-    /**
-     * Derive a member wallet ID.
-     *
-     * Preimage: [0, hash(cardholderId), hashDate(dob), hash(firstName), hash(lastName), hash(enrollmentKey)]
-     *
-     * @param cardholderId Cardholder ID string
-     * @param dateOfBirth Date of birth as CCYYMMDD string
-     * @param firstName Patient first name (PHI)
-     * @param lastName Patient last name (PHI)
-     * @param enrollmentKey Enrollment key string (secret)
-     * @return Wallet ID as decimal string
+     * Derive a member wallet ID from local PHI data.
+     * PHI is hashed immediately and never stored.
      */
     fun deriveMemberWalletId(
+        cardholderId: String,
+        dateOfBirth: String,  // YYYYMMDD format as numeric string
+        firstName: String,
+        lastName: String,
+        enrollmentKey: String
+    ): BigInteger {
+        require(enrollmentKey.length >= 16) { "Enrollment key must be at least 16 characters" }
+        return PoseidonHasher.hash(listOf(
+            DOMAIN_TAG_MEMBER,
+            hashString(cardholderId),
+            hashDate(dateOfBirth),
+            hashString(firstName),
+            hashString(lastName),
+            hashString(enrollmentKey)
+        ))
+    }
+
+    /**
+     * Return the 6 preimage fields as decimal strings (for ProofDelegateServer).
+     * These are the hashed fields that were used to derive the walletId.
+     * The prover needs them to generate the registration proof.
+     */
+    fun memberPreimageFields(
         cardholderId: String,
         dateOfBirth: String,
         firstName: String,
         lastName: String,
         enrollmentKey: String,
-    ): String {
-        val fields = listOf(
-            BigInteger.valueOf(DOMAIN_MEMBER),
-            hashString(cardholderId),
-            hashDate(dateOfBirth),
-            hashString(firstName),
-            hashString(lastName),
-            hashString(enrollmentKey),
-        )
-        return PoseidonHasher.hash(fields).toString()
+    ): List<String> = listOf(
+        DOMAIN_TAG_MEMBER.toString(),
+        hashString(cardholderId).toString(),
+        hashDate(dateOfBirth).toString(),
+        hashString(firstName).toString(),
+        hashString(lastName).toString(),
+        hashString(enrollmentKey).toString(),
+    )
+
+    /**
+     * Hash a string using the same encoding as o1js Encoding.stringToFields.
+     *
+     * stringToFields packs bytes in little-endian order, 31 bytes per Field,
+     * with a 0x01 sentinel byte appended to the byte array before packing.
+     */
+    fun hashString(value: String): BigInteger {
+        val fields = stringToFields(value)
+        return PoseidonHasher.hash(fields)
     }
 
     /**
-     * Derive a prescriber wallet ID.
-     *
-     * Preimage: [1, codeToField(qualifier), hash(prescriberId), hash(enrollmentKey)]
-     *
-     * @param prescriberIdQualifier Qualifier code (e.g., 1=NPI, 12=DEA)
-     * @param prescriberId Prescriber ID string
-     * @param enrollmentKey Enrollment key string
-     * @return Wallet ID as decimal string
+     * Hash a date string (YYYYMMDD) as BigInt, same as o1js hashDate.
+     * hashDate(d) = Poseidon.hash([Field(BigInt(dateStr))])
      */
-    fun derivePrescriberWalletId(
-        prescriberIdQualifier: Int,
-        prescriberId: String,
-        enrollmentKey: String,
-    ): String {
-        val fields = listOf(
-            BigInteger.valueOf(DOMAIN_PRESCRIBER),
-            codeToField(prescriberIdQualifier),
-            hashString(prescriberId),
-            hashString(enrollmentKey),
-        )
-        return PoseidonHasher.hash(fields).toString()
+    fun hashDate(dateStr: String): BigInteger {
+        return PoseidonHasher.hash(listOf(BigInteger(dateStr)))
     }
 
     /**
-     * Derive a pharmacy wallet ID.
+     * Convert string to Fields using o1js Encoding.stringToFields algorithm.
      *
-     * Preimage: [2, codeToField(qualifier), hash(serviceProviderId), hash(enrollmentKey)]
-     *
-     * @param serviceProviderIdQualifier Qualifier code
-     * @param serviceProviderId Service provider ID string
-     * @param enrollmentKey Enrollment key string
-     * @return Wallet ID as decimal string
+     * 1. Get UTF-8 bytes
+     * 2. Append 0x01 sentinel byte
+     * 3. Pack into 31-byte chunks (little-endian) as BigIntegers
      */
-    fun derivePharmacyWalletId(
-        serviceProviderIdQualifier: Int,
-        serviceProviderId: String,
-        enrollmentKey: String,
-    ): String {
-        val fields = listOf(
-            BigInteger.valueOf(DOMAIN_PHARMACY),
-            codeToField(serviceProviderIdQualifier),
-            hashString(serviceProviderId),
-            hashString(enrollmentKey),
-        )
-        return PoseidonHasher.hash(fields).toString()
+    fun stringToFields(s: String): List<BigInteger> {
+        val bytes = s.toByteArray(Charsets.UTF_8)
+        // Append sentinel byte 0x01
+        val withSentinel = bytes + byteArrayOf(1)
+
+        val fields = mutableListOf<BigInteger>()
+        var i = 0
+        while (i < withSentinel.size) {
+            val chunkEnd = minOf(i + 31, withSentinel.size)
+            val chunk = withSentinel.sliceArray(i until chunkEnd)
+            // Little-endian: byte[0] is least significant
+            var value = BigInteger.ZERO
+            for (j in chunk.indices) {
+                value = value.or(BigInteger.valueOf(chunk[j].toLong() and 0xFF).shiftLeft(j * 8))
+            }
+            fields.add(value)
+            i += 31
+        }
+        return fields
     }
 }

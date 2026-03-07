@@ -1,7 +1,7 @@
 plugins {
     id("com.android.application")
-    kotlin("android")
-    kotlin("plugin.serialization")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 android {
@@ -13,102 +13,69 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0.0"
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-        vectorDrawables {
-            useSupportLibrary = true
-        }
+        buildConfigField("String", "DEFAULT_SEQUENCER_URL", "\"https://zktrident-leviathan.onrender.com\"")
+        buildConfigField("String", "DEFAULT_PROVER_URL", "\"https://zktrident-prover.onrender.com\"")
+        buildConfigField("String", "DEFAULT_INSURER_URL", "\"https://zktrident-insurer2.onrender.com\"")
+        buildConfigField("String", "DEFAULT_PROVER_API_KEY", "\"vDWGHqgqM+8S198FDjMwh+vgaB86ZEyygd3Tf4JWJPc=\"")
     }
 
     buildFeatures {
         compose = true
         buildConfig = true
     }
-
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.8"
+    }
+
+    flavorDimensions += "role"
+    productFlavors {
+        create("member") {
+            dimension = "role"
+            applicationId = "care.zktrident.member"
+            resValue("string", "app_name", "zkTrident Member")
+            buildConfigField("String", "ROLE", "\"member\"")
+        }
+        create("pharmacy") {
+            dimension = "role"
+            applicationId = "care.zktrident.pharmacy"
+            resValue("string", "app_name", "zkTrident Pharmacy")
+            buildConfigField("String", "ROLE", "\"pharmacy\"")
+        }
+        create("prescriber") {
+            dimension = "role"
+            applicationId = "care.zktrident.prescriber"
+            resValue("string", "app_name", "zkTrident Prescriber")
+            buildConfigField("String", "ROLE", "\"prescriber\"")
+        }
+        create("insurer") {
+            dimension = "role"
+            applicationId = "care.zktrident.insurer"
+            resValue("string", "app_name", "zkTrident Insurer")
+            buildConfigField("String", "ROLE", "\"insurer\"")
+        }
+        create("employer") {
+            dimension = "role"
+            applicationId = "care.zktrident.employer"
+            resValue("string", "app_name", "zkTrident Employer")
+            buildConfigField("String", "ROLE", "\"employer\"")
+        }
     }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-
     kotlinOptions {
         jvmTarget = "17"
-    }
-
-    // ─── 5 Product Flavors ──────────────────────────────────────
-    flavorDimensions += "role"
-
-    productFlavors {
-        create("member") {
-            dimension = "role"
-            applicationId = "care.zktrident.member"
-            resValue("string", "app_name", "zkCare Member")
-            buildConfigField("String", "ROLE", "\"member\"")
-            buildConfigField("String", "DEFAULT_SEQUENCER_URL", "\"https://zktrident-leviathan.onrender.com\"")
-            buildConfigField("String", "DEFAULT_PROVER_URL", "\"https://zktrident-prover.onrender.com\"")
-        }
-        create("pharmacy") {
-            dimension = "role"
-            applicationId = "care.zktrident.pharmacy"
-            resValue("string", "app_name", "zkCare Pharmacy")
-            buildConfigField("String", "ROLE", "\"pharmacy\"")
-            buildConfigField("String", "DEFAULT_SEQUENCER_URL", "\"https://zktrident-leviathan.onrender.com\"")
-            buildConfigField("String", "DEFAULT_PROVER_URL", "\"https://zktrident-prover.onrender.com\"")
-        }
-        create("prescriber") {
-            dimension = "role"
-            applicationId = "care.zktrident.prescriber"
-            resValue("string", "app_name", "zkCare Prescriber")
-            buildConfigField("String", "ROLE", "\"prescriber\"")
-            buildConfigField("String", "DEFAULT_SEQUENCER_URL", "\"https://zktrident-leviathan.onrender.com\"")
-            buildConfigField("String", "DEFAULT_PROVER_URL", "\"https://zktrident-prover.onrender.com\"")
-        }
-        create("insurer") {
-            dimension = "role"
-            applicationId = "care.zktrident.insurer"
-            resValue("string", "app_name", "zkCare Insurer")
-            buildConfigField("String", "ROLE", "\"insurer\"")
-            buildConfigField("String", "DEFAULT_SEQUENCER_URL", "\"https://zktrident-leviathan.onrender.com\"")
-            buildConfigField("String", "DEFAULT_PROVER_URL", "\"\"")
-        }
-        create("employer") {
-            dimension = "role"
-            applicationId = "care.zktrident.employer"
-            resValue("string", "app_name", "zkCare Employer")
-            buildConfigField("String", "ROLE", "\"employer\"")
-            buildConfigField("String", "DEFAULT_SEQUENCER_URL", "\"https://zktrident-leviathan.onrender.com\"")
-            buildConfigField("String", "DEFAULT_PROVER_URL", "\"\"")
-        }
-    }
-
-    buildTypes {
-        release {
-            isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro",
-            )
-        }
-    }
-
-    packaging {
-        resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
-        }
     }
 }
 
 dependencies {
-    // Shared KMP module
     implementation(project(":shared"))
 
     // Compose BOM
-    val composeBom = platform("androidx.compose:compose-bom:2024.02.00")
+    val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
     implementation(composeBom)
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")
@@ -118,23 +85,18 @@ dependencies {
     // Lifecycle + ViewModel
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
-
-    // Navigation
-    implementation("androidx.navigation:navigation-compose:2.7.7")
-
-    // Activity
     implementation("androidx.activity:activity-compose:1.8.2")
 
-    // Coroutines
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
+    // Navigation
+    implementation("androidx.navigation:navigation-compose:2.7.6")
 
-    // Material3 XML theme (for splash/launch window before Compose loads)
-    implementation("com.google.android.material:material:1.11.0")
+    // Biometric (optional, for PIN/fingerprint)
+    implementation("androidx.biometric:biometric:1.2.0-alpha05")
 
-    // NFC (member flavor only, but included for all — gated by manifest feature)
-    implementation("androidx.core:core-ktx:1.12.0")
+    // NFC
+    // (uses Android SDK NFC APIs directly)
 
-    // Testing
-    testImplementation("junit:junit:4.13.2")
-    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    // Serialization
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 }

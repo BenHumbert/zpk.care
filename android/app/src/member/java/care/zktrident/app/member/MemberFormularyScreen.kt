@@ -48,13 +48,13 @@ fun MemberFormularyScreen(viewModel: MemberDashboardViewModel, onBack: () -> Uni
                     Card {
                         Column(modifier = Modifier.padding(12.dp).fillMaxWidth()) {
                             Text(entry.brandName, style = MaterialTheme.typography.titleSmall)
-                            if (entry.genericName != null) Text(entry.genericName, style = MaterialTheme.typography.bodySmall)
+                            entry.genericName?.let { gn -> Text(gn, style = MaterialTheme.typography.bodySmall) }
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text("NDC: ${entry.ndc}")
                                 Text("Tier ${entry.tierLevel}", style = MaterialTheme.typography.labelSmall)
                             }
-                            if (entry.dosageForm != null) Text("${entry.dosageForm} ${entry.strength ?: ""}", style = MaterialTheme.typography.bodySmall)
-                            if (entry.therapeuticClass != null) Text(entry.therapeuticClass, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            entry.dosageForm?.let { df -> Text("$df ${entry.strength ?: ""}", style = MaterialTheme.typography.bodySmall) }
+                            entry.therapeuticClass?.let { tc -> Text(tc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
                     }
                 }

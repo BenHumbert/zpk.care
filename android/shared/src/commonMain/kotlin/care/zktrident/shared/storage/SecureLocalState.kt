@@ -2,38 +2,30 @@ package care.zktrident.shared.storage
 
 import care.zktrident.shared.model.EntityRole
 import care.zktrident.shared.model.OnboardingPhase
+import kotlinx.serialization.Serializable
 
 /**
- * Secure local state interface — expect/actual for platform-specific implementations.
- *
- * On Android: backed by Android Keystore + EncryptedSharedPreferences.
- * Stores enrollment key, wallet ID, onboarding phase, and sequencer URL.
- * Enrollment key NEVER leaves the device.
+ * Local state persisted on device. Contains NO PHI/PII — only hashed identifiers.
+ * Kotlin equivalent of NautilusLocalState in TypeScript.
  */
+@Serializable
 data class LocalStateData(
     val role: EntityRole,
-    val phase: OnboardingPhase,
+    val phase: OnboardingPhase = OnboardingPhase.awaiting_token,
     val walletId: String? = null,
     val sequencerUrl: String? = null,
     val enrollmentTimestamp: Long? = null,
-) {
-    override fun toString(): String =
-        "LocalStateData(role=$role, phase=$phase, walletId=${walletId?.take(8)}..., sequencerUrl=$sequencerUrl)"
-}
+)
 
+/**
+ * Secure local state persistence.
+ * On Android: uses Android Keystore + EncryptedSharedPreferences.
+ * On Desktop/JVM: file-based (for testing only).
+ */
 expect class SecureLocalState(context: Any) {
-    /** Load saved state, or null if none exists */
     fun load(): LocalStateData?
-
-    /** Save state to encrypted storage */
     fun save(data: LocalStateData)
-
-    /** Store the enrollment key bytes (hardware-backed on Android) */
     fun storeEnrollmentKey(key: ByteArray)
-
-    /** Retrieve the enrollment key bytes */
     fun getEnrollmentKey(): ByteArray?
-
-    /** Wipe all stored data (factory reset) */
     fun clear()
 }

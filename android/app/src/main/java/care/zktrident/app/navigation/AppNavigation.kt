@@ -17,6 +17,8 @@ object Routes {
     // Member-specific
     const val DRUG_HISTORY = "drug_history"
     const val NFC_SCAN = "nfc_scan"
+    const val PCP_ASSIGN = "pcp_assign"
+    const val PLAN_SPEND = "plan_spend"
 
     // Pharmacy-specific
     const val DISPENSING = "dispensing"

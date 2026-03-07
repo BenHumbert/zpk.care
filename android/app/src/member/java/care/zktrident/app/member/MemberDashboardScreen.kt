@@ -68,6 +68,19 @@ fun MemberDashboardScreen(
                         QuickActionCard("Messages", "Inbox", Modifier.weight(1f)) {
                             onNavigate(Routes.MESSAGES)
                         }
+                        QuickActionCard("Plan Spend", "Deductible & OOP", Modifier.weight(1f)) {
+                            onNavigate(Routes.PLAN_SPEND)
+                        }
+                    }
+                }
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        QuickActionCard("My PCP", "Assign provider", Modifier.weight(1f)) {
+                            onNavigate(Routes.PCP_ASSIGN)
+                        }
                         QuickActionCard("NFC Card", "Tap to verify", Modifier.weight(1f)) {
                             onNavigate(Routes.NFC_SCAN)
                         }

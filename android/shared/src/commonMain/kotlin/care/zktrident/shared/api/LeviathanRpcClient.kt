@@ -21,7 +21,7 @@ class LeviathanRpcClient(
     private val client: HttpClient = defaultHttpClient(),
 ) {
     private val requestId = AtomicInteger(1)
-    private val json = Json {
+    @PublishedApi internal val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
     }
@@ -40,6 +40,10 @@ class LeviathanRpcClient(
         val response = client.post("$baseUrl/rpc") {
             contentType(ContentType.Application.Json)
             setBody(body.toString())
+        }
+
+        if (!response.status.isSuccess()) {
+            throw RpcException(response.status.value, "HTTP ${response.status.value}: ${response.status.description}")
         }
 
         val responseText = response.bodyAsText()
@@ -140,6 +144,15 @@ class LeviathanRpcClient(
         buildJsonObject { put("threadIdHash", threadIdHash) },
     )
 
+    // ─── Registration ─────────────────────────────────────────
+
+    suspend fun getRegistrationWitnesses(): RegistrationWitnesses = rpc("l2_getRegistrationWitnesses")
+
+    suspend fun submitProof(proofJson: String): JsonElement = rpcCall(
+        "l2_submitProof",
+        buildJsonObject { put("proofJson", json.parseToJsonElement(proofJson)) },
+    )
+
     // ─── Accumulator ────────────────────────────────────────────
 
     suspend fun reconstructAccumulator(walletId: String): JsonElement = rpcCall(
@@ -157,9 +170,9 @@ class LeviathanRpcClient(
 
     suspend fun getQuorumStatus(): JsonElement = rpcCall("l2_getQuorumStatus")
 
-    suspend fun getStateCertificate(batchNumber: String): JsonElement = rpcCall(
+    suspend fun getStateCertificate(partitionIndex: Int): JsonElement = rpcCall(
         "l2_getStateCertificate",
-        buildJsonObject { put("batchNumber", batchNumber) },
+        buildJsonObject { put("partitionIndex", partitionIndex) },
     )
 
     fun close() {

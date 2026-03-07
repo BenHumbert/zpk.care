@@ -6,6 +6,8 @@ import io.ktor.client.statement.*
 import io.ktor.utils.io.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlin.coroutines.cancellation.CancellationException
+import care.zktrident.shared.crypto.BigIntJson
 import kotlinx.serialization.json.*
 
 /**
@@ -51,7 +53,7 @@ class SseClient(
                             line.isEmpty() && data.isNotEmpty() -> {
                                 // End of event — emit
                                 val payload = try {
-                                    json.parseToJsonElement(data.toString())
+                                    BigIntJson.unwrapAll(json.parseToJsonElement(data.toString()))
                                 } catch (_: Exception) {
                                     JsonPrimitive(data.toString())
                                 }

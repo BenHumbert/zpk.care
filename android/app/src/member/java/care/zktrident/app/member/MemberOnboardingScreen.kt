@@ -36,8 +36,9 @@ fun MemberOnboardingScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             // Progress indicator
+            @Suppress("DEPRECATION")
             LinearProgressIndicator(
-                progress = { (state.step + 1) / 6f },
+                progress = (state.step + 1) / 6f,
                 modifier = Modifier.fillMaxWidth(),
             )
             Text("Step ${state.step + 1} of 6", style = MaterialTheme.typography.labelMedium)
@@ -122,7 +123,10 @@ private fun KeyGenerationStep(state: MemberOnboardingViewModel.OnboardingState) 
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         CircularProgressIndicator()
         Spacer(Modifier.height(16.dp))
-        Text("Generating enrollment key and deriving wallet ID...", style = MaterialTheme.typography.bodyMedium)
+        Text(
+            state.statusMessage ?: "Generating enrollment key and deriving wallet ID...",
+            style = MaterialTheme.typography.bodyMedium,
+        )
     }
 }
 
@@ -138,20 +142,37 @@ private fun EnrollmentStep(
         Column(modifier = Modifier.padding(12.dp)) {
             Text("Wallet ID:", style = MaterialTheme.typography.labelSmall)
             Text(
-                state.walletId?.take(20) + "...",
+                state.walletId?.let { it.take(20) + "..." } ?: "Deriving...",
                 style = MaterialTheme.typography.bodySmall,
             )
         }
     }
 
     if (state.enrolling) {
-        CircularProgressIndicator(modifier = Modifier.padding(8.dp))
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+            CircularProgressIndicator(modifier = Modifier.padding(8.dp))
+            state.statusMessage?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     } else {
         Button(
-            onClick = { vm.completeEnrollment(BuildConfig.DEFAULT_SEQUENCER_URL) },
+            onClick = {
+                vm.completeEnrollment(
+                    sequencerUrl = BuildConfig.DEFAULT_SEQUENCER_URL,
+                    insurerUrl = BuildConfig.DEFAULT_INSURER_URL,
+                    proverUrl = BuildConfig.DEFAULT_PROVER_URL,
+                    proverApiKey = BuildConfig.DEFAULT_PROVER_API_KEY,
+                )
+            },
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Complete Enrollment")
         }
+        Text(
+            "This will: enroll with insurer, generate a ZK proof (~30-120s), and submit to the sequencer.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
