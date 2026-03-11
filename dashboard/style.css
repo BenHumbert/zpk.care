@@ -475,3 +475,174 @@ a:hover { color: var(--accent-hover); }
   color: var(--text-muted);
   font-size: 14px;
 }
+
+/* ── Block Sequencer Pipeline ── */
+.pipeline {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 8px 0;
+  overflow-x: auto;
+}
+.pipeline-stage {
+  flex: 1;
+  text-align: center;
+  padding: 16px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-width: 140px;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+.pipeline-stage.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-dim);
+}
+.pipeline-stage.proving {
+  border-color: var(--orange);
+  box-shadow: 0 0 12px rgba(219,109,40,0.3);
+}
+.pipeline-stage.building {
+  border-color: var(--blue);
+  box-shadow: 0 0 12px rgba(88,166,255,0.3);
+}
+.stage-header {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+.stage-value {
+  font-size: 28px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+.stage-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+.pipeline-arrow {
+  font-size: 24px;
+  color: var(--text-muted);
+  padding: 0 8px;
+  flex-shrink: 0;
+  transition: color 0.3s;
+}
+.pipeline-arrow.flowing {
+  color: var(--accent);
+  animation: arrow-pulse 1s infinite;
+}
+@keyframes arrow-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Worker Grid (inside pipeline) */
+.worker-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  padding: 4px 0;
+}
+.worker-box {
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  transition: all 0.3s;
+}
+.worker-box.idle {
+  background: #0d3b1e;
+  color: var(--green);
+  border-color: #1a5c30;
+}
+.worker-box.proving {
+  background: #2d1800;
+  color: var(--orange);
+  border-color: #5c3500;
+  animation: worker-glow 2s infinite;
+}
+.worker-box.compiling {
+  background: #0d2040;
+  color: var(--blue);
+  border-color: #1a4080;
+  animation: worker-glow 3s infinite;
+}
+.worker-box.dead {
+  background: #3b0d0d;
+  color: var(--red);
+  border-color: #5c1a1a;
+}
+@keyframes worker-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* ── Proving Pool Detail ── */
+.pool-stat {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 2px 8px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+}
+.pool-workers {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+.pool-worker-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  transition: border-color 0.3s;
+}
+.pool-worker-card.busy {
+  border-left: 3px solid var(--orange);
+}
+.pool-worker-card.idle {
+  border-left: 3px solid var(--green);
+}
+.pool-worker-card.dead {
+  border-left: 3px solid var(--red);
+}
+.pool-worker-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.pool-worker-id {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+}
+.pool-worker-status {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.pool-worker-status.idle { color: var(--green); }
+.pool-worker-status.busy { color: var(--orange); }
+.pool-worker-status.dead { color: var(--red); }
+.pool-worker-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.pool-worker-meta span {
+  white-space: nowrap;
+}

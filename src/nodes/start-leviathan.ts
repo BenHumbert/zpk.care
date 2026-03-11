@@ -23,7 +23,7 @@
  *   ZKTRIDENT_SSE              — Enable SSE event streaming (default: true)
  *   ZKTRIDENT_MAX_SSE          — Max concurrent SSE connections (default: 100)
  *   ZKTRIDENT_CORS_ORIGINS     — Comma-separated allowed CORS origins (default: *)
- *   ZKTRIDENT_POOL_SIZE        — Proving pool workers: number or "auto" (default: 0 = disabled)
+ *   ZKTRIDENT_POOL_SIZE        — Proving pool workers: number or "auto" (default: "auto", min 3)
  *   ZKTRIDENT_POOL_RECYCLE     — Recycle worker after N jobs to reclaim WASM heap (default: 3)
  *   ZKTRIDENT_PRODUCTION_FORMULARY — Load 500 NDC NADAC formulary on startup (default: false)
  *
@@ -144,8 +144,10 @@ async function main(): Promise<void> {
 
   // ── Proving Pool (optional — auto-detect worker count from available RAM) ──
 
-  const poolSizeEnv = env.ZKTRIDENT_POOL_SIZE ?? '0';
+  const poolSizeEnv = env.ZKTRIDENT_POOL_SIZE ?? 'auto';
   const recycleAfterJobs = parseInt(env.ZKTRIDENT_POOL_RECYCLE ?? '3', 10);
+  const MIN_POOL_WORKERS = 3;
+  const MAX_POOL_WORKERS = 6; // cap — more than 6 just burns RAM on compilation
   let poolWorkerCount = 0;
 
   if (poolSizeEnv === 'auto') {
@@ -161,11 +163,12 @@ async function main(): Promise<void> {
     const usableMemMB = Math.min(totalMemMB, freeMemMB + 200); // allow some reclaim
     const MAIN_RESERVE_MB = 400;
     const WORKER_MB = 800;
-    poolWorkerCount = Math.max(0, Math.floor((usableMemMB - MAIN_RESERVE_MB) / WORKER_MB));
-    console.log('  [pool] Memory detection: %dMB total, %dMB free → %d worker(s) feasible',
-      totalMemMB, freeMemMB, poolWorkerCount);
+    const feasible = Math.floor((usableMemMB - MAIN_RESERVE_MB) / WORKER_MB);
+    poolWorkerCount = Math.min(MAX_POOL_WORKERS, Math.max(MIN_POOL_WORKERS, feasible));
+    console.log('  [pool] Memory detection: %dMB total, %dMB free → %d worker(s) (feasible %d, min %d, max %d)',
+      totalMemMB, freeMemMB, poolWorkerCount, feasible, MIN_POOL_WORKERS, MAX_POOL_WORKERS);
   } else {
-    poolWorkerCount = parseInt(poolSizeEnv, 10) || 0;
+    poolWorkerCount = Math.min(MAX_POOL_WORKERS, Math.max(MIN_POOL_WORKERS, parseInt(poolSizeEnv, 10) || MIN_POOL_WORKERS));
   }
 
   if (poolWorkerCount > 0) {
@@ -199,6 +202,76 @@ async function main(): Promise<void> {
 
   const rpcServer = new L2RpcServer(node, rpcOptions);
   await rpcServer.start();
+
+  // ── Seed Demo Providers ──
+  // Register demo prescribers and pharmacies in the entity registry so
+  // member apps can see the network providers immediately.
+  {
+    const { DEMO_PRESCRIBERS } = await import('../demo/prescribers.js');
+    const { DEMO_PHARMACIES } = await import('../demo/pharmacies.js');
+    const { derivePrescriberWalletId, derivePharmacyWalletId } = await import('../wallets/wallet-derivation.js');
+
+    const entities = [
+      ...DEMO_PRESCRIBERS.map((p) => ({
+        walletId: derivePrescriberWalletId(p.localData, p.enrollmentKey).toString(),
+        displayName: `Dr. ${p.firstName} ${p.lastName}, ${p.credential}`,
+        type: 'prescriber' as const,
+        specialty: p.specialty,
+      })),
+      ...DEMO_PHARMACIES.map((p) => ({
+        walletId: derivePharmacyWalletId(p.localData, p.enrollmentKey).toString(),
+        displayName: p.storeName,
+        type: 'pharmacy' as const,
+        pharmacyType: p.pharmacyTypeDesc,
+      })),
+    ];
+
+    rpcServer.seedEntities(entities);
+    console.log('  [init] Seeded %d network providers (%d prescribers, %d pharmacies)',
+      entities.length, DEMO_PRESCRIBERS.length, DEMO_PHARMACIES.length);
+
+    // Seed demo formulary so member apps can see medications immediately.
+    // Published under the "standard-plan" planIdHash that the employer group uses.
+    const { DEMO_MEDICATIONS } = await import('../demo/medications.js');
+    const { Poseidon } = await import('o1js');
+    const { hashString } = await import('../zkp/hash-utils.js');
+
+    const standardPlanIdHash = Poseidon.hash(
+      [...'standard-plan'].map((c) => Field(c.charCodeAt(0))),
+    ).toString();
+
+    const formularyEntries = DEMO_MEDICATIONS.map((m) => ({
+      ndc: m.ndc,
+      brandName: m.brandName,
+      genericName: m.genericName,
+      dosageForm: m.dosageForm,
+      strength: m.strength,
+      tierLevel: m.formularyEntry.tierLevel,
+      therapeuticClass: m.therapeuticClass,
+      gpi: m.gpi,
+      ndcHash: hashString(m.ndc).toString(),
+      pricePerUnit: m.awpUnitPriceCents / 100,
+      copayAmountCents: m.formularyEntry.copayAmount,
+      requiresPriorAuth: m.formularyEntry.requiresPriorAuth,
+      maxDaySupply: m.formularyEntry.maxDaySupply,
+      maxQuantityPerFill: m.formularyEntry.maxQuantityPerFill,
+    }));
+
+    const formularyRoot = Poseidon.hash([Field(formularyEntries.length)]).toString();
+    const entriesJson = JSON.stringify(formularyEntries);
+    node.getSequencer().storeFormulary(standardPlanIdHash, formularyRoot, entriesJson);
+    // Also store under "default" so apps without a planIdHash can still find it
+    node.getSequencer().storeFormulary('default', formularyRoot, entriesJson);
+    console.log('  [init] Seeded formulary: %d medications (planIdHash: %s...)',
+      formularyEntries.length, standardPlanIdHash.slice(0, 16));
+  }
+
+  // ── NFC Attestation Authority ──
+  // Enable Ed25519 attestation signing for NFC credential cards.
+  // Uses GOSSIP_SECRET as deterministic seed (if available) for stable key across restarts.
+
+  await node.enableAttestations(gossipSecret ?? undefined);
+  console.log('  [init] NFC attestation authority enabled (Ed25519)');
 
   // ── Start Node ──
 

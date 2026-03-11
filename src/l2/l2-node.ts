@@ -209,6 +209,10 @@ export class L2Node {
   // Proving pool — optional worker fleet for parallel batch proving
   private provingPool: ProvingPool | null = null;
 
+  // NFC credential attestation authority (Ed25519 signing)
+  private attestationAuthority: import('../credentials/nfc-attestation.js').SequencerAttestationAuthority | null = null;
+  private attestationCache = new Map<string, import('../credentials/nfc-attestation.js').NfcCredentialAttestation>();
+
   // Peer network
   private peerNetwork: L2PeerNetwork | null = null;
   private nodeId: string;
@@ -262,6 +266,47 @@ export class L2Node {
   /** Get the attached proving pool (if any). */
   getProvingPool(): ProvingPool | null {
     return this.provingPool;
+  }
+
+  // ─── NFC Attestation ─────────────────────────────────────
+
+  /** Enable NFC credential attestation signing. Called once at startup. */
+  async enableAttestations(seed?: string): Promise<void> {
+    const { SequencerAttestationAuthority } = await import('../credentials/nfc-attestation.js');
+    this.attestationAuthority = seed
+      ? SequencerAttestationAuthority.fromSeed(seed)
+      : new SequencerAttestationAuthority();
+  }
+
+  /** Request a signed NFC attestation for a registered wallet. */
+  requestAttestation(walletId: string, expirySeconds?: number): import('../credentials/nfc-attestation.js').NfcCredentialAttestation | null {
+    if (!this.attestationAuthority) return null;
+
+    // Get current chain state for the attestation fields
+    const state = this.sequencer.getChainState();
+    const receipts = this.sequencer.getReceiptsByWallet(walletId);
+    if (receipts.length === 0) return null; // Not registered
+
+    const att = this.attestationAuthority.createAttestation({
+      walletId,
+      credentialCommitment: state.registryRoot, // Best available commitment
+      lifecycleState: 3, // ACTIVE (only registered wallets can request)
+      forestRoot: state.globalStateRoot ?? state.registryRoot,
+      expirySeconds,
+    });
+
+    this.attestationCache.set(walletId, att);
+    return att;
+  }
+
+  /** Get cached attestation for a wallet (if one exists). */
+  getAttestation(walletId: string): import('../credentials/nfc-attestation.js').NfcCredentialAttestation | null {
+    return this.attestationCache.get(walletId) ?? null;
+  }
+
+  /** Get the sequencer's Ed25519 public key hex string. */
+  getAttestationPublicKey(): string | null {
+    return this.attestationAuthority?.publicKeyHex ?? null;
   }
 
   // ─── Lifecycle ──────────────────────────────────────────
@@ -371,6 +416,16 @@ export class L2Node {
           pendingCount: this.sequencer.getPendingCount(),
         },
       });
+
+      // Eager batch: if proving pool has idle workers and no batch in progress,
+      // trigger an immediate batch cycle instead of waiting for the timer.
+      if (this.provingPool && !this.batchInProgress) {
+        const poolStatus = this.provingPool.getStatus();
+        if (poolStatus.workersIdle > 0) {
+          // Fire-and-forget — don't block submitProof on batch building
+          this.executeBatchCycle().catch(() => {});
+        }
+      }
 
       // Sequencer: broadcast proof:accepted gossip to peers
       if (this.role === 'sequencer' && this.peerNetwork) {

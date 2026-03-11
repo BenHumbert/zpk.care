@@ -15,10 +15,16 @@ object Routes {
     const val MESSAGES = "messages"
 
     // Member-specific
+    const val LANDING = "landing"
     const val DRUG_HISTORY = "drug_history"
     const val NFC_SCAN = "nfc_scan"
+    const val NFC_WRITE = "nfc_write"
+    const val NFC_RESTORE = "nfc_restore"
     const val PCP_ASSIGN = "pcp_assign"
     const val PLAN_SPEND = "plan_spend"
+    const val PROVIDERS = "providers"
+    const val BENEFIT_PLAN = "benefit_plan"
+    const val COMPOSE_MESSAGE = "compose_message"
 
     // Pharmacy-specific
     const val DISPENSING = "dispensing"

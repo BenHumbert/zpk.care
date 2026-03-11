@@ -217,6 +217,13 @@ export class L2RpcServer {
     });
   }
 
+  /** Programmatically seed entities into the entity registry (e.g. demo providers on startup) */
+  seedEntities(entities: VizEntity[]): void {
+    for (const entity of entities) {
+      this.entityRegistry.set(entity.walletId, entity);
+    }
+  }
+
   // ─── Lifecycle ──────────────────────────────────────────
 
   /** Start listening for HTTP connections */
@@ -611,7 +618,26 @@ export class L2RpcServer {
         const proof = await StateTransitionProof.fromJSON(
           proofJson as Parameters<typeof StateTransitionProof.fromJSON>[0],
         );
-        return this.node.submitProof(proof);
+        const result = await this.node.submitProof(proof);
+
+        // Auto-register entity metadata if provided alongside a registration proof.
+        // The metadata is untrusted display data — the ZK proof guarantees the walletId.
+        const entityMeta = params.entityMetadata as Record<string, string> | undefined;
+        if (entityMeta && result && typeof result === 'object' && 'isRegistration' in result && (result as any).isRegistration) {
+          const walletId = (result as any).walletId as string;
+          if (walletId && entityMeta.displayName && entityMeta.type) {
+            this.entityRegistry.set(walletId, {
+              walletId,
+              displayName: entityMeta.displayName,
+              type: entityMeta.type as VizActorType,
+              specialty: entityMeta.specialty,
+              pharmacyType: entityMeta.pharmacyType,
+              group: entityMeta.group,
+            });
+          }
+        }
+
+        return result;
       }
 
       case 'l2_getStatus':
@@ -939,6 +965,26 @@ export class L2RpcServer {
         return this.node.storeMessage(storedMessage, messagePayload);
       }
 
+      // ── Network Providers ──
+
+      case 'l2_getNetworkProviders': {
+        const roleFilter = params.role as string | undefined;
+        const entities = Array.from(this.entityRegistry.values())
+          .filter((e) => {
+            if (roleFilter) return e.type === roleFilter;
+            return e.type === 'prescriber' || e.type === 'pharmacy';
+          })
+          .map((e) => ({
+            walletId: e.walletId,
+            displayName: e.displayName,
+            role: e.type,
+            specialty: e.specialty,
+            pharmacyType: e.pharmacyType,
+            group: e.group,
+          }));
+        return entities;
+      }
+
       // ── Accumulator Reconstruction ──
 
       case 'l2_reconstructAccumulator': {
@@ -947,6 +993,40 @@ export class L2RpcServer {
           throw new Error('Missing or invalid walletId parameter');
         }
         return this.node.getSequencer().reconstructAccumulator(walletId);
+      }
+
+      // ── NFC Attestation ──
+
+      case 'l2_requestAttestation': {
+        const walletId = params.walletId;
+        if (typeof walletId !== 'string') {
+          throw new Error('Missing or invalid walletId parameter');
+        }
+        const expirySeconds = typeof params.expirySeconds === 'number'
+          ? params.expirySeconds : undefined;
+        const att = this.node.requestAttestation(walletId, expirySeconds);
+        if (!att) {
+          throw new Error('Attestation unavailable — wallet not found or attestation authority not configured');
+        }
+        return att;
+      }
+
+      case 'l2_getAttestation': {
+        const walletId = params.walletId;
+        if (typeof walletId !== 'string') {
+          throw new Error('Missing or invalid walletId parameter');
+        }
+        const cached = this.node.getAttestation(walletId);
+        if (!cached) {
+          throw new Error('No cached attestation for this wallet');
+        }
+        return cached;
+      }
+
+      case 'l2_getAttestationPublicKey': {
+        const pk = this.node.getAttestationPublicKey();
+        if (!pk) throw new Error('Attestation authority not configured');
+        return { publicKey: pk };
       }
 
       // ── Peer Network / Gossip methods ──

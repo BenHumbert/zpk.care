@@ -5,6 +5,8 @@ const App = (() => {
   let currentPage = 'overview';
   let eventSource = null;
   let formularyData = null;
+  let healthPollTimer = null;
+  let lastPoolState = null;
 
   // ── Utilities ──
 
@@ -433,6 +435,123 @@ const App = (() => {
     location.hash = '#/wallet/' + query;
   }
 
+  // ── Pipeline & Pool ──
+
+  async function updatePipeline() {
+    try {
+      const health = await RPC.getHealthData();
+      const status = await RPC.getStatus();
+
+      // Pipeline: Incoming Proofs
+      const pending = status.pendingProofs || 0;
+      $('pip-pending').textContent = pending;
+      const proofStage = $('pip-pending').closest('.pipeline-stage');
+      if (proofStage) proofStage.classList.toggle('active', pending > 0);
+
+      // Pipeline: Workers
+      const pool = health.provingPool;
+      const workers = health.workers || [];
+      if (workers.length > 0) {
+        $('pip-workers').innerHTML = workers.map(w => {
+          const cls = w.busy ? 'proving' : (w.status === 'dead' ? 'dead' : 'idle');
+          const label = w.busy ? `W${w.id}: proving` : `W${w.id}: ${w.status || 'idle'}`;
+          return `<div class="worker-box ${cls}">${label}</div>`;
+        }).join('');
+      } else if (pool) {
+        const workerCount = pool.poolSize || 1;
+        const boxes = [];
+        for (let i = 0; i < workerCount; i++) {
+          boxes.push(`<div class="worker-box idle">W${i}: idle</div>`);
+        }
+        $('pip-workers').innerHTML = boxes.join('');
+      }
+
+      // Pipeline: arrows flow when busy
+      const anyBusy = workers.some(w => w.busy);
+      document.querySelectorAll('.pipeline-arrow').forEach((a, i) => {
+        if (i === 0) a.classList.toggle('flowing', pending > 0 || anyBusy);
+        else if (i === 1) a.classList.toggle('flowing', anyBusy || status.inFlightBatch);
+        else a.classList.toggle('flowing', !!status.inFlightBatch);
+      });
+
+      // Worker stage glow
+      const workerStage = $('pip-workers').closest('.pipeline-stage');
+      if (workerStage) {
+        workerStage.classList.toggle('proving', anyBusy);
+        workerStage.classList.toggle('active', !anyBusy && pending > 0);
+      }
+
+      // Pipeline: Batch Builder
+      const batchStage = $('pip-batch').closest('.pipeline-stage');
+      if (status.inFlightBatch) {
+        $('pip-batch').textContent = 'building';
+        $('pip-batch-detail').textContent = `batch #${status.inFlightBatch}`;
+        if (batchStage) batchStage.classList.add('building');
+      } else {
+        $('pip-batch').textContent = 'idle';
+        $('pip-batch-detail').textContent = `next in ${formatMs(status.nextBatchInMs)}`;
+        if (batchStage) batchStage.classList.remove('building');
+      }
+
+      // Pipeline: Chain
+      $('pip-height').textContent = status.blockHeight || '0';
+      $('pip-settled').textContent = `${status.totalBatchesSettled || 0} settled`;
+
+      // Pool detail section
+      if (pool) {
+        $('pool-jobs-done').textContent = `${pool.totalJobsCompleted || 0} jobs`;
+        $('pool-avg-time').textContent = `avg: ${formatMs(pool.avgProveTimeMs)}`;
+        $('pool-queue').textContent = `queue: ${pool.queueDepth || 0}`;
+
+        if (workers.length > 0) {
+          $('poolDetail').innerHTML = '<div class="pool-workers">' + workers.map(w => {
+            const cls = w.busy ? 'busy' : (w.status === 'dead' ? 'dead' : 'idle');
+            return `<div class="pool-worker-card ${cls}">
+              <div class="pool-worker-header">
+                <span class="pool-worker-id">Worker ${w.id}</span>
+                <span class="pool-worker-status ${cls}">${w.busy ? 'proving' : (w.status || 'idle')}</span>
+              </div>
+              <div class="pool-worker-meta">
+                <span>Jobs: ${w.jobsProcessed || 0}</span>
+                ${w.currentJobId ? `<span>Job: ${w.currentJobId}</span>` : ''}
+                ${w.lastProveTimeMs ? `<span>Last: ${formatMs(w.lastProveTimeMs)}</span>` : ''}
+              </div>
+            </div>`;
+          }).join('') + '</div>';
+        } else {
+          $('poolDetail').innerHTML = `<div class="pool-workers">
+            <div class="pool-worker-card idle">
+              <div class="pool-worker-header">
+                <span class="pool-worker-id">Pool</span>
+                <span class="pool-worker-status idle">active</span>
+              </div>
+              <div class="pool-worker-meta">
+                <span>Size: ${pool.poolSize || 0}</span>
+                <span>Alive: ${pool.workersAlive || 0}</span>
+              </div>
+            </div>
+          </div>`;
+        }
+      } else {
+        $('poolDetail').innerHTML = '<div class="no-data">No proving pool (single-process mode)</div>';
+        $('pool-jobs-done').textContent = '0 jobs';
+        $('pool-avg-time').textContent = 'avg: --';
+        $('pool-queue').textContent = 'queue: 0';
+      }
+
+      lastPoolState = pool;
+    } catch {
+      // Silently ignore health poll failures
+    }
+  }
+
+  function startHealthPoll() {
+    updatePipeline();
+    healthPollTimer = setInterval(() => {
+      if (currentPage === 'overview') updatePipeline();
+    }, 3000);
+  }
+
   // ── SSE ──
 
   function connectSSE() {
@@ -464,9 +583,11 @@ const App = (() => {
     // Keep max 50 events
     while (log.children.length > 50) log.lastChild.remove();
 
-    // Refresh overview stats on proof/batch events
-    if (currentPage === 'overview' && (event.type || '').includes('proof') || (event.type || '').includes('batch')) {
+    // Refresh overview stats and pipeline on proof/batch/pool events
+    const evtType = event.type || '';
+    if (currentPage === 'overview' && (evtType.includes('proof') || evtType.includes('batch') || evtType.includes('pool'))) {
       loadOverview();
+      updatePipeline();
     }
   }
 
@@ -532,6 +653,9 @@ const App = (() => {
 
     // SSE
     connectSSE();
+
+    // Pipeline health polling (every 3s)
+    startHealthPoll();
 
     // Navigate to current hash
     navigate();

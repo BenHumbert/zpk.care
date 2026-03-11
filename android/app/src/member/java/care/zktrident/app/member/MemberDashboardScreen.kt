@@ -81,8 +81,21 @@ fun MemberDashboardScreen(
                         QuickActionCard("My PCP", "Assign provider", Modifier.weight(1f)) {
                             onNavigate(Routes.PCP_ASSIGN)
                         }
-                        QuickActionCard("NFC Card", "Tap to verify", Modifier.weight(1f)) {
-                            onNavigate(Routes.NFC_SCAN)
+                        QuickActionCard("Providers", "Prescribers & Rx", Modifier.weight(1f)) {
+                            onNavigate(Routes.PROVIDERS)
+                        }
+                    }
+                }
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        QuickActionCard("Benefit Plan", "Tiers & accumulators", Modifier.weight(1f)) {
+                            onNavigate(Routes.BENEFIT_PLAN)
+                        }
+                        QuickActionCard("NFC Backup", "Write recovery card", Modifier.weight(1f)) {
+                            onNavigate(Routes.NFC_WRITE)
                         }
                     }
                 }

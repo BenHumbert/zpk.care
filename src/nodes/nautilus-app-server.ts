@@ -364,6 +364,7 @@ export class NautilusAppServer {
       onboarding: state?.onboarding ?? { phase: this.onboardingPhase },
       walletId: state?.walletId,
       role: this.config.role,
+      displayName: this.config.displayName ?? this.entityNode?.getDisplayName(),
     });
   }
 

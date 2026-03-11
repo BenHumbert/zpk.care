@@ -8,6 +8,7 @@
   let currentTab = 'overview';
   let onboardingPhase = 'awaiting_token';
   let walletId = null;
+  let displayName = null;
   let sseEvents = [];
   let refreshTimer = null;
   const MAX_EVENTS = 100;
@@ -80,6 +81,7 @@
       case 'onboarding': renderOnboarding(main); break;
       case 'prescriptions': renderPrescriptions(main); break;
       case 'formulary': renderFormulary(main); break;
+      case 'providers': renderProviders(main); break;
       case 'messaging': renderMessaging(main); break;
       case 'proofs': renderProofs(main); break;
       default: renderOverview(main); break;
@@ -90,15 +92,20 @@
 
   async function renderOverview(el) {
     el.innerHTML = `
+      <div class="panel" id="ovIdentityPanel" style="margin-bottom: 1.5rem;">
+        <div class="panel-body" style="display: flex; align-items: center; gap: 1.5rem; padding: 1.25rem;">
+          <div style="width: 56px; height: 56px; border-radius: 50%; background: var(--accent, #3b82f6); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; color: white; font-weight: 700;" id="ovAvatar">?</div>
+          <div style="flex: 1;">
+            <div style="font-size: 1.25rem; font-weight: 700;" id="ovDisplayName">Loading...</div>
+            <div style="font-size: 0.85rem; color: var(--text-secondary, #6b7280);" id="ovIdentityDetails">--</div>
+          </div>
+          <div style="text-align: right;">
+            <span class="badge" id="ovPhaseBadge" style="font-size: 0.8rem;">--</span>
+          </div>
+        </div>
+      </div>
+
       <div class="stats-grid" id="overviewStats">
-        <div class="stat-card stat-accent">
-          <div class="stat-label">Phase</div>
-          <div class="stat-value small" id="ovPhase">--</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Wallet ID</div>
-          <div class="stat-value small" id="ovWallet">--</div>
-        </div>
         <div class="stat-card">
           <div class="stat-label">Total Prescriptions</div>
           <div class="stat-value" id="ovTotalRx">--</div>
@@ -138,6 +145,15 @@
 
       <div class="panel">
         <div class="panel-header">
+          <h2>Network Prescribers</h2>
+        </div>
+        <div class="panel-body" id="ovProviders">
+          <div class="loading">Loading...</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
           <h2>Live Events</h2>
           <span class="badge badge-live" id="ovSseBadge">SSE</span>
         </div>
@@ -151,17 +167,30 @@
   }
 
   async function loadOverviewData() {
-    // Phase + wallet
+    // Identity + phase + wallet
     try {
       const status = await API.getOnboardingStatus();
       onboardingPhase = status.phase || 'awaiting_token';
       walletId = status.walletId || null;
+      displayName = status.displayName || null;
       updateHeaderWallet();
 
-      const phaseEl = $id('ovPhase');
-      if (phaseEl) phaseEl.textContent = onboardingPhase;
-      const walletEl = $id('ovWallet');
-      if (walletEl) walletEl.textContent = truncHash(walletId, 20);
+      const nameEl = $id('ovDisplayName');
+      if (nameEl) nameEl.textContent = displayName || 'Unknown Prescriber';
+      const avatarEl = $id('ovAvatar');
+      if (avatarEl && displayName) {
+        const initials = displayName.replace(/^Dr\.\s*/, '').split(/\s+/).map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+        avatarEl.textContent = initials || '?';
+      }
+      const detailsEl = $id('ovIdentityDetails');
+      if (detailsEl) {
+        detailsEl.textContent = walletId ? 'Wallet: ' + truncHash(walletId, 24) : 'No wallet';
+      }
+      const badgeEl = $id('ovPhaseBadge');
+      if (badgeEl) {
+        badgeEl.textContent = onboardingPhase;
+        badgeEl.className = 'badge ' + (onboardingPhase === 'ready' ? 'badge-success' : 'badge-warn');
+      }
     } catch { /* node may not be ready */ }
 
     // Stats (only when node is initialized)
@@ -234,6 +263,22 @@
       if (mbEl) mbEl.innerHTML = '<div class="no-data">Node not initialized</div>';
     }
 
+    // Network prescribers
+    try {
+      const providers = await API.getProviders('prescriber');
+      const provEl = $id('ovProviders');
+      if (provEl && Array.isArray(providers) && providers.length > 0) {
+        provEl.innerHTML = '<table class="data-table"><thead><tr><th>Name</th><th>Specialty</th><th>Wallet ID</th></tr></thead><tbody>' +
+          providers.map(p => `<tr><td style="font-weight: 600;">${esc(p.displayName || 'Unknown')}</td><td>${esc(p.specialty || '--')}</td><td><span class="hash">${esc(truncHash(p.walletId, 18))}</span></td></tr>`).join('') +
+          '</tbody></table>';
+      } else if (provEl) {
+        provEl.innerHTML = '<div class="no-data">No prescribers registered on network</div>';
+      }
+    } catch {
+      const provEl = $id('ovProviders');
+      if (provEl) provEl.innerHTML = '<div class="no-data">Could not load providers</div>';
+    }
+
     // Render SSE event log
     renderEventLog();
   }
@@ -290,6 +335,7 @@
       const status = await API.getOnboardingStatus();
       onboardingPhase = status.phase || 'awaiting_token';
       walletId = status.walletId || null;
+      displayName = status.displayName || null;
       updateHeaderWallet();
     } catch { /* keep current */ }
 
@@ -582,6 +628,27 @@
 
   // ── Prescriptions ────────────────────────────────────────────
 
+  // ── Cached provider/medication lists for Rx form ─────────────
+  let cachedMembers = [];
+  let cachedPharmacies = [];
+  let cachedMedications = [];
+
+  async function loadRxFormData() {
+    try {
+      const [members, pharmacies] = await Promise.all([
+        API.getProviders('member').catch(() => []),
+        API.getProviders('pharmacy').catch(() => []),
+      ]);
+      cachedMembers = Array.isArray(members) ? members : [];
+      cachedPharmacies = Array.isArray(pharmacies) ? pharmacies : [];
+    } catch { /* ignore */ }
+    // Try to load medications from formulary breakdown
+    try {
+      const meds = await API.getMedicationBreakdown();
+      cachedMedications = Array.isArray(meds) ? meds : [];
+    } catch { /* ignore */ }
+  }
+
   async function renderPrescriptions(el) {
     el.innerHTML = `
       <h1 class="page-title">Prescriptions</h1>
@@ -598,6 +665,71 @@
         <div class="stat-card">
           <div class="stat-label">Unique Pharmacies</div>
           <div class="stat-value" id="rxPharmacies">--</div>
+        </div>
+      </div>
+
+      <div class="panel" id="rxWritePanel">
+        <div class="panel-header" style="cursor: pointer;" id="rxWriteToggle">
+          <h2>Write Prescription</h2>
+          <span class="badge badge-info" id="rxWriteArrow">&#9660;</span>
+        </div>
+        <div class="panel-body" id="rxWriteBody" style="display: none;">
+          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+            Write a new e-Script. The prescription is sent to the selected pharmacy and notifies the patient via the message store.
+          </p>
+          <div class="form-row">
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label">Patient (Member)</label>
+              <select class="form-input" id="rxPatientSelect" style="font-family: var(--font-sans);">
+                <option value="">-- Select Patient --</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label">Pharmacy</label>
+              <select class="form-input" id="rxPharmacySelect" style="font-family: var(--font-sans);">
+                <option value="">-- Select Pharmacy --</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label">Medication</label>
+              <select class="form-input" id="rxMedSelect" style="font-family: var(--font-sans);">
+                <option value="">-- Select or enter NDC Hash --</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex: 0 0 200px;">
+              <label class="form-label">NDC Hash (manual)</label>
+              <input type="text" class="form-input" id="rxNdcManual" placeholder="Or enter NDC hash directly">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Quantity</label>
+              <input type="number" class="form-input" id="rxQuantity" value="30" min="1">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Days Supply</label>
+              <input type="number" class="form-input" id="rxDaysSupply" value="30" min="1">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Refills</label>
+              <input type="number" class="form-input" id="rxRefills" value="0" min="0" max="11">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Directions (SIG)</label>
+            <input type="text" class="form-input" id="rxDirections" placeholder="e.g. Take 1 tablet by mouth daily">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Diagnosis</label>
+            <input type="text" class="form-input" id="rxDiagnosis" placeholder="e.g. Hypertension (optional)">
+          </div>
+          <div class="wizard-actions">
+            <button class="btn btn-primary" id="rxWriteBtn" ${onboardingPhase !== 'ready' ? 'disabled' : ''}>Send Prescription</button>
+          </div>
+          ${onboardingPhase !== 'ready' ? '<div class="form-hint" style="margin-top: 8px;">Complete onboarding to write prescriptions.</div>' : ''}
+          <div id="rxWriteResult"></div>
         </div>
       </div>
 
@@ -680,8 +812,97 @@
       loadPrescriptions();
     });
 
+    // Write Prescription form
+    $id('rxWriteToggle').addEventListener('click', () => {
+      const body = $id('rxWriteBody');
+      const arrow = $id('rxWriteArrow');
+      if (body.style.display === 'none') {
+        body.style.display = '';
+        arrow.innerHTML = '&#9650;';
+        populateRxDropdowns();
+      } else {
+        body.style.display = 'none';
+        arrow.innerHTML = '&#9660;';
+      }
+    });
+
+    // Med dropdown overrides manual NDC
+    $id('rxMedSelect')?.addEventListener('change', () => {
+      const v = $id('rxMedSelect').value;
+      if (v) $id('rxNdcManual').value = '';
+    });
+    $id('rxNdcManual')?.addEventListener('input', () => {
+      if ($id('rxNdcManual').value.trim()) $id('rxMedSelect').value = '';
+    });
+
+    if (onboardingPhase === 'ready') {
+      $id('rxWriteBtn').addEventListener('click', async () => {
+        const memberWalletId = $id('rxPatientSelect').value;
+        const pharmacyWalletId = $id('rxPharmacySelect').value;
+        const ndcHash = $id('rxMedSelect').value || $id('rxNdcManual').value.trim();
+
+        if (!memberWalletId) { toast('Select a patient', 'error'); return; }
+        if (!pharmacyWalletId) { toast('Select a pharmacy', 'error'); return; }
+        if (!ndcHash) { toast('Select a medication or enter NDC hash', 'error'); return; }
+
+        $id('rxWriteBtn').disabled = true;
+        $id('rxWriteBtn').textContent = 'Sending...';
+        try {
+          const res = await API.writePrescription({
+            memberWalletId,
+            pharmacyWalletId,
+            ndcHash,
+            brandName: $id('rxMedSelect').selectedOptions[0]?.dataset.name || '',
+            quantity: parseInt($id('rxQuantity').value) || 30,
+            daysSupply: parseInt($id('rxDaysSupply').value) || 30,
+            refills: parseInt($id('rxRefills').value) || 0,
+            directions: $id('rxDirections').value.trim(),
+            diagnosis: $id('rxDiagnosis').value.trim(),
+          });
+          $id('rxWriteResult').innerHTML = `
+            <div class="wizard-result success" style="margin-top: 16px;">
+              Prescription sent!<br>
+              Rx ID: ${esc(res.rxId)}<br>
+              Pharmacy notified: ${res.sentToPharmacy ? 'Yes' : 'No'}<br>
+              Patient notified: ${res.sentToMember ? 'Yes' : 'No'}
+            </div>
+          `;
+          toast('Prescription sent to pharmacy', 'success');
+          // Refresh history
+          loadPrescriptions();
+        } catch (err) {
+          $id('rxWriteResult').innerHTML = `<div class="wizard-result error" style="margin-top: 16px;">${esc(err.message)}</div>`;
+        }
+        $id('rxWriteBtn').disabled = false;
+        $id('rxWriteBtn').textContent = 'Send Prescription';
+      });
+    }
+
     loadPrescriptionStats();
     loadPrescriptions();
+  }
+
+  async function populateRxDropdowns() {
+    if (cachedMembers.length === 0 && cachedPharmacies.length === 0) {
+      await loadRxFormData();
+    }
+
+    const patientSel = $id('rxPatientSelect');
+    const pharmSel = $id('rxPharmacySelect');
+    const medSel = $id('rxMedSelect');
+
+    if (patientSel && cachedMembers.length > 0) {
+      patientSel.innerHTML = '<option value="">-- Select Patient --</option>' +
+        cachedMembers.map(m => `<option value="${esc(m.walletId)}">${esc(m.displayName || truncHash(m.walletId))}</option>`).join('');
+    }
+    if (pharmSel && cachedPharmacies.length > 0) {
+      pharmSel.innerHTML = '<option value="">-- Select Pharmacy --</option>' +
+        cachedPharmacies.map(p => `<option value="${esc(p.walletId)}">${esc(p.displayName || truncHash(p.walletId))}</option>`).join('');
+    }
+    if (medSel && cachedMedications.length > 0) {
+      medSel.innerHTML = '<option value="">-- Select Medication --</option>' +
+        cachedMedications.map(m => `<option value="${esc(m.ndcHash)}" data-name="${esc(m.brandName || m.drugName || '')}">${esc(m.brandName || m.drugName || truncHash(m.ndcHash))} (${m.claimCount || 0} claims)</option>`).join('');
+    }
   }
 
   async function loadPrescriptionStats() {
@@ -884,6 +1105,94 @@
         result.innerHTML = `<div class="wizard-result error" style="margin-top: 16px;">${esc(err.message)}</div>`;
       }
     });
+  }
+
+  // ── Providers ──────────────────────────────────────────────────
+
+  async function renderProviders(el) {
+    el.innerHTML = `
+      <h1 class="page-title">Network Providers</h1>
+      <div class="panels-row">
+        <div class="panel" style="flex: 1;">
+          <div class="panel-header">
+            <h2>Prescribers</h2>
+            <button class="btn btn-sm" id="provRefreshBtn">Refresh</button>
+          </div>
+          <div class="panel-body" id="provPrescriberList">
+            <div class="loading">Loading...</div>
+          </div>
+        </div>
+        <div class="panel" style="flex: 1;">
+          <div class="panel-header">
+            <h2>Pharmacies</h2>
+          </div>
+          <div class="panel-body" id="provPharmacyList">
+            <div class="loading">Loading...</div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    loadProviders();
+
+    setTimeout(() => {
+      const btn = $id('provRefreshBtn');
+      if (btn) btn.addEventListener('click', loadProviders);
+    }, 0);
+  }
+
+  async function loadProviders() {
+    // Prescribers
+    try {
+      const prescribers = await API.getProviders('prescriber');
+      const el = $id('provPrescriberList');
+      if (el && Array.isArray(prescribers) && prescribers.length > 0) {
+        el.innerHTML = prescribers.map(p => `
+          <div style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 0; border-bottom: 1px solid var(--border, #e5e7eb);">
+            <div style="width: 40px; height: 40px; border-radius: 50%; background: var(--accent, #3b82f6); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 0.85rem; flex-shrink: 0;">
+              ${esc((p.displayName || '?').replace(/^Dr\.\s*/, '').split(/\s+/).map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase())}
+            </div>
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${esc(p.displayName || 'Unknown')}</div>
+              <div style="font-size: 0.8rem; color: var(--text-secondary, #6b7280);">${esc(p.specialty || 'General')}</div>
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-secondary, #6b7280); font-family: 'JetBrains Mono', monospace;">
+              ${esc(truncHash(p.walletId, 14))}
+            </div>
+          </div>
+        `).join('');
+      } else if (el) {
+        el.innerHTML = '<div class="no-data">No prescribers on network</div>';
+      }
+    } catch {
+      const el = $id('provPrescriberList');
+      if (el) el.innerHTML = '<div class="no-data">Could not load prescribers</div>';
+    }
+
+    // Pharmacies
+    try {
+      const pharmacies = await API.getProviders('pharmacy');
+      const el = $id('provPharmacyList');
+      if (el && Array.isArray(pharmacies) && pharmacies.length > 0) {
+        el.innerHTML = pharmacies.map(p => `
+          <div style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 0; border-bottom: 1px solid var(--border, #e5e7eb);">
+            <div style="width: 40px; height: 40px; border-radius: 50%; background: #10b981; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 0.85rem; flex-shrink: 0;">Rx</div>
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${esc(p.displayName || 'Unknown Pharmacy')}</div>
+              <div style="font-size: 0.8rem; color: var(--text-secondary, #6b7280);">${esc(p.group || '--')}</div>
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-secondary, #6b7280); font-family: 'JetBrains Mono', monospace;">
+              ${esc(truncHash(p.walletId, 14))}
+            </div>
+          </div>
+        `).join('');
+      } else if (el) {
+        el.innerHTML = '<div class="no-data">No pharmacies on network</div>';
+      }
+    } catch {
+      const el = $id('provPharmacyList');
+      if (el) el.innerHTML = '<div class="no-data">Could not load pharmacies</div>';
+    }
   }
 
   // ── Messaging ────────────────────────────────────────────────
@@ -1199,8 +1508,13 @@
   function updateHeaderWallet() {
     const el = $id('headerWallet');
     if (el) {
-      el.textContent = walletId ? truncHash(walletId, 20) : '--';
-      el.title = walletId || '';
+      if (displayName) {
+        el.textContent = displayName;
+        el.title = walletId ? `${displayName}\nWallet: ${walletId}` : displayName;
+      } else {
+        el.textContent = walletId ? truncHash(walletId, 20) : '--';
+        el.title = walletId || '';
+      }
     }
   }
 
@@ -1266,6 +1580,7 @@
       const status = await API.getOnboardingStatus();
       onboardingPhase = status.phase || 'awaiting_token';
       walletId = status.walletId || null;
+      displayName = status.displayName || null;
       updateHeaderWallet();
     } catch { /* not ready */ }
 

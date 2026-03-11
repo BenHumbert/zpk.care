@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>zkTrident Insurer Nautilus</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <header class="header">
+    <div class="header-left">
+      <span class="logo">zkTrident Insurer</span>
+      <span class="logo-sub">Nautilus Node</span>
+    </div>
+    <nav class="nav" id="main-nav">
+      <a href="#overview" class="nav-link active" data-tab="overview">Overview</a>
+      <a href="#receipts" class="nav-link" data-tab="receipts">Receipts</a>
+      <a href="#batches" class="nav-link" data-tab="batches">Batches</a>
+      <a href="#claims" class="nav-link" data-tab="claims">Claims</a>
+      <a href="#audit" class="nav-link" data-tab="audit">Audit</a>
+      <a href="#messaging" class="nav-link" data-tab="messaging">Messaging</a>
+      <a href="#admin" class="nav-link" data-tab="admin">Admin</a>
+    </nav>
+    <div class="header-right">
+      <span class="connection-status" id="connection-status">
+        <span class="status-dot disconnected" id="status-dot"></span>
+        <span class="status-label" id="status-label">Disconnected</span>
+      </span>
+    </div>
+  </header>
+
+  <main class="main" id="app">
+  </main>
+
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="rpc.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

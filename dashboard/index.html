@@ -70,6 +70,57 @@
         </div>
       </div>
 
+      <!-- Block Sequencer Pipeline -->
+      <div class="panel" id="pipeline-panel">
+        <div class="panel-header">
+          <h2>Block Sequencer Pipeline</h2>
+          <span class="badge badge-live" id="pipelineBadge">LIVE</span>
+        </div>
+        <div class="panel-body" id="pipelineView">
+          <div class="pipeline">
+            <div class="pipeline-stage">
+              <div class="stage-header">Incoming Proofs</div>
+              <div class="stage-value" id="pip-pending">0</div>
+              <div class="stage-label">pending</div>
+            </div>
+            <div class="pipeline-arrow">&rarr;</div>
+            <div class="pipeline-stage">
+              <div class="stage-header">Workers</div>
+              <div class="worker-grid" id="pip-workers">
+                <div class="worker-box idle">W0: idle</div>
+              </div>
+            </div>
+            <div class="pipeline-arrow">&rarr;</div>
+            <div class="pipeline-stage">
+              <div class="stage-header">Batch Builder</div>
+              <div class="stage-value" id="pip-batch">idle</div>
+              <div class="stage-label" id="pip-batch-detail">--</div>
+            </div>
+            <div class="pipeline-arrow">&rarr;</div>
+            <div class="pipeline-stage">
+              <div class="stage-header">Chain</div>
+              <div class="stage-value" id="pip-height">0</div>
+              <div class="stage-label" id="pip-settled">0 settled</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Proving Pool Workers -->
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Proving Pool</h2>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span class="pool-stat" id="pool-jobs-done">0 jobs</span>
+            <span class="pool-stat" id="pool-avg-time">avg: --</span>
+            <span class="pool-stat" id="pool-queue">queue: 0</span>
+          </div>
+        </div>
+        <div class="panel-body" id="poolDetail">
+          <div class="loading">Loading...</div>
+        </div>
+      </div>
+
       <div class="panels-row">
         <div class="panel">
           <div class="panel-header">

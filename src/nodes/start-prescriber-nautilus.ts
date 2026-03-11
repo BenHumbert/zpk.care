@@ -80,37 +80,78 @@ async function main(): Promise<void> {
   // Register prescriber routes (no network registry at startup — can be loaded later)
   server.registerRoutes(buildPrescriberRoutes(server));
 
-  // ── State Recovery ──
+  // ── Demo Prescriber (skip onboarding — seed identity from demo data) ──
 
-  const stateExists = await localState.exists();
-  if (stateExists && pin) {
-    console.log('  [state] Unlocking encrypted state...');
-    await localState.unlock(pin);
-    const data = await localState.load();
-    if (data?.walletId) {
-      console.log('  [state] Restored wallet: %s...', data.walletId.slice(0, 12));
-      const node = new PrescriberNode({
-        role: 'prescriber',
-        walletId: data.walletId,
-        sequencerUrl: config.sequencerUrl,
-        displayName: config.displayName,
-      });
-      server.setEntityNode(node);
-      server.setOnboardingPhase(data.onboarding.phase as any ?? 'ready');
+  const demoPrescriberId = env.ZKTRIDENT_DEMO_PRESCRIBER;
+  if (demoPrescriberId) {
+    const { DEMO_PRESCRIBERS } = await import('../demo/prescribers.js');
+    const { derivePrescriberWalletId } = await import('../wallets/wallet-derivation.js');
+
+    const idx = parseInt(demoPrescriberId, 10);
+    const prescriber = !isNaN(idx) && idx >= 0 && idx < DEMO_PRESCRIBERS.length
+      ? DEMO_PRESCRIBERS[idx]
+      : DEMO_PRESCRIBERS.find((p) =>
+          p.lastName.toLowerCase() === demoPrescriberId.toLowerCase() ||
+          `${p.firstName} ${p.lastName}`.toLowerCase() === demoPrescriberId.toLowerCase()
+        );
+
+    if (!prescriber) {
+      console.error('  [FATAL] Demo prescriber not found: %s', demoPrescriberId);
+      console.error('  Available: %s', DEMO_PRESCRIBERS.map((p, i) =>
+        `${i}=${p.firstName} ${p.lastName}`).join(', '));
+      process.exit(1);
     }
-  } else if (!stateExists && pin) {
-    await localState.unlock(pin);
-    const initialState: NautilusStateData = {
-      version: 1,
+
+    const walletId = derivePrescriberWalletId(prescriber.localData, prescriber.enrollmentKey).toString();
+    const displayName = `Dr. ${prescriber.firstName} ${prescriber.lastName}, ${prescriber.credential}`;
+
+    console.log('  [demo] Prescriber: %s', displayName);
+    console.log('  [demo] Specialty:  %s', prescriber.specialty);
+    console.log('  [demo] Wallet:     %s...', walletId.slice(0, 20));
+
+    const node = new PrescriberNode({
       role: 'prescriber',
-      onboarding: { phase: 'awaiting_token' },
-      lastSavedAt: new Date().toISOString(),
-    };
-    await localState.save(initialState);
-    console.log('  [state] Created new encrypted state');
-  } else if (!pin) {
-    console.log('  [state] No PIN provided (set ZKTRIDENT_PIN for auto-unlock)');
-    console.log('  [state] Starting in fresh onboarding mode');
+      walletId,
+      sequencerUrl: config.sequencerUrl,
+      displayName,
+    });
+    server.setEntityNode(node);
+    server.setOnboardingPhase('ready');
+  }
+
+  // ── State Recovery (non-demo mode) ──
+
+  else {
+    const stateExists = await localState.exists();
+    if (stateExists && pin) {
+      console.log('  [state] Unlocking encrypted state...');
+      await localState.unlock(pin);
+      const data = await localState.load();
+      if (data?.walletId) {
+        console.log('  [state] Restored wallet: %s...', data.walletId.slice(0, 12));
+        const node = new PrescriberNode({
+          role: 'prescriber',
+          walletId: data.walletId,
+          sequencerUrl: config.sequencerUrl,
+          displayName: config.displayName,
+        });
+        server.setEntityNode(node);
+        server.setOnboardingPhase(data.onboarding.phase as any ?? 'ready');
+      }
+    } else if (!stateExists && pin) {
+      await localState.unlock(pin);
+      const initialState: NautilusStateData = {
+        version: 1,
+        role: 'prescriber',
+        onboarding: { phase: 'awaiting_token' },
+        lastSavedAt: new Date().toISOString(),
+      };
+      await localState.save(initialState);
+      console.log('  [state] Created new encrypted state');
+    } else if (!pin) {
+      console.log('  [state] No PIN provided (set ZKTRIDENT_PIN for auto-unlock)');
+      console.log('  [state] Starting in fresh onboarding mode');
+    }
   }
 
   // ── Start Server ──

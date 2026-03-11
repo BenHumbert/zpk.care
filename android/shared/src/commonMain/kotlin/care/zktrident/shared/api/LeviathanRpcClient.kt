@@ -132,6 +132,13 @@ class LeviathanRpcClient(
         buildJsonObject { put("planIdHash", planIdHash) },
     )
 
+    // ─── Network Providers ─────────────────────────────────────
+
+    suspend fun getNetworkProviders(role: String? = null): List<NetworkProvider> = rpc(
+        "l2_getNetworkProviders",
+        buildJsonObject { if (role != null) put("role", role) },
+    )
+
     // ─── Messages ───────────────────────────────────────────────
 
     suspend fun getMessagesByWallet(walletId: String): List<MessageStoreEntry> = rpc(
@@ -144,13 +151,66 @@ class LeviathanRpcClient(
         buildJsonObject { put("threadIdHash", threadIdHash) },
     )
 
+    /**
+     * Store an encrypted message on the sequencer.
+     * The sequencer only stores opaque ciphertext — no plaintext ever touches it.
+     */
+    suspend fun storeMessage(
+        messageCommitment: String,
+        senderWalletId: String,
+        recipientWalletId: String,
+        messageType: String,
+        threadIdHash: String,
+        ciphertext: String,
+        iv: String,
+        tag: String,
+    ): JsonElement = rpcCall(
+        "l2_storeMessage",
+        buildJsonObject {
+            putJsonObject("message") {
+                put("messageCommitment", messageCommitment)
+                put("senderWalletId", senderWalletId)
+                put("recipientWalletId", recipientWalletId)
+                put("messageType", messageType)
+                put("threadIdHash", threadIdHash)
+            }
+            putJsonObject("payload") {
+                put("ciphertext", ciphertext)
+                put("iv", iv)
+                put("tag", tag)
+                put("timestamp", System.currentTimeMillis())
+            }
+        },
+    )
+
+    // ─── NFC Attestation ──────────────────────────────────────
+
+    /**
+     * Request a sequencer-signed NFC credential attestation (~500 bytes).
+     * The attestation proves registration via Ed25519 signature — fits on NTAG216.
+     */
+    suspend fun requestAttestation(walletId: String, expirySeconds: Int? = null): JsonElement = rpcCall(
+        "l2_requestAttestation",
+        buildJsonObject {
+            put("walletId", walletId)
+            if (expirySeconds != null) put("expirySeconds", expirySeconds)
+        },
+    )
+
     // ─── Registration ─────────────────────────────────────────
 
     suspend fun getRegistrationWitnesses(): RegistrationWitnesses = rpc("l2_getRegistrationWitnesses")
 
-    suspend fun submitProof(proofJson: String): JsonElement = rpcCall(
+    suspend fun submitProof(proofJson: String, entityMetadata: Map<String, String>? = null): JsonElement = rpcCall(
         "l2_submitProof",
-        buildJsonObject { put("proofJson", json.parseToJsonElement(proofJson)) },
+        buildJsonObject {
+            put("proofJson", json.parseToJsonElement(proofJson))
+            if (entityMetadata != null) {
+                putJsonObject("entityMetadata") {
+                    entityMetadata.forEach { (k, v) -> put(k, v) }
+                }
+            }
+        },
     )
 
     // ─── Accumulator ────────────────────────────────────────────

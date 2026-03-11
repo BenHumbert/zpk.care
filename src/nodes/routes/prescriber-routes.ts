@@ -305,6 +305,106 @@ export function buildPrescriberRoutes(
   });
 
   // ══════════════════════════════════════════════════════════
+  //  WRITE PRESCRIPTION (e-Script via message store)
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'POST',
+    path: '/prescriptions/write',
+    handler: async (_req, res, _params, _query, body) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      const walletId = node.getWalletId();
+      if (!walletId) return server.sendResponse(res, 409, false, undefined, 'No wallet ID');
+
+      const b = body as {
+        memberWalletId?: string;
+        pharmacyWalletId?: string;
+        ndcHash?: string;
+        brandName?: string;
+        quantity?: number;
+        daysSupply?: number;
+        refills?: number;
+        directions?: string;
+        diagnosis?: string;
+      } | undefined;
+
+      if (!b?.memberWalletId) return server.sendResponse(res, 400, false, undefined, 'Missing memberWalletId');
+      if (!b?.pharmacyWalletId) return server.sendResponse(res, 400, false, undefined, 'Missing pharmacyWalletId');
+      if (!b?.ndcHash) return server.sendResponse(res, 400, false, undefined, 'Missing ndcHash');
+
+      const rxId = `RX-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const prescription = {
+        rxId,
+        prescriberWalletId: walletId,
+        memberWalletId: b.memberWalletId,
+        pharmacyWalletId: b.pharmacyWalletId,
+        ndcHash: b.ndcHash,
+        brandName: b.brandName ?? '',
+        quantity: b.quantity ?? 30,
+        daysSupply: b.daysSupply ?? 30,
+        refills: b.refills ?? 0,
+        directions: b.directions ?? '',
+        diagnosis: b.diagnosis ?? '',
+        dateWritten: new Date().toISOString().replace(/[-:T]/g, '').slice(0, 8),
+        status: 'pending',
+      };
+
+      // Serialize the prescription as the message payload
+      const rxJson = JSON.stringify(prescription);
+      const rxHex = Buffer.from(rxJson, 'utf8').toString('hex');
+      const threadId = `rx-${rxId}`;
+
+      try {
+        // Send to pharmacy
+        const pharmacyMsg = await node.storeMessage(
+          {
+            messageCommitment: '0', // placeholder
+            senderWalletId: walletId,
+            recipientWalletId: b.pharmacyWalletId,
+            messageType: '3', // eScript
+            threadIdHash: threadId,
+          },
+          {
+            ciphertext: rxHex,
+            iv: '00',
+            tag: '00',
+            timestamp: Date.now(),
+          },
+        );
+
+        // Also notify the member
+        await node.storeMessage(
+          {
+            messageCommitment: '0',
+            senderWalletId: walletId,
+            recipientWalletId: b.memberWalletId,
+            messageType: '3',
+            threadIdHash: threadId,
+          },
+          {
+            ciphertext: rxHex,
+            iv: '00',
+            tag: '00',
+            timestamp: Date.now(),
+          },
+        );
+
+        server.sendResponse(res, 200, true, {
+          rxId,
+          threadId,
+          prescription,
+          sentToPharmacy: true,
+          sentToMember: true,
+          messageIndex: pharmacyMsg.index,
+        });
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Failed to send prescription');
+      }
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
   //  PRESCRIBING HISTORY QUERIES
   // ══════════════════════════════════════════════════════════
 
@@ -478,6 +578,40 @@ export function buildPrescriberRoutes(
         });
       } catch {
         server.sendResponse(res, 200, true, { ndcHash: params.ndcHash, onFormulary: false });
+      }
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  NETWORK PROVIDERS (query sequencer entity registry)
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'GET',
+    path: '/providers',
+    handler: async (_req, res, _params, query) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      const roleFilter = query.get('role') ?? undefined;
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const resp = await fetch(`${seqUrl}/rpc`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'l2_getNetworkProviders',
+            params: roleFilter ? { role: roleFilter } : {},
+          }),
+        });
+        const json = await resp.json() as { result?: unknown; error?: { message?: string } };
+        if (json.error) {
+          return server.sendResponse(res, 502, false, undefined, json.error.message ?? 'Sequencer error');
+        }
+        server.sendResponse(res, 200, true, json.result);
+      } catch (err) {
+        server.sendResponse(res, 502, false, undefined, err instanceof Error ? err.message : 'Sequencer unreachable');
       }
     },
   });

@@ -14,6 +14,19 @@ object PoseidonHasher {
 
     fun hash(vararg input: BigInteger): BigInteger = hash(input.toList())
 
+    /**
+     * Hash a list of strings by converting each to a Field element via
+     * Poseidon.hash([char0, char1, ...]) then hashing the results.
+     * Matches the TypeScript CircuitString.hash() pattern.
+     */
+    fun hashStrings(input: List<String>): String {
+        val fields = input.map { s ->
+            val chars = s.toCharArray().map { BigInteger.valueOf(it.code.toLong()) }
+            if (chars.isEmpty()) BigInteger.ZERO else hash(chars)
+        }
+        return hash(fields).toString()
+    }
+
     private fun update(state: Array<BigInteger>, input: List<BigInteger>) {
         if (input.isEmpty()) {
             permutation(state)

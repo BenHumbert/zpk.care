@@ -12,7 +12,7 @@ import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MemberMessagesScreen(viewModel: MemberDashboardViewModel, onBack: () -> Unit) {
+fun MemberMessagesScreen(viewModel: MemberDashboardViewModel, onBack: () -> Unit, onCompose: (() -> Unit)? = null) {
     val messages by viewModel.messages.collectAsState()
 
     LaunchedEffect(Unit) { viewModel.refreshMessages() }
@@ -22,6 +22,12 @@ fun MemberMessagesScreen(viewModel: MemberDashboardViewModel, onBack: () -> Unit
             TopAppBar(
                 title = { Text("Messages") },
                 navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
+                actions = {
+                    if (onCompose != null) {
+                        TextButton(onClick = onCompose) { Text("Compose") }
+                    }
+                    TextButton(onClick = { viewModel.refreshMessages() }) { Text("Refresh") }
+                },
             )
         },
     ) { padding ->

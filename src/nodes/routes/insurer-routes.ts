@@ -102,16 +102,129 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         return server.sendResponse(res, 400, false, undefined, 'Missing walletId');
       }
 
-      // Lightweight enrollment acknowledgment — records the wallet registration.
-      // The actual ZK registration proof is what registers the wallet on the sequencer.
-      // This endpoint is for the insurer's roster tracking.
-      server.sendResponse(res, 200, true, {
-        enrolled: true,
+      // Record enrollment in in-memory roster for the insurer's view.
+      const enrollmentRecord = {
         walletId: b.walletId,
         tokenId: b.tokenId ?? null,
-        role: b.role ?? 'unknown',
+        role: b.role ?? 'member',
+        groupId: (b as any).groupId ?? null,
+        employerId: (b as any).employerId ?? null,
         enrolledAt: Date.now(),
+      };
+
+      // Store in insurer's local enrollment registry
+      const registry = (server as any).__enrollmentRegistry ??= new Map<string, typeof enrollmentRecord>();
+      registry.set(b.walletId, enrollmentRecord);
+
+      server.sendResponse(res, 200, true, {
+        enrolled: true,
+        ...enrollmentRecord,
       });
+    },
+  });
+
+  // ── Roster (live view from sequencer + local enrollment records) ──
+
+  routes.push({
+    method: 'GET',
+    path: '/roster',
+    handler: async (_req, res, _params, query) => {
+      const node = server.getEntityNode() as InsurerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+
+      try {
+        // Get all registration receipts from sequencer
+        const allReceipts = await node.getAllReceipts();
+        const registrations = allReceipts.filter(r => r.isRegistration);
+
+        // Get entity metadata from sequencer (names, roles, specialties)
+        let entities: any[] = [];
+        try {
+          const seqUrl = (node as any).client?.baseUrl || 'http://localhost:3030';
+          const entityResp = await fetch(`${seqUrl}/viz/entities`);
+          if (entityResp.ok) entities = await entityResp.json() as any[];
+        } catch { /* no entity data available */ }
+
+        const entityMap = new Map(entities.map((e: any) => [e.walletId, e]));
+
+        // Get local enrollment records (group/employer associations)
+        const registry = (server as any).__enrollmentRegistry as Map<string, any> | undefined;
+
+        // Build roster view
+        const roster = registrations.map(r => {
+          const entity = entityMap.get(r.walletId);
+          const enrollment = registry?.get(r.walletId);
+          return {
+            walletId: r.walletId,
+            role: entity?.type ?? enrollment?.role ?? 'unknown',
+            displayName: entity?.displayName ?? `Wallet ${r.walletId.substring(0, 12)}...`,
+            specialty: entity?.specialty ?? null,
+            pharmacyType: entity?.pharmacyType ?? null,
+            groupId: enrollment?.groupId ?? null,
+            employerId: enrollment?.employerId ?? null,
+            registeredAt: r.acceptedAt,
+            receiptId: r.receiptId,
+            batchNumber: r.l1BatchNumber ?? null,
+          };
+        });
+
+        // Group-level summary
+        const groupFilter = query?.groupId as string | undefined;
+        const roleFilter = query?.role as string | undefined;
+        let filtered = roster;
+        if (groupFilter) filtered = filtered.filter(r => r.groupId === groupFilter);
+        if (roleFilter) filtered = filtered.filter(r => r.role === roleFilter);
+
+        // Employer summary: count by group
+        const groupSummary: Record<string, { count: number; roles: Record<string, number> }> = {};
+        for (const entry of roster) {
+          const gid = entry.groupId ?? 'unassigned';
+          if (!groupSummary[gid]) groupSummary[gid] = { count: 0, roles: {} };
+          groupSummary[gid].count++;
+          groupSummary[gid].roles[entry.role] = (groupSummary[gid].roles[entry.role] ?? 0) + 1;
+        }
+
+        server.sendResponse(res, 200, true, {
+          total: filtered.length,
+          totalRegistered: registrations.length,
+          groupSummary,
+          entries: filtered,
+        });
+      } catch (e: any) {
+        server.sendResponse(res, 500, false, undefined, e.message);
+      }
+    },
+  });
+
+  // ── Roster: register enrollment with group/employer association ──
+
+  routes.push({
+    method: 'POST',
+    path: '/roster/register',
+    adminOnly: true,
+    handler: async (_req, res, _params, _query, body) => {
+      const b = body as {
+        walletId?: string;
+        role?: string;
+        groupId?: string;
+        employerId?: string;
+      } | undefined;
+
+      if (!b?.walletId) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing walletId');
+      }
+
+      const registry = (server as any).__enrollmentRegistry ??= new Map<string, any>();
+      const record = {
+        walletId: b.walletId,
+        role: b.role ?? 'member',
+        groupId: b.groupId ?? null,
+        employerId: b.employerId ?? null,
+        enrolledAt: Date.now(),
+      };
+      registry.set(b.walletId, record);
+
+      server.sendResponse(res, 200, true, record);
     },
   });
 

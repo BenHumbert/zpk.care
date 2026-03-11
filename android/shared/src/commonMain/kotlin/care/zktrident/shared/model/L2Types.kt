@@ -158,6 +158,10 @@ data class FormularyEntry(
     val gpi: String? = null,
     val ndcHash: String = "",
     val pricePerUnit: Double? = null,
+    val copayAmountCents: Int? = null,
+    val requiresPriorAuth: Boolean = false,
+    val maxDaySupply: Int? = null,
+    val maxQuantityPerFill: Int? = null,
 )
 
 @Serializable
@@ -202,6 +206,17 @@ data class MessagePayload(
     val tag: String = "",
     val timestamp: Long = 0,
     val receiptId: String? = null,
+)
+
+/** Network provider — prescriber or pharmacy registered on the sequencer */
+@Serializable
+data class NetworkProvider(
+    val walletId: String = "",
+    val displayName: String = "",
+    val role: String = "",
+    val specialty: String? = null,
+    val pharmacyType: String? = null,
+    val group: String? = null,
 )
 
 /** Wrapper for JSON-RPC 2.0 responses */

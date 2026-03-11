@@ -78,5 +78,11 @@ const RPC = (() => {
     forceBatch: () => rpc('l2_forceBatch'),
     getLeviathanStatus: () => rpc('l2_getLeviathanStatus'),
     getQuorumStatus: () => rpc('l2_getQuorumStatus'),
+
+    // Health endpoint (not RPC — direct REST)
+    getHealthData: async () => {
+      const res = await fetch(`${baseUrl}/health`);
+      return res.json();
+    },
   };
 })();

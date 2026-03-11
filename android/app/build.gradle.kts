@@ -14,10 +14,10 @@ android {
         versionCode = 1
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "DEFAULT_SEQUENCER_URL", "\"https://zktrident-leviathan.onrender.com\"")
-        buildConfigField("String", "DEFAULT_PROVER_URL", "\"https://zktrident-prover.onrender.com\"")
-        buildConfigField("String", "DEFAULT_INSURER_URL", "\"https://zktrident-insurer2.onrender.com\"")
-        buildConfigField("String", "DEFAULT_PROVER_API_KEY", "\"vDWGHqgqM+8S198FDjMwh+vgaB86ZEyygd3Tf4JWJPc=\"")
+        buildConfigField("String", "DEFAULT_SEQUENCER_URL", "\"http://192.168.139.171:3030\"")
+        buildConfigField("String", "DEFAULT_PROVER_URL", "\"http://192.168.139.171:4040\"")
+        buildConfigField("String", "DEFAULT_INSURER_URL", "\"http://192.168.139.171:4004\"")
+        buildConfigField("String", "DEFAULT_PROVER_API_KEY", "\"dev-key\"")
     }
 
     buildFeatures {

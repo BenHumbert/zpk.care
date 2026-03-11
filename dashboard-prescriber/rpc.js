@@ -132,6 +132,7 @@ const API = (() => {
   function getPatientCount() { return get('/prescriptions/patients/count'); }
   function getPharmacyCount() { return get('/prescriptions/pharmacies/count'); }
   function getMedicationBreakdown() { return get('/prescriptions/medications/breakdown'); }
+  function writePrescription(data) { return post('/prescriptions/write', data); }
 
   // ── Provider Network ───────────────────────────────────────
 
@@ -144,6 +145,13 @@ const API = (() => {
   function getFormulary(planIdHash) { return get(`/formulary/${encodeURIComponent(planIdHash)}`); }
   function checkDrugCoverage(planIdHash, ndcHash) {
     return get(`/formulary/${encodeURIComponent(planIdHash)}/check/${encodeURIComponent(ndcHash)}`);
+  }
+
+  // ── Providers ─────────────────────────────────────────────
+
+  function getProviders(role) {
+    const q = role ? `?role=${encodeURIComponent(role)}` : '';
+    return get(`/providers${q}`);
   }
 
   // ── PCP ────────────────────────────────────────────────────
@@ -190,6 +198,7 @@ const API = (() => {
     getPatientCount,
     getPharmacyCount,
     getMedicationBreakdown,
+    writePrescription,
 
     // Network
     getNetworkPrescribers,
@@ -199,6 +208,9 @@ const API = (() => {
     // Formulary
     getFormulary,
     checkDrugCoverage,
+
+    // Providers
+    getProviders,
 
     // PCP
     getPcpPatients,
