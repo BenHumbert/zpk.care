@@ -7,12 +7,10 @@
   // ── State ──────────────────────────────────────────────────
   var sseEvents = [];
   var sseCount = 0;
-  var formularyData = [];       // cached formulary entries (localStorage)
-  var planData = [];             // cached plans (localStorage)
+  var formularyData = [];       // in-memory, fetched from sequencer
+  var planData = [];             // in-memory, initialized from defaults
   var employerData = [];         // demo employers/groups
   var priceHistory = [];         // recent pricing estimates
-  var FORM_KEY = 'zkp_insurer_formulary';
-  var PLAN_KEY = 'zkp_insurer_plans';
 
   // ── Demo Employers & Groups ────────────────────────────────
   var EMPLOYERS = [
@@ -130,27 +128,21 @@
 
   function clearResult(id) { var el = $(id); if (el) el.innerHTML = ''; }
 
-  // ── localStorage persistence ───────────────────────────────
-  function loadFormulary() {
+  // ── Data Loading (from sequencer, no localStorage) ─────────
+  async function loadFormularyFromSequencer() {
     try {
-      var raw = localStorage.getItem(FORM_KEY);
-      formularyData = raw ? JSON.parse(raw) : DEFAULT_FORMULARY.slice();
-    } catch (e) { formularyData = DEFAULT_FORMULARY.slice(); }
-  }
-
-  function saveFormulary() {
-    localStorage.setItem(FORM_KEY, JSON.stringify(formularyData));
+      var result = await API.getFormulary('default');
+      if (result && result.entriesJson) {
+        formularyData = JSON.parse(result.entriesJson);
+        return;
+      }
+    } catch (_) { /* sequencer unavailable, use defaults */ }
+    if (formularyData.length === 0) formularyData = DEFAULT_FORMULARY.slice();
   }
 
   function loadPlans() {
-    try {
-      var raw = localStorage.getItem(PLAN_KEY);
-      planData = raw ? JSON.parse(raw) : DEFAULT_PLANS.slice();
-    } catch (e) { planData = DEFAULT_PLANS.slice(); }
-  }
-
-  function savePlans() {
-    localStorage.setItem(PLAN_KEY, JSON.stringify(planData));
+    // Plans are managed in-memory with defaults; no localStorage
+    if (planData.length === 0) planData = DEFAULT_PLANS.slice();
   }
 
   // ── Router ─────────────────────────────────────────────────
@@ -257,7 +249,8 @@
 
   var csvParsedData = null;
 
-  function loadFormularyPage() {
+  async function loadFormularyPage() {
+    await loadFormularyFromSequencer();
     renderTierStats();
     renderFormularyTable();
     initUploadZone();
@@ -417,23 +410,18 @@
       }
     });
 
-    saveFormulary();
-
-    // Attempt to publish to sequencer via RPC
+    // Publish to sequencer immediately (single source of truth)
     var publishBtn = $('form-publish-btn');
     if (publishBtn) { publishBtn.disabled = true; publishBtn.textContent = 'Publishing...'; }
     try {
       var entriesJson = JSON.stringify(formularyData);
-      // Use a default plan ID hash or derive from first plan
       var planIdHash = (planData.length > 0 ? planData[0].id : 'default-plan');
-      // formularyRoot is computed server-side; send '0' as placeholder
       await API.publishFormulary(planIdHash, '0', entriesJson);
       toast('Published ' + added + ' new, ' + updated + ' updated to sequencer', 'success');
       showResult('form-upload-result', 'Published to sequencer: ' + (added + updated) + ' formulary entries', true);
     } catch (e) {
-      // Local save succeeded even if sequencer publish fails
-      toast('Saved locally. Sequencer publish: ' + e.message, 'info');
-      showResult('form-upload-result', 'Saved locally (' + (added + updated) + ' entries). Sequencer: ' + e.message, false);
+      toast('Sequencer publish failed: ' + e.message, 'error');
+      showResult('form-upload-result', 'Publish failed: ' + e.message, false);
     } finally {
       if (publishBtn) { publishBtn.disabled = false; publishBtn.textContent = 'Publish to Sequencer'; }
     }
@@ -474,23 +462,35 @@
       copayAmountCents: copay,
       requiresPriorAuth: false,
     });
-    saveFormulary();
     renderTierStats();
     renderFormularyTable();
     toast('Entry added to formulary', 'success');
     showResult('form-add-result', 'Added ' + (brand || ndc.trim()), true);
     if ($('form-ndc')) $('form-ndc').value = '';
     if ($('form-brand')) $('form-brand').value = '';
+    // Publish updated formulary to sequencer
+    publishFormularyToSequencer();
   }
 
   function removeFormularyEntry(idx) {
     if (idx >= 0 && idx < formularyData.length) {
       var name = formularyData[idx].brandName || formularyData[idx].ndcHash;
       formularyData.splice(idx, 1);
-      saveFormulary();
       renderTierStats();
       renderFormularyTable();
       toast('Removed ' + name, 'info');
+      // Publish updated formulary to sequencer
+      publishFormularyToSequencer();
+    }
+  }
+
+  async function publishFormularyToSequencer() {
+    try {
+      var entriesJson = JSON.stringify(formularyData);
+      var planIdHash = (planData.length > 0 ? planData[0].id : 'default-plan');
+      await API.publishFormulary(planIdHash, '0', entriesJson);
+    } catch (e) {
+      console.warn('[Formulary] Sequencer publish failed:', e.message);
     }
   }
 
@@ -562,7 +562,7 @@
       famOopMax: Number(($('plan-fam-oop') || {}).value) || 1000000,
       coverage: ($('plan-coverage') || {}).value || 'pharmacy',
     });
-    savePlans();
+    // Plans kept in-memory (no localStorage)
     renderPlanList();
     toast('Plan created: ' + name.trim(), 'success');
     showResult('plan-create-result', 'Created plan ' + id.trim(), true);
@@ -1514,9 +1514,9 @@
   //  INIT
   // ═══════════════════════════════════════════════════════════
 
-  function init() {
-    loadFormulary();
+  async function init() {
     loadPlans();
+    await loadFormularyFromSequencer();
     checkConnection();
     initSSE();
     initPricing();

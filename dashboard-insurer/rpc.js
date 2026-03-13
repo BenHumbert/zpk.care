@@ -154,7 +154,18 @@ const API = (() => {
     return request('GET', '/credentialing/registry' + q);
   }
 
-  // ---- Formulary Publish (to sequencer) ----
+  // ---- Formulary (via sequencer RPC proxy) ----
+  async function getFormulary(planIdHash) {
+    var res = await fetch(baseUrl + '/rpc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getFormulary', params: { planIdHash: planIdHash || 'default' } }),
+    });
+    var json = await res.json();
+    if (json.error) throw new Error(json.error.message || 'RPC error');
+    return stripBigints(json.result);
+  }
+
   function publishFormulary(planIdHash, formularyRoot, entriesJson) {
     return request('POST', '/admin/formulary/publish', { planIdHash, formularyRoot, entriesJson }, true);
   }
@@ -218,7 +229,7 @@ const API = (() => {
     verifyApplication, approveApplication, denyApplication,
     getCredentialingStatus, suspendProvider, terminateProvider,
     getProviderRegistry,
-    publishFormulary,
+    getFormulary, publishFormulary,
     getMessagesByWallet, getMessagesByThread, getMessageStoreStatus,
     connectSSE, disconnectSSE, onConnectionChange, checkConnection,
   };

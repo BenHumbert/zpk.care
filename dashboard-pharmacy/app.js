@@ -39,13 +39,9 @@
   let durCurrentWallet = null;
   let durLookupCount = 0;
 
-  // Script workflow state — stored in localStorage, scoped per pharmacy
+  // Script workflow state — in-memory only, rebuilt from sequencer on each load
   // { [scriptKey]: { status: 'active'|'dispensed'|'filled'|'complete'|'rejected'|'transferred', paid: bool, issue: string|null, transferTo: string|null, updatedAt: number } }
   let scriptWorkflow = {};
-
-  function workflowKey() {
-    return 'zkp_pharmacy_workflow_' + getSelectedPharmacy().npi;
-  }
 
   // Verified member wallet for the Filled column
   let verifiedMemberWallet = null;
@@ -115,21 +111,10 @@
     return d.innerHTML;
   }
 
-  // ── Workflow Persistence ─────────────────────────────────────
+  // ── Workflow State (in-memory, no localStorage) ─────────────
 
-  function loadWorkflow() {
-    try {
-      const raw = localStorage.getItem(workflowKey());
-      scriptWorkflow = raw ? JSON.parse(raw) : {};
-    } catch (_) {
-      scriptWorkflow = {};
-    }
-  }
-
-  function saveWorkflow() {
-    try {
-      localStorage.setItem(workflowKey(), JSON.stringify(scriptWorkflow));
-    } catch (_) { /* quota */ }
+  function resetWorkflow() {
+    scriptWorkflow = {};
   }
 
   function scriptKey(claim) {
@@ -151,7 +136,7 @@
       status: status,
       updatedAt: Date.now(),
     }, extra || {});
-    saveWorkflow();
+    // workflow state kept in-memory only
   }
 
   function isScriptPaid(claim) {
@@ -165,7 +150,7 @@
       paid: true,
       updatedAt: Date.now(),
     });
-    saveWorkflow();
+    // workflow state kept in-memory only
   }
 
   function getScriptIssue(claim) {
@@ -589,7 +574,7 @@
     setScriptStatus(claim, 'reversed', { issue: reason || 'Reversed — back to shelf' });
     // Clear paid flag on reversal
     if (scriptWorkflow[key]) scriptWorkflow[key].paid = false;
-    saveWorkflow();
+    // workflow state kept in-memory only
     renderWorkstationColumns();
 
     // Record the reversal on the sequencer's claim accumulator (best-effort)
@@ -732,7 +717,7 @@
     w.issue = reason;
     w.updatedAt = Date.now();
     scriptWorkflow[scriptKey(claim)] = w;
-    saveWorkflow();
+    // workflow state kept in-memory only
     renderWorkstationColumns();
     closeModal();
   }
@@ -1450,8 +1435,8 @@
 
   function switchPharmacy(npi) {
     setSelectedPharmacy(npi);
-    // Reload workflow state for the new pharmacy
-    loadWorkflow();
+    // Reset in-memory workflow state for the new pharmacy
+    resetWorkflow();
     verifiedMemberWallet = null;
     // Refresh current tab
     onTabEnter(currentTab);
@@ -1642,7 +1627,7 @@
   function init() {
     initPharmacySelector();
     initBadgeTap();
-    loadWorkflow();
+    resetWorkflow();
     bindEvents();
     initSSE();
 

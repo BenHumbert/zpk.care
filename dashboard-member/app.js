@@ -12,10 +12,7 @@
     SEQ_URL:      'zkt_seqUrl',
     INSURER_URL:  'zkt_insurerUrl',
     PROVER_URL:   'zkt_proverUrl',
-    PCP:          'zkt_pcp',
-    SYSTEM_LOG:   'zkt_systemLog',
     GRANTED:      'zkt_granted',
-    PLAN_ID_HASH: 'zkt_planIdHash',
   };
 
   // ── App State ────────────────────────────────────────
@@ -29,6 +26,8 @@
   var messagesCache = [];
   var planSpendCache = null;
   var systemLog = [];
+  var pcpData = null;          // fetched from server, not localStorage
+  var planIdHash = '';          // fetched from server, not localStorage
   var pollTimer = null;
 
   // ── Helpers ──────────────────────────────────────────
@@ -98,15 +97,10 @@
     if (dot) dot.className = 'conn-dot ' + state;
   }
 
-  // ── System Log ───────────────────────────────────────
-  function loadSystemLog() {
-    systemLog = lsJson(LS.SYSTEM_LOG) || [];
-  }
-
+  // ── System Log (in-memory only, not persisted) ──────
   function logSystem(type, summary, detail) {
     systemLog.unshift({ type: type, summary: summary, detail: detail || '', timestamp: Date.now() });
     if (systemLog.length > 100) systemLog.length = 100;
-    lsSet(LS.SYSTEM_LOG, JSON.stringify(systemLog));
   }
 
   // ══════════════════════════════════════════════════════
@@ -132,8 +126,6 @@
     var prUrl = lsGet(LS.PROVER_URL);
     if (prUrl) RPC.setProverUrl(prUrl);
 
-    loadSystemLog();
-
     if (isEnrolled()) {
       walletId = lsGet(LS.WALLET_ID);
       enrollmentKey = lsGet(LS.ENROLL_KEY);
@@ -147,6 +139,18 @@
     showScreen('app-screen');
     $('header-wallet').textContent = shortHash(walletId);
     $('header-wallet').title = walletId;
+
+    // Fetch PCP and plan info from server (not localStorage)
+    RPC.getCurrentPcp().then(function (pcp) { pcpData = pcp; }).catch(function () {});
+    // Fetch onboarding status to get planIdHash
+    fetch(location.origin + '/onboarding/status', { headers: { 'Content-Type': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        var data = j.data || j;
+        if (data && data.onboarding && data.onboarding.tokenData && data.onboarding.tokenData.planId) {
+          planIdHash = data.onboarding.tokenData.planId;
+        }
+      }).catch(function () {});
 
     // Router
     var hash = location.hash.replace('#', '') || 'dashboard';
@@ -533,10 +537,10 @@
   //  DASHBOARD
   // ══════════════════════════════════════════════════════
   async function loadDashboard() {
-    // PCP nudge
-    var pcp = lsJson(LS.PCP);
+    // Fetch PCP from server
+    try { pcpData = await RPC.getCurrentPcp(); } catch (_) { /* server unavailable */ }
     var nudge = $('pcp-nudge');
-    if (pcp && pcp.walletId) {
+    if (pcpData && pcpData.walletId) {
       nudge.classList.add('hidden');
     } else {
       nudge.classList.remove('hidden');
@@ -712,8 +716,7 @@
     var container = $('formulary-table');
     container.innerHTML = '<div class="loading">Loading formulary...</div>';
     try {
-      var planIdHash = lsGet(LS.PLAN_ID_HASH) || '';
-      var result = await RPC.getFormulary(planIdHash);
+      var result = await RPC.getFormulary(planIdHash || 'default');
       var entries = [];
       if (result && result.entriesJson) {
         try { entries = JSON.parse(result.entriesJson); } catch { entries = []; }
@@ -804,8 +807,7 @@
     tierEl.innerHTML = '<div class="loading">Loading...</div>';
     try {
       if (!formularyCache.length) {
-        var planIdHash = lsGet(LS.PLAN_ID_HASH) || '';
-        var result = await RPC.getFormulary(planIdHash);
+        var result = await RPC.getFormulary(planIdHash || 'default');
         if (result && result.entriesJson) {
           try { formularyCache = JSON.parse(result.entriesJson); } catch {}
         } else if (Array.isArray(result)) {
@@ -855,9 +857,9 @@
       providersCache = providers;
       renderProviders(providers);
 
-      // PCP display
-      var pcp = lsJson(LS.PCP);
-      renderPcp(pcp);
+      // PCP display — fetch from server
+      try { pcpData = await RPC.getCurrentPcp(); } catch (_) {}
+      renderPcp(pcpData);
     } catch (e) {
       container.innerHTML = '<div class="empty-state">Providers unavailable: ' + esc(e.message) + '</div>';
     }
@@ -884,7 +886,8 @@
   }
 
   window._removePcp = function () {
-    lsRemove(LS.PCP);
+    pcpData = null;
+    // TODO: add server-side PCP removal endpoint when available
     logSystem('pcp_remove', 'PCP removed', '');
     toast('PCP removed', 'info');
     loadProviders();
@@ -925,8 +928,8 @@
 
   window._assignPcp = function (wid) {
     var pcp = { walletId: wid, effectiveDate: new Date().toISOString(), timestamp: Date.now() };
-    lsSet(LS.PCP, JSON.stringify(pcp));
-    // Persist to backend
+    pcpData = pcp;
+    // Persist to backend (single source of truth)
     RPC.assignPcp(wid).catch(function(e) { console.warn('PCP backend persist failed:', e.message); });
     logSystem('pcp_assign', 'PCP assigned', shortHash(wid));
     toast('PCP assigned', 'success');
@@ -1044,7 +1047,6 @@
 
   function renderSystemLog() {
     var container = $('msg-content');
-    loadSystemLog();
     if (!systemLog.length) {
       container.innerHTML = '<div class="empty-state">No system activity</div>';
       return;
@@ -1334,7 +1336,7 @@
         '<div style="margin-bottom:8px"><span class="stat-label">Enrollment Key</span><br>' +
           '<span class="mono" style="font-size:11px;color:var(--text-muted)">' + esc(enrollmentKey.slice(0, 16) + '...(hidden)') + '</span></div>' +
         '<div><span class="stat-label">PCP</span><br>' +
-          '<span style="font-size:12px">' + (lsJson(LS.PCP) ? shortHash(lsJson(LS.PCP).walletId) : 'Not assigned') + '</span></div>' +
+          '<span style="font-size:12px">' + (pcpData && pcpData.walletId ? shortHash(pcpData.walletId) : 'Not assigned') + '</span></div>' +
       '</div>';
   }
 
