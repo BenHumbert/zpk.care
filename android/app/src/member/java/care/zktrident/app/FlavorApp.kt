@@ -64,13 +64,18 @@ fun FlavorApp(
     }
 
     /** Configure VMs after enrollment or restore */
-    fun configureAfterEnrollment(walletId: String) {
+    fun configureAfterEnrollment(walletId: String, isRestore: Boolean = false) {
         val url = BuildConfig.DEFAULT_SEQUENCER_URL
         sequencerVm.configure(url)
         sequencerVm.refreshStatus()
         sseVm.connect(url)
         dashboardVm.configure(sequencerVm)
         dashboardVm.setWalletId(walletId)
+        dashboardVm.logSystemEvent(
+            type = if (isRestore) "nfc_restore" else "enrollment",
+            summary = if (isRestore) "Wallet restored from NFC backup" else "Enrollment complete",
+            detail = "Wallet: ${walletId.take(16)}...",
+        )
         navController.navigate(Routes.DASHBOARD) {
             popUpTo(0) { inclusive = true }
         }
@@ -121,6 +126,18 @@ fun FlavorApp(
         composable(Routes.MESSAGES) {
             MemberMessagesScreen(
                 viewModel = dashboardVm,
+                onBack = { navController.popBackStack() },
+                onCompose = { navController.navigate(Routes.COMPOSE_MESSAGE) },
+                onConversation = { threadId ->
+                    navController.navigate(Routes.conversationRoute(threadId))
+                },
+            )
+        }
+        composable(Routes.CONVERSATION) { backStackEntry ->
+            val threadId = backStackEntry.arguments?.getString("threadId") ?: ""
+            MemberConversationScreen(
+                viewModel = dashboardVm,
+                threadId = threadId,
                 onBack = { navController.popBackStack() },
                 onCompose = { navController.navigate(Routes.COMPOSE_MESSAGE) },
             )
@@ -187,7 +204,7 @@ fun FlavorApp(
                     nfcTagFlow = nfcTagFlow,
                     sequencerUrl = BuildConfig.DEFAULT_SEQUENCER_URL,
                     onRestoreComplete = { walletId ->
-                        configureAfterEnrollment(walletId)
+                        configureAfterEnrollment(walletId, isRestore = true)
                     },
                     onBack = { navController.popBackStack() },
                 )

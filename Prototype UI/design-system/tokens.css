@@ -1,0 +1,157 @@
+/*
+ * zkTrident Design System — Shared Tokens
+ *
+ * All roles share the same dark foundation.
+ * Each role overrides --accent-* via its own role class on <html>.
+ *
+ * Usage:  <html class="role-member">   (or role-prescriber, role-pharmacy, etc.)
+ */
+
+/* ── Foundation (all roles) ────────────────────────────────── */
+
+:root {
+  /* Background scale (darkest → lightest) */
+  --bg-primary:    #0B0F14;
+  --bg-secondary:  #141A22;
+  --bg-card:       #1A2029;
+  --bg-elevated:   #212832;
+  --bg-hover:      #272F3A;
+
+  /* Borders */
+  --border-subtle:  #2A3140;
+  --border-default: #364052;
+  --border-focus:   var(--accent);
+
+  /* Text (all pass WCAG AA on their intended backgrounds) */
+  --text-primary:   #E8EDF4;   /* 14.5:1 on bg-primary, 11.2:1 on bg-card */
+  --text-secondary: #A0AABB;   /* 7.4:1  on bg-primary, 5.7:1  on bg-card — passes AA */
+  --text-muted:     #6B7688;   /* 3.8:1  on bg-primary — AA large text only */
+  --text-on-accent: #0B0F14;   /* for text rendered ON accent-colored backgrounds */
+
+  /* Semantic (shared, role-independent) */
+  --success:     #34D399;
+  --success-bg:  rgba(52, 211, 153, 0.10);
+  --success-border: rgba(52, 211, 153, 0.25);
+
+  --warning:     #FBBF24;
+  --warning-bg:  rgba(251, 191, 36, 0.10);
+  --warning-border: rgba(251, 191, 36, 0.25);
+
+  --error:       #F87171;
+  --error-bg:    rgba(248, 113, 113, 0.10);
+  --error-border: rgba(248, 113, 113, 0.25);
+
+  --info:        #60A5FA;
+  --info-bg:     rgba(96, 165, 250, 0.10);
+  --info-border: rgba(96, 165, 250, 0.25);
+
+  --purple:      #BC8CFF;
+  --purple-bg:   rgba(188, 140, 255, 0.10);
+
+  /* Typography */
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+
+  /* Font sizes */
+  --text-xs:   11px;
+  --text-sm:   12px;
+  --text-base: 14px;
+  --text-md:   16px;
+  --text-lg:   18px;
+  --text-xl:   22px;
+  --text-2xl:  28px;
+  --text-3xl:  36px;
+
+  /* Spacing (4px base) */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Radii */
+  --radius-sm: 4px;
+  --radius:    8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow:    0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.3), 0 2px 4px rgba(0,0,0,0.2);
+  --shadow-lg: 0 10px 15px rgba(0,0,0,0.3), 0 4px 6px rgba(0,0,0,0.2);
+
+  /* Transitions */
+  --transition-fast: 0.12s ease;
+  --transition:      0.2s ease;
+  --transition-slow: 0.35s ease;
+}
+
+
+/* ── Role Accent Overrides ─────────────────────────────────── */
+
+/* Member — Teal (patient: trust, calm, clinical clarity) */
+.role-member {
+  --accent:        #00D4AA;
+  --accent-soft:   rgba(0, 212, 170, 0.08);
+  --accent-medium: rgba(0, 212, 170, 0.20);
+  --accent-hover:  #2EEBC4;
+  --accent-muted:  #00D4AA88;
+  --role-label:    "MEMBER";
+}
+
+/* Prescriber — Indigo (clinical authority, professional) */
+.role-prescriber {
+  --accent:        #818CF8;
+  --accent-soft:   rgba(129, 140, 248, 0.08);
+  --accent-medium: rgba(129, 140, 248, 0.20);
+  --accent-hover:  #A5B4FC;
+  --accent-muted:  #818CF888;
+  --role-label:    "PRESCRIBER";
+}
+
+/* Pharmacy — Amber (operational, high-throughput, action) */
+.role-pharmacy {
+  --accent:        #F59E0B;
+  --accent-soft:   rgba(245, 158, 11, 0.08);
+  --accent-medium: rgba(245, 158, 11, 0.20);
+  --accent-hover:  #FBBF24;
+  --accent-muted:  #F59E0B88;
+  --role-label:    "PHARMACY";
+}
+
+/* Insurer — Blue (institutional trust, governance) */
+.role-insurer {
+  --accent:        #60A5FA;
+  --accent-soft:   rgba(96, 165, 250, 0.08);
+  --accent-medium: rgba(96, 165, 250, 0.20);
+  --accent-hover:  #93C5FD;
+  --accent-muted:  #60A5FA88;
+  --role-label:    "INSURER";
+}
+
+/* Employer — Emerald (organizational health, growth) */
+.role-employer {
+  --accent:        #34D399;
+  --accent-soft:   rgba(52, 211, 153, 0.08);
+  --accent-medium: rgba(52, 211, 153, 0.20);
+  --accent-hover:  #6EE7B7;
+  --accent-muted:  #34D39988;
+  --role-label:    "EMPLOYER";
+}
+
+/* Explorer / Leviathan — Cyan (infrastructure, network, data) */
+.role-explorer {
+  --accent:        #22D3EE;
+  --accent-soft:   rgba(34, 211, 238, 0.08);
+  --accent-medium: rgba(34, 211, 238, 0.20);
+  --accent-hover:  #67E8F9;
+  --accent-muted:  #22D3EE88;
+  --role-label:    "EXPLORER";
+}

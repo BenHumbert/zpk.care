@@ -108,6 +108,11 @@ export interface L2SequencerState {
   /** Serialized message store state for crash recovery */
   messageStoreState?: import('./message-store-types.js').MessageStoreState;
 
+  // ── Provider Registry state (optional — present when providers have been credentialed) ──
+
+  /** Serialized provider registry state for crash recovery */
+  providerRegistryState?: import('./provider-registry-types.js').ProviderRegistryState;
+
   // ── Last-settled roots (crash recovery safe point) ──
 
   /** Registry root at last settled batch (decimal string). Optional for backward compat. */

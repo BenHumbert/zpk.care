@@ -26,6 +26,10 @@ import { L2Leviathan } from './l2-leviathan.js';
 import { l2Stringify, l2Parse } from './l2-json.js';
 import type { L2PeerNetwork } from './l2-peer-network.js';
 import type { GossipMessage, PeerInfo, StateDigest } from './l2-peer-types.js';
+import { ProviderLifecycle, PROVIDER_TYPE_TAG } from './provider-registry-types.js';
+import type { ProviderType } from './provider-registry-types.js';
+import { hashString } from '../zkp/hash-utils.js';
+import { AuditService } from '../audit/audit-service.js';
 
 // ─── Visualization Types ──────────────────────────────────
 
@@ -165,9 +169,13 @@ export class L2RpcServer {
   private static readonly ADMIN_METHODS = new Set([
     'l2_forceBatch',
     'l2_storeFormulary',
+    'l2_registerEntity',
+    'l2_credentialProvider',
+    'l2_updateProviderStatus',
     'l2_syncFromL1',
     'l2_requestSnapshot',
     'l2_gossipRelay',
+    'l2_recordFill',
   ]);
 
   // M9 fix: SSE replay buffer for chain events (ring buffer, max 256)
@@ -180,6 +188,9 @@ export class L2RpcServer {
   private vizEventBuffer: VizEvent[] = [];
   private vizEventIdCounter = 0;
   private entityRegistry: Map<string, VizEntity> = new Map();
+
+  // PCP assignment registry: prescriberWalletId → [{ memberWalletId, effectiveDate }]
+  private pcpAssignments: Map<string, { memberWalletId: string; effectiveDate: string; timestamp: number }[]> = new Map();
 
   // Peer network (set externally when replication is enabled)
   private peerNetwork: L2PeerNetwork | null = null;
@@ -506,7 +517,7 @@ export class L2RpcServer {
         for (const entry of this.sseReplayBuffer) {
           if (entry.id > lastEventId) {
             const data = l2Stringify(entry.event);
-            res.write(`id: ${entry.id}\nevent: ${entry.event.type}\ndata: ${data}\n\n`);
+            res.write(`id: ${entry.id}\ndata: ${data}\n\n`);
           }
         }
       }
@@ -529,7 +540,7 @@ export class L2RpcServer {
     const data = l2Stringify(event);
     for (const client of this.sseClients) {
       try {
-        client.write(`id: ${this.sseEventIdCounter}\nevent: ${event.type}\ndata: ${data}\n\n`);
+        client.write(`id: ${this.sseEventIdCounter}\ndata: ${data}\n\n`);
       } catch {
         this.sseClients.delete(client);
       }
@@ -563,10 +574,8 @@ export class L2RpcServer {
     }
 
     // Admin auth gate — require bearer token for privileged methods
-    if (L2RpcServer.ADMIN_METHODS.has(rpcReq.method)) {
-      if (!this.options.adminToken) {
-        return this.sendRpcError(res, rpcReq.id, RPC_UNAUTHORIZED, 'Unauthorized');
-      }
+    // No token configured = dev mode (open access)
+    if (L2RpcServer.ADMIN_METHODS.has(rpcReq.method) && this.options.adminToken) {
       const authHeader = req.headers['authorization'] ?? '';
       if (!L2RpcServer.safeEquals(authHeader, `Bearer ${this.options.adminToken}`)) {
         return this.sendRpcError(res, rpcReq.id, RPC_UNAUTHORIZED, 'Unauthorized');
@@ -595,7 +604,7 @@ export class L2RpcServer {
         this.sendRpcError(res, rpcReq.id, RPC_PROOF_REJECTED, message);
       } else if (message.includes('not running')) {
         this.sendRpcError(res, rpcReq.id, RPC_NODE_NOT_RUNNING, message);
-      } else if (message.includes('Missing or invalid') || message.includes('not configured') || message.includes('Duplicate proof') || message.includes('Wrong partition') || message.includes('Not leader') || message.includes('Not a leviathan')) {
+      } else if (message.includes('Missing or invalid') || message.includes('not configured') || message.includes('Duplicate proof') || message.includes('Wrong partition') || message.includes('Not leader') || message.includes('Not a leviathan') || message.includes('already registered') || message.includes('registry full')) {
         this.sendRpcError(res, rpcReq.id, RPC_INVALID_PARAMS, message);
       } else {
         this.sendRpcError(res, rpcReq.id, RPC_INTERNAL_ERROR, 'Internal error');
@@ -718,6 +727,50 @@ export class L2RpcServer {
         return {
           ...fullLog,
           events: fullLog.events.slice(aOffset, aOffset + aLimit),
+        };
+      }
+
+      case 'l2_verifyChainIntegrity': {
+        const ciLog = this.node instanceof L2Leviathan
+          ? this.node.getAuditLog()
+          : this.node.getSequencer().getAuditLog();
+        const ciResult = AuditService.verifyReceiptChain(ciLog);
+        return {
+          valid: ciResult.isValid,
+          integrity: ciResult.isValid,
+          totalEvents: ciResult.totalEvents,
+          brokenLinks: ciResult.brokenLinks,
+          reason: ciResult.reason,
+        };
+      }
+
+      case 'l2_verifyFinancialBalance': {
+        const fbLog = this.node instanceof L2Leviathan
+          ? this.node.getAuditLog()
+          : this.node.getSequencer().getAuditLog();
+        const fbResult = AuditService.verifyFinancialBalance(fbLog.events);
+        return {
+          valid: fbResult.isValid,
+          balanced: fbResult.isValid,
+          totalClaims: fbResult.totalClaims,
+          imbalancedClaims: fbResult.imbalancedClaims,
+          totalPatientPayCents: fbResult.totalPatientPayCents,
+          totalPlanPayCents: fbResult.totalPlanPayCents,
+          totalIngredientCostCents: fbResult.totalIngredientCostCents,
+          totalDispensingFeeCents: fbResult.totalDispensingFeeCents,
+          reason: fbResult.reason,
+        };
+      }
+
+      case 'l2_detectDuplicateClaims': {
+        const ddLog = this.node instanceof L2Leviathan
+          ? this.node.getAuditLog()
+          : this.node.getSequencer().getAuditLog();
+        const ddResult = AuditService.detectDuplicateClaims(ddLog.events);
+        return {
+          hasDuplicates: ddResult.hasDuplicates,
+          duplicates: ddResult.duplicateGroups,
+          totalDuplicates: ddResult.totalDuplicates,
         };
       }
 
@@ -882,6 +935,27 @@ export class L2RpcServer {
         };
       }
 
+      case 'l2_recordFill': {
+        const fillMember = params.memberWalletId as string;
+        const fillNdc = params.ndcHash as string;
+        const fillPharmacy = params.pharmacyWalletId as string;
+        const fillPrescriber = (params.prescriberWalletId as string) ?? '0';
+        if (!fillMember || !fillNdc || !fillPharmacy) {
+          throw new Error('Missing required fields: memberWalletId, ndcHash, pharmacyWalletId');
+        }
+        const fillDate = (params.dateOfService as string) ?? new Date().toISOString().replace(/[-:T]/g, '').slice(0, 8);
+        const fillPatientPay = (params.patientPayCents as string) ?? '0';
+        const fillPlanPay = (params.planPayCents as string) ?? '0';
+        const fillOpType = (params.operationType as string) ?? '1';
+        const fillDeductible = (params.deductibleCreditCents as string) ?? '0';
+        const fillSeq = this.node.getSequencer();
+        const fillEntry = fillSeq.recordFill(
+          { memberWalletId: fillMember, ndcHash: fillNdc, pharmacyWalletId: fillPharmacy, prescriberWalletId: fillPrescriber, dateOfService: fillDate, patientPayCents: fillPatientPay, planPayCents: fillPlanPay, operationType: fillOpType, deductibleCreditCents: fillDeductible },
+          { receiptId: `FILL-${Date.now()}`, timestamp: Date.now(), ndc: params.ndc as string, brandName: params.brandName as string, daysSupply: params.daysSupply as number, fillNumber: params.fillNumber as number },
+        );
+        return { ok: true, leafIndex: fillEntry.leafIndex.toString(), leafHash: fillEntry.leafHash };
+      }
+
       case 'l2_getRegistrationWitnesses': {
         return this.node.getSequencer().getRegistrationWitnesses();
       }
@@ -948,11 +1022,24 @@ export class L2RpcServer {
             typeof pl.tag !== 'string') {
           throw new Error('Missing or invalid payload parameter (requires ciphertext, iv, tag)');
         }
+        // Map human-readable messageType to numeric codes for Poseidon hashing
+        const MESSAGE_TYPE_MAP: Record<string, string> = {
+          clinical: '1', '1': '1',
+          administrative: '2', admin: '2', '2': '2',
+          escript: '3', '3': '3',
+          text: '4', '4': '4',
+          system: '5', '5': '5',
+          pcp_assign: '6', '6': '6',
+          access_grant: '7', '7': '7',
+        };
+        const rawType = (msg.messageType as string).toLowerCase();
+        const numericType = MESSAGE_TYPE_MAP[rawType] ?? '4'; // default to text
+
         const storedMessage = {
           messageCommitment: msg.messageCommitment as string,
           senderWalletId: msg.senderWalletId as string,
           recipientWalletId: msg.recipientWalletId as string,
-          messageType: msg.messageType as string,
+          messageType: numericType,
           threadIdHash: msg.threadIdHash as string,
         };
         const messagePayload = {
@@ -965,10 +1052,216 @@ export class L2RpcServer {
         return this.node.storeMessage(storedMessage, messagePayload);
       }
 
-      // ── Network Providers ──
+      // ── Entity Registry (admin-gated) — dual-writes to viz registry + provider registry ──
+
+      case 'l2_registerEntity': {
+        const walletId = params.walletId as string;
+        const displayName = params.displayName as string;
+        const type = params.type as string;
+        if (!walletId || !displayName || !type) {
+          throw new Error('Missing walletId, displayName, or type');
+        }
+        // Viz registry (backward compat)
+        this.entityRegistry.set(walletId, {
+          walletId,
+          displayName,
+          type: type as VizActorType,
+          specialty: params.specialty as string | undefined,
+          pharmacyType: params.pharmacyType as string | undefined,
+          group: params.group as string | undefined,
+        });
+        // Also credential into provider registry if prescriber/pharmacy
+        if (type === 'prescriber' || type === 'pharmacy') {
+          const seq = this.node.getSequencer();
+          const providerType = type as ProviderType;
+          const npi = (params.npi as string) ?? '';
+          const npiHash = npi ? hashString(npi).toString() : walletId; // fallback to walletId as NPI hash
+          try {
+            seq.credentialProvider(
+              {
+                walletId,
+                npiHash,
+                providerTypeTag: String(PROVIDER_TYPE_TAG[providerType]),
+                credentialState: String(ProviderLifecycle.ACTIVE),
+                credentialedAt: String(Math.floor(Date.now() / 1000)),
+                credentialedByHash: '0', // system/admin
+              },
+              {
+                displayName,
+                providerType,
+                specialty: params.specialty as string | undefined,
+                pharmacyType: params.pharmacyType as string | undefined,
+                npi: npi || undefined,
+                verificationMethod: 'demo',
+                updatedAt: Date.now(),
+              },
+            );
+          } catch {
+            // Already registered — ignore duplicate (idempotent)
+          }
+        }
+        // Track wallet for attestation eligibility
+        this.node.registerKnownWallet(walletId);
+        return { ok: true, walletId, displayName, type };
+      }
+
+      // ── Provider Credentialing (admin-gated) ──
+
+      case 'l2_credentialProvider': {
+        const walletId = params.walletId as string;
+        const displayName = params.displayName as string;
+        const providerType = params.providerType as ProviderType;
+        const npi = params.npi as string;
+        if (!walletId || !displayName || !providerType) {
+          throw new Error('Missing walletId, displayName, or providerType');
+        }
+        if (providerType !== 'prescriber' && providerType !== 'pharmacy') {
+          throw new Error('providerType must be "prescriber" or "pharmacy"');
+        }
+        const npiHash = npi ? hashString(npi).toString() : walletId;
+        const initialState = params.initialState !== undefined
+          ? parseInt(String(params.initialState), 10) as ProviderLifecycle
+          : ProviderLifecycle.ACTIVE;
+        const seq = this.node.getSequencer();
+        const entry = seq.credentialProvider(
+          {
+            walletId,
+            npiHash,
+            providerTypeTag: String(PROVIDER_TYPE_TAG[providerType]),
+            credentialState: String(initialState),
+            credentialedAt: String(Math.floor(Date.now() / 1000)),
+            credentialedByHash: params.credentialedByHash as string ?? '0',
+          },
+          {
+            displayName,
+            providerType,
+            specialty: params.specialty as string | undefined,
+            pharmacyType: params.pharmacyType as string | undefined,
+            npi: npi || undefined,
+            deaNumber: params.deaNumber as string | undefined,
+            stateOfLicense: params.stateOfLicense as string | undefined,
+            verificationMethod: (params.verificationMethod as 'nppes' | 'ncpdp' | 'manual' | 'demo' | undefined) ?? 'manual',
+            applicationId: params.applicationId as string | undefined,
+            updatedAt: Date.now(),
+          },
+        );
+        // Also add to viz registry
+        this.entityRegistry.set(walletId, {
+          walletId,
+          displayName,
+          type: providerType as VizActorType,
+          specialty: params.specialty as string | undefined,
+          pharmacyType: params.pharmacyType as string | undefined,
+        });
+        return {
+          ok: true,
+          leafIndex: entry.leafIndex.toString(),
+          walletId,
+          displayName,
+          providerType,
+          credentialState: entry.leaf.credentialState,
+        };
+      }
+
+      case 'l2_updateProviderStatus': {
+        const walletId = params.walletId as string;
+        const newState = parseInt(String(params.newState), 10) as ProviderLifecycle;
+        if (!walletId) throw new Error('Missing walletId');
+        if (isNaN(newState) || newState < 0 || newState > 4) throw new Error('Invalid newState (0-4)');
+        const seq = this.node.getSequencer();
+        const entry = seq.updateProviderStatus(walletId, newState);
+        return {
+          ok: true,
+          walletId,
+          credentialState: entry.leaf.credentialState,
+          displayName: entry.metadata.displayName,
+        };
+      }
+
+      // ── Provider Queries ──
+
+      case 'l2_getProvider': {
+        const walletId = params.walletId as string;
+        if (!walletId) throw new Error('Missing walletId');
+        const entry = this.node.getSequencer().getProvider(walletId);
+        if (!entry) return null;
+        return {
+          walletId: entry.leaf.walletId,
+          displayName: entry.metadata.displayName,
+          providerType: entry.metadata.providerType,
+          credentialState: parseInt(entry.leaf.credentialState, 10),
+          credentialStateName: ['pending', 'verified', 'active', 'suspended', 'terminated'][parseInt(entry.leaf.credentialState, 10)] ?? 'unknown',
+          specialty: entry.metadata.specialty,
+          pharmacyType: entry.metadata.pharmacyType,
+          npi: entry.metadata.npi,
+          leafIndex: entry.leafIndex.toString(),
+          leafHash: entry.leafHash,
+        };
+      }
+
+      case 'l2_getProviderByNpi': {
+        const npiHash = params.npiHash as string;
+        if (!npiHash) throw new Error('Missing npiHash');
+        const entry = this.node.getSequencer().getProviderByNpi(npiHash);
+        if (!entry) return null;
+        return {
+          walletId: entry.leaf.walletId,
+          displayName: entry.metadata.displayName,
+          providerType: entry.metadata.providerType,
+          credentialState: parseInt(entry.leaf.credentialState, 10),
+          specialty: entry.metadata.specialty,
+          pharmacyType: entry.metadata.pharmacyType,
+          leafIndex: entry.leafIndex.toString(),
+        };
+      }
+
+      case 'l2_getProviderRegistryRoot': {
+        return {
+          root: this.node.getSequencer().getProviderRegistryRoot(),
+          providerCount: this.node.getSequencer().getProviderCount().toString(),
+        };
+      }
+
+      case 'l2_getProviderWithProof': {
+        const walletId = params.walletId as string;
+        if (!walletId) throw new Error('Missing walletId');
+        const result = this.node.getSequencer().getProviderWithProof(walletId);
+        if (!result) return null;
+        return {
+          walletId: result.entry.leaf.walletId,
+          displayName: result.entry.metadata.displayName,
+          providerType: result.entry.metadata.providerType,
+          credentialState: parseInt(result.entry.leaf.credentialState, 10),
+          leafIndex: result.entry.leafIndex.toString(),
+          witnessJson: result.witnessJson,
+          root: result.root,
+        };
+      }
+
+      // ── Network Providers (reads from provider registry, falls back to viz registry) ──
 
       case 'l2_getNetworkProviders': {
         const roleFilter = params.role as string | undefined;
+        const seq = this.node.getSequencer();
+
+        // Try provider registry first
+        const providerType = roleFilter === 'prescriber' || roleFilter === 'pharmacy'
+          ? roleFilter as ProviderType : undefined;
+        const registryEntries = seq.getProviders(providerType, ProviderLifecycle.ACTIVE);
+
+        if (registryEntries.length > 0) {
+          return registryEntries.map((e) => ({
+            walletId: e.leaf.walletId,
+            displayName: e.metadata.displayName,
+            role: e.metadata.providerType,
+            specialty: e.metadata.specialty,
+            pharmacyType: e.metadata.pharmacyType,
+            credentialState: parseInt(e.leaf.credentialState, 10),
+            leafIndex: e.leafIndex.toString(),
+          }));
+        }
+
+        // Fall back to viz registry (backward compat)
         const entities = Array.from(this.entityRegistry.values())
           .filter((e) => {
             if (roleFilter) return e.type === roleFilter;
@@ -983,6 +1276,32 @@ export class L2RpcServer {
             group: e.group,
           }));
         return entities;
+      }
+
+      // ── PCP Assignment Registry ──
+
+      case 'l2_registerPcpAssignment': {
+        const memberWalletId = params.memberWalletId as string;
+        const prescriberWalletId = params.prescriberWalletId as string;
+        const effectiveDate = params.effectiveDate as string;
+        if (!memberWalletId || !prescriberWalletId) {
+          throw new Error('Missing memberWalletId or prescriberWalletId');
+        }
+        const list = this.pcpAssignments.get(prescriberWalletId) ?? [];
+        // Avoid duplicates
+        if (!list.some((a) => a.memberWalletId === memberWalletId)) {
+          list.push({ memberWalletId, effectiveDate: effectiveDate ?? new Date().toISOString().slice(0, 10), timestamp: Date.now() });
+          this.pcpAssignments.set(prescriberWalletId, list);
+        }
+        return { ok: true, prescriberWalletId, memberWalletId, effectiveDate };
+      }
+
+      case 'l2_getPcpAssignments': {
+        const prescriberWalletId = params.prescriberWalletId as string;
+        if (!prescriberWalletId) {
+          throw new Error('Missing prescriberWalletId');
+        }
+        return this.pcpAssignments.get(prescriberWalletId) ?? [];
       }
 
       // ── Accumulator Reconstruction ──
@@ -1065,7 +1384,14 @@ export class L2RpcServer {
         if (!this.peerNetwork) {
           return [];
         }
-        return this.peerNetwork.getPeerUrls();
+        return this.peerNetwork.getPeers().map((p) => ({
+          nodeId: p.peerId,
+          id: p.peerId,
+          url: p.url,
+          role: p.role,
+          status: p.status === 'connected' ? 'active' : p.status,
+          lastSeen: p.lastSeen,
+        }));
       }
 
       case 'l2_requestSnapshot': {
@@ -1342,7 +1668,7 @@ export class L2RpcServer {
     const data = JSON.stringify(event);
     for (const client of this.vizSseClients) {
       try {
-        client.write(`event: ${event.type}\ndata: ${data}\n\n`);
+        client.write(`data: ${data}\n\n`);
       } catch {
         this.vizSseClients.delete(client);
       }

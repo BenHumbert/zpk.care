@@ -55,10 +55,14 @@ class MemberDashboardViewModel(application: Application) : AndroidViewModel(appl
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    private val _systemEvents = MutableStateFlow<List<SystemEvent>>(emptyList())
+    val systemEvents: StateFlow<List<SystemEvent>> = _systemEvents.asStateFlow()
+
     fun configure(sequencerVm: SequencerViewModel) {
         rpcClient = sequencerVm.getClient()
         // Load PCP from local state
         loadPcpFromLocal()
+        loadSystemEvents()
     }
 
     fun setWalletId(id: String) {
@@ -154,6 +158,7 @@ class MemberDashboardViewModel(application: Application) : AndroidViewModel(appl
         messageText: String,
         onSuccess: () -> Unit,
         onError: (String) -> Unit,
+        messageType: String = "text",
     ) {
         val client = rpcClient ?: run { onError("Not connected"); return }
         val senderWid = walletId ?: run { onError("No wallet ID"); return }
@@ -186,11 +191,18 @@ class MemberDashboardViewModel(application: Application) : AndroidViewModel(appl
                     messageCommitment = commitment,
                     senderWalletId = senderWid,
                     recipientWalletId = recipientWalletId,
-                    messageType = "text",
+                    messageType = messageType,
                     threadIdHash = threadIdHash,
                     ciphertext = ciphertext.toHexString(),
                     iv = iv.toHexString(),
                     tag = tag.toHexString(),
+                )
+
+                // Log to system events
+                logSystemEvent(
+                    "message_sent",
+                    "Message sent to ${recipientWalletId.take(16)}...",
+                    "Encrypted end-to-end, stored on sequencer",
                 )
 
                 // Refresh messages after send
@@ -204,19 +216,35 @@ class MemberDashboardViewModel(application: Application) : AndroidViewModel(appl
 
     private fun ByteArray.toHexString(): String = joinToString("") { "%02x".format(it) }
 
-    /** Assign a PCP (stored locally only — no sequencer call) */
+    /** Assign a PCP — registers on sequencer + sends encrypted notification */
     fun assignPcp(pcpWalletId: String, effectiveDate: String) {
         val pcp = PcpAssignment(pcpWalletId = pcpWalletId, effectiveDate = effectiveDate)
         _pcpAssignment.value = pcp
         savePcpToLocal(pcp)
 
-        // Notify the sequencer and prescriber via message store
+        logSystemEvent(
+            "pcp_assign",
+            "PCP assigned: ${pcpWalletId.take(16)}...",
+            "Effective: $effectiveDate",
+        )
+
         val wid = walletId ?: return
+        val client = rpcClient ?: return
+
+        // Register PCP assignment on the sequencer (public administrative record)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                client.registerPcpAssignment(wid, pcpWalletId, effectiveDate)
+            } catch (_: Exception) { }
+        }
+
+        // Also send encrypted notification to prescriber via message store
         sendMessage(
             recipientWalletId = pcpWalletId,
             messageText = "PCP_ASSIGN:$wid:$effectiveDate",
             onSuccess = { },
             onError = { },
+            messageType = "pcp_assign",
         )
     }
 
@@ -244,6 +272,12 @@ class MemberDashboardViewModel(application: Application) : AndroidViewModel(appl
         val existing = prefs.getStringSet("grantedProviders", emptySet()) ?: emptySet()
         prefs.edit().putStringSet("grantedProviders", existing + providerWalletId).apply()
 
+        logSystemEvent(
+            "access_grant",
+            "Access granted to ${providerWalletId.take(16)}...",
+            "Provider can now view your drug history and accumulators",
+        )
+
         // Send notification message to the provider
         val wid = walletId ?: return
         sendMessage(
@@ -251,6 +285,7 @@ class MemberDashboardViewModel(application: Application) : AndroidViewModel(appl
             messageText = "ACCESS_GRANT:$wid",
             onSuccess = { },
             onError = { },
+            messageType = "access_grant",
         )
     }
 
@@ -271,6 +306,35 @@ class MemberDashboardViewModel(application: Application) : AndroidViewModel(appl
                 .apply()
         } catch (_: Exception) { }
     }
+
+    /** Log a system event to the local activity log */
+    fun logSystemEvent(type: String, summary: String, detail: String = "") {
+        val event = SystemEvent(type = type, summary = summary, detail = detail)
+        val updated = _systemEvents.value + event
+        _systemEvents.value = updated
+        saveSystemEvents(updated)
+    }
+
+    private fun loadSystemEvents() {
+        try {
+            val prefs = getApplication<android.app.Application>()
+                .getSharedPreferences("zktrident_system_events", android.content.Context.MODE_PRIVATE)
+            val eventsJson = prefs.getString("events", null) ?: return
+            _systemEvents.value = json.decodeFromString(eventsJson)
+        } catch (_: Exception) { }
+    }
+
+    private fun saveSystemEvents(events: List<SystemEvent>) {
+        try {
+            // Keep last 100 events
+            val trimmed = events.takeLast(100)
+            getApplication<android.app.Application>()
+                .getSharedPreferences("zktrident_system_events", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putString("events", json.encodeToString(kotlinx.serialization.builtins.ListSerializer(SystemEvent.serializer()), trimmed))
+                .apply()
+        } catch (_: Exception) { }
+    }
 }
 
 data class PlanSpend(
@@ -287,4 +351,16 @@ data class PlanSpend(
 data class PcpAssignment(
     val pcpWalletId: String,
     val effectiveDate: String,
+)
+
+/**
+ * System event — logged locally for the "zkp.Care System" conversation.
+ * These are read-only activity records of all system interactions.
+ */
+@Serializable
+data class SystemEvent(
+    val type: String,       // "pcp_assign", "access_grant", "enrollment", "nfc_backup", "message_sent"
+    val summary: String,    // Human-readable summary
+    val detail: String = "",
+    val timestamp: Long = System.currentTimeMillis(),
 )

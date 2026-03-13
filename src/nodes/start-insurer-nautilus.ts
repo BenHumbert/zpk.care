@@ -79,13 +79,152 @@ async function main(): Promise<void> {
     displayName: config.displayName,
   });
   server.setEntityNode(node);
-  server.setOnboardingPhase('ready');
+  server.setOnboardingPhase('credentialing' as any);
 
   console.log('  [init] InsurerNode created (no wallet, admin-gated)');
 
   // ── Start Server ──
 
   await server.start();
+
+  // ══════════════════════════════════════════════════════════
+  //  PROVIDER CREDENTIALING — Register providers on the sequencer
+  //
+  //  In production: insurer verifies NPI/NCPDP credentials via NPPES/PECOS,
+  //  then registers them in the sequencer's entity registry.
+  //  Here: loads demo prescribers + pharmacies and registers via RPC.
+  // ══════════════════════════════════════════════════════════
+
+  const seqUrl = config.sequencerUrl.replace(/\/+$/, '');
+  const adminToken = config.adminToken;
+
+  async function rpcCall(method: string, params: Record<string, unknown>): Promise<unknown> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (adminToken) headers['Authorization'] = 'Bearer ' + adminToken;
+    const res = await fetch(seqUrl + '/rpc', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+    });
+    const json = await res.json() as any;
+    if (json.error) throw new Error(json.error.message ?? JSON.stringify(json.error));
+    return json.result;
+  }
+
+  // Wait for sequencer to be reachable (it may still be starting)
+  let seqReady = false;
+  for (let i = 0; i < 30; i++) {
+    try {
+      await fetch(seqUrl + '/health');
+      seqReady = true;
+      break;
+    } catch { await new Promise((r) => setTimeout(r, 1000)); }
+  }
+
+  if (seqReady) {
+    // ── Credential Prescribers (via provider registry) ──
+    const { DEMO_PRESCRIBERS } = await import('../demo/prescribers.js');
+    const { derivePrescriberWalletId } = await import('../wallets/wallet-derivation.js');
+
+    let prescriberCount = 0;
+    for (const p of DEMO_PRESCRIBERS) {
+      const walletId = derivePrescriberWalletId(p.localData, p.enrollmentKey).toString();
+      try {
+        await rpcCall('l2_credentialProvider', {
+          walletId,
+          displayName: `Dr. ${p.firstName} ${p.lastName}, ${p.credential}`,
+          providerType: 'prescriber',
+          npi: p.localData.prescriberId,
+          specialty: p.specialty,
+          stateOfLicense: p.state,
+          deaNumber: p.deaNumber,
+          verificationMethod: 'demo',
+        });
+        prescriberCount++;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('already registered')) {
+          prescriberCount++; // Already present from checkpoint — count as success
+        } else {
+          console.error('  [credential] Failed to credential prescriber %s: %s', p.lastName, msg);
+        }
+      }
+    }
+    console.log('  [credential] Credentialed %d prescribers in provider registry', prescriberCount);
+
+    // ── Credential Pharmacies (via provider registry) ──
+    const { DEMO_PHARMACIES } = await import('../demo/pharmacies.js');
+    const { derivePharmacyWalletId } = await import('../wallets/wallet-derivation.js');
+
+    let pharmacyCount = 0;
+    for (const p of DEMO_PHARMACIES) {
+      const walletId = derivePharmacyWalletId(p.localData, p.enrollmentKey).toString();
+      try {
+        await rpcCall('l2_credentialProvider', {
+          walletId,
+          displayName: p.storeName,
+          providerType: 'pharmacy',
+          npi: p.ncpdpProviderId,
+          pharmacyType: p.pharmacyTypeDesc,
+          stateOfLicense: p.state,
+          verificationMethod: 'demo',
+        });
+        pharmacyCount++;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('already registered')) {
+          pharmacyCount++; // Already present from checkpoint — count as success
+        } else {
+          console.error('  [credential] Failed to credential pharmacy %s: %s', p.storeName, msg);
+        }
+      }
+    }
+    console.log('  [credential] Credentialed %d pharmacies in provider registry', pharmacyCount);
+
+    // ── Publish Formulary ──
+    const { DEMO_MEDICATIONS } = await import('../demo/medications.js');
+    const { Poseidon, Field } = await import('o1js');
+    const { hashString } = await import('../zkp/hash-utils.js');
+
+    const standardPlanIdHash = Poseidon.hash(
+      [...'standard-plan'].map((c) => Field(c.charCodeAt(0))),
+    ).toString();
+
+    const formularyEntries = DEMO_MEDICATIONS.map((m) => ({
+      ndc: m.ndc,
+      brandName: m.brandName,
+      genericName: m.genericName,
+      dosageForm: m.dosageForm,
+      strength: m.strength,
+      tierLevel: m.formularyEntry.tierLevel,
+      therapeuticClass: m.therapeuticClass,
+      gpi: m.gpi,
+      ndcHash: hashString(m.ndc).toString(),
+      pricePerUnit: m.awpUnitPriceCents / 100,
+      copayAmountCents: m.formularyEntry.copayAmount,
+      requiresPriorAuth: m.formularyEntry.requiresPriorAuth,
+      maxDaySupply: m.formularyEntry.maxDaySupply,
+      maxQuantityPerFill: m.formularyEntry.maxQuantityPerFill,
+      deaSchedule: m.deaSchedule,
+    }));
+
+    const formularyRoot = Poseidon.hash([Field(formularyEntries.length)]).toString();
+    const entriesJson = JSON.stringify(formularyEntries);
+
+    try {
+      await rpcCall('l2_storeFormulary', { planIdHash: standardPlanIdHash, formularyRoot, entriesJson });
+      await rpcCall('l2_storeFormulary', { planIdHash: 'default', formularyRoot, entriesJson });
+      console.log('  [formulary] Published %d medications (plan: %s...)', formularyEntries.length, standardPlanIdHash.slice(0, 16));
+    } catch (err) {
+      console.error('  [formulary] Failed to publish formulary: %s', err);
+    }
+  } else {
+    console.error('  [credential] Sequencer not reachable after 30s — skipping provider registration');
+  }
+
+  // Credentialing complete — signal ready so the leviathan health gate passes
+  server.setOnboardingPhase('ready');
+  console.log('  [init] Credentialing complete — phase → ready');
 
   const proto = server.isTls() ? 'https' : 'http';
   console.log('');

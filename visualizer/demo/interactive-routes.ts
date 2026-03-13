@@ -29,6 +29,10 @@
  *   POST /interactive/plan-year-rollover  — reset accumulators for new plan year
  *   GET  /interactive/step-therapy-check  — check step therapy eligibility for a medication
  *   POST /interactive/reset              — reset session state
+ *   GET  /interactive/badge/list       — list all provider badges
+ *   POST /interactive/badge/tap        — simulate single badge tap (real ZK proof)
+ *   POST /interactive/badge/auto-tap   — auto-tap all providers (real ZK proofs)
+ *   GET  /interactive/badge/:key       — get specific badge payload
  */
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { L2RpcServer } from '../../src/l2/l2-rpc-server.js';
@@ -97,6 +101,9 @@ export function registerInteractiveRoutes(
   // Enrollment runs ZK proof generation which can take 30-60s.
   // We fire-and-forget, then the client polls for status every 15s.
   const enrollmentJobs = new Map<number, { status: 'pending' | 'complete' | 'error'; result?: unknown; error?: string }>();
+
+  // Badge tap concurrency guard — prevent concurrent ZK proofs from racing on o1js global context
+  let badgeTapInProgress = false;
 
   // POST /interactive/enroll — kicks off enrollment, returns immediately
   server.registerRoute('POST', '/interactive/enroll', async (req: IncomingMessage, res: ServerResponse) => {
@@ -1673,6 +1680,135 @@ export function registerInteractiveRoutes(
     });
   }
 
+  // ─── Provider Badge Routes ─────────────────────────────────
+
+  // GET /interactive/badge/list — list all provider badges
+  server.registerRoute('GET', '/interactive/badge/list', async (_req: IncomingMessage, res: ServerResponse) => {
+    try {
+      const badges = service.getAllProviderBadges().map(({ key, badge }) => ({
+        key,
+        providerType: badge.pt,
+        providerId: badge.pid,
+        displayName: badge.dn,
+        walletId: badge.w.slice(0, 16) + '...',
+        createdAt: badge.ts,
+      }));
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ badges, count: badges.length }));
+    } catch (err) {
+      sendError(res, 500, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  // POST /interactive/badge/tap — simulate a single badge tap with real ZK proof
+  server.registerRoute('POST', '/interactive/badge/tap', async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      if (badgeTapInProgress) {
+        sendError(res, 429, 'Badge tap already in progress — please wait');
+        return;
+      }
+
+      const body = JSON.parse(await readBody(req));
+      const providerType = body.providerType as 'prescriber' | 'pharmacy';
+      const providerIndex = typeof body.providerIndex === 'number' ? body.providerIndex : 0;
+
+      if (providerType !== 'prescriber' && providerType !== 'pharmacy') {
+        sendError(res, 400, 'providerType must be "prescriber" or "pharmacy"');
+        return;
+      }
+
+      badgeTapInProgress = true;
+      let events;
+      try {
+        events = await service.simulateBadgeTap(providerType, providerIndex);
+      } finally {
+        badgeTapInProgress = false;
+      }
+      const success = events.some(e => e.type === 'badge:session');
+      const error = events.find(e => e.type === 'badge:error');
+
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(safeJsonStringify({
+        authenticated: success,
+        events,
+        error: error?.error,
+      }));
+    } catch (err) {
+      sendError(res, 500, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  // POST /interactive/badge/auto-tap — run auto-tap simulation for all providers
+  server.registerRoute('POST', '/interactive/badge/auto-tap', async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      if (badgeTapInProgress) {
+        sendError(res, 429, 'Badge tap already in progress — please wait');
+        return;
+      }
+
+      const body = JSON.parse(await readBody(req));
+      const includePharmacies = body.includePharmacies === true;
+      const maxProviders = typeof body.maxProviders === 'number' ? body.maxProviders : undefined;
+
+      badgeTapInProgress = true;
+      let events;
+      try {
+        events = await service.autoTapSimulation({ includePharmacies, maxProviders });
+      } finally {
+        badgeTapInProgress = false;
+      }
+      const authenticated = events.filter(e => e.type === 'badge:session').length;
+      const errors = events.filter(e => e.type === 'badge:error').length;
+      const proofs = events.filter(e => e.type === 'badge:proof' && e.data?.verified).length;
+
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(safeJsonStringify({
+        summary: {
+          totalProviders: authenticated + errors,
+          authenticated,
+          errors,
+          proofsGenerated: proofs,
+        },
+        events,
+      }));
+    } catch (err) {
+      sendError(res, 500, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  // GET /interactive/badge/:key — get a specific badge payload
+  server.registerRoute('GET', '/interactive/badge/', async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      // Extract key from URL: /interactive/badge/prescriber-0
+      const url = req.url ?? '';
+      const match = url.match(/\/interactive\/badge\/([a-z]+-\d+)/);
+      if (!match) {
+        sendError(res, 400, 'Badge key required (e.g., /interactive/badge/prescriber-0)');
+        return;
+      }
+      const key = match[1];
+      const badge = service.getProviderBadge(key);
+      if (!badge) {
+        sendError(res, 404, `Badge not found: ${key}`);
+        return;
+      }
+
+      // Redact the encrypted key for security display
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({
+        key,
+        badge: {
+          ...badge,
+          ek: badge.ek.slice(0, 16) + '...[encrypted]',
+        },
+        estimatedBytes: JSON.stringify(badge).length,
+        fitsNtag216: JSON.stringify(badge).length < 888,
+      }));
+    } catch (err) {
+      sendError(res, 500, err instanceof Error ? err.message : String(err));
+    }
+  });
+
   // Return the emitter so the startup script can wire it to the service
   (server as any).__interactiveConsoleEmitter = consoleEmitter;
   (server as any).__interactiveConsoleSseClients = consoleSseClients;
@@ -1716,7 +1852,7 @@ function sendError(res: ServerResponse, status: number, message: string): void {
 function safeJsonStringify(data: unknown, _context?: string): string {
   return JSON.stringify(data, (_key: string, value: unknown): unknown => {
     if (typeof value === 'bigint') {
-      return Number(value);
+      return value.toString();
     }
     return value;
   });

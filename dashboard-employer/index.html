@@ -2,8 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>&#x1F41A;</text></svg>">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>zkTrident Employer Nautilus</title>
+  <title>zkp.Care Employer</title>
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -11,26 +12,26 @@
 <body>
   <header class="header">
     <div class="header-left">
-      <span class="logo">zkTrident Employer</span>
+      <span class="logo">zkp.Care Employer</span>
       <span class="logo-sub">Nautilus Node</span>
     </div>
-    <nav class="nav" id="main-nav">
-      <a href="#overview" class="nav-link active" data-tab="overview">Overview</a>
-      <a href="#groups" class="nav-link" data-tab="groups">Groups</a>
-      <a href="#tokens" class="nav-link" data-tab="tokens">Tokens</a>
-      <a href="#roster" class="nav-link" data-tab="roster">Roster</a>
-      <a href="#messaging" class="nav-link" data-tab="messaging">Messaging</a>
-      <a href="#admin" class="nav-link" data-tab="admin">Admin</a>
+    <nav class="nav" id="main-nav" role="navigation" aria-label="Main navigation">
+      <a href="#overview" class="nav-link active" data-tab="overview" role="tab">Overview</a>
+      <a href="#groups" class="nav-link" data-tab="groups" role="tab">Groups</a>
+      <a href="#tokens" class="nav-link" data-tab="tokens" role="tab">Tokens</a>
+      <a href="#roster" class="nav-link" data-tab="roster" role="tab">Roster</a>
+      <a href="#messaging" class="nav-link" data-tab="messaging" role="tab">Messaging</a>
+      <a href="#admin" class="nav-link" data-tab="admin" role="tab">Admin</a>
     </nav>
     <div class="header-right">
       <span class="connection-status" id="connection-status">
-        <span class="status-dot disconnected" id="status-dot"></span>
+        <span class="status-dot disconnected" id="status-dot" aria-label="Connection status"></span>
         <span class="status-label" id="status-label">Disconnected</span>
       </span>
     </div>
   </header>
 
-  <main class="main" id="app">
+  <main class="main" id="app" role="main">
     <!-- Pages rendered by app.js -->
   </main>
 

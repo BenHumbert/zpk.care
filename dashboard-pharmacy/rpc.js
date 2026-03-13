@@ -15,6 +15,13 @@ async function request(method, path, body) {
   }
   const url = BASE_URL + path;
   const res = await fetch(url, opts);
+  if (!res.ok) {
+    let msg = 'HTTP ' + res.status;
+    try { const j = await res.json(); msg = j.error || j.message || msg; } catch {}
+    const err = new Error(msg);
+    err.status = res.status;
+    throw err;
+  }
   const json = await res.json();
   // All responses use { ok, data, error, timestamp } envelope
   if (!json.ok) {
@@ -23,7 +30,25 @@ async function request(method, path, body) {
     err.response = json;
     throw err;
   }
-  return json.data;
+  return stripBigints(json.data);
+}
+
+// Strip __bigint__:NNN prefixes from serialized BigInt values
+function stripBigints(obj) {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj === 'string') {
+    if (obj.startsWith('__bigint__:')) return obj.slice(11);
+    return obj;
+  }
+  if (Array.isArray(obj)) return obj.map(stripBigints);
+  if (typeof obj === 'object') {
+    var out = {};
+    for (var k in obj) {
+      if (Object.prototype.hasOwnProperty.call(obj, k)) out[k] = stripBigints(obj[k]);
+    }
+    return out;
+  }
+  return obj;
 }
 
 function get(path) { return request('GET', path); }
@@ -37,6 +62,7 @@ class SSEConnection {
     this.listeners = [];
     this.reconnectTimer = null;
     this.connected = false;
+    this._delay = 1000;
   }
 
   connect() {
@@ -45,6 +71,7 @@ class SSEConnection {
       this.source = new EventSource(BASE_URL + '/events');
       this.source.onopen = () => {
         this.connected = true;
+        this._delay = 1000;
         this._notify({ type: '__connection', data: { connected: true } });
       };
       this.source.onmessage = (ev) => {
@@ -60,11 +87,13 @@ class SSEConnection {
         this._notify({ type: '__connection', data: { connected: false } });
         this.source.close();
         this.source = null;
-        this.reconnectTimer = setTimeout(() => this.connect(), 3000);
+        this.reconnectTimer = setTimeout(() => this.connect(), this._delay);
+        this._delay = Math.min(this._delay * 2, 30000);
       };
     } catch (_) {
       this.connected = false;
-      this.reconnectTimer = setTimeout(() => this.connect(), 3000);
+      this.reconnectTimer = setTimeout(() => this.connect(), this._delay);
+      this._delay = Math.min(this._delay * 2, 30000);
     }
   }
 
@@ -152,6 +181,14 @@ const API = {
     summary() {
       return get('/dispensing/summary');
     },
+    fill(params) {
+      // params: { memberWalletId, ndcHash, prescriberWalletId?, brandName?, quantity?, daysSupply?, ndc?, patientPayCents?, planPayCents?, fillNumber? }
+      return post('/dispensing/fill', params);
+    },
+    reverse(params) {
+      // params: { memberWalletId, ndcHash, prescriberWalletId?, patientPayCents?, planPayCents? }
+      return post('/dispensing/reverse', params);
+    },
     range(start, end) {
       return get('/dispensing/range?start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end));
     },
@@ -185,6 +222,20 @@ const API = {
     },
     claimDetail(leafIndex) {
       return get('/dur/claim/' + encodeURIComponent(leafIndex));
+    },
+  },
+
+  // ── Formulary (via sequencer RPC proxy) ───────────────────
+  formulary: {
+    async get(planIdHash) {
+      const res = await fetch(BASE_URL + '/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getFormulary', params: { planIdHash } }),
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error.message || 'RPC error');
+      return stripBigints(json.result);
     },
   },
 

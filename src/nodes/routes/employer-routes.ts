@@ -161,12 +161,18 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
         validUntil?: string;
         tokenId?: string;
       } | undefined;
-      if (!b?.groupId || !b?.employeeId || !b?.familyId || !b?.validUntil) {
-        return server.sendResponse(res, 400, false, undefined, 'Missing groupId, employeeId, familyId, or validUntil');
+      if (!b?.groupId || !b?.employeeId || !b?.validUntil) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing groupId, employeeId, or validUntil');
+      }
+      const familyId = b.familyId || b.employeeId;
+      // Accept ISO date (2026-12-31) or CCYYMMDD (20261231)
+      let validUntil = b.validUntil!;
+      if (validUntil.includes('-')) {
+        validUntil = validUntil.replace(/-/g, '');
       }
 
       try {
-        const result = node.generateToken(b.groupId, b.employeeId, b.familyId, b.validUntil, b.tokenId);
+        const result = node.generateToken(b.groupId, b.employeeId, familyId, validUntil, b.tokenId);
         server.sendResponse(res, 201, true, {
           tokenId: result.tokenId,
           tokenIdHash: result.token.tokenIdHash.toString(),
@@ -325,6 +331,74 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
       const node = server.getEntityNode() as EmployerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
       server.sendResponse(res, 200, true, await node.getSequencerStatus());
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  MESSAGING (proxy to sequencer message store)
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'POST',
+    path: '/messaging/send',
+    handler: async (_req, res, _params, _query, body) => {
+      const node = server.getEntityNode() as EmployerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
+      const b = body as { recipientWalletId?: string; subject?: string; body?: string } | undefined;
+      if (!b?.recipientWalletId || !b?.body) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing recipientWalletId or body');
+      }
+      try {
+        const result = await node.sendMessage(b.recipientWalletId, b.subject || '', b.body);
+        server.sendResponse(res, 200, true, result);
+      } catch (err: any) {
+        server.sendResponse(res, 502, false, undefined, err.message);
+      }
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/messaging/inbox',
+    handler: async (_req, res) => {
+      const node = server.getEntityNode() as EmployerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
+      try {
+        const messages = await node.getInbox();
+        server.sendResponse(res, 200, true, messages);
+      } catch (err: any) {
+        server.sendResponse(res, 502, false, undefined, err.message);
+      }
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/messaging/sent',
+    handler: async (_req, res) => {
+      const node = server.getEntityNode() as EmployerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
+      try {
+        const messages = await node.getSent();
+        server.sendResponse(res, 200, true, messages);
+      } catch (err: any) {
+        server.sendResponse(res, 502, false, undefined, err.message);
+      }
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/messaging/thread/:threadIdHash',
+    handler: async (_req, res, params) => {
+      const node = server.getEntityNode() as EmployerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
+      try {
+        const messages = await node.getThread(params.threadIdHash);
+        server.sendResponse(res, 200, true, messages);
+      } catch (err: any) {
+        server.sendResponse(res, 502, false, undefined, err.message);
+      }
     },
   });
 

@@ -40,7 +40,7 @@ export interface StoredMessage {
   senderWalletId: string;
   /** Recipient wallet ID (Poseidon hash) */
   recipientWalletId: string;
-  /** Message type: '1' = clinical, '2' = administrative, '3' = eScript */
+  /** Message type: '1'=clinical, '2'=admin, '3'=eScript, '4'=text, '5'=system, '6'=pcp_assign, '7'=access_grant */
   messageType: string;
   /** Poseidon hash of thread identifier (groups related messages) */
   threadIdHash: string;

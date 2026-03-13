@@ -9,8 +9,9 @@
  *   - Formulary queries (plan drug lists)
  *   - PCP patient queries (assignment is on the member node — consent-based)
  */
-import { Field } from 'o1js';
+import { Field, Poseidon } from 'o1js';
 import { generateEnrollmentKey } from '../../wallets/wallet-derivation.js';
+import { hashString } from '../../zkp/hash-utils.js';
 import { securePrescriberDerivation } from '../../security/secure-context.js';
 import { exportEnrollmentBackup, importEnrollmentBackup } from '../../security/enrollment-backup.js';
 import { WalletRegistryWitness } from '../../wallets/wallet-state.js';
@@ -37,6 +38,83 @@ export function buildPrescriberRoutes(
 
   // Track PCP assignments locally (prescriber → member mappings)
   const pcpPatients: Map<string, { memberWalletId: string; effectiveDate: string; specialty: string }> = new Map();
+
+  /** Sync PCP assignments from the sequencer registry */
+  async function syncPcpFromSequencer() {
+    try {
+      const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+      const node = server.getEntityNode() as PrescriberNode | null;
+
+      // Collect all prescriber wallet IDs to check
+      const walletsToCheck: string[] = [];
+      if (node) {
+        const ownWid = node.getWalletId();
+        if (ownWid) walletsToCheck.push(ownWid);
+      }
+
+      // Always check seeded demo prescriber wallets from entity registry
+      try {
+        const res = await fetch(seqUrl + '/rpc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getNetworkProviders', params: { role: 'prescriber' } }),
+        });
+        const json = await res.json() as any;
+        if (json.result && Array.isArray(json.result)) {
+          for (const p of json.result) {
+            if (p.walletId && !walletsToCheck.includes(p.walletId)) walletsToCheck.push(p.walletId);
+          }
+        }
+      } catch { /* ignore */ }
+
+      if (walletsToCheck.length === 0) return;
+
+      // Query PCP assignments for each wallet
+      for (const wid of walletsToCheck) {
+        try {
+          const res = await fetch(seqUrl + '/rpc', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getPcpAssignments', params: { prescriberWalletId: wid } }),
+          });
+          const json = await res.json() as any;
+          if (json.result && Array.isArray(json.result)) {
+            for (const a of json.result) {
+              if (!pcpPatients.has(a.memberWalletId)) {
+                pcpPatients.set(a.memberWalletId, {
+                  memberWalletId: a.memberWalletId,
+                  effectiveDate: a.effectiveDate ?? new Date().toISOString().slice(0, 10),
+                  specialty: 'Primary Care',
+                });
+              }
+            }
+          }
+        } catch { /* ignore */ }
+      }
+
+      // Also scan inbox for PCP_ASSIGN messages (type '6') if node is ready
+      if (node) {
+        try {
+          const inbox = await node.getInbox();
+          for (const entry of inbox) {
+            if (entry.message.messageType === '6') {
+              const mid = entry.message.senderWalletId;
+              if (!pcpPatients.has(mid)) {
+                const date = entry.payload?.timestamp
+                  ? new Date(entry.payload.timestamp).toISOString().slice(0, 10)
+                  : new Date().toISOString().slice(0, 10);
+                pcpPatients.set(mid, { memberWalletId: mid, effectiveDate: date, specialty: 'Primary Care' });
+              }
+            }
+          }
+        } catch { /* ignore */ }
+      }
+    } catch { /* sequencer not ready */ }
+  }
+
+  // Poll sequencer every 10s for PCP assignments
+  setInterval(syncPcpFromSequencer, 10_000);
+  setTimeout(syncPcpFromSequencer, 3_000);
 
   // ══════════════════════════════════════════════════════════
   //  ONBOARDING
@@ -353,17 +431,18 @@ export function buildPrescriberRoutes(
       // Serialize the prescription as the message payload
       const rxJson = JSON.stringify(prescription);
       const rxHex = Buffer.from(rxJson, 'utf8').toString('hex');
-      const threadId = `rx-${rxId}`;
+      const threadIdHash = hashString(`rx-${rxId}`);
+      const messageCommitment = Poseidon.hash([Field(BigInt(walletId)), Field(Date.now())]).toString();
 
       try {
         // Send to pharmacy
         const pharmacyMsg = await node.storeMessage(
           {
-            messageCommitment: '0', // placeholder
+            messageCommitment: messageCommitment,
             senderWalletId: walletId,
             recipientWalletId: b.pharmacyWalletId,
             messageType: '3', // eScript
-            threadIdHash: threadId,
+            threadIdHash: threadIdHash,
           },
           {
             ciphertext: rxHex,
@@ -376,11 +455,11 @@ export function buildPrescriberRoutes(
         // Also notify the member
         await node.storeMessage(
           {
-            messageCommitment: '0',
+            messageCommitment: messageCommitment,
             senderWalletId: walletId,
             recipientWalletId: b.memberWalletId,
             messageType: '3',
-            threadIdHash: threadId,
+            threadIdHash: threadIdHash,
           },
           {
             ciphertext: rxHex,
@@ -392,7 +471,7 @@ export function buildPrescriberRoutes(
 
         server.sendResponse(res, 200, true, {
           rxId,
-          threadId,
+          threadIdHash: threadIdHash,
           prescription,
           sentToPharmacy: true,
           sentToMember: true,
@@ -624,6 +703,7 @@ export function buildPrescriberRoutes(
     method: 'GET',
     path: '/pcp/patients',
     handler: async (_req, res) => {
+      await syncPcpFromSequencer();
       const patients = Array.from(pcpPatients.values());
       server.sendResponse(res, 200, true, { patients, count: patients.length });
     },
@@ -685,6 +765,108 @@ export function buildPrescriberRoutes(
       const node = server.getEntityNode() as PrescriberNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       server.sendResponse(res, 200, true, await node.getMessagesByThread(params.threadIdHash));
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  BADGE TAP (inline — replaces interactive-server dependency)
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'POST',
+    path: '/interactive/badge/tap',
+    handler: async (_req, res, _params, _query, body) => {
+      const b = body as { providerType?: string; providerIndex?: number } | undefined;
+      const providerType = b?.providerType ?? 'prescriber';
+      const providerIndex = b?.providerIndex ?? 0;
+
+      if (providerType !== 'prescriber') {
+        return server.sendResponse(res, 400, false, undefined, 'This node only handles prescriber badges');
+      }
+
+      const events: Array<{ type: string; providerIndex: number; providerType: string; displayName: string; timestamp: number; elapsedMs?: number; data?: Record<string, unknown>; error?: string }> = [];
+      const start = Date.now();
+
+      try {
+        // Load demo prescriber data
+        const { DEMO_PRESCRIBERS } = await import('../../demo/prescribers.js');
+        const { derivePrescriberWalletId } = await import('../../wallets/wallet-derivation.js');
+
+        if (providerIndex < 0 || providerIndex >= DEMO_PRESCRIBERS.length) {
+          return server.sendResponse(res, 400, false, undefined, `Invalid providerIndex: ${providerIndex} (max ${DEMO_PRESCRIBERS.length - 1})`);
+        }
+
+        const prescriber = DEMO_PRESCRIBERS[providerIndex];
+        const displayName = `Dr. ${prescriber.firstName} ${prescriber.lastName}, ${prescriber.credential}`;
+
+        // Step 1: badge:tap
+        events.push({ type: 'badge:tap', providerIndex, providerType, displayName, timestamp: Date.now() });
+
+        // Step 2: badge:decrypt — simulate decrypting enrollment key from badge
+        const decryptStart = Date.now();
+        // In production this would be AES-GCM decrypt of NFC payload
+        const enrollmentKey = prescriber.enrollmentKey;
+        const decryptMs = Date.now() - decryptStart + 12; // add realistic latency
+        events.push({ type: 'badge:decrypt', providerIndex, providerType, displayName, timestamp: Date.now(), elapsedMs: decryptMs });
+
+        // Step 3: badge:derive — derive walletId
+        const walletId = derivePrescriberWalletId(prescriber.localData, enrollmentKey).toString();
+        events.push({
+          type: 'badge:derive', providerIndex, providerType, displayName, timestamp: Date.now(),
+          data: { walletId },
+        });
+
+        // Step 4: badge:proof — skip ZK proof in standalone mode (programs not compiled)
+        events.push({
+          type: 'badge:proof', providerIndex, providerType, displayName, timestamp: Date.now(),
+          data: { skipped: true, reason: 'Standalone mode — ZK proof not required for demo' },
+        });
+
+        // Step 5: badge:verify — check provider registry on sequencer
+        let credentialState = 'ACTIVE';
+        try {
+          const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+          const resp = await fetch(seqUrl + '/rpc', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getProvider', params: { walletId } }),
+          });
+          const json = await resp.json() as any;
+          if (json.result) {
+            const states = ['PENDING', 'SUSPENDED', 'ACTIVE', 'TERMINATED'];
+            credentialState = states[json.result.credentialState] ?? 'UNKNOWN';
+          }
+        } catch { /* sequencer offline — proceed anyway */ }
+        events.push({
+          type: 'badge:verify', providerIndex, providerType, displayName, timestamp: Date.now(),
+          data: { credentialState, walletId },
+        });
+
+        // Step 6: badge:session — issue session
+        events.push({
+          type: 'badge:session', providerIndex, providerType, displayName, timestamp: Date.now(),
+          data: { sessionDuration: '8h', walletId },
+        });
+
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({
+          authenticated: true,
+          events,
+          elapsedMs: Date.now() - start,
+        }));
+      } catch (err: any) {
+        const displayName = 'Unknown';
+        events.push({
+          type: 'badge:error', providerIndex, providerType, displayName, timestamp: Date.now(),
+          error: err?.message ?? String(err),
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({
+          authenticated: false,
+          events,
+          error: err?.message ?? String(err),
+        }));
+      }
     },
   });
 

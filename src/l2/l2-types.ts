@@ -130,6 +130,8 @@ export interface L2Batch {
   claimAccumulatorRoot?: string;
   /** Message Store root at the time this batch was created */
   messageStoreRoot?: string;
+  /** Provider Registry root at the time this batch was created */
+  providerRegistryRoot?: string;
   /** State certificate proving N/2+1 leviathans agreed on state at this batch */
   stateCertificate?: StateCertificate;
   /** Worker ID that proved this batch (set when ProvingPool is used) */
@@ -253,6 +255,8 @@ export interface ClaimSubmissionMetadata {
   fillNumber?: number;
   /** Deductible credit in cents (from AccumulatorFulfillmentProof output) */
   deductibleCreditCents?: string;
+  /** DEA schedule (0=non-controlled, 2-5=schedule II-V) */
+  deaSchedule?: number;
 }
 
 // ─── L2 Chain State Query ────────────────────────────────────

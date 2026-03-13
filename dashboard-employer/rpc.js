@@ -7,6 +7,9 @@ const API = (() => {
   let adminToken = '';
   let sseConnection = null;
   let sseListeners = [];
+  let sseReconnectDelay = 1000;
+  let sseReconnectTimer = null;
+  let lastOnEvent = null;
 
   function setBaseUrl(url) {
     baseUrl = url.replace(/\/+$/, '');
@@ -18,6 +21,24 @@ const API = (() => {
 
   function getAdminToken() {
     return adminToken;
+  }
+
+  // Strip __bigint__:NNN prefixes from serialized BigInt values
+  function stripBigints(obj) {
+    if (obj === null || obj === undefined) return obj;
+    if (typeof obj === 'string') {
+      if (obj.startsWith('__bigint__:')) return obj.slice(11);
+      return obj;
+    }
+    if (Array.isArray(obj)) return obj.map(stripBigints);
+    if (typeof obj === 'object') {
+      var out = {};
+      for (var k in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, k)) out[k] = stripBigints(obj[k]);
+      }
+      return out;
+    }
+    return obj;
   }
 
   function headers(admin = false) {
@@ -51,7 +72,11 @@ const API = (() => {
       err.status = res.status;
       throw err;
     }
-    return data;
+    // Auto-unwrap NautilusAppServer response envelope {ok, timestamp, data}
+    if (data && data.ok !== undefined && data.data !== undefined) {
+      return stripBigints(data.data);
+    }
+    return stripBigints(data);
   }
 
   // ---- Onboarding ----
@@ -150,9 +175,11 @@ const API = (() => {
   // ---- SSE Events ----
   function connectSSE(onEvent) {
     disconnectSSE();
+    lastOnEvent = onEvent;
     try {
       sseConnection = new EventSource(baseUrl + '/events');
       sseConnection.onopen = () => {
+        sseReconnectDelay = 1000;
         sseListeners.forEach(fn => fn('connected'));
       };
       sseConnection.onmessage = (ev) => {
@@ -165,13 +192,19 @@ const API = (() => {
       };
       sseConnection.onerror = () => {
         sseListeners.forEach(fn => fn('disconnected'));
+        sseConnection.close();
+        sseConnection = null;
+        sseReconnectTimer = setTimeout(() => connectSSE(lastOnEvent), sseReconnectDelay);
+        sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000);
       };
     } catch {
-      // SSE not available
+      sseReconnectTimer = setTimeout(() => connectSSE(lastOnEvent), sseReconnectDelay);
+      sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000);
     }
   }
 
   function disconnectSSE() {
+    if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
     if (sseConnection) {
       sseConnection.close();
       sseConnection = null;

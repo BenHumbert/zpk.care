@@ -139,6 +139,21 @@ class LeviathanRpcClient(
         buildJsonObject { if (role != null) put("role", role) },
     )
 
+    // ─── PCP Assignment ────────────────────────────────────────
+
+    suspend fun registerPcpAssignment(
+        memberWalletId: String,
+        prescriberWalletId: String,
+        effectiveDate: String,
+    ): JsonObject = rpc(
+        "l2_registerPcpAssignment",
+        buildJsonObject {
+            put("memberWalletId", memberWalletId)
+            put("prescriberWalletId", prescriberWalletId)
+            put("effectiveDate", effectiveDate)
+        },
+    )
+
     // ─── Messages ───────────────────────────────────────────────
 
     suspend fun getMessagesByWallet(walletId: String): List<MessageStoreEntry> = rpc(

@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="en" class="role-insurer">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>zkTrident Insurer Dashboard</title>
+  <link rel="stylesheet" href="../design-system/tokens.css">
+  <link rel="stylesheet" href="../design-system/components.css">
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────── -->
+<header class="header">
+  <div class="header-inner">
+    <a class="logo" href="#overview">
+      <span class="logo-mark">zk</span>Trident
+      <span class="logo-role">Insurer</span>
+    </a>
+    <nav class="nav" id="nav">
+      <a class="nav-link active" href="#overview">Overview</a>
+      <a class="nav-link" href="#receipts">Receipts</a>
+      <a class="nav-link" href="#batches">Batches</a>
+      <a class="nav-link" href="#claims">Claims</a>
+      <a class="nav-link" href="#audit">Audit</a>
+      <a class="nav-link" href="#messaging">Messaging</a>
+      <a class="nav-link" href="#admin">Admin</a>
+    </nav>
+    <div class="header-right">
+      <span class="role-badge">Insurer</span>
+      <div class="connection-status">
+        <span class="status-dot connected"></span>
+        <span>Leviathan-A</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ── Main Content ────────────────────────────────────────── -->
+<main class="main" id="app">
+
+  <!-- ════ OVERVIEW ════ -->
+  <section id="page-overview" class="page">
+    <div class="stats-grid">
+      <div class="stat-card stat-accent">
+        <div class="stat-label">Registered Wallets</div>
+        <div class="stat-value">47</div>
+        <div class="stat-detail">+3 this week</div>
+      </div>
+      <div class="stat-card stat-accent">
+        <div class="stat-label">Total Batches</div>
+        <div class="stat-value">12</div>
+        <div class="stat-detail">Avg 13.0 txns/batch</div>
+      </div>
+      <div class="stat-card stat-accent">
+        <div class="stat-label">Claims Processed</div>
+        <div class="stat-value">156</div>
+        <div class="stat-detail">$482,340 total plan pay</div>
+      </div>
+      <div class="stat-card stat-accent">
+        <div class="stat-label">Audit Score</div>
+        <div class="stat-value">100%</div>
+        <div class="stat-detail">All checks passing</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Active Alerts</div>
+        <div class="stat-value">0</div>
+        <div class="stat-detail">No anomalies detected</div>
+      </div>
+    </div>
+
+    <div class="panels-row">
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Recent Batches</span>
+          <a class="panel-action" href="#batches">View All</a>
+        </div>
+        <div class="panel-body flush">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>Batch</th><th>Txns</th><th>Status</th><th>Height</th><th>Time</th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="mono">#12</td><td>14</td><td><span class="badge badge-success">Settled</span></td><td class="mono">24</td><td class="text-muted">2 min ago</td></tr>
+                <tr><td class="mono">#11</td><td>11</td><td><span class="badge badge-success">Settled</span></td><td class="mono">23</td><td class="text-muted">18 min ago</td></tr>
+                <tr><td class="mono">#10</td><td>16</td><td><span class="badge badge-success">Settled</span></td><td class="mono">22</td><td class="text-muted">34 min ago</td></tr>
+                <tr><td class="mono">#9</td><td>12</td><td><span class="badge badge-success">Settled</span></td><td class="mono">21</td><td class="text-muted">51 min ago</td></tr>
+                <tr><td class="mono">#8</td><td>15</td><td><span class="badge badge-success">Settled</span></td><td class="mono">20</td><td class="text-muted">1 hr ago</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Recent Receipts</span>
+          <a class="panel-action" href="#receipts">View All</a>
+        </div>
+        <div class="panel-body flush">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>Receipt</th><th>Type</th><th>Status</th><th>Time</th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="mono truncate">rcpt-a8f3e1</td><td><span class="badge badge-info">Transition</span></td><td><span class="badge badge-success">Settled</span></td><td class="text-muted">2 min ago</td></tr>
+                <tr><td class="mono truncate">rcpt-7b2c44</td><td><span class="badge badge-purple">Registration</span></td><td><span class="badge badge-success">Settled</span></td><td class="text-muted">5 min ago</td></tr>
+                <tr><td class="mono truncate">rcpt-d91f08</td><td><span class="badge badge-info">Transition</span></td><td><span class="badge badge-success">Settled</span></td><td class="text-muted">8 min ago</td></tr>
+                <tr><td class="mono truncate">rcpt-c54a19</td><td><span class="badge badge-info">Transition</span></td><td><span class="badge badge-warning">Pending</span></td><td class="text-muted">11 min ago</td></tr>
+                <tr><td class="mono truncate">rcpt-e62d77</td><td><span class="badge badge-purple">Registration</span></td><td><span class="badge badge-success">Settled</span></td><td class="text-muted">14 min ago</td></tr>
+                <tr><td class="mono truncate">rcpt-3af901</td><td><span class="badge badge-info">Transition</span></td><td><span class="badge badge-success">Settled</span></td><td class="text-muted">18 min ago</td></tr>
+                <tr><td class="mono truncate">rcpt-bb10e5</td><td><span class="badge badge-info">Transition</span></td><td><span class="badge badge-success">Settled</span></td><td class="text-muted">22 min ago</td></tr>
+                <tr><td class="mono truncate">rcpt-19ca83</td><td><span class="badge badge-purple">Registration</span></td><td><span class="badge badge-success">Settled</span></td><td class="text-muted">25 min ago</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ RECEIPTS ════ -->
+  <section id="page-receipts" class="page hidden">
+    <div class="search-bar">
+      <input class="form-input mono" id="receipt-search" placeholder="Search by receipt ID or wallet ID...">
+      <button class="btn btn-primary" onclick="filterReceipts()">Search</button>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">All Receipts</span>
+        <span class="text-muted text-sm">47 total</span>
+      </div>
+      <div class="panel-body flush">
+        <div class="table-wrap">
+          <table class="data-table" id="receipts-table">
+            <thead>
+              <tr><th>Receipt ID</th><th>Wallet</th><th>Type</th><th>Status</th><th>Batch</th><th>Timestamp</th><th></th></tr>
+            </thead>
+            <tbody>
+              <tr class="receipt-row" data-id="rcpt-a8f3e1">
+                <td class="mono truncate">rcpt-a8f3e1</td>
+                <td class="mono truncate">0x7a3b...e4f1</td>
+                <td><span class="badge badge-info">Transition</span></td>
+                <td><span class="badge badge-success">Settled</span></td>
+                <td class="mono">#12</td>
+                <td class="text-muted">2026-03-08 14:32</td>
+                <td><button class="btn btn-sm btn-outline" onclick="toggleReceiptDetail('rcpt-a8f3e1')">Detail</button></td>
+              </tr>
+              <tr class="receipt-detail hidden" id="detail-rcpt-a8f3e1">
+                <td colspan="7">
+                  <div class="detail-grid">
+                    <div class="detail-key">Receipt ID</div><div class="detail-val mono">rcpt-a8f3e1-d492-4c1a-b8e7-3f9a01c2d5e6</div>
+                    <div class="detail-key">Wallet ID</div><div class="detail-val mono">0x7a3b8c9d1e2f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8e4f1</div>
+                    <div class="detail-key">Type</div><div class="detail-val">State Transition (Fulfillment)</div>
+                    <div class="detail-key">Old Lifecycle</div><div class="detail-val">ACTIVE (3)</div>
+                    <div class="detail-key">New Lifecycle</div><div class="detail-val">ACTIVE (3)</div>
+                    <div class="detail-key">Batch Number</div><div class="detail-val mono">12</div>
+                    <div class="detail-key">Block Height</div><div class="detail-val mono">24</div>
+                    <div class="detail-key">Proof Hash</div><div class="detail-val mono">Poseidon(0x4e8a...c1f3)</div>
+                    <div class="detail-key">Settled At</div><div class="detail-val">2026-03-08 14:32:18 UTC</div>
+                  </div>
+                </td>
+              </tr>
+              <tr class="receipt-row" data-id="rcpt-7b2c44">
+                <td class="mono truncate">rcpt-7b2c44</td>
+                <td class="mono truncate">0x9e1d...b2a7</td>
+                <td><span class="badge badge-purple">Registration</span></td>
+                <td><span class="badge badge-success">Settled</span></td>
+                <td class="mono">#12</td>
+                <td class="text-muted">2026-03-08 14:29</td>
+                <td><button class="btn btn-sm btn-outline" onclick="toggleReceiptDetail('rcpt-7b2c44')">Detail</button></td>
+              </tr>
+              <tr class="receipt-detail hidden" id="detail-rcpt-7b2c44">
+                <td colspan="7">
+                  <div class="detail-grid">
+                    <div class="detail-key">Receipt ID</div><div class="detail-val mono">rcpt-7b2c44-f8a1-49e3-a6d2-8b7c01e5f9a4</div>
+                    <div class="detail-key">Wallet ID</div><div class="detail-val mono">0x9e1d4f7a2b8c5d6e3f0a1b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0b2a7</div>
+                    <div class="detail-key">Type</div><div class="detail-val">Wallet Registration</div>
+                    <div class="detail-key">Old Lifecycle</div><div class="detail-val">EMPTY (0)</div>
+                    <div class="detail-key">New Lifecycle</div><div class="detail-val">REGISTERED (1)</div>
+                    <div class="detail-key">Batch Number</div><div class="detail-val mono">12</div>
+                    <div class="detail-key">Block Height</div><div class="detail-val mono">24</div>
+                    <div class="detail-key">Proof Hash</div><div class="detail-val mono">Poseidon(0x8d2f...a7e1)</div>
+                    <div class="detail-key">Settled At</div><div class="detail-val">2026-03-08 14:29:44 UTC</div>
+                  </div>
+                </td>
+              </tr>
+              <tr class="receipt-row" data-id="rcpt-d91f08">
+                <td class="mono truncate">rcpt-d91f08</td>
+                <td class="mono truncate">0x3f8a...c9d2</td>
+                <td><span class="badge badge-info">Transition</span></td>
+                <td><span class="badge badge-success">Settled</span></td>
+                <td class="mono">#12</td>
+                <td class="text-muted">2026-03-08 14:26</td>
+                <td><button class="btn btn-sm btn-outline" onclick="toggleReceiptDetail('rcpt-d91f08')">Detail</button></td>
+              </tr>
+              <tr class="receipt-detail hidden" id="detail-rcpt-d91f08">
+                <td colspan="7">
+                  <div class="detail-grid">
+                    <div class="detail-key">Receipt ID</div><div class="detail-val mono">rcpt-d91f08-b3c4-4d5e-9f2a-1c8b7a6e5d4c</div>
+                    <div class="detail-key">Wallet ID</div><div class="detail-val mono">0x3f8a1b2c9d4e5f6a7b8c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9ec9d2</div>
+                    <div class="detail-key">Type</div><div class="detail-val">State Transition (Eligibility Verification)</div>
+                    <div class="detail-key">Old Lifecycle</div><div class="detail-val">REGISTERED (1)</div>
+                    <div class="detail-key">New Lifecycle</div><div class="detail-val">ELIGIBLE (2)</div>
+                    <div class="detail-key">Batch Number</div><div class="detail-val mono">12</div>
+                    <div class="detail-key">Block Height</div><div class="detail-val mono">24</div>
+                    <div class="detail-key">Proof Hash</div><div class="detail-val mono">Poseidon(0xf1a2...b3c4)</div>
+                    <div class="detail-key">Settled At</div><div class="detail-val">2026-03-08 14:26:05 UTC</div>
+                  </div>
+                </td>
+              </tr>
+              <tr class="receipt-row" data-id="rcpt-c54a19">
+                <td class="mono truncate">rcpt-c54a19</td>
+                <td class="mono truncate">0x2d4e...a1b3</td>
+                <td><span class="badge badge-info">Transition</span></td>
+                <td><span class="badge badge-warning">Pending</span></td>
+                <td class="mono">--</td>
+                <td class="text-muted">2026-03-08 14:23</td>
+                <td><button class="btn btn-sm btn-outline" onclick="toggleReceiptDetail('rcpt-c54a19')">Detail</button></td>
+              </tr>
+              <tr class="receipt-detail hidden" id="detail-rcpt-c54a19">
+                <td colspan="7">
+                  <div class="detail-grid">
+                    <div class="detail-key">Receipt ID</div><div class="detail-val mono">rcpt-c54a19-e7f8-4a9b-c0d1-2e3f4a5b6c7d</div>
+                    <div class="detail-key">Wallet ID</div><div class="detail-val mono">0x2d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2ca1b3</div>
+                    <div class="detail-key">Type</div><div class="detail-val">State Transition (Fulfillment)</div>
+                    <div class="detail-key">Old Lifecycle</div><div class="detail-val">ACTIVE (3)</div>
+                    <div class="detail-key">New Lifecycle</div><div class="detail-val">ACTIVE (3)</div>
+                    <div class="detail-key">Batch Number</div><div class="detail-val mono">Awaiting batch</div>
+                    <div class="detail-key">Block Height</div><div class="detail-val mono">--</div>
+                    <div class="detail-key">Proof Hash</div><div class="detail-val mono">Poseidon(0x9c3d...e5f6)</div>
+                    <div class="detail-key">Submitted At</div><div class="detail-val">2026-03-08 14:23:41 UTC</div>
+                  </div>
+                </td>
+              </tr>
+              <tr class="receipt-row" data-id="rcpt-e62d77">
+                <td class="mono truncate">rcpt-e62d77</td>
+                <td class="mono truncate">0x5c7d...f8a2</td>
+                <td><span class="badge badge-purple">Registration</span></td>
+                <td><span class="badge badge-success">Settled</span></td>
+                <td class="mono">#11</td>
+                <td class="text-muted">2026-03-08 14:16</td>
+                <td><button class="btn btn-sm btn-outline" onclick="toggleReceiptDetail('rcpt-e62d77')">Detail</button></td>
+              </tr>
+              <tr class="receipt-detail hidden" id="detail-rcpt-e62d77">
+                <td colspan="7">
+                  <div class="detail-grid">
+                    <div class="detail-key">Receipt ID</div><div class="detail-val mono">rcpt-e62d77-a1b2-4c3d-e4f5-6a7b8c9d0e1f</div>
+                    <div class="detail-key">Wallet ID</div><div class="detail-val mono">0x5c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5bf8a2</div>
+                    <div class="detail-key">Type</div><div class="detail-val">Wallet Registration</div>
+                    <div class="detail-key">Old Lifecycle</div><div class="detail-val">EMPTY (0)</div>
+                    <div class="detail-key">New Lifecycle</div><div class="detail-val">REGISTERED (1)</div>
+                    <div class="detail-key">Batch Number</div><div class="detail-val mono">11</div>
+                    <div class="detail-key">Block Height</div><div class="detail-val mono">23</div>
+                    <div class="detail-key">Proof Hash</div><div class="detail-val mono">Poseidon(0xb4c5...d6e7)</div>
+                    <div class="detail-key">Settled At</div><div class="detail-val">2026-03-08 14:16:22 UTC</div>
+                  </div>
+                </td>
+              </tr>
+              <tr class="receipt-row" data-id="rcpt-3af901">
+                <td class="mono truncate">rcpt-3af901</td>
+                <td class="mono truncate">0x8b1c...d4e5</td>
+                <td><span class="badge badge-info">Transition</span></td>
+                <td><span class="badge badge-success">Settled</span></td>
+                <td class="mono">#11</td>
+                <td class="text-muted">2026-03-08 14:12</td>
+                <td><button class="btn btn-sm btn-outline" onclick="toggleReceiptDetail('rcpt-3af901')">Detail</button></td>
+              </tr>
+              <tr class="receipt-detail hidden" id="detail-rcpt-3af901">
+                <td colspan="7">
+                  <div class="detail-grid">
+                    <div class="detail-key">Receipt ID</div><div class="detail-val mono">rcpt-3af901-c2d3-4e5f-a6b7-8c9d0e1f2a3b</div>
+                    <div class="detail-key">Wallet ID</div><div class="detail-val mono">0x8b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9ad4e5</div>
+                    <div class="detail-key">Type</div><div class="detail-val">State Transition (Prior Auth)</div>
+                    <div class="detail-key">Old Lifecycle</div><div class="detail-val">ACTIVE (3)</div>
+                    <div class="detail-key">New Lifecycle</div><div class="detail-val">ACTIVE (3)</div>
+                    <div class="detail-key">Batch Number</div><div class="detail-val mono">11</div>
+                    <div class="detail-key">Block Height</div><div class="detail-val mono">23</div>
+                    <div class="detail-key">Proof Hash</div><div class="detail-val mono">Poseidon(0xe7f8...a9b0)</div>
+                    <div class="detail-key">Settled At</div><div class="detail-val">2026-03-08 14:12:55 UTC</div>
+                  </div>
+                </td>
+              </tr>
+              <tr class="receipt-row" data-id="rcpt-bb10e5">
+                <td class="mono truncate">rcpt-bb10e5</td>
+                <td class="mono truncate">0x6a9b...e3f4</td>
+                <td><span class="badge badge-info">Transition</span></td>
+                <td><span class="badge badge-success">Settled</span></td>
+                <td class="mono">#11</td>
+                <td class="text-muted">2026-03-08 14:08</td>
+                <td><button class="btn btn-sm btn-outline" onclick="toggleReceiptDetail('rcpt-bb10e5')">Detail</button></td>
+              </tr>
+              <tr class="receipt-detail hidden" id="detail-rcpt-bb10e5">
+                <td colspan="7">
+                  <div class="detail-grid">
+                    <div class="detail-key">Receipt ID</div><div class="detail-val mono">rcpt-bb10e5-f1a2-4b3c-d4e5-6f7a8b9c0d1e</div>
+                    <div class="detail-key">Wallet ID</div><div class="detail-val mono">0x6a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7fe3f4</div>
+                    <div class="detail-key">Type</div><div class="detail-val">State Transition (Fulfillment)</div>
+                    <div class="detail-key">Old Lifecycle</div><div class="detail-val">ACTIVE (3)</div>
+                    <div class="detail-key">New Lifecycle</div><div class="detail-val">ACTIVE (3)</div>
+                    <div class="detail-key">Batch Number</div><div class="detail-val mono">11</div>
+                    <div class="detail-key">Block Height</div><div class="detail-val mono">23</div>
+                    <div class="detail-key">Proof Hash</div><div class="detail-val mono">Poseidon(0xc0d1...e2f3)</div>
+                    <div class="detail-key">Settled At</div><div class="detail-val">2026-03-08 14:08:30 UTC</div>
+                  </div>
+                </td>
+              </tr>
+              <tr class="receipt-row" data-id="rcpt-19ca83">
+                <td class="mono truncate">rcpt-19ca83</td>
+                <td class="mono truncate">0x4f2a...b6c7</td>
+                <td><span class="badge badge-purple">Registration</span></td>
+                <td><span class="badge badge-success">Settled</span></td>
+                <td class="mono">#10</td>
+                <td class="text-muted">2026-03-08 14:01</td>
+                <td><button class="btn btn-sm btn-outline" onclick="toggleReceiptDetail('rcpt-19ca83')">Detail</button></td>
+              </tr>
+              <tr class="receipt-detail hidden" id="detail-rcpt-19ca83">
+                <td colspan="7">
+                  <div class="detail-grid">
+                    <div class="detail-key">Receipt ID</div><div class="detail-val mono">rcpt-19ca83-d5e6-4f7a-b8c9-0d1e2f3a4b5c</div>
+                    <div class="detail-key">Wallet ID</div><div class="detail-val mono">0x4f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0eb6c7</div>
+                    <div class="detail-key">Type</div><div class="detail-val">Wallet Registration</div>
+                    <div class="detail-key">Old Lifecycle</div><div class="detail-val">EMPTY (0)</div>
+                    <div class="detail-key">New Lifecycle</div><div class="detail-val">REGISTERED (1)</div>
+                    <div class="detail-key">Batch Number</div><div class="detail-val mono">10</div>
+                    <div class="detail-key">Block Height</div><div class="detail-val mono">22</div>
+                    <div class="detail-key">Proof Hash</div><div class="detail-val mono">Poseidon(0xa3b4...c5d6)</div>
+                    <div class="detail-key">Settled At</div><div class="detail-val">2026-03-08 14:01:12 UTC</div>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ BATCHES ════ -->
+  <section id="page-batches" class="page hidden">
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">All Batches</span>
+        <span class="text-muted text-sm">12 total</span>
+      </div>
+      <div class="panel-body flush">
+        <div class="table-wrap">
+          <table class="data-table" id="batches-table">
+            <thead>
+              <tr><th>Batch</th><th>Registrations</th><th>Transitions</th><th>Status</th><th>Proof Time</th><th>Chain Proof</th><th>Height</th><th></th></tr>
+            </thead>
+            <tbody>
+              <tr class="batch-row" data-id="12">
+                <td class="mono">#12</td><td>2</td><td>12</td>
+                <td><span class="badge badge-success">Settled</span></td>
+                <td class="mono">4.2s</td><td class="mono truncate">ChainProof(0x8a1b...)</td><td class="mono">24</td>
+                <td><button class="btn btn-sm btn-outline" onclick="toggleBatchDetail(12)">Detail</button></td>
+              </tr>
+              <tr class="batch-detail hidden" id="batch-detail-12">
+                <td colspan="8">
+                  <div class="detail-grid">
+                    <div class="detail-key">Batch Number</div><div class="detail-val mono">12</div>
+                    <div class="detail-key">Registrations</div><div class="detail-val">2 wallets</div>
+                    <div class="detail-key">Transitions</div><div class="detail-val">12 state transitions</div>
+                    <div class="detail-key">Batch Proof</div><div class="detail-val mono">BatchProof(0x4e8a9b1c2d3e4f5a6b7c8d9e0f1a2b3c)</div>
+                    <div class="detail-key">Chain Proof</div><div class="detail-val mono">ChainProof(0x8a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d)</div>
+                    <div class="detail-key">Prove Duration</div><div class="detail-val">4.2 seconds</div>
+                    <div class="detail-key">Block Height</div><div class="detail-val mono">24</div>
+                    <div class="detail-key">Wallet Reg Root</div><div class="detail-val mono">0xf1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6</div>
+                    <div class="detail-key">Claim Acc Root</div><div class="detail-val mono">0x7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a</div>
+                    <div class="detail-key">Message Root</div><div class="detail-val mono">0x3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e</div>
+                    <div class="detail-key">Created At</div><div class="detail-val">2026-03-08 14:32:18 UTC</div>
+                  </div>
+                </td>
+              </tr>
+              <tr class="batch-row" data-id="11">
+                <td class="mono">#11</td><td>1</td><td>10</td>
+                <td><span class="badge badge-success">Settled</span></td>
+                <td class="mono">3.8s</td><td class="mono truncate">ChainProof(0x7c2d...)</td><td class="mono">23</td>
+                <td><button class="btn btn-sm btn-outline" onclick="toggleBatchDetail(11)">Detail</button></td>
+              </tr>
+              <tr class="batch-detail hidden" id="batch-detail-11">
+                <td colspan="8">
+                  <div class="detail-grid">
+                    <div class="detail-key">Batch Number</div><div class="detail-val mono">11</div>
+                    <div class="detail-key">Registrations</div><div class="detail-val">1 wallet</div>
+                    <div class="detail-key">Transitions</div><div class="detail-val">10 state transitions</div>
+                    <div class="detail-key">Prove Duration</div><div class="detail-val">3.8 seconds</div>
+                    <div class="detail-key">Block Height</div><div class="detail-val mono">23</div>
+                    <div class="detail-key">Created At</div><div class="detail-val">2026-03-08 14:14:22 UTC</div>
+                  </div>
+                </td>
+              </tr>
+              <tr class="batch-row" data-id="10">
+                <td class="mono">#10</td><td>3</td><td>13</td>
+                <td><span class="badge badge-success">Settled</span></td>
+                <td class="mono">5.1s</td><td class="mono truncate">ChainProof(0x6b3e...)</td><td class="mono">22</td>
+                <td><button class="btn btn-sm btn-outline" onclick="toggleBatchDetail(10)">Detail</button></td>
+              </tr>
+              <tr class="batch-detail hidden" id="batch-detail-10">
+                <td colspan="8">
+                  <div class="detail-grid">
+                    <div class="detail-key">Batch Number</div><div class="detail-val mono">10</div>
+                    <div class="detail-key">Registrations</div><div class="detail-val">3 wallets</div>
+                    <div class="detail-key">Transitions</div><div class="detail-val">13 state transitions</div>
+                    <div class="detail-key">Prove Duration</div><div class="detail-val">5.1 seconds</div>
+                    <div class="detail-key">Block Height</div><div class="detail-val mono">22</div>
+                    <div class="detail-key">Created At</div><div class="detail-val">2026-03-08 13:58:45 UTC</div>
+                  </div>
+                </td>
+              </tr>
+              <tr class="batch-row" data-id="9">
+                <td class="mono">#9</td><td>1</td><td>11</td>
+                <td><span class="badge badge-success">Settled</span></td>
+                <td class="mono">3.6s</td><td class="mono truncate">ChainProof(0x5a4f...)</td><td class="mono">21</td>
+                <td><button class="btn btn-sm btn-outline" onclick="toggleBatchDetail(9)">Detail</button></td>
+              </tr>
+              <tr class="batch-detail hidden" id="batch-detail-9">
+                <td colspan="8">
+                  <div class="detail-grid">
+                    <div class="detail-key">Batch Number</div><div class="detail-val mono">9</div>
+                    <div class="detail-key">Registrations</div><div class="detail-val">1 wallet</div>
+                    <div class="detail-key">Transitions</div><div class="detail-val">11 state transitions</div>
+                    <div class="detail-key">Prove Duration</div><div class="detail-val">3.6 seconds</div>
+                    <div class="detail-key">Block Height</div><div class="detail-val mono">21</div>
+                    <div class="detail-key">Created At</div><div class="detail-val">2026-03-08 13:43:11 UTC</div>
+                  </div>
+                </td>
+              </tr>
+              <tr class="batch-row" data-id="8"><td class="mono">#8</td><td>2</td><td>13</td><td><span class="badge badge-success">Settled</span></td><td class="mono">4.5s</td><td class="mono truncate">ChainProof(0x4d5a...)</td><td class="mono">20</td><td><button class="btn btn-sm btn-outline" onclick="toggleBatchDetail(8)">Detail</button></td></tr>
+              <tr class="batch-detail hidden" id="batch-detail-8"><td colspan="8"><div class="detail-grid"><div class="detail-key">Batch Number</div><div class="detail-val mono">8</div><div class="detail-key">Prove Duration</div><div class="detail-val">4.5 seconds</div><div class="detail-key">Block Height</div><div class="detail-val mono">20</div><div class="detail-key">Created At</div><div class="detail-val">2026-03-08 13:27:38 UTC</div></div></td></tr>
+              <tr class="batch-row" data-id="7"><td class="mono">#7</td><td>2</td><td>11</td><td><span class="badge badge-success">Settled</span></td><td class="mono">3.9s</td><td class="mono truncate">ChainProof(0x3c6b...)</td><td class="mono">19</td><td><button class="btn btn-sm btn-outline" onclick="toggleBatchDetail(7)">Detail</button></td></tr>
+              <tr class="batch-detail hidden" id="batch-detail-7"><td colspan="8"><div class="detail-grid"><div class="detail-key">Batch Number</div><div class="detail-val mono">7</div><div class="detail-key">Prove Duration</div><div class="detail-val">3.9 seconds</div><div class="detail-key">Block Height</div><div class="detail-val mono">19</div><div class="detail-key">Created At</div><div class="detail-val">2026-03-08 13:12:04 UTC</div></div></td></tr>
+              <tr class="batch-row" data-id="6"><td class="mono">#6</td><td>3</td><td>14</td><td><span class="badge badge-success">Settled</span></td><td class="mono">5.3s</td><td class="mono truncate">ChainProof(0x2b7c...)</td><td class="mono">18</td><td><button class="btn btn-sm btn-outline" onclick="toggleBatchDetail(6)">Detail</button></td></tr>
+              <tr class="batch-detail hidden" id="batch-detail-6"><td colspan="8"><div class="detail-grid"><div class="detail-key">Batch Number</div><div class="detail-val mono">6</div><div class="detail-key">Prove Duration</div><div class="detail-val">5.3 seconds</div><div class="detail-key">Block Height</div><div class="detail-val mono">18</div><div class="detail-key">Created At</div><div class="detail-val">2026-03-08 12:56:29 UTC</div></div></td></tr>
+              <tr class="batch-row" data-id="5"><td class="mono">#5</td><td>1</td><td>10</td><td><span class="badge badge-success">Settled</span></td><td class="mono">3.4s</td><td class="mono truncate">ChainProof(0x1a8d...)</td><td class="mono">17</td><td><button class="btn btn-sm btn-outline" onclick="toggleBatchDetail(5)">Detail</button></td></tr>
+              <tr class="batch-detail hidden" id="batch-detail-5"><td colspan="8"><div class="detail-grid"><div class="detail-key">Batch Number</div><div class="detail-val mono">5</div><div class="detail-key">Prove Duration</div><div class="detail-val">3.4 seconds</div><div class="detail-key">Block Height</div><div class="detail-val mono">17</div><div class="detail-key">Created At</div><div class="detail-val">2026-03-08 12:41:55 UTC</div></div></td></tr>
+              <tr class="batch-row" data-id="4"><td class="mono">#4</td><td>4</td><td>9</td><td><span class="badge badge-success">Settled</span></td><td class="mono">4.7s</td><td class="mono truncate">ChainProof(0x0f9e...)</td><td class="mono">16</td><td><button class="btn btn-sm btn-outline" onclick="toggleBatchDetail(4)">Detail</button></td></tr>
+              <tr class="batch-detail hidden" id="batch-detail-4"><td colspan="8"><div class="detail-grid"><div class="detail-key">Batch Number</div><div class="detail-val mono">4</div><div class="detail-key">Prove Duration</div><div class="detail-val">4.7 seconds</div><div class="detail-key">Block Height</div><div class="detail-val mono">16</div><div class="detail-key">Created At</div><div class="detail-val">2026-03-08 12:26:18 UTC</div></div></td></tr>
+              <tr class="batch-row" data-id="3"><td class="mono">#3</td><td>5</td><td>8</td><td><span class="badge badge-success">Settled</span></td><td class="mono">4.1s</td><td class="mono truncate">ChainProof(0xe1af...)</td><td class="mono">15</td><td><button class="btn btn-sm btn-outline" onclick="toggleBatchDetail(3)">Detail</button></td></tr>
+              <tr class="batch-detail hidden" id="batch-detail-3"><td colspan="8"><div class="detail-grid"><div class="detail-key">Batch Number</div><div class="detail-val mono">3</div><div class="detail-key">Prove Duration</div><div class="detail-val">4.1 seconds</div><div class="detail-key">Block Height</div><div class="detail-val mono">15</div><div class="detail-key">Created At</div><div class="detail-val">2026-03-08 12:11:42 UTC</div></div></td></tr>
+              <tr class="batch-row" data-id="2"><td class="mono">#2</td><td>8</td><td>5</td><td><span class="badge badge-success">Settled</span></td><td class="mono">5.6s</td><td class="mono truncate">ChainProof(0xd2b0...)</td><td class="mono">14</td><td><button class="btn btn-sm btn-outline" onclick="toggleBatchDetail(2)">Detail</button></td></tr>
+              <tr class="batch-detail hidden" id="batch-detail-2"><td colspan="8"><div class="detail-grid"><div class="detail-key">Batch Number</div><div class="detail-val mono">2</div><div class="detail-key">Prove Duration</div><div class="detail-val">5.6 seconds</div><div class="detail-key">Block Height</div><div class="detail-val mono">14</div><div class="detail-key">Created At</div><div class="detail-val">2026-03-08 11:56:08 UTC</div></div></td></tr>
+              <tr class="batch-row" data-id="1"><td class="mono">#1</td><td>15</td><td>0</td><td><span class="badge badge-success">Settled</span></td><td class="mono">6.2s</td><td class="mono truncate">ChainProof(0xc3c1...)</td><td class="mono">13</td><td><button class="btn btn-sm btn-outline" onclick="toggleBatchDetail(1)">Detail</button></td></tr>
+              <tr class="batch-detail hidden" id="batch-detail-1"><td colspan="8"><div class="detail-grid"><div class="detail-key">Batch Number</div><div class="detail-val mono">1</div><div class="detail-key">Registrations</div><div class="detail-val">15 wallets (genesis batch)</div><div class="detail-key">Transitions</div><div class="detail-val">0 state transitions</div><div class="detail-key">Prove Duration</div><div class="detail-val">6.2 seconds</div><div class="detail-key">Block Height</div><div class="detail-val mono">13</div><div class="detail-key">Created At</div><div class="detail-val">2026-03-08 11:40:00 UTC</div></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ CLAIMS ════ -->
+  <section id="page-claims" class="page hidden">
+    <div class="claims-filter-tabs">
+      <button class="chip active" onclick="setClaimTab('member', this)">By Member</button>
+      <button class="chip" onclick="setClaimTab('prescriber', this)">By Prescriber</button>
+      <button class="chip" onclick="setClaimTab('pharmacy', this)">By Pharmacy</button>
+      <button class="chip" onclick="setClaimTab('drug', this)">By Drug (NDC)</button>
+    </div>
+
+    <div class="search-bar">
+      <input class="form-input mono" id="claims-wallet-input" placeholder="Enter member wallet ID...">
+      <button class="btn btn-primary" onclick="lookupClaims()">Lookup</button>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Claims Results</span>
+        <span class="text-muted text-sm" id="claims-count">156 claims found</span>
+      </div>
+      <div class="panel-body flush">
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr><th>Claim</th><th>Member Wallet</th><th>NDC</th><th>Drug</th><th>Prescriber</th><th>Pharmacy</th><th>Patient Pay</th><th>Plan Pay</th><th>Date</th></tr>
+            </thead>
+            <tbody>
+              <tr><td class="mono">CLM-001</td><td class="mono truncate">0x7a3b...e4f1</td><td class="mono">00069-1085-01</td><td>Atorvastatin 20mg</td><td class="mono truncate">0xd1e2...f3a4</td><td class="mono truncate">0xa5b6...c7d8</td><td class="mono">$15.00</td><td class="mono">$142.50</td><td class="text-muted">2026-03-08</td></tr>
+              <tr><td class="mono">CLM-002</td><td class="mono truncate">0x3f8a...c9d2</td><td class="mono">00006-0227-31</td><td>Lisinopril 10mg</td><td class="mono truncate">0xd1e2...f3a4</td><td class="mono truncate">0xb7c8...d9e0</td><td class="mono">$10.00</td><td class="mono">$28.75</td><td class="text-muted">2026-03-08</td></tr>
+              <tr><td class="mono">CLM-003</td><td class="mono truncate">0x2d4e...a1b3</td><td class="mono">00078-0587-05</td><td>Metformin 500mg</td><td class="mono truncate">0xe3f4...a5b6</td><td class="mono truncate">0xa5b6...c7d8</td><td class="mono">$5.00</td><td class="mono">$18.20</td><td class="text-muted">2026-03-08</td></tr>
+              <tr><td class="mono">CLM-004</td><td class="mono truncate">0x5c7d...f8a2</td><td class="mono">00173-0899-00</td><td>Amlodipine 5mg</td><td class="mono truncate">0xf5a6...b7c8</td><td class="mono truncate">0xc9d0...e1f2</td><td class="mono">$12.00</td><td class="mono">$35.40</td><td class="text-muted">2026-03-08</td></tr>
+              <tr><td class="mono">CLM-005</td><td class="mono truncate">0x8b1c...d4e5</td><td class="mono">00378-4125-01</td><td>Omeprazole 20mg</td><td class="mono truncate">0xd1e2...f3a4</td><td class="mono truncate">0xb7c8...d9e0</td><td class="mono">$20.00</td><td class="mono">$45.80</td><td class="text-muted">2026-03-07</td></tr>
+              <tr><td class="mono">CLM-006</td><td class="mono truncate">0x6a9b...e3f4</td><td class="mono">00093-5264-01</td><td>Levothyroxine 50mcg</td><td class="mono truncate">0xe3f4...a5b6</td><td class="mono truncate">0xa5b6...c7d8</td><td class="mono">$8.00</td><td class="mono">$22.10</td><td class="text-muted">2026-03-07</td></tr>
+              <tr><td class="mono">CLM-007</td><td class="mono truncate">0x4f2a...b6c7</td><td class="mono">59762-5680-01</td><td>Sertraline 50mg</td><td class="mono truncate">0xf5a6...b7c8</td><td class="mono truncate">0xc9d0...e1f2</td><td class="mono">$10.00</td><td class="mono">$31.25</td><td class="text-muted">2026-03-07</td></tr>
+              <tr><td class="mono">CLM-008</td><td class="mono truncate">0x9e1d...b2a7</td><td class="mono">00069-1085-01</td><td>Atorvastatin 20mg</td><td class="mono truncate">0xd1e2...f3a4</td><td class="mono truncate">0xa5b6...c7d8</td><td class="mono">$15.00</td><td class="mono">$142.50</td><td class="text-muted">2026-03-07</td></tr>
+              <tr><td class="mono">CLM-009</td><td class="mono truncate">0x7a3b...e4f1</td><td class="mono">00591-3747-01</td><td>Metoprolol 25mg</td><td class="mono truncate">0xe3f4...a5b6</td><td class="mono truncate">0xb7c8...d9e0</td><td class="mono">$12.00</td><td class="mono">$38.90</td><td class="text-muted">2026-03-07</td></tr>
+              <tr><td class="mono">CLM-010</td><td class="mono truncate">0x3f8a...c9d2</td><td class="mono">00093-7180-01</td><td>Losartan 50mg</td><td class="mono truncate">0xf5a6...b7c8</td><td class="mono truncate">0xa5b6...c7d8</td><td class="mono">$10.00</td><td class="mono">$42.15</td><td class="text-muted">2026-03-06</td></tr>
+              <tr><td class="mono">CLM-011</td><td class="mono truncate">0x2d4e...a1b3</td><td class="mono">00378-1800-01</td><td>Gabapentin 300mg</td><td class="mono truncate">0xd1e2...f3a4</td><td class="mono truncate">0xc9d0...e1f2</td><td class="mono">$25.00</td><td class="mono">$67.30</td><td class="text-muted">2026-03-06</td></tr>
+              <tr><td class="mono">CLM-012</td><td class="mono truncate">0x5c7d...f8a2</td><td class="mono">00006-0227-31</td><td>Lisinopril 10mg</td><td class="mono truncate">0xe3f4...a5b6</td><td class="mono truncate">0xb7c8...d9e0</td><td class="mono">$10.00</td><td class="mono">$28.75</td><td class="text-muted">2026-03-06</td></tr>
+              <tr><td class="mono">CLM-013</td><td class="mono truncate">0x8b1c...d4e5</td><td class="mono">59762-5680-01</td><td>Sertraline 50mg</td><td class="mono truncate">0xf5a6...b7c8</td><td class="mono truncate">0xa5b6...c7d8</td><td class="mono">$10.00</td><td class="mono">$31.25</td><td class="text-muted">2026-03-06</td></tr>
+              <tr><td class="mono">CLM-014</td><td class="mono truncate">0x6a9b...e3f4</td><td class="mono">00069-1085-01</td><td>Atorvastatin 20mg</td><td class="mono truncate">0xd1e2...f3a4</td><td class="mono truncate">0xc9d0...e1f2</td><td class="mono">$15.00</td><td class="mono">$142.50</td><td class="text-muted">2026-03-05</td></tr>
+              <tr><td class="mono">CLM-015</td><td class="mono truncate">0x4f2a...b6c7</td><td class="mono">00078-0587-05</td><td>Metformin 500mg</td><td class="mono truncate">0xe3f4...a5b6</td><td class="mono truncate">0xb7c8...d9e0</td><td class="mono">$5.00</td><td class="mono">$18.20</td><td class="text-muted">2026-03-05</td></tr>
+              <tr><td class="mono">CLM-016</td><td class="mono truncate">0x9e1d...b2a7</td><td class="mono">00173-0899-00</td><td>Amlodipine 5mg</td><td class="mono truncate">0xd1e2...f3a4</td><td class="mono truncate">0xa5b6...c7d8</td><td class="mono">$12.00</td><td class="mono">$35.40</td><td class="text-muted">2026-03-05</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ AUDIT ════ -->
+  <section id="page-audit" class="page hidden">
+    <div class="panel mb-6">
+      <div class="panel-header">
+        <span class="panel-title">Audit Checks</span>
+        <button class="btn btn-primary" onclick="runFullAudit()">Run Full Audit</button>
+      </div>
+      <div class="panel-body">
+        <div class="audit-checks">
+          <div class="audit-check audit-pass">
+            <span class="audit-icon">&#10003;</span>
+            <div class="audit-check-body">
+              <div class="audit-check-title">Chain Integrity</div>
+              <div class="audit-check-detail">All 156 audit events form a valid Poseidon hash chain. No breaks detected.</div>
+            </div>
+            <span class="badge badge-success">Pass</span>
+          </div>
+          <div class="audit-check audit-pass">
+            <span class="audit-icon">&#10003;</span>
+            <div class="audit-check-body">
+              <div class="audit-check-title">Financial Balance</div>
+              <div class="audit-check-detail">Total plan pay ($482,340.00) + patient pay ($18,420.00) = $500,760.00. All accumulators balanced.</div>
+            </div>
+            <span class="badge badge-success">Pass</span>
+          </div>
+          <div class="audit-check audit-pass">
+            <span class="audit-icon">&#10003;</span>
+            <div class="audit-check-body">
+              <div class="audit-check-title">Duplicate Claims</div>
+              <div class="audit-check-detail">Zero duplicate claim leaves found across 156 claims in accumulator tree.</div>
+            </div>
+            <span class="badge badge-success">Pass</span>
+          </div>
+          <div class="audit-check audit-pass">
+            <span class="audit-icon">&#10003;</span>
+            <div class="audit-check-body">
+              <div class="audit-check-title">Sequence Gaps</div>
+              <div class="audit-check-detail">Audit sequence numbers 1-156 are contiguous. No gaps or out-of-order events.</div>
+            </div>
+            <span class="badge badge-success">Pass</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Audit Log Timeline</span>
+        <span class="text-muted text-sm">Last 10 events</span>
+      </div>
+      <div class="panel-body flush">
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr><th>Seq</th><th>Event Type</th><th>Wallet</th><th>Chain Hash</th><th>NDC</th><th>Timestamp</th></tr>
+            </thead>
+            <tbody>
+              <tr><td class="mono">156</td><td>Fulfillment</td><td class="mono truncate">0x7a3b...e4f1</td><td class="mono truncate">Poseidon(0x8a1b...c2d3)</td><td class="mono">00069-1085-01</td><td class="text-muted">14:32:18</td></tr>
+              <tr><td class="mono">155</td><td>Registration</td><td class="mono truncate">0x9e1d...b2a7</td><td class="mono truncate">Poseidon(0x7c2d...e4f5)</td><td class="mono">--</td><td class="text-muted">14:29:44</td></tr>
+              <tr><td class="mono">154</td><td>Eligibility</td><td class="mono truncate">0x3f8a...c9d2</td><td class="mono truncate">Poseidon(0x6b3e...f5a6)</td><td class="mono">--</td><td class="text-muted">14:26:05</td></tr>
+              <tr><td class="mono">153</td><td>Fulfillment</td><td class="mono truncate">0x2d4e...a1b3</td><td class="mono truncate">Poseidon(0x5a4f...a6b7)</td><td class="mono">00078-0587-05</td><td class="text-muted">14:23:41</td></tr>
+              <tr><td class="mono">152</td><td>Fulfillment</td><td class="mono truncate">0x5c7d...f8a2</td><td class="mono truncate">Poseidon(0x4d5a...b7c8)</td><td class="mono">00173-0899-00</td><td class="text-muted">14:16:22</td></tr>
+              <tr><td class="mono">151</td><td>Prior Auth</td><td class="mono truncate">0x8b1c...d4e5</td><td class="mono truncate">Poseidon(0x3c6b...c8d9)</td><td class="mono">00378-4125-01</td><td class="text-muted">14:12:55</td></tr>
+              <tr><td class="mono">150</td><td>Fulfillment</td><td class="mono truncate">0x6a9b...e3f4</td><td class="mono truncate">Poseidon(0x2b7c...d9e0)</td><td class="mono">00093-5264-01</td><td class="text-muted">14:08:30</td></tr>
+              <tr><td class="mono">149</td><td>Fulfillment</td><td class="mono truncate">0x4f2a...b6c7</td><td class="mono truncate">Poseidon(0x1a8d...e0f1)</td><td class="mono">59762-5680-01</td><td class="text-muted">14:01:12</td></tr>
+              <tr><td class="mono">148</td><td>Registration</td><td class="mono truncate">0x1b3c...d5e6</td><td class="mono truncate">Poseidon(0x0f9e...f1a2)</td><td class="mono">--</td><td class="text-muted">13:55:48</td></tr>
+              <tr><td class="mono">147</td><td>Fulfillment</td><td class="mono truncate">0x7a3b...e4f1</td><td class="mono truncate">Poseidon(0xe1af...a2b3)</td><td class="mono">00591-3747-01</td><td class="text-muted">13:50:22</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ MESSAGING ════ -->
+  <section id="page-messaging" class="page hidden">
+    <div class="search-bar">
+      <input class="form-input mono" id="msg-wallet-input" placeholder="Enter wallet ID to query messages...">
+      <button class="btn btn-primary" onclick="queryMessages()">Query</button>
+    </div>
+
+    <div class="msg-tabs">
+      <button class="msg-tab active" onclick="setMsgTab('inbox', this)">Inbox</button>
+      <button class="msg-tab" onclick="setMsgTab('sent', this)">Sent</button>
+      <button class="msg-tab" onclick="setMsgTab('thread', this)">By Thread</button>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Message Store (Read-Only)</span>
+        <span class="text-muted text-sm">Encrypted payloads only</span>
+      </div>
+      <div class="panel-body flush">
+        <div class="msg-item">
+          <div class="flex justify-between items-center gap-4">
+            <div class="flex-1">
+              <div class="msg-from">From: <span class="mono">0x7a3b...e4f1</span> <span class="badge badge-muted">Member</span></div>
+              <div class="msg-preview">Thread: enrollment-query-001 | Payload: [AES-256-GCM encrypted, 248 bytes]</div>
+            </div>
+            <div class="msg-time">14:28</div>
+          </div>
+        </div>
+        <div class="msg-item">
+          <div class="flex justify-between items-center gap-4">
+            <div class="flex-1">
+              <div class="msg-from">From: <span class="mono">0x3f8a...c9d2</span> <span class="badge badge-muted">Member</span></div>
+              <div class="msg-preview">Thread: prior-auth-request-042 | Payload: [AES-256-GCM encrypted, 312 bytes]</div>
+            </div>
+            <div class="msg-time">14:15</div>
+          </div>
+        </div>
+        <div class="msg-item">
+          <div class="flex justify-between items-center gap-4">
+            <div class="flex-1">
+              <div class="msg-from">From: <span class="mono">0xd1e2...f3a4</span> <span class="badge badge-muted">Prescriber</span></div>
+              <div class="msg-preview">Thread: prior-auth-request-042 | Payload: [AES-256-GCM encrypted, 187 bytes]</div>
+            </div>
+            <div class="msg-time">13:52</div>
+          </div>
+        </div>
+        <div class="msg-item">
+          <div class="flex justify-between items-center gap-4">
+            <div class="flex-1">
+              <div class="msg-from">From: <span class="mono">0x5c7d...f8a2</span> <span class="badge badge-muted">Member</span></div>
+              <div class="msg-preview">Thread: benefit-inquiry-019 | Payload: [AES-256-GCM encrypted, 156 bytes]</div>
+            </div>
+            <div class="msg-time">13:40</div>
+          </div>
+        </div>
+        <div class="msg-item">
+          <div class="flex justify-between items-center gap-4">
+            <div class="flex-1">
+              <div class="msg-from">From: <span class="mono">0xa5b6...c7d8</span> <span class="badge badge-muted">Pharmacy</span></div>
+              <div class="msg-preview">Thread: claim-dispute-007 | Payload: [AES-256-GCM encrypted, 420 bytes]</div>
+            </div>
+            <div class="msg-time">13:18</div>
+          </div>
+        </div>
+        <div class="msg-item">
+          <div class="flex justify-between items-center gap-4">
+            <div class="flex-1">
+              <div class="msg-from">From: <span class="mono">0x8b1c...d4e5</span> <span class="badge badge-muted">Member</span></div>
+              <div class="msg-preview">Thread: enrollment-query-002 | Payload: [AES-256-GCM encrypted, 198 bytes]</div>
+            </div>
+            <div class="msg-time">12:55</div>
+          </div>
+        </div>
+        <div class="msg-item">
+          <div class="flex justify-between items-center gap-4">
+            <div class="flex-1">
+              <div class="msg-from">From: <span class="mono">0xe3f4...a5b6</span> <span class="badge badge-muted">Prescriber</span></div>
+              <div class="msg-preview">Thread: formulary-exception-003 | Payload: [AES-256-GCM encrypted, 275 bytes]</div>
+            </div>
+            <div class="msg-time">12:31</div>
+          </div>
+        </div>
+        <div class="msg-item">
+          <div class="flex justify-between items-center gap-4">
+            <div class="flex-1">
+              <div class="msg-from">From: <span class="mono">0x6a9b...e3f4</span> <span class="badge badge-muted">Member</span></div>
+              <div class="msg-preview">Thread: benefit-inquiry-020 | Payload: [AES-256-GCM encrypted, 142 bytes]</div>
+            </div>
+            <div class="msg-time">12:08</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ ADMIN ════ -->
+  <section id="page-admin" class="page hidden">
+    <div class="admin-token-bar">
+      <label class="form-label">Admin Token</label>
+      <div class="search-bar">
+        <input class="form-input mono" id="admin-token" type="password" placeholder="Enter admin authentication token...">
+        <button class="btn btn-primary" onclick="authenticateAdmin()">Authenticate</button>
+      </div>
+    </div>
+
+    <div class="panels-row">
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Formulary Management</span>
+        </div>
+        <div class="panel-body">
+          <div class="form-group">
+            <label class="form-label">Formulary Version</label>
+            <input class="form-input mono" value="v2026.03.08-r3" readonly>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Formulary Root Hash</label>
+            <input class="form-input mono" value="0x4a8b1c2d3e4f5a6b7c8d9e0f1a2b3c4d" readonly>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Total Medications</label>
+            <input class="form-input mono" value="22 (MerkleTree height 16)" readonly>
+          </div>
+          <button class="btn btn-primary w-full mt-4">Publish New Formulary</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Batch Control</span>
+        </div>
+        <div class="panel-body">
+          <div class="form-group">
+            <label class="form-label">Pending Proofs</label>
+            <input class="form-input mono" value="1 proof awaiting batch" readonly>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Last Batch</label>
+            <input class="form-input mono" value="#12 at 14:32:18 UTC" readonly>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Batch Interval</label>
+            <input class="form-input mono" value="30 seconds (auto)" readonly>
+          </div>
+          <button class="btn btn-outline w-full mt-4" onclick="forceBatch()">Force Build Batch Now</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Enrollment Configuration</span>
+      </div>
+      <div class="panel-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Active Groups</label>
+            <input class="form-input mono" value="2 groups registered" readonly>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Active Plans</label>
+            <input class="form-input mono" value="3 benefit plan templates" readonly>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Auto-Enrollment</label>
+            <input class="form-input" value="Enabled (token-based ceremony)" readonly>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Wallet Migration</label>
+            <input class="form-input" value="Enabled (NFC recovery supported)" readonly>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ── Footer ──────────────────────────────────────────────── -->
+<footer class="footer">
+  <div class="footer-inner">
+    <span>zkTrident Insurer Dashboard</span>
+    <span>&middot;</span>
+    <span>Leviathan-A Connected</span>
+    <span>&middot;</span>
+    <span>Block Height 24</span>
+  </div>
+</footer>
+
+<script>
+/* ── Hash Router ─────────────────────────────────────────── */
+function navigate() {
+  const hash = location.hash.slice(1) || 'overview';
+  document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
+  const target = document.getElementById('page-' + hash);
+  if (target) target.classList.remove('hidden');
+  document.querySelectorAll('.nav-link').forEach(l => {
+    l.classList.toggle('active', l.getAttribute('href') === '#' + hash);
+  });
+}
+window.addEventListener('hashchange', navigate);
+navigate();
+
+/* ── Receipt Detail Toggle ───────────────────────────────── */
+function toggleReceiptDetail(id) {
+  const row = document.getElementById('detail-' + id);
+  if (row) row.classList.toggle('hidden');
+}
+
+/* ── Batch Detail Toggle ─────────────────────────────────── */
+function toggleBatchDetail(id) {
+  const row = document.getElementById('batch-detail-' + id);
+  if (row) row.classList.toggle('hidden');
+}
+
+/* ── Receipt Search ──────────────────────────────────────── */
+function filterReceipts() {
+  const q = document.getElementById('receipt-search').value.toLowerCase();
+  document.querySelectorAll('#receipts-table .receipt-row').forEach(row => {
+    const text = row.textContent.toLowerCase();
+    row.style.display = text.includes(q) ? '' : 'none';
+    const detailId = 'detail-' + row.dataset.id;
+    const detail = document.getElementById(detailId);
+    if (detail && !text.includes(q)) detail.classList.add('hidden');
+  });
+}
+
+/* ── Claims Tab Switcher ─────────────────────────────────── */
+function setClaimTab(tab, el) {
+  document.querySelectorAll('.claims-filter-tabs .chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  const input = document.getElementById('claims-wallet-input');
+  const placeholders = { member: 'Enter member wallet ID...', prescriber: 'Enter prescriber wallet ID...', pharmacy: 'Enter pharmacy wallet ID...', drug: 'Enter NDC code (e.g. 00069-1085-01)...' };
+  input.placeholder = placeholders[tab] || '';
+}
+function lookupClaims() { /* demo: no-op */ }
+
+/* ── Messaging Tab Switcher ──────────────────────────────── */
+function setMsgTab(tab, el) {
+  document.querySelectorAll('.msg-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+}
+function queryMessages() { /* demo: no-op */ }
+
+/* ── Admin Actions ───────────────────────────────────────── */
+function authenticateAdmin() {
+  const token = document.getElementById('admin-token').value;
+  if (token) alert('Admin authenticated (demo mode)');
+}
+function runFullAudit() { alert('Full audit completed: All 4 checks passing. 156 events verified.'); }
+function forceBatch() { alert('Batch #13 build triggered (demo mode)'); }
+</script>
+</body>
+</html>

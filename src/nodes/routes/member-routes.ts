@@ -36,6 +36,45 @@ const DOMAIN_TAG_MEMBER = 0;
 export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[] {
   const routes: RouteRegistration[] = [];
 
+  // ── Onboarding: Unlock State (PIN entry) ─────────────────
+
+  routes.push({
+    method: 'POST',
+    path: '/onboarding/unlock',
+    handler: async (_req, res, _params, _query, body) => {
+      const state = server.getLocalState();
+
+      // Already unlocked — skip
+      if (state.isUnlocked()) {
+        return server.sendResponse(res, 200, true, { unlocked: true, alreadyUnlocked: true });
+      }
+
+      const b = body as { pin?: string } | undefined;
+      if (!b?.pin) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing pin');
+      }
+
+      try {
+        await state.unlock(b.pin);
+        // Initialize state if first run
+        const existing = await state.load();
+        if (!existing) {
+          const initialState = {
+            version: 1,
+            role: 'member' as const,
+            onboarding: { phase: 'awaiting_token' },
+            lastSavedAt: new Date().toISOString(),
+          };
+          await state.save(initialState);
+        }
+        server.sendResponse(res, 200, true, { unlocked: true });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        server.sendResponse(res, 400, false, undefined, msg);
+      }
+    },
+  });
+
   // ── Onboarding: Accept Token ──────────────────────────────
 
   routes.push({
@@ -187,6 +226,26 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         displayName: server.getConfig().displayName,
       });
       server.setEntityNode(node);
+
+      // Register wallet on the sequencer so it's known to the network
+      let sequencerRegistered = false;
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const regResp = await fetch(`${seqUrl}/rpc`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0', id: 1,
+            method: 'l2_registerEntity',
+            params: {
+              walletId: data.walletId,
+              displayName: 'Member',
+              type: 'member',
+            },
+          }),
+        });
+        sequencerRegistered = regResp.ok;
+      } catch { /* sequencer unreachable — continue */ }
 
       // Notify insurer of enrollment (non-blocking — enrollment succeeds even if insurer is unreachable)
       let insurerNotified = false;
@@ -546,6 +605,34 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
 
       const pcpAssignment = buildPcpAssignmentData(assignmentData);
       const commitment = pcpAssignment.commitment().toString();
+
+      // Persist to local state (best-effort — state may not be unlocked)
+      try {
+        const localState = server.getLocalState();
+        const stateData = localState.getState() as any;
+        if (stateData) {
+          stateData.pcpAssignment = {
+            pcpWalletId: b.pcpWalletId,
+            effectiveDate: b.effectiveDate,
+            commitment,
+            specialty: assignmentData.specialty,
+            consentScopeFlags: assignmentData.consentScopeFlags,
+            assignedAt: Date.now(),
+          };
+          await localState.save(stateData);
+        }
+      } catch (localErr: any) {
+        console.warn('[PCP] Local state save failed:', localErr?.message ?? localErr);
+      }
+
+      // Register on sequencer (best-effort, non-blocking)
+      try {
+        const client = node.getClient();
+        await client.registerPcpAssignment(memberWalletId, b.pcpWalletId, b.effectiveDate);
+      } catch (seqErr: any) {
+        // Sequencer registration is best-effort — PCP still saved locally
+        console.warn('[PCP] Sequencer registration failed:', seqErr?.message ?? seqErr);
+      }
 
       server.sendResponse(res, 200, true, {
         memberWalletId,

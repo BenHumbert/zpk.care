@@ -22,9 +22,12 @@ import type { ClaimContext } from '../reporting/report-types.js';
 import type { L2SequencerState } from './l2-checkpoint.js';
 import type { ClaimSubmissionMetadata } from './l2-types.js';
 import { ClaimAccumulatorService } from './claim-accumulator-service.js';
-import type { ClaimAccumulatorEntry } from './claim-accumulator-types.js';
+import type { ClaimAccumulatorEntry, ClaimLeaf, ClaimMetadata } from './claim-accumulator-types.js';
 import { MessageStoreService } from './message-store-service.js';
 import type { StoredMessage, MessagePayload, MessageStoreEntry } from './message-store-types.js';
+import { ProviderRegistryService } from './provider-registry-service.js';
+import type { ProviderRegistryEntry, ProviderLeaf, ProviderMetadata, ProviderRegistryState } from './provider-registry-types.js';
+import { ProviderLifecycle } from './provider-registry-types.js';
 import type { PartitionConfig } from './l2-partition.js';
 import { isMyPartition, getPartition } from './l2-partition.js';
 import { WalletRegistry, WALLET_TREE_HEIGHT } from '../wallets/wallet-state.js';
@@ -135,6 +138,9 @@ export class L2SequencerService {
 
   // Message store — global MerkleTree tracking encrypted messages between providers
   private messageStore: MessageStoreService = new MessageStoreService();
+
+  // Provider registry — global MerkleTree tracking credentialed prescribers/pharmacies
+  private providerRegistry: ProviderRegistryService = new ProviderRegistryService();
 
   // Proof fingerprint deduplication — prevents replay of identical transitions
   private seenProofFingerprints: Set<string> = new Set();
@@ -437,6 +443,7 @@ export class L2SequencerService {
         l1TxHash: `empty-${emptyBatchNumber}`,
         claimAccumulatorRoot: this.claimAccumulator.getRoot().toString(),
         messageStoreRoot: this.messageStore.getRoot().toString(),
+        providerRegistryRoot: this.providerRegistry.getRoot().toString(),
       };
       this.batches.set(emptyBatchNumber, emptyBatch);
       return emptyBatch;
@@ -547,6 +554,7 @@ export class L2SequencerService {
       l1Status: 'batched',
       claimAccumulatorRoot: this.claimAccumulator.getRoot().toString(),
       messageStoreRoot: this.messageStore.getRoot().toString(),
+      providerRegistryRoot: this.providerRegistry.getRoot().toString(),
     };
 
     this.batches.set(batchNumber, batch);
@@ -646,6 +654,7 @@ export class L2SequencerService {
         l1TxHash: `empty-${emptyBatchNumber}`,
         claimAccumulatorRoot: this.claimAccumulator.getRoot().toString(),
         messageStoreRoot: this.messageStore.getRoot().toString(),
+        providerRegistryRoot: this.providerRegistry.getRoot().toString(),
       };
       this.batches.set(emptyBatchNumber, emptyBatch);
       return { job: null, emptyBatch };
@@ -744,6 +753,7 @@ export class L2SequencerService {
       l1Status: 'batched',
       claimAccumulatorRoot: this.claimAccumulator.getRoot().toString(),
       messageStoreRoot: this.messageStore.getRoot().toString(),
+      providerRegistryRoot: this.providerRegistry.getRoot().toString(),
       workerId: result.workerId,
       proveTimeMs: result.proveTimeMs,
     };
@@ -1634,6 +1644,18 @@ export class L2SequencerService {
     return this.claimAccumulator.getClaimWithProof(leafIndex);
   }
 
+  /**
+   * Record a fill directly on the claim accumulator (admin/demo path).
+   * Used by pharmacy Nautilus nodes to record dispensing without full ZK proof.
+   * In production, fills go through AccumulatorFulfillmentProgram + proof submission.
+   */
+  recordFill(
+    leaf: ClaimLeaf,
+    metadata: ClaimMetadata,
+  ): ClaimAccumulatorEntry {
+    return this.claimAccumulator.appendClaim(leaf, metadata);
+  }
+
   // ─── Accumulator Reconstruction (Wallet Migration) ──────────
 
   /**
@@ -1738,6 +1760,76 @@ export class L2SequencerService {
     root: string;
   } | undefined {
     return this.messageStore.getMessageWithProof(leafIndex);
+  }
+
+  // ─── Provider Registry ─────────────────────────────────────
+
+  /** Register a new provider in the credentialing registry */
+  credentialProvider(leaf: ProviderLeaf, metadata: ProviderMetadata): ProviderRegistryEntry {
+    return this.providerRegistry.registerProvider(leaf, metadata);
+  }
+
+  /** Update a provider's lifecycle state */
+  updateProviderStatus(walletId: string, newState: ProviderLifecycle): ProviderRegistryEntry {
+    return this.providerRegistry.updateProviderStatus(walletId, newState);
+  }
+
+  /** Current Merkle root of the Provider Registry tree */
+  getProviderRegistryRoot(): string {
+    return this.providerRegistry.getRoot().toString();
+  }
+
+  /** Number of providers in the registry */
+  getProviderCount(): bigint {
+    return this.providerRegistry.getProviderCount();
+  }
+
+  /** Get provider by walletId */
+  getProvider(walletId: string): ProviderRegistryEntry | undefined {
+    return this.providerRegistry.getProviderByWallet(walletId);
+  }
+
+  /** Get provider by NPI hash */
+  getProviderByNpi(npiHash: string): ProviderRegistryEntry | undefined {
+    return this.providerRegistry.getProviderByNpi(npiHash);
+  }
+
+  /** Get all providers, optionally filtered by type and/or state */
+  getProviders(providerType?: 'prescriber' | 'pharmacy', stateFilter?: ProviderLifecycle): ProviderRegistryEntry[] {
+    if (stateFilter !== undefined && stateFilter === ProviderLifecycle.ACTIVE) {
+      return this.providerRegistry.getActiveProviders(providerType);
+    }
+    if (providerType) {
+      const byType = this.providerRegistry.getProvidersByType(providerType);
+      if (stateFilter !== undefined) {
+        return byType.filter((e) => e.leaf.credentialState === String(stateFilter));
+      }
+      return byType;
+    }
+    if (stateFilter !== undefined) {
+      return this.providerRegistry.getProvidersByState(stateFilter);
+    }
+    // All providers — collect from all entries
+    const all: ProviderRegistryEntry[] = [];
+    for (let i = 0n; i < this.providerRegistry.getProviderCount(); i++) {
+      const entry = this.providerRegistry.getEntry(i);
+      if (entry) all.push(entry);
+    }
+    return all;
+  }
+
+  /** Get a provider with its Merkle inclusion proof */
+  getProviderWithProof(walletId: string): {
+    entry: ProviderRegistryEntry;
+    witnessJson: string;
+    root: string;
+  } | undefined {
+    return this.providerRegistry.getProviderWithProof(walletId);
+  }
+
+  /** Direct access to the provider registry service (for RPC server migration) */
+  getProviderRegistry(): ProviderRegistryService {
+    return this.providerRegistry;
   }
 
   // ─── Audit / DA ────────────────────────────────────────────
@@ -2167,6 +2259,11 @@ export class L2SequencerService {
       state.messageStoreState = this.messageStore.exportState();
     }
 
+    // Include provider registry state
+    if (this.providerRegistry.getProviderCount() > 0n) {
+      state.providerRegistryState = this.providerRegistry.exportState();
+    }
+
     // Include formulary state
     if (this.formularyStore.size > 0) {
       state.formularyStore = Object.fromEntries(this.formularyStore);
@@ -2329,6 +2426,13 @@ export class L2SequencerService {
       this.messageStore.restoreState(state.messageStoreState);
     } else {
       this.messageStore = new MessageStoreService();
+    }
+
+    // Restore provider registry state
+    if (state.providerRegistryState) {
+      this.providerRegistry.restoreState(state.providerRegistryState);
+    } else {
+      this.providerRegistry = new ProviderRegistryService();
     }
 
     // Restore formulary state

@@ -25,6 +25,8 @@ object Routes {
     const val PROVIDERS = "providers"
     const val BENEFIT_PLAN = "benefit_plan"
     const val COMPOSE_MESSAGE = "compose_message"
+    const val CONVERSATION = "conversation/{threadId}"
+    fun conversationRoute(threadId: String) = "conversation/$threadId"
 
     // Pharmacy-specific
     const val DISPENSING = "dispensing"

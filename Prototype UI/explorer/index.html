@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="en" class="role-explorer">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>zkTrident Leviathan Explorer</title>
+  <link rel="stylesheet" href="../design-system/tokens.css">
+  <link rel="stylesheet" href="../design-system/components.css">
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────── -->
+<header class="header">
+  <div class="header-inner">
+    <a class="logo" href="#overview">
+      <span class="logo-mark">zk</span>Trident
+      <span class="logo-role">Explorer</span>
+    </a>
+    <nav class="nav" id="nav">
+      <a class="nav-link active" href="#overview">Overview</a>
+      <a class="nav-link" href="#batches">Batches</a>
+      <a class="nav-link" href="#receipts">Receipts</a>
+      <a class="nav-link" href="#wallets">Wallets</a>
+      <a class="nav-link" href="#formulary">Formulary</a>
+      <a class="nav-link" href="#admin">Admin</a>
+    </nav>
+    <div class="header-right">
+      <div class="global-search">
+        <input class="form-input mono global-search-input" id="global-search" placeholder="Search wallet, receipt, batch...">
+      </div>
+      <div class="connection-status">
+        <span class="status-dot connected"></span>
+        <span>Live</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ── Main Content ────────────────────────────────────────── -->
+<main class="main" id="app">
+
+  <!-- ════ OVERVIEW ════ -->
+  <section id="page-overview" class="page">
+    <div class="stats-grid">
+      <div class="stat-card stat-accent">
+        <div class="stat-label">Block Height</div>
+        <div class="stat-value">24</div>
+        <div class="stat-detail">+2 last hour</div>
+      </div>
+      <div class="stat-card stat-accent">
+        <div class="stat-label">Total Receipts</div>
+        <div class="stat-value">47</div>
+        <div class="stat-detail">14 registrations, 33 transitions</div>
+      </div>
+      <div class="stat-card stat-accent">
+        <div class="stat-label">Total Batches</div>
+        <div class="stat-value">12</div>
+        <div class="stat-detail">All settled</div>
+      </div>
+      <div class="stat-card stat-accent">
+        <div class="stat-label">Wallets</div>
+        <div class="stat-value">47</div>
+        <div class="stat-detail">42 active, 5 registered</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Pending Proofs</div>
+        <div class="stat-value">1</div>
+        <div class="stat-detail">Awaiting next batch</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Uptime</div>
+        <div class="stat-value">99.9%</div>
+        <div class="stat-detail">3d 14h 22m</div>
+      </div>
+    </div>
+
+    <!-- Pipeline Visualization — Particle Stream -->
+    <div class="panel mb-6">
+      <div class="panel-header">
+        <span class="panel-title">Sequencer Pipeline</span>
+        <div style="display:flex;align-items:center;gap:var(--space-3);">
+          <span class="badge badge-live">Live</span>
+          <button class="pipe-ctrl-btn" onclick="pipe_submit()" title="Submit proof">+ Proof</button>
+          <button class="pipe-ctrl-btn" onclick="pipe_burst()" title="Submit 5 proofs">Burst</button>
+        </div>
+      </div>
+      <div class="panel-body" style="padding:0;">
+        <div class="stream-canvas" id="stream-canvas">
+          <!-- Stage containers -->
+          <div class="stream-stage ss-pending">
+            <div class="stream-stage-count" id="pipe-pending">0</div>
+            <div class="stream-stage-label">Pending</div>
+          </div>
+          <div class="stream-connector sc-1"><div class="stream-connector-line"></div><div class="stream-connector-head"></div></div>
+          <div class="stream-stage ss-proving" id="proving-box">
+            <div class="proving-header">
+              <div class="stream-stage-count" id="pipe-proving">0</div>
+              <div class="stream-stage-label">Proving</div>
+              <div class="stream-stage-sub" id="pipe-proving-sub"></div>
+            </div>
+            <div class="stream-workers" id="stream-workers">
+              <div class="sw-box sw-idle" id="sw-0"><span class="sw-id">W-1</span><span class="sw-status">Idle</span><div class="sw-dot-slot" id="sw-dot-0"></div></div>
+              <div class="sw-box sw-idle" id="sw-1"><span class="sw-id">W-2</span><span class="sw-status">Idle</span><div class="sw-dot-slot" id="sw-dot-1"></div></div>
+              <div class="sw-box sw-idle" id="sw-2"><span class="sw-id">W-3</span><span class="sw-status">Idle</span><div class="sw-dot-slot" id="sw-dot-2"></div></div>
+            </div>
+          </div>
+          <div class="stream-connector sc-2"><div class="stream-connector-line"></div><div class="stream-connector-head"></div></div>
+          <div class="stream-stage ss-batching">
+            <div class="stream-stage-count" id="pipe-batching">0</div>
+            <div class="stream-stage-label">Batching</div>
+            <div class="stream-stage-sub" id="pipe-batch-sub"></div>
+          </div>
+          <div class="stream-connector sc-3"><div class="stream-connector-line"></div><div class="stream-connector-head"></div></div>
+          <div class="stream-stage ss-settled">
+            <div class="stream-stage-count" id="pipe-settled">156</div>
+            <div class="stream-stage-label">Settled</div>
+          </div>
+        </div>
+
+        <!-- Throughput strip -->
+        <div class="throughput-strip">
+          <div class="tp-stat"><span class="tp-val" id="tp-total">156</span><span class="tp-label">Processed</span></div>
+          <div class="tp-stat"><span class="tp-val" id="tp-batches">12</span><span class="tp-label">Batches</span></div>
+          <div class="tp-stat"><span class="tp-val" id="tp-tps">0.0</span><span class="tp-label">Proofs/sec</span></div>
+          <div class="tp-stat"><span class="tp-val" id="tp-avg">4.1s</span><span class="tp-label">Avg Prove</span></div>
+          <div class="tp-stat"><span class="tp-val" id="tp-workers">3</span><span class="tp-label">Workers</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Proof Waterfall Timeline -->
+    <div class="panel mb-6">
+      <div class="panel-header">
+        <span class="panel-title">Proof Waterfall</span>
+        <span class="text-muted text-sm" id="wf-count">16 recent proofs</span>
+      </div>
+      <div class="panel-body flush" style="padding:0;">
+        <div class="wf-canvas">
+          <div class="wf-header-row">
+            <div class="wf-col wf-col-id">Receipt</div>
+            <div class="wf-col wf-col-type">Type</div>
+            <div class="wf-col wf-col-wallet">Wallet</div>
+            <div class="wf-col wf-col-bar">
+              <div class="wf-axis">
+                <span>0s</span><span>2s</span><span>4s</span><span>6s</span><span>8s</span><span>10s</span>
+              </div>
+            </div>
+            <div class="wf-col wf-col-dur">Total</div>
+          </div>
+          <div class="wf-rows" id="wf-rows">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+        <div class="wf-legend-bar">
+          <div class="wf-leg"><span class="wf-swatch wf-sw-wait"></span>Queued</div>
+          <div class="wf-leg"><span class="wf-swatch wf-sw-prove"></span>Proving</div>
+          <div class="wf-leg"><span class="wf-swatch wf-sw-batch"></span>Batching</div>
+          <div class="wf-leg"><span class="wf-swatch wf-sw-settle"></span>Settled</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panels-row">
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Recent Batches</span>
+          <a class="panel-action" href="#batches">View All</a>
+        </div>
+        <div class="panel-body flush">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>Batch</th><th>Txns</th><th>Status</th><th>Height</th><th>Time</th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="mono">#12</td><td>14</td><td><span class="badge badge-success">Settled</span></td><td class="mono">24</td><td class="text-muted">2 min ago</td></tr>
+                <tr><td class="mono">#11</td><td>11</td><td><span class="badge badge-success">Settled</span></td><td class="mono">23</td><td class="text-muted">18 min ago</td></tr>
+                <tr><td class="mono">#10</td><td>16</td><td><span class="badge badge-success">Settled</span></td><td class="mono">22</td><td class="text-muted">34 min ago</td></tr>
+                <tr><td class="mono">#9</td><td>12</td><td><span class="badge badge-success">Settled</span></td><td class="mono">21</td><td class="text-muted">51 min ago</td></tr>
+                <tr><td class="mono">#8</td><td>15</td><td><span class="badge badge-success">Settled</span></td><td class="mono">20</td><td class="text-muted">1 hr ago</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Recent Receipts</span>
+          <a class="panel-action" href="#receipts">View All</a>
+        </div>
+        <div class="panel-body flush">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>Receipt</th><th>Type</th><th>Status</th><th>Batch</th><th>Time</th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="mono truncate">rcpt-a8f3e1</td><td><span class="badge badge-info">Transition</span></td><td><span class="badge badge-success">Settled</span></td><td class="mono">#12</td><td class="text-muted">2 min ago</td></tr>
+                <tr><td class="mono truncate">rcpt-7b2c44</td><td><span class="badge badge-purple">Registration</span></td><td><span class="badge badge-success">Settled</span></td><td class="mono">#12</td><td class="text-muted">5 min ago</td></tr>
+                <tr><td class="mono truncate">rcpt-d91f08</td><td><span class="badge badge-info">Transition</span></td><td><span class="badge badge-success">Settled</span></td><td class="mono">#12</td><td class="text-muted">8 min ago</td></tr>
+                <tr><td class="mono truncate">rcpt-c54a19</td><td><span class="badge badge-info">Transition</span></td><td><span class="badge badge-warning">Pending</span></td><td class="mono">--</td><td class="text-muted">11 min ago</td></tr>
+                <tr><td class="mono truncate">rcpt-e62d77</td><td><span class="badge badge-purple">Registration</span></td><td><span class="badge badge-success">Settled</span></td><td class="mono">#11</td><td class="text-muted">14 min ago</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live Event Log (wired to pipeline) -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Live Event Log</span>
+        <span class="badge badge-live">SSE Connected</span>
+      </div>
+      <div class="panel-body flush">
+        <div class="event-log" id="event-log"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ BATCHES ════ -->
+  <section id="page-batches" class="page hidden">
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">All Batches</span>
+        <span class="text-muted text-sm">12 total</span>
+      </div>
+      <div class="panel-body flush">
+        <div class="table-wrap">
+          <table class="data-table" id="batches-table">
+            <thead>
+              <tr><th>Batch</th><th>Registrations</th><th>Transitions</th><th>Status</th><th>Proof Time</th><th>Chain Proof</th><th>Height</th><th></th></tr>
+            </thead>
+            <tbody>
+              <tr class="batch-row" data-id="12"><td class="mono">#12</td><td>2</td><td>12</td><td><span class="badge badge-success">Settled</span></td><td class="mono">4.2s</td><td class="mono truncate">ChainProof(0x8a1b...)</td><td class="mono">24</td><td><button class="btn btn-sm btn-outline" onclick="toggleBatch(12)">Detail</button></td></tr>
+              <tr class="batch-detail hidden" id="bd-12"><td colspan="8"><div class="detail-grid"><div class="detail-key">Batch Number</div><div class="detail-val mono">12</div><div class="detail-key">Registrations</div><div class="detail-val">2 wallets registered</div><div class="detail-key">Transitions</div><div class="detail-val">12 state transitions</div><div class="detail-key">Batch Proof</div><div class="detail-val mono">BatchProof(0x4e8a9b1c2d3e4f5a6b7c8d9e0f1a2b3c)</div><div class="detail-key">Chain Proof</div><div class="detail-val mono">ChainProof(0x8a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d)</div><div class="detail-key">Prove Duration</div><div class="detail-val">4.2 seconds</div><div class="detail-key">Block Height</div><div class="detail-val mono">24</div><div class="detail-key">Wallet Reg Root</div><div class="detail-val mono">0xf1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6</div><div class="detail-key">Claim Acc Root</div><div class="detail-val mono">0x7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a</div><div class="detail-key">Message Root</div><div class="detail-val mono">0x3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e</div><div class="detail-key">Created At</div><div class="detail-val">2026-03-08 14:32:18 UTC</div></div></td></tr>
+
+              <tr class="batch-row" data-id="11"><td class="mono">#11</td><td>1</td><td>10</td><td><span class="badge badge-success">Settled</span></td><td class="mono">3.8s</td><td class="mono truncate">ChainProof(0x7c2d...)</td><td class="mono">23</td><td><button class="btn btn-sm btn-outline" onclick="toggleBatch(11)">Detail</button></td></tr>
+              <tr class="batch-detail hidden" id="bd-11"><td colspan="8"><div class="detail-grid"><div class="detail-key">Batch Number</div><div class="detail-val mono">11</div><div class="detail-key">Registrations</div><div class="detail-val">1 wallet</div><div class="detail-key">Transitions</div><div class="detail-val">10 state transitions</div><div class="detail-key">Prove Duration</div><div class="detail-val">3.8 seconds</div><div class="detail-key">Block Height</div><div class="detail-val mono">23</div><div class="detail-key">Created At</div><div class="detail-val">2026-03-08 14:14:22 UTC</div></div></td></tr>
+
+              <tr class="batch-row" data-id="10"><td class="mono">#10</td><td>3</td><td>13</td><td><span class="badge badge-success">Settled</span></td><td class="mono">5.1s</td><td class="mono truncate">ChainProof(0x6b3e...)</td><td class="mono">22</td><td><button class="btn btn-sm btn-outline" onclick="toggleBatch(10)">Detail</button></td></tr>
+              <tr class="batch-detail hidden" id="bd-10"><td colspan="8"><div class="detail-grid"><div class="detail-key">Batch Number</div><div class="detail-val mono">10</div><div class="detail-key">Registrations</div><div class="detail-val">3 wallets</div><div class="detail-key">Transitions</div><div class="detail-val">13 state transitions</div><div class="detail-key">Prove Duration</div><div class="detail-val">5.1 seconds</div><div class="detail-key">Block Height</div><div class="detail-val mono">22</div><div class="detail-key">Created At</div><div class="detail-val">2026-03-08 13:58:45 UTC</div></div></td></tr>
+
+              <tr class="batch-row" data-id="9"><td class="mono">#9</td><td>1</td><td>11</td><td><span class="badge badge-success">Settled</span></td><td class="mono">3.6s</td><td class="mono truncate">ChainProof(0x5a4f...)</td><td class="mono">21</td><td><button class="btn btn-sm btn-outline" onclick="toggleBatch(9)">Detail</button></td></tr>
+              <tr class="batch-detail hidden" id="bd-9"><td colspan="8"><div class="detail-grid"><div class="detail-key">Batch Number</div><div class="detail-val mono">9</div><div class="detail-key">Prove Duration</div><div class="detail-val">3.6 seconds</div><div class="detail-key">Block Height</div><div class="detail-val mono">21</div><div class="detail-key">Created At</div><div class="detail-val">2026-03-08 13:43:11 UTC</div></div></td></tr>
+
+              <tr class="batch-row" data-id="8"><td class="mono">#8</td><td>2</td><td>13</td><td><span class="badge badge-success">Settled</span></td><td class="mono">4.5s</td><td class="mono truncate">ChainProof(0x4d5a...)</td><td class="mono">20</td><td><button class="btn btn-sm btn-outline" onclick="toggleBatch(8)">Detail</button></td></tr>
+              <tr class="batch-detail hidden" id="bd-8"><td colspan="8"><div class="detail-grid"><div class="detail-key">Batch Number</div><div class="detail-val mono">8</div><div class="detail-key">Prove Duration</div><div class="detail-val">4.5 seconds</div><div class="detail-key">Block Height</div><div class="detail-val mono">20</div><div class="detail-key">Created At</div><div class="detail-val">2026-03-08 13:27:38 UTC</div></div></td></tr>
+
+              <tr class="batch-row" data-id="7"><td class="mono">#7</td><td>2</td><td>11</td><td><span class="badge badge-success">Settled</span></td><td class="mono">3.9s</td><td class="mono truncate">ChainProof(0x3c6b...)</td><td class="mono">19</td><td><button class="btn btn-sm btn-outline" onclick="toggleBatch(7)">Detail</button></td></tr>
+              <tr class="batch-detail hidden" id="bd-7"><td colspan="8"><div class="detail-grid"><div class="detail-key">Batch Number</div><div class="detail-val mono">7</div><div class="detail-key">Prove Duration</div><div class="detail-val">3.9 seconds</div><div class="detail-key">Block Height</div><div class="detail-val mono">19</div><div class="detail-key">Created At</div><div class="detail-val">2026-03-08 13:12:04 UTC</div></div></td></tr>
+
+              <tr class="batch-row" data-id="6"><td class="mono">#6</td><td>3</td><td>14</td><td><span class="badge badge-success">Settled</span></td><td class="mono">5.3s</td><td class="mono truncate">ChainProof(0x2b7c...)</td><td class="mono">18</td><td><button class="btn btn-sm btn-outline" onclick="toggleBatch(6)">Detail</button></td></tr>
+              <tr class="batch-detail hidden" id="bd-6"><td colspan="8"><div class="detail-grid"><div class="detail-key">Batch Number</div><div class="detail-val mono">6</div><div class="detail-key">Prove Duration</div><div class="detail-val">5.3 seconds</div><div class="detail-key">Block Height</div><div class="detail-val mono">18</div><div class="detail-key">Created At</div><div class="detail-val">2026-03-08 12:56:29 UTC</div></div></td></tr>
+
+              <tr class="batch-row" data-id="5"><td class="mono">#5</td><td>1</td><td>10</td><td><span class="badge badge-success">Settled</span></td><td class="mono">3.4s</td><td class="mono truncate">ChainProof(0x1a8d...)</td><td class="mono">17</td><td><button class="btn btn-sm btn-outline" onclick="toggleBatch(5)">Detail</button></td></tr>
+              <tr class="batch-detail hidden" id="bd-5"><td colspan="8"><div class="detail-grid"><div class="detail-key">Batch Number</div><div class="detail-val mono">5</div><div class="detail-key">Prove Duration</div><div class="detail-val">3.4 seconds</div><div class="detail-key">Block Height</div><div class="detail-val mono">17</div><div class="detail-key">Created At</div><div class="detail-val">2026-03-08 12:41:55 UTC</div></div></td></tr>
+
+              <tr class="batch-row" data-id="4"><td class="mono">#4</td><td>4</td><td>9</td><td><span class="badge badge-success">Settled</span></td><td class="mono">4.7s</td><td class="mono truncate">ChainProof(0x0f9e...)</td><td class="mono">16</td><td><button class="btn btn-sm btn-outline" onclick="toggleBatch(4)">Detail</button></td></tr>
+              <tr class="batch-detail hidden" id="bd-4"><td colspan="8"><div class="detail-grid"><div class="detail-key">Batch Number</div><div class="detail-val mono">4</div><div class="detail-key">Prove Duration</div><div class="detail-val">4.7 seconds</div><div class="detail-key">Block Height</div><div class="detail-val mono">16</div><div class="detail-key">Created At</div><div class="detail-val">2026-03-08 12:26:18 UTC</div></div></td></tr>
+
+              <tr class="batch-row" data-id="3"><td class="mono">#3</td><td>5</td><td>8</td><td><span class="badge badge-success">Settled</span></td><td class="mono">4.1s</td><td class="mono truncate">ChainProof(0xe1af...)</td><td class="mono">15</td><td><button class="btn btn-sm btn-outline" onclick="toggleBatch(3)">Detail</button></td></tr>
+              <tr class="batch-detail hidden" id="bd-3"><td colspan="8"><div class="detail-grid"><div class="detail-key">Batch Number</div><div class="detail-val mono">3</div><div class="detail-key">Prove Duration</div><div class="detail-val">4.1 seconds</div><div class="detail-key">Block Height</div><div class="detail-val mono">15</div><div class="detail-key">Created At</div><div class="detail-val">2026-03-08 12:11:42 UTC</div></div></td></tr>
+
+              <tr class="batch-row" data-id="2"><td class="mono">#2</td><td>8</td><td>5</td><td><span class="badge badge-success">Settled</span></td><td class="mono">5.6s</td><td class="mono truncate">ChainProof(0xd2b0...)</td><td class="mono">14</td><td><button class="btn btn-sm btn-outline" onclick="toggleBatch(2)">Detail</button></td></tr>
+              <tr class="batch-detail hidden" id="bd-2"><td colspan="8"><div class="detail-grid"><div class="detail-key">Batch Number</div><div class="detail-val mono">2</div><div class="detail-key">Prove Duration</div><div class="detail-val">5.6 seconds</div><div class="detail-key">Block Height</div><div class="detail-val mono">14</div><div class="detail-key">Created At</div><div class="detail-val">2026-03-08 11:56:08 UTC</div></div></td></tr>
+
+              <tr class="batch-row" data-id="1"><td class="mono">#1</td><td>15</td><td>0</td><td><span class="badge badge-success">Settled</span></td><td class="mono">6.2s</td><td class="mono truncate">ChainProof(0xc3c1...)</td><td class="mono">13</td><td><button class="btn btn-sm btn-outline" onclick="toggleBatch(1)">Detail</button></td></tr>
+              <tr class="batch-detail hidden" id="bd-1"><td colspan="8"><div class="detail-grid"><div class="detail-key">Batch Number</div><div class="detail-val mono">1</div><div class="detail-key">Registrations</div><div class="detail-val">15 wallets (genesis batch)</div><div class="detail-key">Transitions</div><div class="detail-val">0</div><div class="detail-key">Prove Duration</div><div class="detail-val">6.2 seconds</div><div class="detail-key">Block Height</div><div class="detail-val mono">13</div><div class="detail-key">Created At</div><div class="detail-val">2026-03-08 11:40:00 UTC</div></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ RECEIPTS ════ -->
+  <section id="page-receipts" class="page hidden">
+    <div class="search-bar">
+      <input class="form-input mono" id="receipt-search" placeholder="Search by receipt ID or wallet ID...">
+      <button class="btn btn-primary" onclick="filterReceipts()">Search</button>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">All Receipts</span>
+        <span class="text-muted text-sm">47 total</span>
+      </div>
+      <div class="panel-body flush">
+        <div class="table-wrap">
+          <table class="data-table" id="receipts-table">
+            <thead>
+              <tr><th>Receipt ID</th><th>Wallet</th><th>Type</th><th>Status</th><th>Batch</th><th>Timestamp</th></tr>
+            </thead>
+            <tbody>
+              <tr class="rcpt-row"><td class="mono truncate">rcpt-a8f3e1</td><td class="mono truncate">0x7a3b...e4f1</td><td><span class="badge badge-info">Transition</span></td><td><span class="badge badge-success">Settled</span></td><td class="mono">#12</td><td class="text-muted">2026-03-08 14:32</td></tr>
+              <tr class="rcpt-row"><td class="mono truncate">rcpt-7b2c44</td><td class="mono truncate">0x9e1d...b2a7</td><td><span class="badge badge-purple">Registration</span></td><td><span class="badge badge-success">Settled</span></td><td class="mono">#12</td><td class="text-muted">2026-03-08 14:29</td></tr>
+              <tr class="rcpt-row"><td class="mono truncate">rcpt-d91f08</td><td class="mono truncate">0x3f8a...c9d2</td><td><span class="badge badge-info">Transition</span></td><td><span class="badge badge-success">Settled</span></td><td class="mono">#12</td><td class="text-muted">2026-03-08 14:26</td></tr>
+              <tr class="rcpt-row"><td class="mono truncate">rcpt-c54a19</td><td class="mono truncate">0x2d4e...a1b3</td><td><span class="badge badge-info">Transition</span></td><td><span class="badge badge-warning">Pending</span></td><td class="mono">--</td><td class="text-muted">2026-03-08 14:23</td></tr>
+              <tr class="rcpt-row"><td class="mono truncate">rcpt-e62d77</td><td class="mono truncate">0x5c7d...f8a2</td><td><span class="badge badge-purple">Registration</span></td><td><span class="badge badge-success">Settled</span></td><td class="mono">#11</td><td class="text-muted">2026-03-08 14:16</td></tr>
+              <tr class="rcpt-row"><td class="mono truncate">rcpt-3af901</td><td class="mono truncate">0x8b1c...d4e5</td><td><span class="badge badge-info">Transition</span></td><td><span class="badge badge-success">Settled</span></td><td class="mono">#11</td><td class="text-muted">2026-03-08 14:12</td></tr>
+              <tr class="rcpt-row"><td class="mono truncate">rcpt-bb10e5</td><td class="mono truncate">0x6a9b...e3f4</td><td><span class="badge badge-info">Transition</span></td><td><span class="badge badge-success">Settled</span></td><td class="mono">#11</td><td class="text-muted">2026-03-08 14:08</td></tr>
+              <tr class="rcpt-row"><td class="mono truncate">rcpt-19ca83</td><td class="mono truncate">0x4f2a...b6c7</td><td><span class="badge badge-purple">Registration</span></td><td><span class="badge badge-success">Settled</span></td><td class="mono">#10</td><td class="text-muted">2026-03-08 14:01</td></tr>
+              <tr class="rcpt-row"><td class="mono truncate">rcpt-f47b22</td><td class="mono truncate">0xd1e2...f3a4</td><td><span class="badge badge-info">Transition</span></td><td><span class="badge badge-success">Settled</span></td><td class="mono">#10</td><td class="text-muted">2026-03-08 13:55</td></tr>
+              <tr class="rcpt-row"><td class="mono truncate">rcpt-82ae01</td><td class="mono truncate">0xe3f4...a5b6</td><td><span class="badge badge-purple">Registration</span></td><td><span class="badge badge-success">Settled</span></td><td class="mono">#10</td><td class="text-muted">2026-03-08 13:52</td></tr>
+              <tr class="rcpt-row"><td class="mono truncate">rcpt-dd9c34</td><td class="mono truncate">0xf5a6...b7c8</td><td><span class="badge badge-info">Transition</span></td><td><span class="badge badge-success">Settled</span></td><td class="mono">#10</td><td class="text-muted">2026-03-08 13:48</td></tr>
+              <tr class="rcpt-row"><td class="mono truncate">rcpt-5e1a77</td><td class="mono truncate">0xa5b6...c7d8</td><td><span class="badge badge-info">Transition</span></td><td><span class="badge badge-success">Settled</span></td><td class="mono">#9</td><td class="text-muted">2026-03-08 13:43</td></tr>
+              <tr class="rcpt-row"><td class="mono truncate">rcpt-aa03f9</td><td class="mono truncate">0xb7c8...d9e0</td><td><span class="badge badge-purple">Registration</span></td><td><span class="badge badge-success">Settled</span></td><td class="mono">#9</td><td class="text-muted">2026-03-08 13:40</td></tr>
+              <tr class="rcpt-row"><td class="mono truncate">rcpt-cc88b1</td><td class="mono truncate">0xc9d0...e1f2</td><td><span class="badge badge-info">Transition</span></td><td><span class="badge badge-success">Settled</span></td><td class="mono">#9</td><td class="text-muted">2026-03-08 13:36</td></tr>
+              <tr class="rcpt-row"><td class="mono truncate">rcpt-11df44</td><td class="mono truncate">0x1b3c...d5e6</td><td><span class="badge badge-info">Transition</span></td><td><span class="badge badge-success">Settled</span></td><td class="mono">#8</td><td class="text-muted">2026-03-08 13:27</td></tr>
+              <tr class="rcpt-row"><td class="mono truncate">rcpt-66ea22</td><td class="mono truncate">0x7a3b...e4f1</td><td><span class="badge badge-info">Transition</span></td><td><span class="badge badge-success">Settled</span></td><td class="mono">#8</td><td class="text-muted">2026-03-08 13:23</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ WALLETS ════ -->
+  <section id="page-wallets" class="page hidden">
+    <div class="search-bar">
+      <input class="form-input mono" id="wallet-search" placeholder="Enter wallet ID to look up...">
+      <button class="btn btn-primary" onclick="lookupWallet()">Lookup</button>
+    </div>
+
+    <div class="panel mb-6" id="wallet-result">
+      <div class="panel-header">
+        <span class="panel-title">Wallet Details</span>
+      </div>
+      <div class="panel-body">
+        <div class="detail-grid">
+          <div class="detail-key">Wallet ID</div><div class="detail-val mono">0x7a3b8c9d1e2f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8e4f1</div>
+          <div class="detail-key">Lifecycle State</div><div class="detail-val"><span class="badge badge-success">ACTIVE (3)</span></div>
+          <div class="detail-key">Registered In</div><div class="detail-val">Batch #1 (genesis)</div>
+          <div class="detail-key">Total Receipts</div><div class="detail-val">6</div>
+          <div class="detail-key">Total Claims</div><div class="detail-val">4</div>
+          <div class="detail-key">Deductible Used</div><div class="detail-val mono">$42.00 of $500.00</div>
+          <div class="detail-key">Out-of-Pocket</div><div class="detail-val mono">$52.00 of $3,000.00</div>
+          <div class="detail-key">Forest Root</div><div class="detail-val mono">Poseidon(0xa1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panels-row">
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Wallet Receipts</span>
+        </div>
+        <div class="panel-body flush">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>Receipt</th><th>Type</th><th>Batch</th><th>Time</th></tr></thead>
+              <tbody>
+                <tr><td class="mono truncate">rcpt-a8f3e1</td><td><span class="badge badge-info">Transition</span></td><td class="mono">#12</td><td class="text-muted">14:32</td></tr>
+                <tr><td class="mono truncate">rcpt-66ea22</td><td><span class="badge badge-info">Transition</span></td><td class="mono">#8</td><td class="text-muted">13:23</td></tr>
+                <tr><td class="mono truncate">rcpt-f8c011</td><td><span class="badge badge-info">Transition</span></td><td class="mono">#5</td><td class="text-muted">12:41</td></tr>
+                <tr><td class="mono truncate">rcpt-ab3322</td><td><span class="badge badge-info">Transition</span></td><td class="mono">#3</td><td class="text-muted">12:11</td></tr>
+                <tr><td class="mono truncate">rcpt-dd7744</td><td><span class="badge badge-info">Transition</span></td><td class="mono">#2</td><td class="text-muted">11:56</td></tr>
+                <tr><td class="mono truncate">rcpt-001reg</td><td><span class="badge badge-purple">Registration</span></td><td class="mono">#1</td><td class="text-muted">11:40</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Wallet Claims</span>
+        </div>
+        <div class="panel-body flush">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>Drug</th><th>NDC</th><th>Patient</th><th>Plan</th><th>Date</th></tr></thead>
+              <tbody>
+                <tr><td>Atorvastatin 20mg</td><td class="mono">00069-1085-01</td><td class="mono">$15.00</td><td class="mono">$142.50</td><td class="text-muted">Mar 8</td></tr>
+                <tr><td>Metoprolol 25mg</td><td class="mono">00591-3747-01</td><td class="mono">$12.00</td><td class="mono">$38.90</td><td class="text-muted">Mar 7</td></tr>
+                <tr><td>Atorvastatin 20mg</td><td class="mono">00069-1085-01</td><td class="mono">$15.00</td><td class="mono">$142.50</td><td class="text-muted">Mar 5</td></tr>
+                <tr><td>Lisinopril 10mg</td><td class="mono">00006-0227-31</td><td class="mono">$10.00</td><td class="mono">$28.75</td><td class="text-muted">Mar 3</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ FORMULARY ════ -->
+  <section id="page-formulary" class="page hidden">
+    <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);">
+      <div class="stat-card">
+        <div class="stat-label">Tier 1 (Generic)</div>
+        <div class="stat-value text-success">9</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Tier 2 (Preferred)</div>
+        <div class="stat-value text-info">6</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Tier 3 (Non-Preferred)</div>
+        <div class="stat-value text-warning">5</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Tier 4 (Specialty)</div>
+        <div class="stat-value text-error">2</div>
+      </div>
+    </div>
+
+    <div class="search-bar">
+      <input class="form-input" id="formulary-search" placeholder="Search by drug name or NDC...">
+      <button class="btn btn-primary" onclick="filterFormulary()">Search</button>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Published Formulary</span>
+        <span class="text-muted text-sm">22 medications | MerkleTree(16)</span>
+      </div>
+      <div class="panel-body flush">
+        <div class="table-wrap">
+          <table class="data-table" id="formulary-table">
+            <thead>
+              <tr><th>Drug Name</th><th>NDC</th><th>Tier</th><th>Copay</th><th>Prior Auth</th><th>Quantity Limit</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Atorvastatin 20mg</td><td class="mono">00069-1085-01</td><td><span class="badge badge-t1">Tier 1</span></td><td class="mono">$15.00</td><td>No</td><td>90/90d</td></tr>
+              <tr><td>Lisinopril 10mg</td><td class="mono">00006-0227-31</td><td><span class="badge badge-t1">Tier 1</span></td><td class="mono">$10.00</td><td>No</td><td>90/90d</td></tr>
+              <tr><td>Metformin 500mg</td><td class="mono">00078-0587-05</td><td><span class="badge badge-t1">Tier 1</span></td><td class="mono">$5.00</td><td>No</td><td>180/90d</td></tr>
+              <tr><td>Amlodipine 5mg</td><td class="mono">00173-0899-00</td><td><span class="badge badge-t1">Tier 1</span></td><td class="mono">$12.00</td><td>No</td><td>90/90d</td></tr>
+              <tr><td>Omeprazole 20mg</td><td class="mono">00378-4125-01</td><td><span class="badge badge-t1">Tier 1</span></td><td class="mono">$10.00</td><td>No</td><td>90/90d</td></tr>
+              <tr><td>Levothyroxine 50mcg</td><td class="mono">00093-5264-01</td><td><span class="badge badge-t1">Tier 1</span></td><td class="mono">$8.00</td><td>No</td><td>90/90d</td></tr>
+              <tr><td>Metoprolol 25mg</td><td class="mono">00591-3747-01</td><td><span class="badge badge-t1">Tier 1</span></td><td class="mono">$12.00</td><td>No</td><td>90/90d</td></tr>
+              <tr><td>Losartan 50mg</td><td class="mono">00093-7180-01</td><td><span class="badge badge-t1">Tier 1</span></td><td class="mono">$10.00</td><td>No</td><td>90/90d</td></tr>
+              <tr><td>Gabapentin 300mg</td><td class="mono">00378-1800-01</td><td><span class="badge badge-t1">Tier 1</span></td><td class="mono">$10.00</td><td>No</td><td>270/90d</td></tr>
+              <tr><td>Sertraline 50mg</td><td class="mono">59762-5680-01</td><td><span class="badge badge-t2">Tier 2</span></td><td class="mono">$25.00</td><td>No</td><td>90/90d</td></tr>
+              <tr><td>Rosuvastatin 10mg</td><td class="mono">00310-0755-90</td><td><span class="badge badge-t2">Tier 2</span></td><td class="mono">$30.00</td><td>No</td><td>90/90d</td></tr>
+              <tr><td>Duloxetine 30mg</td><td class="mono">00002-3235-60</td><td><span class="badge badge-t2">Tier 2</span></td><td class="mono">$35.00</td><td>No</td><td>90/90d</td></tr>
+              <tr><td>Venlafaxine XR 75mg</td><td class="mono">00008-0833-01</td><td><span class="badge badge-t2">Tier 2</span></td><td class="mono">$30.00</td><td>No</td><td>90/90d</td></tr>
+              <tr><td>Pantoprazole 40mg</td><td class="mono">00008-0841-81</td><td><span class="badge badge-t2">Tier 2</span></td><td class="mono">$25.00</td><td>No</td><td>90/90d</td></tr>
+              <tr><td>Pregabalin 75mg</td><td class="mono">00071-1013-68</td><td><span class="badge badge-t2">Tier 2</span></td><td class="mono">$40.00</td><td>No</td><td>90/90d</td></tr>
+              <tr><td>Eliquis 5mg</td><td class="mono">00003-0894-31</td><td><span class="badge badge-t3">Tier 3</span></td><td class="mono">$75.00</td><td>Yes</td><td>60/30d</td></tr>
+              <tr><td>Jardiance 10mg</td><td class="mono">00597-0152-30</td><td><span class="badge badge-t3">Tier 3</span></td><td class="mono">$80.00</td><td>Yes</td><td>30/30d</td></tr>
+              <tr><td>Ozempic 1mg</td><td class="mono">00169-4132-12</td><td><span class="badge badge-t3">Tier 3</span></td><td class="mono">$100.00</td><td>Yes</td><td>4/28d</td></tr>
+              <tr><td>Entresto 49/51mg</td><td class="mono">00078-0696-15</td><td><span class="badge badge-t3">Tier 3</span></td><td class="mono">$90.00</td><td>Yes</td><td>60/30d</td></tr>
+              <tr><td>Xarelto 20mg</td><td class="mono">50458-0592-30</td><td><span class="badge badge-t3">Tier 3</span></td><td class="mono">$85.00</td><td>Yes</td><td>30/30d</td></tr>
+              <tr><td>Humira 40mg</td><td class="mono">00074-4339-02</td><td><span class="badge badge-t4">Tier 4</span></td><td class="mono">$250.00</td><td>Yes</td><td>2/28d</td></tr>
+              <tr><td>Stelara 45mg</td><td class="mono">57894-0060-03</td><td><span class="badge badge-t4">Tier 4</span></td><td class="mono">$300.00</td><td>Yes</td><td>1/84d</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ ADMIN ════ -->
+  <section id="page-admin" class="page hidden">
+    <div class="admin-token-bar">
+      <label class="form-label">Admin Token</label>
+      <div class="search-bar">
+        <input class="form-input mono" id="admin-token" type="password" placeholder="Enter admin authentication token...">
+        <button class="btn btn-primary" onclick="authAdmin()">Authenticate</button>
+      </div>
+    </div>
+
+    <div class="panels-row">
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Batch Control</span>
+        </div>
+        <div class="panel-body">
+          <div class="form-group">
+            <label class="form-label">Pending Proofs</label>
+            <input class="form-input mono" value="1 proof awaiting batch" readonly>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Batch Interval</label>
+            <input class="form-input mono" value="30 seconds (auto)" readonly>
+          </div>
+          <button class="btn btn-outline w-full mt-4" onclick="forceBatch()">Force Build Batch Now</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Formulary Management</span>
+        </div>
+        <div class="panel-body">
+          <div class="form-group">
+            <label class="form-label">Current Version</label>
+            <input class="form-input mono" value="v2026.03.08-r3" readonly>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Medications</label>
+            <input class="form-input mono" value="22 entries" readonly>
+          </div>
+          <button class="btn btn-outline w-full mt-4" onclick="publishFormulary()">Publish New Formulary</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Node Configuration</span>
+      </div>
+      <div class="panel-body">
+        <div class="detail-grid">
+          <div class="detail-key">Node ID</div><div class="detail-val mono">leviathan-a</div>
+          <div class="detail-key">Role</div><div class="detail-val">Sequencer (primary)</div>
+          <div class="detail-key">Partition</div><div class="detail-val mono">partition-0</div>
+          <div class="detail-key">Peers</div><div class="detail-val">3 connected (leviathan-b, leviathan-c, leviathan-d)</div>
+          <div class="detail-key">Gossip Protocol</div><div class="detail-val">Epidemic broadcast (6 message types)</div>
+          <div class="detail-key">WAL Status</div><div class="detail-val"><span class="badge badge-success">Active</span> FileWalProvider, 0 uncommitted entries</div>
+          <div class="detail-key">Quorum</div><div class="detail-val">3/4 nodes required (N/2+1)</div>
+          <div class="detail-key">Checkpoint</div><div class="detail-val">Last checkpoint at batch #12 (14:32:18 UTC)</div>
+          <div class="detail-key">Proving Pool</div><div class="detail-val">3 workers (2 idle, 1 proving)</div>
+          <div class="detail-key">Heartbeat</div><div class="detail-val">Every 5s, timeout 15s</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+<!-- Particle tooltip -->
+<div class="particle-tooltip" id="particle-tooltip"></div>
+
+</main>
+
+<!-- ── Footer ──────────────────────────────────────────────── -->
+<footer class="footer">
+  <div class="footer-inner">
+    <span>zkTrident Leviathan Explorer</span>
+    <span>&middot;</span>
+    <span>leviathan-a (sequencer)</span>
+    <span>&middot;</span>
+    <span>Block Height 24</span>
+    <span>&middot;</span>
+    <span>3 Peers Connected</span>
+  </div>
+</footer>
+
+<script>
+/* ══════════════════════════════════════════════════════════════
+   HASH ROUTER
+   ══════════════════════════════════════════════════════════════ */
+function navigate() {
+  const hash = location.hash.slice(1) || 'overview';
+  document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
+  const target = document.getElementById('page-' + hash);
+  if (target) target.classList.remove('hidden');
+  document.querySelectorAll('.nav-link').forEach(l => {
+    l.classList.toggle('active', l.getAttribute('href') === '#' + hash);
+  });
+}
+window.addEventListener('hashchange', navigate);
+navigate();
+
+/* ── Global Search ─── */
+document.getElementById('global-search').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    const q = this.value.trim();
+    if (q.startsWith('rcpt-')) { location.hash = 'receipts'; }
+    else if (q.startsWith('#') || q.match(/^\d+$/)) { location.hash = 'batches'; }
+    else if (q.startsWith('0x')) { location.hash = 'wallets'; }
+    else { location.hash = 'receipts'; }
+  }
+});
+
+/* ── Existing page utilities ─── */
+function toggleBatch(id) { const r = document.getElementById('bd-' + id); if (r) r.classList.toggle('hidden'); }
+function filterReceipts() { const q = document.getElementById('receipt-search').value.toLowerCase(); document.querySelectorAll('#receipts-table .rcpt-row').forEach(r => { r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none'; }); }
+function lookupWallet() { alert('Wallet lookup performed (demo mode). Showing default wallet data.'); }
+function filterFormulary() { const q = document.getElementById('formulary-search').value.toLowerCase(); document.querySelectorAll('#formulary-table tbody tr').forEach(r => { r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none'; }); }
+function authAdmin() { alert('Admin authenticated (demo mode).'); }
+function forceBatch() { pipe_forceBatch(); }
+function publishFormulary() { alert('New formulary version published (demo mode).'); }
+
+/* ══════════════════════════════════════════════════════════════
+   HELPERS
+   ══════════════════════════════════════════════════════════════ */
+function randHex(n) { let s = ''; for (let i = 0; i < n; i++) s += '0123456789abcdef'[Math.floor(Math.random()*16)]; return s; }
+function randId() { return 'rcpt-' + randHex(6); }
+function randWallet() { return '0x' + randHex(4) + '...' + randHex(4); }
+function nowTime() { const d = new Date(); return d.toTimeString().slice(0,8); }
+
+/* ══════════════════════════════════════════════════════════════
+   PIPELINE ENGINE (Particle Stream + Waterfall unified)
+   ══════════════════════════════════════════════════════════════ */
+const pipe = {
+  pending: [],
+  proving: [],
+  batching: [],
+  settledCount: 156,
+  totalProcessed: 156,
+  batchCount: 12,
+  blockHeight: 24,
+  startTime: Date.now(),
+  idCounter: 0,
+  proveTimes: [4.2, 3.8, 5.1, 3.6, 4.5],
+  workers: [
+    { busy: false, proofId: null },
+    { busy: false, proofId: null },
+    { busy: false, proofId: null },
+  ],
+  BATCH_THRESHOLD: 5,
+  BATCH_TIMER: 8000,
+  batchTimerHandle: null,
+};
+
+/* ── Stage position helpers ────────────────────── */
+function stageRect(stageClass) {
+  const canvas = document.getElementById('stream-canvas');
+  const stage = canvas.querySelector('.' + stageClass);
+  if (!stage) return { x: 0, y: 0, w: 0, h: 0 };
+  return { x: stage.offsetLeft, y: stage.offsetTop, w: stage.offsetWidth, h: stage.offsetHeight };
+}
+
+/* ── Tooltip system ───────────────────────────── */
+const tooltip = document.getElementById('particle-tooltip');
+let tooltipTarget = null;
+
+function showTooltip(obj, el) {
+  tooltipTarget = obj;
+  const stageClass = 'tt-stage-' + obj.stage;
+  const typeLabel = obj.type === 'reg' ? 'Registration' : 'StateTransition';
+  const elapsed = obj.stage === 'proving' ? ((Date.now() - obj.proveStart) / 1000).toFixed(1) + 's' : '';
+  const workerLabel = obj.workerIdx !== undefined && obj.workerIdx !== null ? 'W-' + (obj.workerIdx + 1) : '--';
+  tooltip.innerHTML =
+    '<div><span class="tt-label">Receipt </span><span class="tt-id">' + obj.id + '</span></div>' +
+    '<div><span class="tt-label">Type </span>' + typeLabel + '</div>' +
+    '<div><span class="tt-label">Wallet </span>' + obj.wallet + '</div>' +
+    '<div><span class="tt-label">Stage </span><span class="' + stageClass + '">' + obj.stage.toUpperCase() + '</span></div>' +
+    (obj.stage === 'proving' ? '<div><span class="tt-label">Worker </span>' + workerLabel + '  <span class="tt-label">Elapsed </span>' + elapsed + '</div>' : '') +
+    (obj.stage === 'batching' ? '<div><span class="tt-label">Proved in </span>' + ((obj.proveEnd - obj.proveStart) / 1000).toFixed(1) + 's</div>' : '');
+  const rect = el.getBoundingClientRect();
+  tooltip.style.left = (rect.left + rect.width / 2 + window.scrollX) + 'px';
+  tooltip.style.top = (rect.top - 8 + window.scrollY) + 'px';
+  tooltip.style.transform = 'translate(-50%, -100%)';
+  tooltip.classList.add('visible');
+}
+
+function hideTooltip() {
+  tooltip.classList.remove('visible');
+  tooltipTarget = null;
+}
+
+/* ── Create particle DOM ───────────────────────── */
+function createParticle(type, obj) {
+  const p = document.createElement('div');
+  p.className = 'particle p-' + type;
+  p.addEventListener('mouseenter', () => showTooltip(obj, p));
+  p.addEventListener('mouseleave', hideTooltip);
+  document.getElementById('stream-canvas').appendChild(p);
+  return p;
+}
+
+/* ── Submit a single proof ─────────────────────── */
+function pipe_submit() {
+  const isReg = Math.random() > 0.7;
+  const type = isReg ? 'reg' : 'txn';
+  const id = randId();
+  const wallet = randWallet();
+
+  // Create obj first (particle needs ref)
+  const obj = { el: null, id, wallet, type, stage: 'pending', wfRow: null, proveStart: 0, proveEnd: 0, workerIdx: null };
+  const el = createParticle(type, obj);
+  obj.el = el;
+  const sr = stageRect('ss-pending');
+  const slot = pipe.pending.length;
+  const col = slot % 3, row = Math.floor(slot / 3);
+  el.style.left = '-18px';
+  el.style.top = (sr.y + sr.h / 2) + 'px';
+
+  pipe.pending.push(obj);
+
+  // Animate into pending
+  requestAnimationFrame(() => {
+    el.style.left = (sr.x + 20 + col * 20) + 'px';
+    el.style.top = (sr.y + 20 + row * 20) + 'px';
+  });
+
+  // Add waterfall row (in queued state)
+  obj.wfRow = wf_addRow(id, type, wallet);
+
+  // Event log
+  logEvent('proof:accepted', (isReg ? 'Registration' : 'StateTransition') + 'Proof accepted for wallet ' + wallet + ' (' + id + ')');
+
+  pipe_updateCounts();
+  pipe_tryProcess();
+  pipe_resetBatchTimer();
+}
+
+function pipe_burst() { for (let i = 0; i < 5; i++) setTimeout(() => pipe_submit(), i * 250); }
+
+/* ── Try to move pending → proving (lands on worker) ── */
+function pipe_tryProcess() {
+  // Find idle worker
+  const workerIdx = pipe.workers.findIndex(w => !w.busy);
+  if (workerIdx === -1 || pipe.pending.length === 0) return;
+
+  const obj = pipe.pending.shift();
+  obj.stage = 'proving';
+  obj.proveStart = Date.now();
+  obj.workerIdx = workerIdx;
+  pipe.proving.push(obj);
+  pipe.workers[workerIdx].busy = true;
+  pipe.workers[workerIdx].proofId = obj.id;
+
+  // Move particle onto the worker box
+  const workerBox = document.getElementById('sw-' + workerIdx);
+  const dotSlot = document.getElementById('sw-dot-' + workerIdx);
+  if (workerBox && dotSlot) {
+    const canvas = document.getElementById('stream-canvas');
+    const canvasRect = canvas.getBoundingClientRect();
+    const slotRect = dotSlot.getBoundingClientRect();
+    obj.el.style.left = (slotRect.left - canvasRect.left + slotRect.width / 2 - 6) + 'px';
+    obj.el.style.top = (slotRect.top - canvasRect.top + slotRect.height / 2 - 6) + 'px';
+    dotSlot.classList.add('sw-dot-active');
+  }
+  obj.el.classList.add('p-glow');
+
+  // Update worker box
+  pipe_updateWorker(workerIdx, 'proving', obj.id);
+
+  // Update waterfall row to proving
+  wf_updateStage(obj.wfRow, 'proving');
+
+  // Re-layout pending particles
+  pipe_relayoutPending();
+  pipe_updateCounts();
+
+  // Proving takes 1.5–3.5s
+  const proveTime = 1500 + Math.random() * 2000;
+  setTimeout(() => {
+    obj.el.classList.remove('p-glow');
+    obj.stage = 'batching';
+    obj.proveEnd = Date.now();
+    obj.workerIdx = null;
+    pipe.proving = pipe.proving.filter(p => p.id !== obj.id);
+    pipe.batching.push(obj);
+    pipe.workers[workerIdx].busy = false;
+    pipe.workers[workerIdx].proofId = null;
+
+    // Clear dot slot
+    const slot = document.getElementById('sw-dot-' + workerIdx);
+    if (slot) slot.classList.remove('sw-dot-active');
+
+    // Record prove time
+    pipe.proveTimes.push((obj.proveEnd - obj.proveStart) / 1000);
+    if (pipe.proveTimes.length > 20) pipe.proveTimes.shift();
+
+    // Move particle to batching zone + flash animation
+    const br = stageRect('ss-batching');
+    const bSlot = pipe.batching.length - 1;
+    obj.el.style.left = (br.x + 15 + (bSlot % 3) * 18) + 'px';
+    obj.el.style.top = (br.y + 18 + Math.floor(bSlot / 3) * 18) + 'px';
+    obj.el.classList.add('p-batch-flash');
+
+    wf_updateStage(obj.wfRow, 'batching');
+    pipe_updateWorker(workerIdx, 'idle', null);
+    pipe_relayoutProving();
+    pipe_updateCounts();
+    pipe_tryProcess(); // pull next pending
+
+    // Auto-batch at threshold
+    if (pipe.batching.length >= pipe.BATCH_THRESHOLD) {
+      setTimeout(() => pipe_forceBatch(), 300);
+    }
+  }, proveTime);
+}
+
+/* ── Force batch settlement ────────────────────── */
+function pipe_forceBatch() {
+  if (pipe.batching.length === 0) return;
+  const count = pipe.batching.length;
+  pipe.batchCount++;
+  pipe.blockHeight++;
+  pipe.settledCount += count;
+  pipe.totalProcessed += count;
+
+  // Animate all batching particles: move to settled → green blink 3x → explode
+  const sr = stageRect('ss-settled');
+  pipe.batching.forEach((obj, i) => {
+    obj.stage = 'settled';
+    obj.el.classList.remove('p-batch-flash');
+    // Move to settled zone
+    obj.el.style.left = (sr.x + 15 + (i % 4) * 16) + 'px';
+    obj.el.style.top = (sr.y + sr.h / 2 + 10) + 'px';
+    // After landing (transition 0.7s), start green blink + explode
+    setTimeout(() => {
+      obj.el.classList.add('p-settle-blink');
+      // Spawn explosion ring at same position
+      setTimeout(() => {
+        const ring = document.createElement('div');
+        ring.className = 'p-explode-ring';
+        ring.style.left = obj.el.style.left;
+        ring.style.top = obj.el.style.top;
+        document.getElementById('stream-canvas').appendChild(ring);
+        setTimeout(() => ring.remove(), 600);
+      }, 600);
+    }, 100);
+    wf_updateStage(obj.wfRow, 'settled');
+    setTimeout(() => obj.el.remove(), 1000);
+  });
+
+  pipe.batching = [];
+  pipe_updateCounts();
+
+  // Log events
+  const regs = count > 2 ? Math.floor(Math.random() * 2) + 1 : 0;
+  const txns = count - regs;
+  logEvent('batch:built', 'Batch #' + pipe.batchCount + ' built with ' + regs + ' registration' + (regs !== 1 ? 's' : '') + ' + ' + txns + ' transition' + (txns !== 1 ? 's' : ''));
+  setTimeout(() => {
+    logEvent('batch:settled', 'Batch #' + pipe.batchCount + ' settled at block height ' + pipe.blockHeight + ' (' + count + ' txns)');
+  }, 400);
+
+  // Update stat cards
+  const statValues = document.querySelectorAll('#page-overview .stat-value');
+  if (statValues[0]) statValues[0].textContent = pipe.blockHeight;
+  if (statValues[1]) statValues[1].textContent = pipe.totalProcessed;
+  if (statValues[2]) statValues[2].textContent = pipe.batchCount;
+
+  pipe_resetBatchTimer();
+}
+
+/* ── Batch timer: auto-batch after interval ────── */
+function pipe_resetBatchTimer() {
+  if (pipe.batchTimerHandle) clearTimeout(pipe.batchTimerHandle);
+  if (pipe.batching.length > 0) {
+    pipe.batchTimerHandle = setTimeout(() => {
+      if (pipe.batching.length > 0) pipe_forceBatch();
+    }, pipe.BATCH_TIMER);
+  }
+}
+
+/* ── Layout helpers ────────────────────────────── */
+function pipe_relayoutPending() {
+  const sr = stageRect('ss-pending');
+  pipe.pending.forEach((obj, i) => {
+    const col = i % 3, row = Math.floor(i / 3);
+    obj.el.style.left = (sr.x + 20 + col * 20) + 'px';
+    obj.el.style.top = (sr.y + 20 + row * 20) + 'px';
+  });
+}
+function pipe_relayoutProving() {
+  // Each proving particle is on its worker — re-snap positions
+  pipe.proving.forEach(obj => {
+    if (obj.workerIdx == null) return;
+    const dotSlot = document.getElementById('sw-dot-' + obj.workerIdx);
+    if (!dotSlot) return;
+    const canvas = document.getElementById('stream-canvas');
+    const canvasRect = canvas.getBoundingClientRect();
+    const slotRect = dotSlot.getBoundingClientRect();
+    obj.el.style.left = (slotRect.left - canvasRect.left + slotRect.width / 2 - 6) + 'px';
+    obj.el.style.top = (slotRect.top - canvasRect.top + slotRect.height / 2 - 6) + 'px';
+  });
+}
+
+/* ── Worker box updates ────────────────────────── */
+function pipe_updateWorker(idx, state, proofId) {
+  const box = document.getElementById('sw-' + idx);
+  if (!box) return;
+  box.className = 'sw-box sw-' + (state === 'proving' ? 'busy' : 'idle');
+  const status = box.querySelector('.sw-status');
+  if (state === 'proving') {
+    status.textContent = proofId ? proofId.slice(0, 11) : 'Proving';
+  } else {
+    status.textContent = 'Idle';
+  }
+}
+
+/* ── Count/stat updates ────────────────────────── */
+function pipe_updateCounts() {
+  document.getElementById('pipe-pending').textContent = pipe.pending.length;
+  document.getElementById('pipe-proving').textContent = pipe.proving.length;
+  document.getElementById('pipe-batching').textContent = pipe.batching.length;
+  document.getElementById('pipe-settled').textContent = pipe.settledCount;
+
+  // Sub labels
+  const provSub = document.getElementById('pipe-proving-sub');
+  provSub.textContent = pipe.workers.filter(w => w.busy).length + '/' + pipe.workers.length + ' workers';
+  const batchSub = document.getElementById('pipe-batch-sub');
+  batchSub.textContent = pipe.batching.length > 0 ? (pipe.batching.length + '/' + pipe.BATCH_THRESHOLD + ' threshold') : '';
+
+  // Throughput strip
+  document.getElementById('tp-total').textContent = pipe.totalProcessed;
+  document.getElementById('tp-batches').textContent = pipe.batchCount;
+  const elapsed = (Date.now() - pipe.startTime) / 1000;
+  const recentProcessed = pipe.totalProcessed - 156; // subtract seed
+  document.getElementById('tp-tps').textContent = elapsed > 2 ? (recentProcessed / elapsed).toFixed(1) : '0.0';
+  const avg = pipe.proveTimes.length > 0 ? (pipe.proveTimes.reduce((a, b) => a + b, 0) / pipe.proveTimes.length) : 0;
+  document.getElementById('tp-avg').textContent = avg.toFixed(1) + 's';
+}
+
+/* ══════════════════════════════════════════════════════════════
+   PROOF WATERFALL
+   ══════════════════════════════════════════════════════════════ */
+let wfRowCount = 0;
+
+function wf_addRow(id, type, wallet) {
+  wfRowCount++;
+  const container = document.getElementById('wf-rows');
+  const isReg = type === 'reg';
+  const typeClass = isReg ? 'wf-badge-reg' : 'wf-badge-txn';
+  const typeLabel = isReg ? 'REG' : 'TXN';
+
+  // Random wait offset (stagger for visual interest)
+  const waitStart = Math.random() * 8;
+  const waitLen = 3 + Math.random() * 8;
+
+  const row = document.createElement('div');
+  row.className = 'wf-row';
+  row.innerHTML =
+    '<div class="wf-col wf-col-id">' + id + '</div>' +
+    '<div class="wf-col wf-col-type"><span class="wf-badge ' + typeClass + '">' + typeLabel + '</span></div>' +
+    '<div class="wf-col wf-col-wallet">' + wallet + '</div>' +
+    '<div class="wf-col wf-col-bar"><div class="wf-bar-track">' +
+      '<div class="wf-seg wf-seg-wait" style="left:' + waitStart + '%;width:' + waitLen + '%;"></div>' +
+      '<div class="wf-seg wf-seg-prove" data-start="' + (waitStart + waitLen) + '" style="left:' + (waitStart + waitLen) + '%;width:0%;"></div>' +
+      '<div class="wf-seg wf-seg-batch" style="left:0%;width:0%;display:none;"></div>' +
+      '<div class="wf-seg wf-seg-settle" style="left:0%;width:0%;display:none;"></div>' +
+    '</div></div>' +
+    '<div class="wf-col wf-col-dur wf-dur">--</div>';
+
+  container.prepend(row);
+  container.scrollTop = 0;
+
+  // Trim old rows
+  while (container.children.length > 30) container.lastChild.remove();
+  document.getElementById('wf-count').textContent = container.children.length + ' recent proofs';
+
+  return row;
+}
+
+function wf_updateStage(row, stage) {
+  if (!row) return;
+  const track = row.querySelector('.wf-bar-track');
+  if (!track) return;
+  const wait = track.querySelector('.wf-seg-wait');
+  const prove = track.querySelector('.wf-seg-prove');
+  const batch = track.querySelector('.wf-seg-batch');
+  const settle = track.querySelector('.wf-seg-settle');
+  const dur = row.querySelector('.wf-dur');
+
+  const proveStart = parseFloat(prove.dataset.start) || 20;
+
+  if (stage === 'proving') {
+    const proveLen = 15 + Math.random() * 25;
+    prove.style.width = proveLen + '%';
+    prove.dataset.end = proveStart + proveLen;
+  } else if (stage === 'batching') {
+    const proveEnd = parseFloat(prove.dataset.end) || 50;
+    const batchLen = 4 + Math.random() * 8;
+    batch.style.display = '';
+    batch.style.left = proveEnd + '%';
+    batch.style.width = batchLen + '%';
+    batch.dataset.end = proveEnd + batchLen;
+  } else if (stage === 'settled') {
+    const batchEnd = parseFloat(batch.dataset.end) || 70;
+    const settleLen = 2 + Math.random() * 5;
+    settle.style.display = '';
+    settle.style.left = batchEnd + '%';
+    settle.style.width = settleLen + '%';
+    const totalPct = batchEnd + settleLen;
+    dur.textContent = (totalPct / 10).toFixed(1) + 's';
+    dur.classList.add('wf-dur-done');
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   EVENT LOG
+   ══════════════════════════════════════════════════════════════ */
+const EVENT_BADGE = {
+  'proof:accepted': 'badge-accent',
+  'batch:built':    'badge-info',
+  'batch:settled':  'badge-success',
+  'peer:announce':  'badge-purple',
+  'state:snapshot': 'badge-muted',
+};
+
+function logEvent(type, msg) {
+  const log = document.getElementById('event-log');
+  const entry = document.createElement('div');
+  entry.className = 'event-entry event-entry-new';
+  entry.innerHTML =
+    '<span class="event-time">' + nowTime() + '</span>' +
+    '<span class="event-type badge ' + (EVENT_BADGE[type] || 'badge-muted') + '">' + type + '</span>' +
+    '<span class="event-msg">' + msg + '</span>';
+  log.prepend(entry);
+  // Trim
+  while (log.children.length > 50) log.lastChild.remove();
+}
+
+/* ══════════════════════════════════════════════════════════════
+   AUTO-SIMULATION (background activity)
+   ══════════════════════════════════════════════════════════════ */
+function startAutoSim() {
+  // Seed initial waterfall rows (already settled)
+  const seedIds = ['rcpt-a8f3e1','rcpt-7b2c44','rcpt-d91f08','rcpt-c54a19','rcpt-e62d77','rcpt-3af901','rcpt-bb10e5','rcpt-19ca83'];
+  seedIds.forEach(id => {
+    const type = Math.random() > 0.7 ? 'reg' : 'txn';
+    const row = wf_addRow(id, type, randWallet());
+    wf_updateStage(row, 'proving');
+    wf_updateStage(row, 'batching');
+    wf_updateStage(row, 'settled');
+  });
+
+  // Seed event log
+  const seedEvents = [
+    ['batch:settled', 'Batch #12 settled at block height 24 (14 txns, 4.2s prove)'],
+    ['batch:built', 'Batch #12 built with 2 registrations + 12 transitions'],
+    ['proof:accepted', 'StateTransitionProof accepted for wallet 0x7a3b...e4f1 (rcpt-a8f3e1)'],
+    ['proof:accepted', 'RegistrationProof accepted for wallet 0x9e1d...b2a7 (rcpt-7b2c44)'],
+    ['proof:accepted', 'StateTransitionProof accepted for wallet 0x3f8a...c9d2 (rcpt-d91f08)'],
+    ['batch:settled', 'Batch #11 settled at block height 23 (11 txns, 3.8s prove)'],
+    ['peer:announce', 'Peer leviathan-b announced at wss://lev-b.zktrident.care (replica, 3 peers)'],
+    ['state:snapshot', 'State snapshot requested by peer leviathan-c for IBD sync'],
+  ];
+  seedEvents.reverse().forEach(([t, m]) => logEvent(t, m));
+
+  // Auto-submit proofs at random intervals (simulates real traffic)
+  function scheduleNext() {
+    const delay = 3000 + Math.random() * 6000;
+    setTimeout(() => {
+      pipe_submit();
+      scheduleNext();
+    }, delay);
+  }
+  scheduleNext();
+}
+
+// Kick off
+setTimeout(startAutoSim, 500);
+</script>
+</body>
+</html>

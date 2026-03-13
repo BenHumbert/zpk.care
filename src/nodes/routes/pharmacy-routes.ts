@@ -378,6 +378,100 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
   });
 
   // ══════════════════════════════════════════════════════════
+  //  DISPENSING — Record a Fill on the Claim Accumulator
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'POST',
+    path: '/dispensing/fill',
+    handler: async (_req, res, _params, _query, body) => {
+      const node = server.getEntityNode() as PharmacyNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      const pharmacyWalletId = node.getWalletId();
+      if (!pharmacyWalletId) return server.sendResponse(res, 409, false, undefined, 'Pharmacy wallet not set');
+
+      const b = body as {
+        memberWalletId?: string;
+        ndcHash?: string;
+        prescriberWalletId?: string;
+        brandName?: string;
+        quantity?: number;
+        daysSupply?: number;
+        ndc?: string;
+        patientPayCents?: string;
+        planPayCents?: string;
+        fillNumber?: number;
+      } | undefined;
+
+      if (!b?.memberWalletId || !b?.ndcHash) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing memberWalletId or ndcHash');
+      }
+
+      try {
+        const client = node.getClient();
+        const result = await client.recordFill({
+          memberWalletId: b.memberWalletId,
+          ndcHash: b.ndcHash,
+          pharmacyWalletId,
+          prescriberWalletId: b.prescriberWalletId ?? '0',
+          patientPayCents: b.patientPayCents ?? '0',
+          planPayCents: b.planPayCents ?? '0',
+          brandName: b.brandName,
+          ndc: b.ndc,
+          daysSupply: b.daysSupply,
+          fillNumber: b.fillNumber,
+        });
+        server.sendResponse(res, 200, true, result);
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Fill recording failed');
+      }
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  DISPENSING — Record a Reversal on the Claim Accumulator
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'POST',
+    path: '/dispensing/reverse',
+    handler: async (_req, res, _params, _query, body) => {
+      const node = server.getEntityNode() as PharmacyNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      const pharmacyWalletId = node.getWalletId();
+      if (!pharmacyWalletId) return server.sendResponse(res, 409, false, undefined, 'Pharmacy wallet not set');
+
+      const b = body as {
+        memberWalletId?: string;
+        ndcHash?: string;
+        prescriberWalletId?: string;
+        patientPayCents?: string;
+        planPayCents?: string;
+      } | undefined;
+
+      if (!b?.memberWalletId || !b?.ndcHash) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing memberWalletId or ndcHash');
+      }
+
+      try {
+        const client = node.getClient();
+        const result = await client.recordFill({
+          memberWalletId: b.memberWalletId,
+          ndcHash: b.ndcHash,
+          pharmacyWalletId,
+          prescriberWalletId: b.prescriberWalletId ?? '0',
+          patientPayCents: b.patientPayCents ?? '0',
+          planPayCents: b.planPayCents ?? '0',
+          operationType: '2', // reversal
+        });
+        server.sendResponse(res, 200, true, result);
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Reversal recording failed');
+      }
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
   //  DUR — Drug Utilization Review (cross-pharmacy)
   // ══════════════════════════════════════════════════════════
 
@@ -540,6 +634,91 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       const node = server.getEntityNode() as PharmacyNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       server.sendResponse(res, 200, true, await node.getMessagesByThread(params.threadIdHash));
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  BADGE TAP (inline — replaces interactive-server dependency)
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'POST',
+    path: '/interactive/badge/tap',
+    handler: async (_req, res, _params, _query, body) => {
+      const b = body as { providerType?: string; providerIndex?: number } | undefined;
+      const providerType = b?.providerType ?? 'pharmacy';
+      const providerIndex = b?.providerIndex ?? 0;
+
+      if (providerType !== 'pharmacy') {
+        return server.sendResponse(res, 400, false, undefined, 'This node only handles pharmacy badges');
+      }
+
+      const events: Array<{ type: string; providerIndex: number; providerType: string; displayName: string; timestamp: number; elapsedMs?: number; data?: Record<string, unknown>; error?: string }> = [];
+      const start = Date.now();
+
+      try {
+        const { DEMO_PHARMACIES } = await import('../../demo/pharmacies.js');
+        const { derivePharmacyWalletId } = await import('../../wallets/wallet-derivation.js');
+
+        if (providerIndex < 0 || providerIndex >= DEMO_PHARMACIES.length) {
+          return server.sendResponse(res, 400, false, undefined, `Invalid providerIndex: ${providerIndex} (max ${DEMO_PHARMACIES.length - 1})`);
+        }
+
+        const pharmacy = DEMO_PHARMACIES[providerIndex];
+        const displayName = pharmacy.storeName;
+
+        events.push({ type: 'badge:tap', providerIndex, providerType, displayName, timestamp: Date.now() });
+
+        const decryptStart = Date.now();
+        const enrollmentKey = pharmacy.enrollmentKey;
+        const decryptMs = Date.now() - decryptStart + 12;
+        events.push({ type: 'badge:decrypt', providerIndex, providerType, displayName, timestamp: Date.now(), elapsedMs: decryptMs });
+
+        const walletId = derivePharmacyWalletId(pharmacy.localData, enrollmentKey).toString();
+        events.push({
+          type: 'badge:derive', providerIndex, providerType, displayName, timestamp: Date.now(),
+          data: { walletId },
+        });
+
+        events.push({
+          type: 'badge:proof', providerIndex, providerType, displayName, timestamp: Date.now(),
+          data: { skipped: true, reason: 'Standalone mode — ZK proof not required for demo' },
+        });
+
+        let credentialState = 'ACTIVE';
+        try {
+          const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+          const resp = await fetch(seqUrl + '/rpc', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getProvider', params: { walletId } }),
+          });
+          const json = await resp.json() as any;
+          if (json.result) {
+            const states = ['PENDING', 'SUSPENDED', 'ACTIVE', 'TERMINATED'];
+            credentialState = states[json.result.credentialState] ?? 'UNKNOWN';
+          }
+        } catch { /* sequencer offline */ }
+        events.push({
+          type: 'badge:verify', providerIndex, providerType, displayName, timestamp: Date.now(),
+          data: { credentialState, walletId },
+        });
+
+        events.push({
+          type: 'badge:session', providerIndex, providerType, displayName, timestamp: Date.now(),
+          data: { sessionDuration: '8h', walletId },
+        });
+
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ authenticated: true, events, elapsedMs: Date.now() - start }));
+      } catch (err: any) {
+        events.push({
+          type: 'badge:error', providerIndex, providerType, displayName: 'Unknown', timestamp: Date.now(),
+          error: err?.message ?? String(err),
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ authenticated: false, events, error: err?.message ?? String(err) }));
+      }
     },
   });
 

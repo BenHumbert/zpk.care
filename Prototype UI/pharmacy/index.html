@@ -1,0 +1,1549 @@
+<!DOCTYPE html>
+<html lang="en" class="role-pharmacy">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>zkTrident Pharmacy Dashboard</title>
+  <link rel="stylesheet" href="../design-system/tokens.css">
+  <link rel="stylesheet" href="../design-system/components.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ── Header ───────────────────────────────────────────────── -->
+<header class="header">
+  <div class="header-inner">
+    <a href="#overview" class="logo">
+      <span class="logo-mark">zk</span>Trident
+      <span class="logo-role">Pharmacy</span>
+    </a>
+    <nav class="nav" id="main-nav">
+      <a class="nav-link active" href="#overview">Overview</a>
+      <a class="nav-link" href="#onboarding">Onboarding</a>
+      <a class="nav-link" href="#dispensing">Dispensing</a>
+      <a class="nav-link" href="#dur">DUR</a>
+      <a class="nav-link" href="#nfc">NFC Scan</a>
+      <a class="nav-link" href="#messaging">Messages</a>
+      <a class="nav-link" href="#proofs">Proofs</a>
+    </nav>
+    <div class="header-right">
+      <div class="wallet-display" title="74920183647291835026481937502648">7492018364...</div>
+      <div class="connection-status">
+        <span class="status-dot connected"></span>
+        <span>Leviathan</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ══════════════════════════════════════════════════════════════
+     SCREEN: Overview
+     ══════════════════════════════════════════════════════════════ -->
+<main class="main" id="screen-overview">
+  <div class="section-header">
+    <div>
+      <h1 class="section-title">CVS Pharmacy #4521</h1>
+      <div class="section-subtitle">Retail Chain &mdash; NPI 1234567890 &mdash; Today: March 8, 2026</div>
+    </div>
+    <span class="badge badge-live">LIVE</span>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-grid">
+    <div class="stat-card stat-accent">
+      <div class="stat-label">Today's Dispensed</div>
+      <div class="stat-value">47</div>
+      <div class="stat-detail">+12 from yesterday</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Pending</div>
+      <div class="stat-value">8</div>
+      <div class="stat-detail">3 awaiting DUR review</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Reversals</div>
+      <div class="stat-value">2</div>
+      <div class="stat-detail">1 returned, 1 rejected</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Active Patients</div>
+      <div class="stat-value">312</div>
+      <div class="stat-detail">28 new this month</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">DUR Alerts</div>
+      <div class="stat-value text-warning">3</div>
+      <div class="stat-detail">1 contraindication</div>
+    </div>
+  </div>
+
+  <!-- Pipeline -->
+  <div class="pipeline">
+    <div class="pipeline-stage stage-done">
+      <div class="pipeline-icon">&#x1F4E5;</div>
+      <div class="pipeline-label">Queue</div>
+      <div class="pipeline-count">8</div>
+    </div>
+    <div class="pipeline-stage stage-active">
+      <div class="pipeline-icon">&#x1F50D;</div>
+      <div class="pipeline-label">Verify</div>
+      <div class="pipeline-count">3</div>
+    </div>
+    <div class="pipeline-stage stage-active">
+      <div class="pipeline-icon">&#x1F48A;</div>
+      <div class="pipeline-label">Dispense</div>
+      <div class="pipeline-count">2</div>
+    </div>
+    <div class="pipeline-stage">
+      <div class="pipeline-icon">&#x2705;</div>
+      <div class="pipeline-label">Settled</div>
+      <div class="pipeline-count">47</div>
+    </div>
+  </div>
+
+  <!-- Recent Activity + Quick Actions -->
+  <div class="panels-row">
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Recent Dispensing</span>
+        <a href="#dispensing" class="panel-action">View All</a>
+      </div>
+      <div class="panel-body flush">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Rx #</th>
+              <th>Patient</th>
+              <th>Medication</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="mono">RX-20260308-001</td>
+              <td><span class="mono truncate">a83f20c94b...</span></td>
+              <td>Lisinopril 10mg</td>
+              <td><span class="badge badge-success">Dispensed</span></td>
+            </tr>
+            <tr>
+              <td class="mono">RX-20260308-002</td>
+              <td><span class="mono truncate">d47e91b073...</span></td>
+              <td>Metformin 500mg</td>
+              <td><span class="badge badge-warning">Pending</span></td>
+            </tr>
+            <tr>
+              <td class="mono">RX-20260308-003</td>
+              <td><span class="mono truncate">f92c18a6d5...</span></td>
+              <td>Atorvastatin 20mg</td>
+              <td><span class="badge badge-success">Dispensed</span></td>
+            </tr>
+            <tr>
+              <td class="mono">RX-20260308-004</td>
+              <td><span class="mono truncate">b15d74e820...</span></td>
+              <td>Amlodipine 5mg</td>
+              <td><span class="badge badge-warning">Pending</span></td>
+            </tr>
+            <tr>
+              <td class="mono">RX-20260308-005</td>
+              <td><span class="mono truncate">c60a35f197...</span></td>
+              <td>Omeprazole 20mg</td>
+              <td><span class="badge badge-error">Reversed</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">DUR Alerts</span>
+        <a href="#dur" class="panel-action">Review All</a>
+      </div>
+      <div class="panel-body">
+        <div class="dur-alert-card severity-red">
+          <div class="dur-alert-header">
+            <span class="dur-alert-severity"><span class="dot"></span> Contraindication</span>
+            <span class="badge badge-error">Action Required</span>
+          </div>
+          <div class="dur-alert-title">Warfarin + Aspirin Interaction</div>
+          <div class="dur-alert-desc">Major bleeding risk. Patient d47e91b0... has active Warfarin 5mg.</div>
+        </div>
+        <div class="dur-alert-card severity-amber">
+          <div class="dur-alert-header">
+            <span class="dur-alert-severity"><span class="dot"></span> Warning</span>
+            <span class="badge badge-warning">Review</span>
+          </div>
+          <div class="dur-alert-title">Duplicate Therapy Alert</div>
+          <div class="dur-alert-desc">Patient a83f20c9... has overlapping ACE inhibitor prescriptions.</div>
+        </div>
+        <div class="dur-alert-card severity-green">
+          <div class="dur-alert-header">
+            <span class="dur-alert-severity"><span class="dot"></span> Clear</span>
+            <span class="badge badge-success">OK</span>
+          </div>
+          <div class="dur-alert-title">No Interactions Found</div>
+          <div class="dur-alert-desc">Atorvastatin 20mg cleared for patient f92c18a6...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ══════════════════════════════════════════════════════════════
+     SCREEN: Onboarding
+     ══════════════════════════════════════════════════════════════ -->
+<main class="main hidden" id="screen-onboarding">
+  <div class="section-header">
+    <div>
+      <h1 class="section-title">Pharmacy Onboarding</h1>
+      <div class="section-subtitle">Enroll your pharmacy on the zkTrident network</div>
+    </div>
+  </div>
+
+  <!-- Stepper -->
+  <div class="stepper" id="onboard-stepper">
+    <div class="stepper-step completed" data-step="1">
+      <div class="stepper-dot">1</div>
+      <div class="stepper-label">NPI Verification</div>
+    </div>
+    <div class="stepper-step active" data-step="2">
+      <div class="stepper-dot">2</div>
+      <div class="stepper-label">Store Details</div>
+    </div>
+    <div class="stepper-step" data-step="3">
+      <div class="stepper-dot">3</div>
+      <div class="stepper-label">Pharmacy Type</div>
+    </div>
+    <div class="stepper-step" data-step="4">
+      <div class="stepper-dot">4</div>
+      <div class="stepper-label">Enrollment Key</div>
+    </div>
+    <div class="stepper-step" data-step="5">
+      <div class="stepper-dot">5</div>
+      <div class="stepper-label">Network Join</div>
+    </div>
+    <div class="stepper-step" data-step="6">
+      <div class="stepper-dot">6</div>
+      <div class="stepper-label">Confirmation</div>
+    </div>
+  </div>
+
+  <div class="wizard-content">
+    <!-- Step 1: NPI -->
+    <div class="wizard-step-panel" data-step="1">
+      <div class="panel">
+        <div class="panel-header"><span class="panel-title">NPI Verification</span></div>
+        <div class="panel-body">
+          <div class="form-group">
+            <label class="form-label">National Provider Identifier (NPI)</label>
+            <input class="form-input mono" type="text" placeholder="10-digit NPI number" value="1234567890">
+            <div class="form-hint">Your pharmacy's NPI as registered with CMS NPPES.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">NCPDP Provider ID</label>
+            <input class="form-input mono" type="text" placeholder="7-digit NCPDP ID" value="5812347">
+            <div class="form-hint">National Council for Prescription Drug Programs identifier.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">DEA Registration Number</label>
+            <input class="form-input mono" type="text" placeholder="DEA number" value="BC4521973">
+            <div class="form-hint">Drug Enforcement Administration registration for controlled substances.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2: Store Details -->
+    <div class="wizard-step-panel active" data-step="2">
+      <div class="panel">
+        <div class="panel-header"><span class="panel-title">Store Details</span></div>
+        <div class="panel-body">
+          <div class="form-group">
+            <label class="form-label">Pharmacy Name</label>
+            <input class="form-input" type="text" placeholder="Pharmacy name" value="CVS Pharmacy #4521">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Store Number</label>
+              <input class="form-input mono" type="text" placeholder="Store #" value="4521">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Chain Affiliation</label>
+              <input class="form-input" type="text" placeholder="Parent organization" value="CVS Health Corporation">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Street Address</label>
+            <input class="form-input" type="text" placeholder="Address" value="1200 Market Street">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">City</label>
+              <input class="form-input" type="text" value="Philadelphia">
+            </div>
+            <div class="form-group">
+              <label class="form-label">State / ZIP</label>
+              <input class="form-input" type="text" value="PA 19107">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Phone</label>
+            <input class="form-input" type="tel" value="(215) 555-0142">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3: Pharmacy Type -->
+    <div class="wizard-step-panel" data-step="3">
+      <div class="panel">
+        <div class="panel-header"><span class="panel-title">Pharmacy Type</span></div>
+        <div class="panel-body">
+          <div class="form-group">
+            <label class="form-label">Pharmacy Classification</label>
+            <select class="form-input">
+              <option value="retail" selected>Retail Chain Pharmacy</option>
+              <option value="independent">Independent Pharmacy</option>
+              <option value="hospital">Hospital / Institutional</option>
+              <option value="specialty">Specialty Pharmacy</option>
+              <option value="compounding">Compounding Pharmacy</option>
+              <option value="mail-order">Mail Order Pharmacy</option>
+              <option value="ltc">Long-Term Care Pharmacy</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Services Offered</label>
+            <div style="display: flex; flex-direction: column; gap: 8px; padding: 8px 0;">
+              <label style="display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); color: var(--text-secondary); cursor: pointer;">
+                <input type="checkbox" checked> Prescription Dispensing
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); color: var(--text-secondary); cursor: pointer;">
+                <input type="checkbox" checked> Immunization Administration
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); color: var(--text-secondary); cursor: pointer;">
+                <input type="checkbox" checked> Medication Therapy Management
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); color: var(--text-secondary); cursor: pointer;">
+                <input type="checkbox"> Controlled Substance Dispensing
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); color: var(--text-secondary); cursor: pointer;">
+                <input type="checkbox"> Compounding Services
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); color: var(--text-secondary); cursor: pointer;">
+                <input type="checkbox"> Home Delivery
+              </label>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Operating Hours</label>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label text-xs">Opens</label>
+                <input class="form-input" type="time" value="08:00">
+              </div>
+              <div class="form-group">
+                <label class="form-label text-xs">Closes</label>
+                <input class="form-input" type="time" value="22:00">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 4: Enrollment Key -->
+    <div class="wizard-step-panel" data-step="4">
+      <div class="panel">
+        <div class="panel-header"><span class="panel-title">Generate Enrollment Key</span></div>
+        <div class="panel-body">
+          <div style="text-align: center; padding: var(--space-6) 0;">
+            <div style="font-size: 48px; margin-bottom: var(--space-4);">&#x1F511;</div>
+            <p style="font-size: var(--text-base); color: var(--text-secondary); margin-bottom: var(--space-6); max-width: 440px; margin-left: auto; margin-right: auto;">
+              Your enrollment key is generated locally and NEVER transmitted. It is mixed into your wallet address derivation for proof-gated access.
+            </p>
+            <button class="btn btn-primary btn-lg" onclick="generateEnrollmentKey()">Generate Enrollment Key</button>
+            <div id="enrollment-key-display" class="hidden" style="margin-top: var(--space-6);">
+              <div style="font-size: var(--text-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: var(--space-2);">Enrollment Key (store securely)</div>
+              <div class="mono" style="font-size: var(--text-md); color: var(--accent); background: var(--accent-soft); padding: var(--space-3) var(--space-4); border-radius: var(--radius-sm); word-break: break-all;">
+                ek_pharm_7f3a9c2e4b1d8056...a91c
+              </div>
+              <div class="form-hint" style="margin-top: var(--space-2);">Back up this key. If lost, use NFC recovery card to restore access.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 5: Network Join -->
+    <div class="wizard-step-panel" data-step="5">
+      <div class="panel">
+        <div class="panel-header"><span class="panel-title">Join Leviathan Network</span></div>
+        <div class="panel-body">
+          <div class="form-group">
+            <label class="form-label">Leviathan Endpoint</label>
+            <input class="form-input mono" type="text" placeholder="https://leviathan.zktrident.care" value="https://leviathan.zktrident.care">
+            <div class="form-hint">Primary leviathan sequencer node URL.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Partition Assignment</label>
+            <input class="form-input mono" type="text" value="partition-east-02" disabled>
+            <div class="form-hint">Automatically assigned based on geographic region.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Network Status</label>
+            <div style="display: flex; align-items: center; gap: 8px; padding: 8px 0;">
+              <span class="status-dot connected"></span>
+              <span style="font-size: var(--text-sm); color: var(--success);">Connected &mdash; 3 peers discovered</span>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Group Enrollment Token</label>
+            <input class="form-input mono" type="text" placeholder="Paste token from insurer" value="get_cvs4521_2026Q1_a9f3c...">
+            <div class="form-hint">Provided by your insurer or PBM during credentialing.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 6: Confirmation -->
+    <div class="wizard-step-panel" data-step="6">
+      <div class="panel">
+        <div class="panel-header"><span class="panel-title">Enrollment Complete</span></div>
+        <div class="panel-body">
+          <div style="text-align: center; padding: var(--space-6) 0;">
+            <div style="font-size: 48px; margin-bottom: var(--space-4);">&#x2705;</div>
+            <div style="font-size: var(--text-xl); font-weight: 700; color: var(--success); margin-bottom: var(--space-2);">Pharmacy Enrolled Successfully</div>
+            <p style="font-size: var(--text-sm); color: var(--text-secondary); margin-bottom: var(--space-6);">Your pharmacy wallet has been registered on the leviathan network.</p>
+          </div>
+          <div class="detail-grid">
+            <div class="detail-key">Wallet ID</div>
+            <div class="detail-val mono">74920183647291835026481937502648193750264819375026</div>
+            <div class="detail-key">Pharmacy</div>
+            <div class="detail-val">CVS Pharmacy #4521</div>
+            <div class="detail-key">NPI</div>
+            <div class="detail-val mono">1234567890</div>
+            <div class="detail-key">Type</div>
+            <div class="detail-val">Retail Chain Pharmacy</div>
+            <div class="detail-key">Partition</div>
+            <div class="detail-val mono">partition-east-02</div>
+            <div class="detail-key">Lifecycle State</div>
+            <div class="detail-val"><span class="badge badge-success">ACTIVE</span></div>
+            <div class="detail-key">Credential</div>
+            <div class="detail-val"><span class="badge badge-accent">NFC Ready</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Wizard Navigation -->
+    <div class="wizard-actions">
+      <button class="btn" id="wizard-prev" onclick="wizardNav(-1)">Back</button>
+      <button class="btn btn-primary" id="wizard-next" onclick="wizardNav(1)">Continue</button>
+    </div>
+  </div>
+</main>
+
+<!-- ══════════════════════════════════════════════════════════════
+     SCREEN: Dispensing
+     ══════════════════════════════════════════════════════════════ -->
+<main class="main hidden" id="screen-dispensing">
+  <div class="section-header">
+    <div>
+      <h1 class="section-title">Dispensing Queue</h1>
+      <div class="section-subtitle">Prescription fulfillment and claim settlement</div>
+    </div>
+    <button class="btn btn-primary">New Fulfillment</button>
+  </div>
+
+  <!-- Filters -->
+  <div class="filter-bar">
+    <label>From:</label>
+    <input type="date" value="2026-03-01">
+    <label>To:</label>
+    <input type="date" value="2026-03-08">
+    <div class="chip-group" style="margin-bottom: 0; margin-left: var(--space-4);">
+      <span class="chip active" onclick="filterDispensing('all', this)">All</span>
+      <span class="chip" onclick="filterDispensing('pending', this)">Pending</span>
+      <span class="chip" onclick="filterDispensing('dispensed', this)">Dispensed</span>
+      <span class="chip" onclick="filterDispensing('reversed', this)">Reversed</span>
+    </div>
+  </div>
+
+  <!-- Dispensing Cards -->
+  <div id="dispensing-list">
+
+    <div class="dispensing-card" data-status="pending">
+      <div class="dispensing-card-header">
+        <span class="dispensing-card-id">RX-20260308-001</span>
+        <span class="badge badge-warning">Pending</span>
+      </div>
+      <div class="dispensing-card-body">
+        <div><div class="dispensing-field-label">Patient Wallet</div><div class="dispensing-field-value mono">a83f20c94b7e1d...</div></div>
+        <div><div class="dispensing-field-label">Medication</div><div class="dispensing-field-value">Lisinopril 10mg Tab</div></div>
+        <div><div class="dispensing-field-label">Prescriber</div><div class="dispensing-field-value mono">e29d04a71c...</div></div>
+        <div><div class="dispensing-field-label">NDC</div><div class="dispensing-field-value mono">00071-0155-23</div></div>
+        <div><div class="dispensing-field-label">Quantity</div><div class="dispensing-field-value">30 tablets</div></div>
+        <div><div class="dispensing-field-label">Days Supply</div><div class="dispensing-field-value">30</div></div>
+      </div>
+      <div class="dispensing-card-footer">
+        <div class="dispensing-amounts">
+          <div><div class="dispensing-amount-label">Copay</div><div class="dispensing-amount-value copay">$10.00</div></div>
+          <div><div class="dispensing-amount-label">Plan Pay</div><div class="dispensing-amount-value plan">$24.50</div></div>
+        </div>
+        <button class="btn btn-primary btn-sm">Dispense</button>
+      </div>
+    </div>
+
+    <div class="dispensing-card" data-status="pending">
+      <div class="dispensing-card-header">
+        <span class="dispensing-card-id">RX-20260308-002</span>
+        <span class="badge badge-warning">Pending</span>
+      </div>
+      <div class="dispensing-card-body">
+        <div><div class="dispensing-field-label">Patient Wallet</div><div class="dispensing-field-value mono">d47e91b073fa28...</div></div>
+        <div><div class="dispensing-field-label">Medication</div><div class="dispensing-field-value">Metformin 500mg Tab</div></div>
+        <div><div class="dispensing-field-label">Prescriber</div><div class="dispensing-field-value mono">f10b82c340...</div></div>
+        <div><div class="dispensing-field-label">NDC</div><div class="dispensing-field-value mono">00228-2573-11</div></div>
+        <div><div class="dispensing-field-label">Quantity</div><div class="dispensing-field-value">60 tablets</div></div>
+        <div><div class="dispensing-field-label">Days Supply</div><div class="dispensing-field-value">30</div></div>
+      </div>
+      <div class="dispensing-card-footer">
+        <div class="dispensing-amounts">
+          <div><div class="dispensing-amount-label">Copay</div><div class="dispensing-amount-value copay">$5.00</div></div>
+          <div><div class="dispensing-amount-label">Plan Pay</div><div class="dispensing-amount-value plan">$12.80</div></div>
+        </div>
+        <button class="btn btn-primary btn-sm">Dispense</button>
+      </div>
+    </div>
+
+    <div class="dispensing-card" data-status="dispensed">
+      <div class="dispensing-card-header">
+        <span class="dispensing-card-id">RX-20260308-003</span>
+        <span class="badge badge-success">Dispensed</span>
+      </div>
+      <div class="dispensing-card-body">
+        <div><div class="dispensing-field-label">Patient Wallet</div><div class="dispensing-field-value mono">f92c18a6d5eb03...</div></div>
+        <div><div class="dispensing-field-label">Medication</div><div class="dispensing-field-value">Atorvastatin 20mg Tab</div></div>
+        <div><div class="dispensing-field-label">Prescriber</div><div class="dispensing-field-value mono">c84a61f9d2...</div></div>
+        <div><div class="dispensing-field-label">NDC</div><div class="dispensing-field-value mono">00071-0157-40</div></div>
+        <div><div class="dispensing-field-label">Quantity</div><div class="dispensing-field-value">90 tablets</div></div>
+        <div><div class="dispensing-field-label">Days Supply</div><div class="dispensing-field-value">90</div></div>
+      </div>
+      <div class="dispensing-card-footer">
+        <div class="dispensing-amounts">
+          <div><div class="dispensing-amount-label">Copay</div><div class="dispensing-amount-value copay">$15.00</div></div>
+          <div><div class="dispensing-amount-label">Plan Pay</div><div class="dispensing-amount-value plan">$38.20</div></div>
+        </div>
+        <span class="text-sm text-muted">Dispensed 10:42 AM</span>
+      </div>
+    </div>
+
+    <div class="dispensing-card" data-status="dispensed">
+      <div class="dispensing-card-header">
+        <span class="dispensing-card-id">RX-20260308-004</span>
+        <span class="badge badge-success">Dispensed</span>
+      </div>
+      <div class="dispensing-card-body">
+        <div><div class="dispensing-field-label">Patient Wallet</div><div class="dispensing-field-value mono">b15d74e820ac97...</div></div>
+        <div><div class="dispensing-field-label">Medication</div><div class="dispensing-field-value">Amlodipine 5mg Tab</div></div>
+        <div><div class="dispensing-field-label">Prescriber</div><div class="dispensing-field-value mono">e29d04a71c...</div></div>
+        <div><div class="dispensing-field-label">NDC</div><div class="dispensing-field-value mono">00069-1530-68</div></div>
+        <div><div class="dispensing-field-label">Quantity</div><div class="dispensing-field-value">30 tablets</div></div>
+        <div><div class="dispensing-field-label">Days Supply</div><div class="dispensing-field-value">30</div></div>
+      </div>
+      <div class="dispensing-card-footer">
+        <div class="dispensing-amounts">
+          <div><div class="dispensing-amount-label">Copay</div><div class="dispensing-amount-value copay">$10.00</div></div>
+          <div><div class="dispensing-amount-label">Plan Pay</div><div class="dispensing-amount-value plan">$18.75</div></div>
+        </div>
+        <span class="text-sm text-muted">Dispensed 10:15 AM</span>
+      </div>
+    </div>
+
+    <div class="dispensing-card" data-status="reversed">
+      <div class="dispensing-card-header">
+        <span class="dispensing-card-id">RX-20260308-005</span>
+        <span class="badge badge-error">Reversed</span>
+      </div>
+      <div class="dispensing-card-body">
+        <div><div class="dispensing-field-label">Patient Wallet</div><div class="dispensing-field-value mono">c60a35f197db84...</div></div>
+        <div><div class="dispensing-field-label">Medication</div><div class="dispensing-field-value">Omeprazole 20mg Cap</div></div>
+        <div><div class="dispensing-field-label">Prescriber</div><div class="dispensing-field-value mono">a57c30e812...</div></div>
+        <div><div class="dispensing-field-label">NDC</div><div class="dispensing-field-value mono">65862-0013-30</div></div>
+        <div><div class="dispensing-field-label">Quantity</div><div class="dispensing-field-value">30 capsules</div></div>
+        <div><div class="dispensing-field-label">Days Supply</div><div class="dispensing-field-value">30</div></div>
+      </div>
+      <div class="dispensing-card-footer">
+        <div class="dispensing-amounts">
+          <div><div class="dispensing-amount-label">Copay</div><div class="dispensing-amount-value copay">$0.00</div></div>
+          <div><div class="dispensing-amount-label">Plan Pay</div><div class="dispensing-amount-value plan">$0.00</div></div>
+        </div>
+        <span class="text-sm text-error">Returned by patient</span>
+      </div>
+    </div>
+
+    <div class="dispensing-card" data-status="dispensed">
+      <div class="dispensing-card-header">
+        <span class="dispensing-card-id">RX-20260307-018</span>
+        <span class="badge badge-success">Dispensed</span>
+      </div>
+      <div class="dispensing-card-body">
+        <div><div class="dispensing-field-label">Patient Wallet</div><div class="dispensing-field-value mono">91ae52d804cf63...</div></div>
+        <div><div class="dispensing-field-label">Medication</div><div class="dispensing-field-value">Levothyroxine 50mcg Tab</div></div>
+        <div><div class="dispensing-field-label">Prescriber</div><div class="dispensing-field-value mono">f10b82c340...</div></div>
+        <div><div class="dispensing-field-label">NDC</div><div class="dispensing-field-value mono">00074-6965-90</div></div>
+        <div><div class="dispensing-field-label">Quantity</div><div class="dispensing-field-value">90 tablets</div></div>
+        <div><div class="dispensing-field-label">Days Supply</div><div class="dispensing-field-value">90</div></div>
+      </div>
+      <div class="dispensing-card-footer">
+        <div class="dispensing-amounts">
+          <div><div class="dispensing-amount-label">Copay</div><div class="dispensing-amount-value copay">$10.00</div></div>
+          <div><div class="dispensing-amount-label">Plan Pay</div><div class="dispensing-amount-value plan">$22.30</div></div>
+        </div>
+        <span class="text-sm text-muted">Dispensed Mar 7, 4:30 PM</span>
+      </div>
+    </div>
+
+    <div class="dispensing-card" data-status="dispensed">
+      <div class="dispensing-card-header">
+        <span class="dispensing-card-id">RX-20260307-017</span>
+        <span class="badge badge-success">Dispensed</span>
+      </div>
+      <div class="dispensing-card-body">
+        <div><div class="dispensing-field-label">Patient Wallet</div><div class="dispensing-field-value mono">7d3f18b6a0c925...</div></div>
+        <div><div class="dispensing-field-label">Medication</div><div class="dispensing-field-value">Sertraline 50mg Tab</div></div>
+        <div><div class="dispensing-field-label">Prescriber</div><div class="dispensing-field-value mono">c84a61f9d2...</div></div>
+        <div><div class="dispensing-field-label">NDC</div><div class="dispensing-field-value mono">00049-4960-60</div></div>
+        <div><div class="dispensing-field-label">Quantity</div><div class="dispensing-field-value">30 tablets</div></div>
+        <div><div class="dispensing-field-label">Days Supply</div><div class="dispensing-field-value">30</div></div>
+      </div>
+      <div class="dispensing-card-footer">
+        <div class="dispensing-amounts">
+          <div><div class="dispensing-amount-label">Copay</div><div class="dispensing-amount-value copay">$10.00</div></div>
+          <div><div class="dispensing-amount-label">Plan Pay</div><div class="dispensing-amount-value plan">$16.40</div></div>
+        </div>
+        <span class="text-sm text-muted">Dispensed Mar 7, 3:12 PM</span>
+      </div>
+    </div>
+
+    <div class="dispensing-card" data-status="pending">
+      <div class="dispensing-card-header">
+        <span class="dispensing-card-id">RX-20260308-006</span>
+        <span class="badge badge-warning">Pending</span>
+      </div>
+      <div class="dispensing-card-body">
+        <div><div class="dispensing-field-label">Patient Wallet</div><div class="dispensing-field-value mono">e4a907c3b5d1f8...</div></div>
+        <div><div class="dispensing-field-label">Medication</div><div class="dispensing-field-value">Gabapentin 300mg Cap</div></div>
+        <div><div class="dispensing-field-label">Prescriber</div><div class="dispensing-field-value mono">a57c30e812...</div></div>
+        <div><div class="dispensing-field-label">NDC</div><div class="dispensing-field-value mono">59762-5025-01</div></div>
+        <div><div class="dispensing-field-label">Quantity</div><div class="dispensing-field-value">90 capsules</div></div>
+        <div><div class="dispensing-field-label">Days Supply</div><div class="dispensing-field-value">30</div></div>
+      </div>
+      <div class="dispensing-card-footer">
+        <div class="dispensing-amounts">
+          <div><div class="dispensing-amount-label">Copay</div><div class="dispensing-amount-value copay">$15.00</div></div>
+          <div><div class="dispensing-amount-label">Plan Pay</div><div class="dispensing-amount-value plan">$28.90</div></div>
+        </div>
+        <button class="btn btn-primary btn-sm">Dispense</button>
+      </div>
+    </div>
+
+    <div class="dispensing-card" data-status="dispensed">
+      <div class="dispensing-card-header">
+        <span class="dispensing-card-id">RX-20260307-016</span>
+        <span class="badge badge-success">Dispensed</span>
+      </div>
+      <div class="dispensing-card-body">
+        <div><div class="dispensing-field-label">Patient Wallet</div><div class="dispensing-field-value mono">3b6c82a0d9e714...</div></div>
+        <div><div class="dispensing-field-label">Medication</div><div class="dispensing-field-value">Hydrochlorothiazide 25mg Tab</div></div>
+        <div><div class="dispensing-field-label">Prescriber</div><div class="dispensing-field-value mono">e29d04a71c...</div></div>
+        <div><div class="dispensing-field-label">NDC</div><div class="dispensing-field-value mono">16714-0292-01</div></div>
+        <div><div class="dispensing-field-label">Quantity</div><div class="dispensing-field-value">30 tablets</div></div>
+        <div><div class="dispensing-field-label">Days Supply</div><div class="dispensing-field-value">30</div></div>
+      </div>
+      <div class="dispensing-card-footer">
+        <div class="dispensing-amounts">
+          <div><div class="dispensing-amount-label">Copay</div><div class="dispensing-amount-value copay">$5.00</div></div>
+          <div><div class="dispensing-amount-label">Plan Pay</div><div class="dispensing-amount-value plan">$8.20</div></div>
+        </div>
+        <span class="text-sm text-muted">Dispensed Mar 7, 1:45 PM</span>
+      </div>
+    </div>
+
+    <div class="dispensing-card" data-status="dispensed">
+      <div class="dispensing-card-header">
+        <span class="dispensing-card-id">RX-20260307-015</span>
+        <span class="badge badge-success">Dispensed</span>
+      </div>
+      <div class="dispensing-card-body">
+        <div><div class="dispensing-field-label">Patient Wallet</div><div class="dispensing-field-value mono">08f4d51c7a6be3...</div></div>
+        <div><div class="dispensing-field-label">Medication</div><div class="dispensing-field-value">Pantoprazole 40mg Tab</div></div>
+        <div><div class="dispensing-field-label">Prescriber</div><div class="dispensing-field-value mono">f10b82c340...</div></div>
+        <div><div class="dispensing-field-label">NDC</div><div class="dispensing-field-value mono">00008-0841-81</div></div>
+        <div><div class="dispensing-field-label">Quantity</div><div class="dispensing-field-value">30 tablets</div></div>
+        <div><div class="dispensing-field-label">Days Supply</div><div class="dispensing-field-value">30</div></div>
+      </div>
+      <div class="dispensing-card-footer">
+        <div class="dispensing-amounts">
+          <div><div class="dispensing-amount-label">Copay</div><div class="dispensing-amount-value copay">$20.00</div></div>
+          <div><div class="dispensing-amount-label">Plan Pay</div><div class="dispensing-amount-value plan">$45.60</div></div>
+        </div>
+        <span class="text-sm text-muted">Dispensed Mar 7, 11:20 AM</span>
+      </div>
+    </div>
+
+    <div class="dispensing-card" data-status="reversed">
+      <div class="dispensing-card-header">
+        <span class="dispensing-card-id">RX-20260306-042</span>
+        <span class="badge badge-error">Reversed</span>
+      </div>
+      <div class="dispensing-card-body">
+        <div><div class="dispensing-field-label">Patient Wallet</div><div class="dispensing-field-value mono">a21b09e6c4f837...</div></div>
+        <div><div class="dispensing-field-label">Medication</div><div class="dispensing-field-value">Clopidogrel 75mg Tab</div></div>
+        <div><div class="dispensing-field-label">Prescriber</div><div class="dispensing-field-value mono">c84a61f9d2...</div></div>
+        <div><div class="dispensing-field-label">NDC</div><div class="dispensing-field-value mono">63653-1151-01</div></div>
+        <div><div class="dispensing-field-label">Quantity</div><div class="dispensing-field-value">30 tablets</div></div>
+        <div><div class="dispensing-field-label">Days Supply</div><div class="dispensing-field-value">30</div></div>
+      </div>
+      <div class="dispensing-card-footer">
+        <div class="dispensing-amounts">
+          <div><div class="dispensing-amount-label">Copay</div><div class="dispensing-amount-value copay">$0.00</div></div>
+          <div><div class="dispensing-amount-label">Plan Pay</div><div class="dispensing-amount-value plan">$0.00</div></div>
+        </div>
+        <span class="text-sm text-error">Claim rejected &mdash; eligibility expired</span>
+      </div>
+    </div>
+
+    <div class="dispensing-card" data-status="dispensed">
+      <div class="dispensing-card-header">
+        <span class="dispensing-card-id">RX-20260306-041</span>
+        <span class="badge badge-success">Dispensed</span>
+      </div>
+      <div class="dispensing-card-body">
+        <div><div class="dispensing-field-label">Patient Wallet</div><div class="dispensing-field-value mono">5cf1b84d2a0e97...</div></div>
+        <div><div class="dispensing-field-label">Medication</div><div class="dispensing-field-value">Losartan 50mg Tab</div></div>
+        <div><div class="dispensing-field-label">Prescriber</div><div class="dispensing-field-value mono">e29d04a71c...</div></div>
+        <div><div class="dispensing-field-label">NDC</div><div class="dispensing-field-value mono">00093-7367-98</div></div>
+        <div><div class="dispensing-field-label">Quantity</div><div class="dispensing-field-value">30 tablets</div></div>
+        <div><div class="dispensing-field-label">Days Supply</div><div class="dispensing-field-value">30</div></div>
+      </div>
+      <div class="dispensing-card-footer">
+        <div class="dispensing-amounts">
+          <div><div class="dispensing-amount-label">Copay</div><div class="dispensing-amount-value copay">$10.00</div></div>
+          <div><div class="dispensing-amount-label">Plan Pay</div><div class="dispensing-amount-value plan">$21.50</div></div>
+        </div>
+        <span class="text-sm text-muted">Dispensed Mar 6, 5:10 PM</span>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<!-- ══════════════════════════════════════════════════════════════
+     SCREEN: DUR — Drug Utilization Review
+     ══════════════════════════════════════════════════════════════ -->
+<main class="main hidden" id="screen-dur">
+  <div class="section-header">
+    <div>
+      <h1 class="section-title">Drug Utilization Review</h1>
+      <div class="section-subtitle">Medication history, interaction screening, clinical alerts</div>
+    </div>
+  </div>
+
+  <!-- Patient Lookup -->
+  <div class="search-bar">
+    <input class="form-input mono" type="text" placeholder="Enter patient wallet ID..." id="dur-wallet-input" value="d47e91b073fa2856190c3d">
+    <button class="btn btn-primary" onclick="lookupPatient()">Lookup</button>
+  </div>
+
+  <!-- Patient Info Panel -->
+  <div id="dur-results">
+    <div class="panels-row">
+      <!-- Active Medications -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Active Medications</span>
+          <span class="badge badge-accent">4 Active</span>
+        </div>
+        <div class="panel-body flush">
+          <ul class="dur-med-list">
+            <li class="dur-med-item">
+              <div>
+                <div class="dur-med-name">Warfarin 5mg Tab</div>
+                <div class="dur-med-detail">NDC 00056-0172-70 &mdash; Qty 30, 30-day</div>
+              </div>
+              <span class="badge badge-error">Monitor INR</span>
+            </li>
+            <li class="dur-med-item">
+              <div>
+                <div class="dur-med-name">Metformin 500mg Tab</div>
+                <div class="dur-med-detail">NDC 00228-2573-11 &mdash; Qty 60, 30-day</div>
+              </div>
+              <span class="badge badge-success">OK</span>
+            </li>
+            <li class="dur-med-item">
+              <div>
+                <div class="dur-med-name">Lisinopril 10mg Tab</div>
+                <div class="dur-med-detail">NDC 00071-0155-23 &mdash; Qty 30, 30-day</div>
+              </div>
+              <span class="badge badge-success">OK</span>
+            </li>
+            <li class="dur-med-item">
+              <div>
+                <div class="dur-med-name">Simvastatin 20mg Tab</div>
+                <div class="dur-med-detail">NDC 00006-0740-61 &mdash; Qty 30, 30-day</div>
+              </div>
+              <span class="badge badge-success">OK</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Medication History -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Dispensing History</span>
+          <span class="badge badge-muted">12 records</span>
+        </div>
+        <div class="panel-body flush">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Medication</th>
+                <th>Qty</th>
+                <th>Copay</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Mar 8</td><td>Metformin 500mg</td><td>60</td><td class="mono">$5.00</td></tr>
+              <tr><td>Mar 1</td><td>Warfarin 5mg</td><td>30</td><td class="mono">$15.00</td></tr>
+              <tr><td>Feb 20</td><td>Lisinopril 10mg</td><td>30</td><td class="mono">$10.00</td></tr>
+              <tr><td>Feb 15</td><td>Simvastatin 20mg</td><td>30</td><td class="mono">$10.00</td></tr>
+              <tr><td>Feb 1</td><td>Warfarin 5mg</td><td>30</td><td class="mono">$15.00</td></tr>
+              <tr><td>Jan 20</td><td>Metformin 500mg</td><td>60</td><td class="mono">$5.00</td></tr>
+              <tr><td>Jan 15</td><td>Lisinopril 10mg</td><td>30</td><td class="mono">$10.00</td></tr>
+              <tr><td>Jan 5</td><td>Simvastatin 20mg</td><td>30</td><td class="mono">$10.00</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Drug Interaction Check -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Interaction Screening Results</span>
+        <button class="btn btn-sm btn-outline">Re-run Check</button>
+      </div>
+      <div class="panel-body">
+        <div class="dur-alert-card severity-red">
+          <div class="dur-alert-header">
+            <span class="dur-alert-severity"><span class="dot"></span> Contraindication</span>
+            <span class="badge badge-error">Action Required</span>
+          </div>
+          <div class="dur-alert-title">Warfarin + Aspirin &mdash; Major Bleeding Risk</div>
+          <div class="dur-alert-desc">
+            Concurrent use of Warfarin and Aspirin significantly increases the risk of gastrointestinal
+            and intracranial bleeding. Patient has active Warfarin 5mg prescription. New Aspirin 325mg
+            order from prescriber e29d04a71c... requires clinical review before dispensing.
+          </div>
+          <div class="dur-alert-action">Contact prescriber for alternative therapy or documented override</div>
+        </div>
+
+        <div class="dur-alert-card severity-amber">
+          <div class="dur-alert-header">
+            <span class="dur-alert-severity"><span class="dot"></span> Warning</span>
+            <span class="badge badge-warning">Review</span>
+          </div>
+          <div class="dur-alert-title">Duplicate Therapy &mdash; Simvastatin + Atorvastatin</div>
+          <div class="dur-alert-desc">
+            Patient has active Simvastatin 20mg. New Atorvastatin 20mg prescription detected from a
+            different prescriber (c84a61f9d2...). Likely intended as a therapy switch. Verify old
+            prescription should be discontinued before dispensing.
+          </div>
+          <div class="dur-alert-action">Confirm therapy switch with prescriber; discontinue Simvastatin if appropriate</div>
+        </div>
+
+        <div class="dur-alert-card severity-green">
+          <div class="dur-alert-header">
+            <span class="dur-alert-severity"><span class="dot"></span> Clear</span>
+            <span class="badge badge-success">No Issues</span>
+          </div>
+          <div class="dur-alert-title">Metformin 500mg &mdash; No Interactions Found</div>
+          <div class="dur-alert-desc">
+            Metformin 500mg was screened against all active medications (Warfarin, Lisinopril, Simvastatin).
+            No clinically significant drug-drug interactions identified. Dose and frequency are within
+            standard therapeutic parameters.
+          </div>
+          <div class="dur-alert-action">Cleared for dispensing</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ══════════════════════════════════════════════════════════════
+     SCREEN: NFC Scan
+     ══════════════════════════════════════════════════════════════ -->
+<main class="main hidden" id="screen-nfc">
+  <div class="section-header">
+    <div>
+      <h1 class="section-title">NFC Credential Scan</h1>
+      <div class="section-subtitle">Verify patient credentials via Ed25519-signed NFC attestation</div>
+    </div>
+  </div>
+
+  <!-- NFC Hero Scan Button -->
+  <div class="nfc-hero" id="nfc-hero">
+    <div style="position: relative; display: inline-block;">
+      <button class="nfc-scan-btn" id="nfc-btn" onclick="startNfcScan()">
+        <span class="scan-icon">&#x1F4F6;</span>
+        <span class="scan-label">Tap to Scan</span>
+      </button>
+      <div class="nfc-ring"></div>
+    </div>
+    <div class="nfc-hero-hint">Place patient's NFC credential card on the reader</div>
+  </div>
+
+  <!-- NFC Scan Result (hidden by default, shown after scan) -->
+  <div id="nfc-result-container" class="hidden">
+    <div class="nfc-result verified" id="nfc-result-card">
+      <div class="nfc-result-header">
+        <div class="nfc-result-icon">&#x2713;</div>
+        <div>
+          <div class="nfc-result-title">Credential Verified</div>
+          <div class="nfc-result-sub">Ed25519 signature confirmed by sequencer</div>
+        </div>
+      </div>
+      <div class="detail-grid">
+        <div class="detail-key">Wallet ID</div>
+        <div class="detail-val mono">a83f20c94b7e1d56038a29c4e710bf5d82</div>
+        <div class="detail-key">Credential Commitment</div>
+        <div class="detail-val mono">f7c2a901d4...3b18</div>
+        <div class="detail-key">Forest Root</div>
+        <div class="detail-val mono">08e4d29c71...a6f0</div>
+        <div class="detail-key">Lifecycle State</div>
+        <div class="detail-val"><span class="badge badge-success">ACTIVE (3)</span></div>
+        <div class="detail-key">Issued</div>
+        <div class="detail-val">Mar 8, 2026 09:14:22 UTC</div>
+        <div class="detail-key">Expires</div>
+        <div class="detail-val">Mar 9, 2026 09:14:22 UTC</div>
+        <div class="detail-key">Sequencer</div>
+        <div class="detail-val mono">leviathan-east-02</div>
+        <div class="detail-key">Signature</div>
+        <div class="detail-val mono" style="font-size: var(--text-xs);">3a9f1c8e72b04d...valid</div>
+      </div>
+      <div style="margin-top: var(--space-4); display: flex; gap: var(--space-3);">
+        <button class="btn btn-primary" onclick="proceedToDispense()">Proceed to Dispense</button>
+        <button class="btn" onclick="resetNfcScan()">Scan Another</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent Scans Timeline -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Recent Scans</span>
+      <span class="badge badge-muted">Today</span>
+    </div>
+    <div class="panel-body">
+      <div class="scans-timeline">
+
+        <div class="scan-entry scan-verified">
+          <div class="scan-dot"></div>
+          <div class="scan-entry-content">
+            <div class="scan-entry-header">
+              <span class="scan-entry-wallet">a83f20c94b7e1d56...</span>
+              <span class="badge badge-success">Verified</span>
+            </div>
+            <div class="scan-entry-detail">
+              <span>10:42 AM</span>
+              <span>Lifecycle: ACTIVE</span>
+              <span>Expires: Mar 9, 09:14 UTC</span>
+            </div>
+            <div class="scan-entry-time">Proceeded to dispense RX-20260308-003</div>
+          </div>
+        </div>
+
+        <div class="scan-entry scan-verified">
+          <div class="scan-dot"></div>
+          <div class="scan-entry-content">
+            <div class="scan-entry-header">
+              <span class="scan-entry-wallet">b15d74e820ac9741...</span>
+              <span class="badge badge-success">Verified</span>
+            </div>
+            <div class="scan-entry-detail">
+              <span>10:15 AM</span>
+              <span>Lifecycle: ACTIVE</span>
+              <span>Expires: Mar 9, 08:30 UTC</span>
+            </div>
+            <div class="scan-entry-time">Proceeded to dispense RX-20260308-004</div>
+          </div>
+        </div>
+
+        <div class="scan-entry scan-expired">
+          <div class="scan-dot"></div>
+          <div class="scan-entry-content">
+            <div class="scan-entry-header">
+              <span class="scan-entry-wallet">c60a35f197db8402...</span>
+              <span class="badge badge-warning">Expired</span>
+            </div>
+            <div class="scan-entry-detail">
+              <span>09:48 AM</span>
+              <span>Lifecycle: ACTIVE</span>
+              <span>Expired: Mar 7, 22:00 UTC</span>
+            </div>
+            <div class="scan-entry-time">Attestation expired 11h ago &mdash; patient asked to re-tap at kiosk</div>
+          </div>
+        </div>
+
+        <div class="scan-entry scan-verified">
+          <div class="scan-dot"></div>
+          <div class="scan-entry-content">
+            <div class="scan-entry-header">
+              <span class="scan-entry-wallet">f92c18a6d5eb0349...</span>
+              <span class="badge badge-success">Verified</span>
+            </div>
+            <div class="scan-entry-detail">
+              <span>09:22 AM</span>
+              <span>Lifecycle: ACTIVE</span>
+              <span>Expires: Mar 9, 07:45 UTC</span>
+            </div>
+            <div class="scan-entry-time">Proceeded to dispense RX-20260308-003</div>
+          </div>
+        </div>
+
+        <div class="scan-entry scan-invalid">
+          <div class="scan-dot"></div>
+          <div class="scan-entry-content">
+            <div class="scan-entry-header">
+              <span class="scan-entry-wallet">unknown</span>
+              <span class="badge badge-error">Invalid</span>
+            </div>
+            <div class="scan-entry-detail">
+              <span>08:55 AM</span>
+              <span>Signature verification failed</span>
+            </div>
+            <div class="scan-entry-time">Ed25519 signature mismatch &mdash; possible tampered card</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ══════════════════════════════════════════════════════════════
+     SCREEN: Messaging
+     ══════════════════════════════════════════════════════════════ -->
+<main class="main hidden" id="screen-messaging">
+  <div class="section-header">
+    <div>
+      <h1 class="section-title">Messages</h1>
+      <div class="section-subtitle">Encrypted communication with patients and prescribers</div>
+    </div>
+  </div>
+
+  <div class="msg-tabs" id="msg-tabs">
+    <button class="msg-tab active" onclick="switchMsgTab('inbox', this)">Inbox (2)</button>
+    <button class="msg-tab" onclick="switchMsgTab('sent', this)">Sent</button>
+    <button class="msg-tab" onclick="switchMsgTab('compose', this)">Compose</button>
+  </div>
+
+  <!-- Inbox -->
+  <div id="msg-inbox">
+    <div class="panel">
+      <div class="panel-body flush">
+        <div class="msg-item" onclick="openThread('thread-1')">
+          <div style="display: flex; justify-content: space-between; align-items: baseline;">
+            <span class="msg-from">Dr. Sarah Chen (e29d04a71c...)</span>
+            <span class="msg-time">Today, 9:30 AM</span>
+          </div>
+          <div class="msg-preview">RE: Warfarin dosage adjustment &mdash; Please hold dispensing for patient d47e91... until I send updated prescription. Adjusting from 5mg to 3mg...</div>
+          <div style="margin-top: 4px;"><span class="badge badge-info">Prescriber</span></div>
+        </div>
+        <div class="msg-item" onclick="openThread('thread-2')">
+          <div style="display: flex; justify-content: space-between; align-items: baseline;">
+            <span class="msg-from">Patient a83f20c94b...</span>
+            <span class="msg-time">Today, 8:15 AM</span>
+          </div>
+          <div class="msg-preview">Can I switch to 90-day supply for my Lisinopril? My insurance should cover it and I'd prefer fewer trips to the pharmacy...</div>
+          <div style="margin-top: 4px;"><span class="badge badge-accent">Patient</span></div>
+        </div>
+        <div class="msg-item" onclick="openThread('thread-3')">
+          <div style="display: flex; justify-content: space-between; align-items: baseline;">
+            <span class="msg-from">Dr. James Park (c84a61f9d2...)</span>
+            <span class="msg-time">Yesterday, 4:45 PM</span>
+          </div>
+          <div class="msg-preview">Therapy switch confirmed for patient f92c18a6... &mdash; discontinue Simvastatin, start Atorvastatin 20mg. New e-script should arrive shortly.</div>
+          <div style="margin-top: 4px;"><span class="badge badge-info">Prescriber</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Thread View -->
+    <div class="panel hidden" id="thread-view">
+      <div class="panel-header">
+        <span class="panel-title" id="thread-title">Thread</span>
+        <button class="btn btn-sm" onclick="closeThread()">Back to Inbox</button>
+      </div>
+      <div class="panel-body">
+        <div class="msg-thread" id="thread-messages"></div>
+        <div style="border-top: 1px solid var(--border-subtle); padding-top: var(--space-4); margin-top: var(--space-4);">
+          <textarea class="form-input" placeholder="Type your reply..." rows="3"></textarea>
+          <div style="display: flex; justify-content: flex-end; margin-top: var(--space-3);">
+            <button class="btn btn-primary">Send Reply</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sent -->
+  <div id="msg-sent" class="hidden">
+    <div class="panel">
+      <div class="panel-body flush">
+        <div class="msg-item">
+          <div style="display: flex; justify-content: space-between; align-items: baseline;">
+            <span class="msg-from">To: Dr. Sarah Chen (e29d04a71c...)</span>
+            <span class="msg-time">Today, 9:45 AM</span>
+          </div>
+          <div class="msg-preview">Understood, holding dispensing for d47e91... Warfarin. Will await updated e-script before processing.</div>
+          <div style="margin-top: 4px;"><span class="badge badge-info">Prescriber</span></div>
+        </div>
+        <div class="msg-item">
+          <div style="display: flex; justify-content: space-between; align-items: baseline;">
+            <span class="msg-from">To: Patient b15d74e820...</span>
+            <span class="msg-time">Yesterday, 2:00 PM</span>
+          </div>
+          <div class="msg-preview">Your prescription for Amlodipine 5mg is ready for pickup. Please bring your NFC credential card for verification at the counter.</div>
+          <div style="margin-top: 4px;"><span class="badge badge-accent">Patient</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Compose -->
+  <div id="msg-compose" class="hidden">
+    <div class="panel">
+      <div class="panel-header"><span class="panel-title">New Message</span></div>
+      <div class="panel-body msg-compose">
+        <div class="form-group">
+          <label class="form-label">Recipient Type</label>
+          <select class="form-input" id="compose-recipient-type">
+            <option value="patient">Patient</option>
+            <option value="prescriber">Prescriber</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Recipient Wallet ID</label>
+          <input class="form-input mono" type="text" placeholder="Enter wallet ID...">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Subject</label>
+          <input class="form-input" type="text" placeholder="Message subject">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Message</label>
+          <textarea class="form-input" placeholder="Type your message... (encrypted end-to-end)" rows="6"></textarea>
+          <div class="form-hint">Messages are encrypted on-device before transmission. The leviathan stores only ciphertext.</div>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: var(--space-3);">
+          <button class="btn">Discard</button>
+          <button class="btn btn-primary">Send Message</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ══════════════════════════════════════════════════════════════
+     SCREEN: Proofs
+     ══════════════════════════════════════════════════════════════ -->
+<main class="main hidden" id="screen-proofs">
+  <div class="section-header">
+    <div>
+      <h1 class="section-title">Proof Performance</h1>
+      <div class="section-subtitle">ZkProgram compilation and proof generation metrics</div>
+    </div>
+  </div>
+
+  <!-- Compilation Status -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Compilation Status</span>
+      <span class="badge badge-success">All Compiled</span>
+    </div>
+    <div class="panel-body">
+      <div class="compile-status-grid">
+        <div class="compile-item">
+          <div class="status-indicator compiled"></div>
+          <span class="compile-item-name">FulfillmentProgram</span>
+          <span class="compile-item-time">14.2s</span>
+        </div>
+        <div class="compile-item">
+          <div class="status-indicator compiled"></div>
+          <span class="compile-item-name">AccumulatorFulfillmentProgram</span>
+          <span class="compile-item-time">16.8s</span>
+        </div>
+        <div class="compile-item">
+          <div class="status-indicator compiled"></div>
+          <span class="compile-item-name">StateTransitionProgram</span>
+          <span class="compile-item-time">22.1s</span>
+        </div>
+        <div class="compile-item">
+          <div class="status-indicator compiled"></div>
+          <span class="compile-item-name">EligibilityProgram</span>
+          <span class="compile-item-time">11.4s</span>
+        </div>
+        <div class="compile-item">
+          <div class="status-indicator compiled"></div>
+          <span class="compile-item-name">BatchProgram</span>
+          <span class="compile-item-time">28.6s</span>
+        </div>
+        <div class="compile-item">
+          <div class="status-indicator compiled"></div>
+          <span class="compile-item-name">ChainProgram</span>
+          <span class="compile-item-time">24.3s</span>
+        </div>
+        <div class="compile-item">
+          <div class="status-indicator compiled"></div>
+          <span class="compile-item-name">WalletMigrationProgram</span>
+          <span class="compile-item-time">9.7s</span>
+        </div>
+        <div class="compile-item">
+          <div class="status-indicator compiled"></div>
+          <span class="compile-item-name">PrescriptionProgram</span>
+          <span class="compile-item-time">13.5s</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Proof Timings -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Proof Generation Timings</span>
+      <span class="text-sm text-muted">Average over last 50 proofs</span>
+    </div>
+    <div class="panel-body">
+      <div class="proof-timing-bar">
+        <span class="proof-timing-label">FulfillmentProof</span>
+        <div class="proof-timing-track"><div class="proof-timing-fill" style="width: 35%;">8.4s</div></div>
+        <span class="proof-timing-value">8.4s</span>
+      </div>
+      <div class="proof-timing-bar">
+        <span class="proof-timing-label">AccumulatorProof</span>
+        <div class="proof-timing-track"><div class="proof-timing-fill" style="width: 42%;">10.1s</div></div>
+        <span class="proof-timing-value">10.1s</span>
+      </div>
+      <div class="proof-timing-bar">
+        <span class="proof-timing-label">StateTransitionProof</span>
+        <div class="proof-timing-track"><div class="proof-timing-fill" style="width: 58%;">14.0s</div></div>
+        <span class="proof-timing-value">14.0s</span>
+      </div>
+      <div class="proof-timing-bar">
+        <span class="proof-timing-label">EligibilityProof</span>
+        <div class="proof-timing-track"><div class="proof-timing-fill" style="width: 28%;">6.7s</div></div>
+        <span class="proof-timing-value">6.7s</span>
+      </div>
+      <div class="proof-timing-bar">
+        <span class="proof-timing-label">BatchProof (wrap)</span>
+        <div class="proof-timing-track"><div class="proof-timing-fill" style="width: 75%;">18.2s</div></div>
+        <span class="proof-timing-value">18.2s</span>
+      </div>
+      <div class="proof-timing-bar">
+        <span class="proof-timing-label">BatchProof (merge)</span>
+        <div class="proof-timing-track"><div class="proof-timing-fill" style="width: 88%;">21.3s</div></div>
+        <span class="proof-timing-value">21.3s</span>
+      </div>
+      <div class="proof-timing-bar">
+        <span class="proof-timing-label">ChainProof</span>
+        <div class="proof-timing-track"><div class="proof-timing-fill" style="width: 100%;">24.1s</div></div>
+        <span class="proof-timing-value">24.1s</span>
+      </div>
+      <div class="proof-timing-bar">
+        <span class="proof-timing-label">NFC Attestation (Ed25519)</span>
+        <div class="proof-timing-track"><div class="proof-timing-fill" style="width: 2%;">&lt;1ms</div></div>
+        <span class="proof-timing-value">&lt;1ms</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Proof Stats -->
+  <div class="stats-grid">
+    <div class="stat-card stat-accent">
+      <div class="stat-label">Proofs Today</div>
+      <div class="stat-value">47</div>
+      <div class="stat-detail">All fulfilled claims</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Avg Proof Time</div>
+      <div class="stat-value">12.4s</div>
+      <div class="stat-detail">End-to-end fulfillment</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">NFC Verifications</div>
+      <div class="stat-value">52</div>
+      <div class="stat-detail">Ed25519 sig checks</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Batch Proofs</div>
+      <div class="stat-value">6</div>
+      <div class="stat-detail">~8 txns per batch</div>
+    </div>
+  </div>
+
+  <!-- Proof Pipeline -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Recent Proof Pipeline</span>
+    </div>
+    <div class="panel-body flush">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Proof ID</th>
+            <th>Type</th>
+            <th>Duration</th>
+            <th>Status</th>
+            <th>Batch</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="mono">pf-00308-047</td>
+            <td>StateTransition</td>
+            <td class="mono">13.8s</td>
+            <td><span class="badge badge-success">Settled</span></td>
+            <td class="mono">batch-006</td>
+          </tr>
+          <tr>
+            <td class="mono">pf-00308-046</td>
+            <td>Fulfillment</td>
+            <td class="mono">8.1s</td>
+            <td><span class="badge badge-success">Settled</span></td>
+            <td class="mono">batch-006</td>
+          </tr>
+          <tr>
+            <td class="mono">pf-00308-045</td>
+            <td>Accumulator</td>
+            <td class="mono">10.4s</td>
+            <td><span class="badge badge-success">Settled</span></td>
+            <td class="mono">batch-006</td>
+          </tr>
+          <tr>
+            <td class="mono">pf-00308-044</td>
+            <td>StateTransition</td>
+            <td class="mono">14.7s</td>
+            <td><span class="badge badge-success">Settled</span></td>
+            <td class="mono">batch-005</td>
+          </tr>
+          <tr>
+            <td class="mono">pf-00308-043</td>
+            <td>BatchProof</td>
+            <td class="mono">19.2s</td>
+            <td><span class="badge badge-accent">Batched</span></td>
+            <td class="mono">batch-005</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<!-- ── Footer ───────────────────────────────────────────────── -->
+<footer class="footer">
+  <div class="footer-inner">
+    <span>zkTrident Pharmacy Dashboard</span>
+    <span>&middot;</span>
+    <span>Prototype v0.1</span>
+    <span>&middot;</span>
+    <span>Leviathan Network</span>
+  </div>
+</footer>
+
+<!-- ── Toast Container ──────────────────────────────────────── -->
+<div class="toast-container" id="toasts"></div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     JavaScript — SPA Router + Interactions
+     ══════════════════════════════════════════════════════════════ -->
+<script>
+/* ── Hash Router ─────────────────────────────────────────────── */
+
+const screens = ['overview','onboarding','dispensing','dur','nfc','messaging','proofs'];
+
+function navigate(hash) {
+  const target = hash.replace('#','') || 'overview';
+  screens.forEach(s => {
+    const el = document.getElementById('screen-' + s);
+    if (el) {
+      el.classList.toggle('hidden', s !== target);
+      el.classList.toggle('active', s === target);
+    }
+  });
+  document.querySelectorAll('#main-nav .nav-link').forEach(link => {
+    link.classList.toggle('active', link.getAttribute('href') === '#' + target);
+  });
+}
+
+window.addEventListener('hashchange', () => navigate(location.hash));
+window.addEventListener('DOMContentLoaded', () => navigate(location.hash || '#overview'));
+
+/* ── Onboarding Wizard ───────────────────────────────────────── */
+
+let currentWizardStep = 2;
+const totalWizardSteps = 6;
+
+function wizardNav(dir) {
+  const next = currentWizardStep + dir;
+  if (next < 1 || next > totalWizardSteps) return;
+  setWizardStep(next);
+}
+
+function setWizardStep(step) {
+  currentWizardStep = step;
+  document.querySelectorAll('#onboard-stepper .stepper-step').forEach(el => {
+    const s = parseInt(el.dataset.step);
+    el.classList.remove('completed','active');
+    if (s < step) el.classList.add('completed');
+    if (s === step) el.classList.add('active');
+  });
+  document.querySelectorAll('.wizard-step-panel').forEach(el => {
+    el.classList.toggle('active', parseInt(el.dataset.step) === step);
+  });
+  document.getElementById('wizard-prev').disabled = step === 1;
+  const nextBtn = document.getElementById('wizard-next');
+  nextBtn.textContent = step === totalWizardSteps ? 'Finish' : 'Continue';
+  if (step === totalWizardSteps) {
+    nextBtn.onclick = () => { showToast('Pharmacy onboarding complete!', 'success'); };
+  } else {
+    nextBtn.onclick = () => wizardNav(1);
+  }
+}
+
+function generateEnrollmentKey() {
+  document.getElementById('enrollment-key-display').classList.remove('hidden');
+  showToast('Enrollment key generated locally', 'success');
+}
+
+/* ── Dispensing Filter ───────────────────────────────────────── */
+
+function filterDispensing(status, chip) {
+  document.querySelectorAll('#screen-dispensing .chip').forEach(c => c.classList.remove('active'));
+  chip.classList.add('active');
+  document.querySelectorAll('.dispensing-card').forEach(card => {
+    if (status === 'all') {
+      card.style.display = '';
+    } else {
+      card.style.display = card.dataset.status === status ? '' : 'none';
+    }
+  });
+}
+
+/* ── DUR Patient Lookup ──────────────────────────────────────── */
+
+function lookupPatient() {
+  const wallet = document.getElementById('dur-wallet-input').value;
+  if (!wallet) { showToast('Enter a wallet ID', 'error'); return; }
+  document.getElementById('dur-results').classList.remove('hidden');
+  showToast('Patient medication profile loaded', 'info');
+}
+
+/* ── NFC Scan ────────────────────────────────────────────────── */
+
+let scanTimeout = null;
+
+function startNfcScan() {
+  const hero = document.getElementById('nfc-hero');
+  const btn = document.getElementById('nfc-btn');
+  hero.classList.add('nfc-scanning');
+  btn.querySelector('.scan-label').textContent = 'Scanning...';
+
+  if (scanTimeout) clearTimeout(scanTimeout);
+  scanTimeout = setTimeout(() => {
+    hero.classList.remove('nfc-scanning');
+    btn.querySelector('.scan-label').textContent = 'Tap to Scan';
+    document.getElementById('nfc-result-container').classList.remove('hidden');
+    showToast('NFC credential verified successfully', 'success');
+  }, 1800);
+}
+
+function resetNfcScan() {
+  document.getElementById('nfc-result-container').classList.add('hidden');
+}
+
+function proceedToDispense() {
+  location.hash = '#dispensing';
+  showToast('Patient credential verified — select prescription to dispense', 'info');
+}
+
+/* ── Messaging ───────────────────────────────────────────────── */
+
+function switchMsgTab(tab, btn) {
+  document.querySelectorAll('#msg-tabs .msg-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  ['inbox','sent','compose'].forEach(t => {
+    const el = document.getElementById('msg-' + t);
+    if (el) el.classList.toggle('hidden', t !== tab);
+  });
+  if (tab !== 'inbox') closeThread();
+}
+
+const threads = {
+  'thread-1': {
+    title: 'Dr. Sarah Chen — Warfarin Dosage',
+    messages: [
+      { from: 'Dr. Sarah Chen', text: 'Please hold dispensing for patient d47e91... Warfarin prescription. I need to adjust from 5mg to 3mg based on latest INR results.', time: '9:30 AM', sent: false },
+      { from: 'CVS #4521', text: 'Understood, holding dispensing for d47e91... Warfarin. Will await updated e-script before processing.', time: '9:45 AM', sent: true },
+      { from: 'Dr. Sarah Chen', text: 'New script sent. Warfarin 3mg, 30-day supply. Please verify and proceed when ready.', time: '10:02 AM', sent: false },
+    ]
+  },
+  'thread-2': {
+    title: 'Patient a83f20c94b — Supply Change',
+    messages: [
+      { from: 'Patient a83f20c94b...', text: 'Can I switch to 90-day supply for my Lisinopril? My insurance should cover it and I would prefer fewer trips to the pharmacy.', time: '8:15 AM', sent: false },
+    ]
+  },
+  'thread-3': {
+    title: 'Dr. James Park — Therapy Switch',
+    messages: [
+      { from: 'Dr. James Park', text: 'Therapy switch confirmed for patient f92c18a6... — discontinue Simvastatin 20mg, start Atorvastatin 20mg. New e-script should arrive shortly.', time: 'Yesterday, 4:45 PM', sent: false },
+      { from: 'CVS #4521', text: 'Confirmed. Will discontinue Simvastatin and process Atorvastatin once e-script is received. Thank you.', time: 'Yesterday, 5:00 PM', sent: true },
+    ]
+  }
+};
+
+function openThread(id) {
+  const thread = threads[id];
+  if (!thread) return;
+  document.getElementById('thread-title').textContent = thread.title;
+  const container = document.getElementById('thread-messages');
+  container.innerHTML = thread.messages.map(m =>
+    '<div class="msg-bubble ' + (m.sent ? 'sent' : 'received') + '">' +
+      '<div>' + m.text + '</div>' +
+      '<div class="msg-bubble-meta">' + m.from + ' &middot; ' + m.time + '</div>' +
+    '</div>'
+  ).join('');
+  document.getElementById('thread-view').classList.remove('hidden');
+}
+
+function closeThread() {
+  document.getElementById('thread-view').classList.add('hidden');
+}
+
+/* ── Toast ───────────────────────────────────────────────────── */
+
+function showToast(msg, type) {
+  const container = document.getElementById('toasts');
+  const toast = document.createElement('div');
+  toast.className = 'toast toast-' + (type || 'info');
+  toast.textContent = msg;
+  container.appendChild(toast);
+  setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3500);
+}
+</script>
+
+</body>
+</html>

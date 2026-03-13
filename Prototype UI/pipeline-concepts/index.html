@@ -1,0 +1,1593 @@
+<!DOCTYPE html>
+<html lang="en" class="role-explorer">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pipeline Visualization Concepts — zkTrident</title>
+  <link rel="stylesheet" href="../design-system/tokens.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-body);
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+    }
+
+    /* ── Top Bar ─────────────────────────────────────────── */
+    .top-bar {
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-subtle);
+      padding: var(--space-3) var(--space-6);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .top-bar-title {
+      font-size: var(--text-lg);
+      font-weight: 700;
+    }
+    .top-bar-title span { color: var(--accent); }
+    .top-bar-sub {
+      font-size: var(--text-sm);
+      color: var(--text-muted);
+    }
+
+    /* ── Concept Tabs ─────────────────────────────────────── */
+    .concept-tabs {
+      display: flex;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-subtle);
+      overflow-x: auto;
+    }
+    .concept-tab {
+      padding: var(--space-3) var(--space-5);
+      font-size: var(--text-sm);
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      border: none;
+      background: none;
+      font-family: var(--font-body);
+      white-space: nowrap;
+      border-bottom: 2px solid transparent;
+      transition: all var(--transition-fast);
+    }
+    .concept-tab:hover { color: var(--text-secondary); }
+    .concept-tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+    .concept-tab .tab-num {
+      display: inline-flex;
+      width: 20px; height: 20px;
+      align-items: center; justify-content: center;
+      border-radius: 50%;
+      background: var(--bg-elevated);
+      font-size: 10px;
+      font-weight: 700;
+      margin-right: 6px;
+    }
+    .concept-tab.active .tab-num {
+      background: var(--accent);
+      color: var(--text-on-accent);
+    }
+
+    /* ── Concept Panels ───────────────────────────────────── */
+    .concept-panel {
+      display: none;
+      padding: var(--space-6);
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .concept-panel.active { display: block; }
+
+    .concept-desc {
+      font-size: var(--text-sm);
+      color: var(--text-secondary);
+      margin-bottom: var(--space-6);
+      max-width: 700px;
+      line-height: 1.6;
+    }
+
+    .viz-container {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      position: relative;
+    }
+    .viz-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: var(--space-3) var(--space-4);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .viz-title {
+      font-size: var(--text-sm);
+      font-weight: 600;
+    }
+    .viz-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+      background: var(--success-bg);
+      color: var(--success);
+      border: 1px solid var(--success-border);
+      animation: pulse-badge 2s ease-in-out infinite;
+    }
+    @keyframes pulse-badge {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+    .viz-body {
+      padding: var(--space-4);
+      min-height: 400px;
+      position: relative;
+    }
+
+    .controls {
+      display: flex;
+      gap: var(--space-2);
+      margin-top: var(--space-4);
+    }
+    .ctrl-btn {
+      padding: var(--space-2) var(--space-4);
+      font-size: var(--text-sm);
+      font-weight: 600;
+      font-family: var(--font-body);
+      border-radius: var(--radius);
+      border: 1px solid var(--border-default);
+      background: var(--bg-card);
+      color: var(--text-primary);
+      cursor: pointer;
+      transition: all var(--transition-fast);
+    }
+    .ctrl-btn:hover {
+      background: var(--bg-elevated);
+      border-color: var(--accent);
+    }
+    .ctrl-btn.primary {
+      background: var(--accent);
+      color: var(--text-on-accent);
+      border-color: var(--accent);
+    }
+    .ctrl-btn.primary:hover { background: var(--accent-hover); }
+
+    /* ════════════════════════════════════════════════════════
+       CONCEPT 1: PARTICLE STREAM
+       ════════════════════════════════════════════════════════ */
+    .stream-canvas {
+      width: 100%;
+      height: 360px;
+      position: relative;
+      overflow: hidden;
+    }
+    .stream-stage {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 140px;
+      height: 120px;
+      border-radius: var(--radius);
+      border: 2px solid;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 2;
+    }
+    .stream-stage-count {
+      font-size: var(--text-2xl);
+      font-weight: 700;
+      font-family: var(--font-mono);
+    }
+    .stream-stage-label {
+      font-size: var(--text-xs);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-top: 4px;
+    }
+    .ss-pending  { left: 2%;  background: rgba(251,191,36,0.08); border-color: rgba(251,191,36,0.3); }
+    .ss-pending .stream-stage-count { color: var(--warning); }
+    .ss-proving  { left: 27%; background: rgba(34,211,238,0.08); border-color: rgba(34,211,238,0.3); }
+    .ss-proving .stream-stage-count { color: var(--accent); }
+    .ss-batching { left: 52%; background: rgba(96,165,250,0.08); border-color: rgba(96,165,250,0.3); }
+    .ss-batching .stream-stage-count { color: var(--info); }
+    .ss-settled  { left: 77%; background: rgba(52,211,153,0.08); border-color: rgba(52,211,153,0.3); }
+    .ss-settled .stream-stage-count { color: var(--success); }
+
+    .stream-arrow {
+      position: absolute;
+      top: 50%;
+      height: 2px;
+      background: var(--border-default);
+      z-index: 1;
+      overflow: hidden;
+    }
+    .stream-arrow::after {
+      content: '';
+      position: absolute;
+      top: 0; left: -40%;
+      width: 30%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      animation: arrow-pulse 1.8s ease-in-out infinite;
+    }
+    @keyframes arrow-pulse {
+      0% { left: -30%; }
+      100% { left: 100%; }
+    }
+    .sa-1 { left: calc(2% + 144px); width: calc(27% - 2% - 148px); }
+    .sa-2 { left: calc(27% + 144px); width: calc(52% - 27% - 148px); }
+    .sa-3 { left: calc(52% + 144px); width: calc(77% - 52% - 148px); }
+
+    /* Particles */
+    .particle {
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      z-index: 10;
+      transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 0 8px currentColor;
+    }
+    .particle.registration { background: var(--accent); color: var(--accent); }
+    .particle.transition   { background: var(--info); color: var(--info); }
+    .particle.in-proving {
+      animation: proving-glow 0.6s ease-in-out infinite alternate;
+    }
+    @keyframes proving-glow {
+      from { box-shadow: 0 0 6px currentColor; transform: scale(1); }
+      to   { box-shadow: 0 0 18px currentColor; transform: scale(1.2); }
+    }
+    .particle.in-batch {
+      animation: batch-cluster 0.4s ease-out;
+    }
+    @keyframes batch-cluster {
+      from { transform: scale(1.3); }
+      to   { transform: scale(1); }
+    }
+    .particle.settled {
+      animation: settle-drop 0.5s ease-in forwards;
+    }
+    @keyframes settle-drop {
+      0% { transform: translateY(0); opacity: 1; }
+      60% { transform: translateY(30px); opacity: 0.8; }
+      80% { transform: translateY(25px); opacity: 0.6; }
+      100% { transform: translateY(28px); opacity: 0; }
+    }
+
+    /* ════════════════════════════════════════════════════════
+       CONCEPT 2: BATCH HOPPER (GRAVITY SORTER)
+       ════════════════════════════════════════════════════════ */
+    .hopper-canvas {
+      width: 100%;
+      height: 420px;
+      position: relative;
+      overflow: hidden;
+    }
+    /* Intake zone */
+    .hopper-intake {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 200px;
+      text-align: center;
+    }
+    .hopper-intake-label {
+      font-size: var(--text-xs);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--warning);
+      margin-bottom: 8px;
+    }
+    .hopper-intake-zone {
+      width: 200px;
+      height: 50px;
+      border: 2px dashed rgba(251,191,36,0.3);
+      border-radius: var(--radius);
+      background: rgba(251,191,36,0.04);
+      position: relative;
+    }
+
+    /* Proving crucible */
+    .hopper-crucible {
+      position: absolute;
+      top: 100px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 160px;
+      text-align: center;
+    }
+    .hopper-crucible-label {
+      font-size: var(--text-xs);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--accent);
+      margin-bottom: 6px;
+    }
+    .hopper-crucible-box {
+      width: 160px;
+      height: 60px;
+      border: 2px solid rgba(34,211,238,0.3);
+      border-radius: var(--radius);
+      background: rgba(34,211,238,0.06);
+      position: relative;
+      overflow: hidden;
+    }
+    .hopper-crucible-box::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      animation: crucible-scan 1.5s ease-in-out infinite;
+    }
+    @keyframes crucible-scan {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 1; }
+    }
+
+    /* Batch bin */
+    .hopper-bin {
+      position: absolute;
+      top: 200px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 180px;
+      text-align: center;
+    }
+    .hopper-bin-label {
+      font-size: var(--text-xs);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--info);
+      margin-bottom: 6px;
+    }
+    .hopper-bin-box {
+      width: 180px;
+      height: 70px;
+      border: 2px solid rgba(96,165,250,0.3);
+      border-bottom-width: 3px;
+      border-radius: var(--radius);
+      background: rgba(96,165,250,0.06);
+      position: relative;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding-bottom: 6px;
+    }
+    .hopper-bin-fill {
+      width: calc(100% - 12px);
+      background: rgba(96,165,250,0.15);
+      border-radius: 2px;
+      transition: height 0.4s ease;
+      min-height: 0;
+    }
+    .hopper-bin-count {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: var(--text-lg);
+      font-weight: 700;
+      font-family: var(--font-mono);
+      color: var(--info);
+    }
+
+    /* Settled blocks tower */
+    .hopper-tower {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 220px;
+      display: flex;
+      flex-direction: column-reverse;
+      align-items: center;
+      gap: 3px;
+    }
+    .hopper-tower-label {
+      font-size: var(--text-xs);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--success);
+      position: absolute;
+      bottom: -2px;
+      left: 50%;
+      transform: translateX(-50%);
+      white-space: nowrap;
+    }
+    .hopper-block {
+      width: 180px;
+      height: 26px;
+      background: rgba(52,211,153,0.12);
+      border: 1px solid rgba(52,211,153,0.3);
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--success);
+      font-family: var(--font-mono);
+      animation: block-land 0.3s ease-out;
+    }
+    @keyframes block-land {
+      0% { transform: translateY(-20px); opacity: 0; }
+      70% { transform: translateY(3px); }
+      100% { transform: translateY(0); opacity: 1; }
+    }
+
+    /* Hopper hex particles */
+    .hex-particle {
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      z-index: 10;
+      transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .hex-particle::before {
+      content: '';
+      display: block;
+      width: 16px;
+      height: 16px;
+      background: var(--accent);
+      clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    }
+    .hex-particle.type-reg::before { background: var(--accent); }
+    .hex-particle.type-txn::before { background: var(--info); }
+
+    /* Connecting chutes */
+    .hopper-chute {
+      position: absolute;
+      left: 50%;
+      width: 2px;
+      background: var(--border-default);
+      transform: translateX(-50%);
+    }
+    .hc-1 { top: 62px; height: 38px; }
+    .hc-2 { top: 166px; height: 34px; }
+    .hc-3 { top: 276px; height: 30px; }
+
+    /* ════════════════════════════════════════════════════════
+       CONCEPT 3: LIVING MERKLE TREE
+       ════════════════════════════════════════════════════════ */
+    .merkle-canvas {
+      width: 100%;
+      height: 420px;
+      position: relative;
+    }
+    .merkle-svg {
+      width: 100%;
+      height: 100%;
+    }
+    .merkle-node {
+      transition: all 0.4s ease;
+    }
+    .merkle-node-circle {
+      transition: all 0.3s ease;
+    }
+    .merkle-link {
+      stroke: var(--border-default);
+      stroke-width: 1.5;
+      fill: none;
+      transition: all 0.4s ease;
+    }
+    .merkle-link.active {
+      stroke: var(--accent);
+      stroke-width: 2;
+    }
+    .merkle-label {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      fill: var(--text-muted);
+      text-anchor: middle;
+    }
+    .merkle-root-ring {
+      fill: none;
+      stroke: var(--accent);
+      stroke-width: 2;
+      opacity: 0;
+    }
+    .merkle-root-ring.pulse {
+      animation: root-pulse 1s ease-out forwards;
+    }
+    @keyframes root-pulse {
+      0% { r: 18; opacity: 0.8; stroke-width: 3; }
+      100% { r: 35; opacity: 0; stroke-width: 1; }
+    }
+
+    /* Legend */
+    .merkle-legend {
+      position: absolute;
+      top: var(--space-3);
+      right: var(--space-3);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+    .merkle-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .merkle-legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    /* ════════════════════════════════════════════════════════
+       CONCEPT 4: CONSTELLATION MAP
+       ════════════════════════════════════════════════════════ */
+    .constellation-canvas {
+      width: 100%;
+      height: 420px;
+      position: relative;
+      background: radial-gradient(ellipse at center, rgba(34,211,238,0.03) 0%, transparent 70%);
+    }
+    .constellation-svg {
+      width: 100%;
+      height: 100%;
+    }
+    .node-glow {
+      transition: all 0.3s ease;
+    }
+    .node-label {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      fill: var(--text-secondary);
+      text-anchor: middle;
+    }
+    .node-role {
+      font-family: var(--font-body);
+      font-size: 9px;
+      fill: var(--text-muted);
+      text-anchor: middle;
+    }
+    .gossip-line {
+      stroke: var(--border-subtle);
+      stroke-width: 1;
+      stroke-dasharray: 4 4;
+      opacity: 0.4;
+    }
+    .gossip-line.active {
+      stroke: var(--accent);
+      opacity: 0.8;
+      stroke-dasharray: none;
+      stroke-width: 1.5;
+    }
+    /* Pulse traveling along gossip line */
+    .gossip-pulse {
+      fill: var(--accent);
+      opacity: 0;
+    }
+    .gossip-pulse.active {
+      opacity: 1;
+      animation: pulse-travel 0.8s ease-in-out forwards;
+    }
+
+    /* Heartbeat breathing */
+    .node-heartbeat {
+      animation: heartbeat 3s ease-in-out infinite;
+    }
+    @keyframes heartbeat {
+      0%, 100% { r: 28; opacity: 0.08; }
+      50% { r: 32; opacity: 0.15; }
+    }
+
+    /* Quorum ring */
+    .quorum-ring {
+      fill: none;
+      stroke: var(--success);
+      stroke-width: 2;
+      opacity: 0;
+    }
+    .quorum-ring.flash {
+      animation: quorum-flash 0.8s ease-out forwards;
+    }
+    @keyframes quorum-flash {
+      0% { r: 24; opacity: 0.9; stroke-width: 3; }
+      100% { r: 42; opacity: 0; stroke-width: 1; }
+    }
+
+    /* Event burst from sequencer */
+    .event-ring {
+      fill: none;
+      stroke: var(--accent);
+      stroke-width: 1.5;
+      opacity: 0;
+    }
+    .event-ring.burst {
+      animation: event-burst 1.2s ease-out forwards;
+    }
+    @keyframes event-burst {
+      0% { r: 30; opacity: 0.7; }
+      100% { r: 120; opacity: 0; }
+    }
+
+    /* ════════════════════════════════════════════════════════
+       CONCEPT 5: PROOF WATERFALL
+       ════════════════════════════════════════════════════════ */
+    .waterfall-canvas {
+      width: 100%;
+      overflow: hidden;
+    }
+    .waterfall-header {
+      display: flex;
+      border-bottom: 1px solid var(--border-subtle);
+      padding: var(--space-2) 0;
+      font-size: var(--text-xs);
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .wf-col-id { width: 120px; padding-left: var(--space-3); flex-shrink: 0; }
+    .wf-col-type { width: 90px; flex-shrink: 0; }
+    .wf-col-bar { flex: 1; position: relative; padding-right: var(--space-3); }
+
+    .waterfall-rows {
+      max-height: 360px;
+      overflow-y: auto;
+    }
+    .wf-row {
+      display: flex;
+      align-items: center;
+      height: 32px;
+      border-bottom: 1px solid var(--border-subtle);
+      transition: background var(--transition-fast);
+      animation: wf-row-in 0.3s ease-out;
+    }
+    @keyframes wf-row-in {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .wf-row:hover { background: var(--bg-hover); }
+    .wf-row-id {
+      width: 120px;
+      padding-left: var(--space-3);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-secondary);
+      flex-shrink: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .wf-row-type {
+      width: 90px;
+      flex-shrink: 0;
+    }
+    .wf-row-type .wf-type-badge {
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: var(--radius-sm);
+    }
+    .wf-type-reg {
+      background: rgba(34,211,238,0.12);
+      color: var(--accent);
+      border: 1px solid rgba(34,211,238,0.25);
+    }
+    .wf-type-txn {
+      background: rgba(96,165,250,0.12);
+      color: var(--info);
+      border: 1px solid rgba(96,165,250,0.25);
+    }
+
+    .wf-row-bar {
+      flex: 1;
+      height: 16px;
+      position: relative;
+      margin-right: var(--space-3);
+    }
+    .wf-segment {
+      position: absolute;
+      top: 2px;
+      height: 12px;
+      border-radius: 2px;
+      transition: width 0.3s ease;
+    }
+    .wf-seg-wait {
+      background: rgba(251,191,36,0.5);
+    }
+    .wf-seg-prove {
+      background: rgba(34,211,238,0.6);
+      overflow: hidden;
+    }
+    .wf-seg-prove::after {
+      content: '';
+      position: absolute;
+      top: 0; left: -100%;
+      width: 50%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+      animation: shimmer 1.2s ease-in-out infinite;
+    }
+    @keyframes shimmer {
+      0% { left: -50%; }
+      100% { left: 100%; }
+    }
+    .wf-seg-batch {
+      background: rgba(96,165,250,0.5);
+    }
+    .wf-seg-settle {
+      background: rgba(52,211,153,0.6);
+    }
+
+    /* Waterfall time axis */
+    .wf-time-axis {
+      display: flex;
+      justify-content: space-between;
+      padding: var(--space-1) 0;
+      font-size: 9px;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+    }
+    .wf-time-axis span { flex-shrink: 0; }
+
+    /* Waterfall legend */
+    .wf-legend {
+      display: flex;
+      gap: var(--space-4);
+      margin-top: var(--space-3);
+      font-size: var(--text-xs);
+      color: var(--text-muted);
+    }
+    .wf-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .wf-legend-swatch {
+      width: 24px;
+      height: 8px;
+      border-radius: 2px;
+    }
+
+    /* ── Stats row ────────────────────────────────────────── */
+    .stats-row {
+      display: flex;
+      gap: var(--space-4);
+      margin-top: var(--space-4);
+      flex-wrap: wrap;
+    }
+    .mini-stat {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .mini-stat-val {
+      font-size: var(--text-lg);
+      font-weight: 700;
+      font-family: var(--font-mono);
+      color: var(--accent);
+    }
+    .mini-stat-label {
+      font-size: var(--text-xs);
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+
+<div class="top-bar">
+  <div>
+    <div class="top-bar-title"><span>zk</span>Trident Pipeline Concepts</div>
+    <div class="top-bar-sub">5 visualization approaches for the Leviathan Explorer sequencer pipeline</div>
+  </div>
+</div>
+
+<div class="concept-tabs" id="tabs">
+  <button class="concept-tab active" onclick="showConcept(0)"><span class="tab-num">1</span>Particle Stream</button>
+  <button class="concept-tab" onclick="showConcept(1)"><span class="tab-num">2</span>Batch Hopper</button>
+  <button class="concept-tab" onclick="showConcept(2)"><span class="tab-num">3</span>Living Merkle Tree</button>
+  <button class="concept-tab" onclick="showConcept(3)"><span class="tab-num">4</span>Constellation Map</button>
+  <button class="concept-tab" onclick="showConcept(4)"><span class="tab-num">5</span>Proof Waterfall</button>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     CONCEPT 1: PARTICLE STREAM
+     ════════════════════════════════════════════════════════════ -->
+<div class="concept-panel active" id="panel-0">
+  <div class="concept-desc">
+    Proof objects animate left-to-right through pipeline stages as colored particles. Registrations are teal, transitions are blue. Particles queue in Pending, glow during Proving, cluster in Batching, then drop into Settled.
+  </div>
+  <div class="viz-container">
+    <div class="viz-header">
+      <span class="viz-title">Sequencer Pipeline</span>
+      <span class="viz-badge">Live</span>
+    </div>
+    <div class="viz-body">
+      <div class="stream-canvas" id="stream-canvas">
+        <div class="stream-stage ss-pending">
+          <div class="stream-stage-count" id="s1-pending">0</div>
+          <div class="stream-stage-label">Pending</div>
+        </div>
+        <div class="stream-arrow sa-1"></div>
+        <div class="stream-stage ss-proving">
+          <div class="stream-stage-count" id="s1-proving">0</div>
+          <div class="stream-stage-label">Proving</div>
+        </div>
+        <div class="stream-arrow sa-2"></div>
+        <div class="stream-stage ss-batching">
+          <div class="stream-stage-count" id="s1-batching">0</div>
+          <div class="stream-stage-label">Batching</div>
+        </div>
+        <div class="stream-arrow sa-3"></div>
+        <div class="stream-stage ss-settled">
+          <div class="stream-stage-count" id="s1-settled">0</div>
+          <div class="stream-stage-label">Settled</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="controls">
+    <button class="ctrl-btn primary" onclick="s1_addProof()">Submit Proof</button>
+    <button class="ctrl-btn" onclick="s1_addBurst()">Burst (5 proofs)</button>
+    <button class="ctrl-btn" onclick="s1_forceBatch()">Force Batch</button>
+  </div>
+  <div class="stats-row">
+    <div class="mini-stat"><div class="mini-stat-val" id="s1-total">0</div><div class="mini-stat-label">Total Processed</div></div>
+    <div class="mini-stat"><div class="mini-stat-val" id="s1-batches">0</div><div class="mini-stat-label">Batches Built</div></div>
+    <div class="mini-stat"><div class="mini-stat-val" id="s1-tps">0.0</div><div class="mini-stat-label">Proofs/sec</div></div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     CONCEPT 2: BATCH HOPPER
+     ════════════════════════════════════════════════════════════ -->
+<div class="concept-panel" id="panel-1">
+  <div class="concept-desc">
+    Vertical gravity layout. Proofs drop in as hexagons from top, fall through a proving crucible, collect in a batch bin, then the bin releases as a sealed block in a growing tower.
+  </div>
+  <div class="viz-container">
+    <div class="viz-header">
+      <span class="viz-title">Batch Hopper</span>
+      <span class="viz-badge">Live</span>
+    </div>
+    <div class="viz-body">
+      <div class="hopper-canvas" id="hopper-canvas">
+        <div class="hopper-chute hc-1"></div>
+        <div class="hopper-chute hc-2"></div>
+        <div class="hopper-chute hc-3"></div>
+
+        <div class="hopper-intake">
+          <div class="hopper-intake-label">Incoming Proofs</div>
+          <div class="hopper-intake-zone" id="h-intake"></div>
+        </div>
+
+        <div class="hopper-crucible">
+          <div class="hopper-crucible-label">ZK Proving</div>
+          <div class="hopper-crucible-box" id="h-crucible"></div>
+        </div>
+
+        <div class="hopper-bin">
+          <div class="hopper-bin-label">Batch Bin</div>
+          <div class="hopper-bin-box">
+            <div class="hopper-bin-fill" id="h-bin-fill" style="height:0px;"></div>
+            <div class="hopper-bin-count" id="h-bin-count">0</div>
+          </div>
+        </div>
+
+        <div class="hopper-tower" id="h-tower">
+          <div class="hopper-tower-label">Settled Blocks</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="controls">
+    <button class="ctrl-btn primary" onclick="h_addProof()">Drop Proof</button>
+    <button class="ctrl-btn" onclick="h_addBurst()">Burst (5)</button>
+    <button class="ctrl-btn" onclick="h_releaseBatch()">Release Batch</button>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     CONCEPT 3: LIVING MERKLE TREE
+     ════════════════════════════════════════════════════════════ -->
+<div class="concept-panel" id="panel-2">
+  <div class="concept-desc">
+    Proofs appear as leaf nodes. Branches grow as wrapTransition processes them. mergeBatches merges upward. When ChainProgram advances, the root node pulses. The tree grows in real time.
+  </div>
+  <div class="viz-container">
+    <div class="viz-header">
+      <span class="viz-title">Recursive Proof Composition</span>
+      <span class="viz-badge">Live</span>
+    </div>
+    <div class="viz-body">
+      <div class="merkle-canvas">
+        <svg class="merkle-svg" id="merkle-svg" viewBox="0 0 900 400"></svg>
+        <div class="merkle-legend">
+          <div class="merkle-legend-item"><div class="merkle-legend-dot" style="background:var(--text-muted);"></div>Empty leaf</div>
+          <div class="merkle-legend-item"><div class="merkle-legend-dot" style="background:var(--accent);"></div>Proof leaf</div>
+          <div class="merkle-legend-item"><div class="merkle-legend-dot" style="background:var(--info);"></div>Wrapped pair</div>
+          <div class="merkle-legend-item"><div class="merkle-legend-dot" style="background:var(--success);"></div>Batch/Chain root</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="controls">
+    <button class="ctrl-btn primary" onclick="m_addLeaf()">Add Proof Leaf</button>
+    <button class="ctrl-btn" onclick="m_wrapPair()">Wrap Pair</button>
+    <button class="ctrl-btn" onclick="m_mergeBatch()">Merge Batch Root</button>
+    <button class="ctrl-btn" onclick="m_chainAdvance()">Chain Advance</button>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     CONCEPT 4: CONSTELLATION MAP
+     ════════════════════════════════════════════════════════════ -->
+<div class="concept-panel" id="panel-3">
+  <div class="concept-desc">
+    Multi-leader Leviathan network as a node graph. Proof submissions travel as light pulses. Quorum votes bounce between nodes. Gossip arcs connect the constellation. Heartbeats breathe.
+  </div>
+  <div class="viz-container">
+    <div class="viz-header">
+      <span class="viz-title">Leviathan Network</span>
+      <span class="viz-badge">4 Nodes</span>
+    </div>
+    <div class="viz-body" style="padding:0;">
+      <div class="constellation-canvas">
+        <svg class="constellation-svg" id="const-svg" viewBox="0 0 900 420"></svg>
+      </div>
+    </div>
+  </div>
+  <div class="controls">
+    <button class="ctrl-btn primary" onclick="c_submitProof()">Submit Proof</button>
+    <button class="ctrl-btn" onclick="c_gossip()">Gossip Broadcast</button>
+    <button class="ctrl-btn" onclick="c_quorum()">Quorum Vote</button>
+    <button class="ctrl-btn" onclick="c_heartbeat()">Heartbeat Pulse</button>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     CONCEPT 5: PROOF WATERFALL
+     ════════════════════════════════════════════════════════════ -->
+<div class="concept-panel" id="panel-4">
+  <div class="concept-desc">
+    Chrome DevTools-style waterfall. Each proof gets a row with colored segments showing time in each stage. See parallelism when multiple workers prove simultaneously. Auto-scrolls as proofs arrive.
+  </div>
+  <div class="viz-container">
+    <div class="viz-header">
+      <span class="viz-title">Proof Waterfall Timeline</span>
+      <span class="viz-badge">Live</span>
+    </div>
+    <div class="viz-body" style="padding:0;">
+      <div class="waterfall-canvas">
+        <div class="waterfall-header">
+          <div class="wf-col-id">Receipt</div>
+          <div class="wf-col-type">Type</div>
+          <div class="wf-col-bar">
+            <div class="wf-time-axis" style="padding:0 var(--space-3) 0 0;">
+              <span>0s</span><span>2s</span><span>4s</span><span>6s</span><span>8s</span><span>10s</span>
+            </div>
+          </div>
+        </div>
+        <div class="waterfall-rows" id="wf-rows"></div>
+      </div>
+    </div>
+  </div>
+  <div class="controls">
+    <button class="ctrl-btn primary" onclick="wf_addProof()">Submit Proof</button>
+    <button class="ctrl-btn" onclick="wf_addBurst()">Burst (5)</button>
+    <button class="ctrl-btn" onclick="wf_clearAll()">Clear</button>
+  </div>
+  <div class="wf-legend">
+    <div class="wf-legend-item"><div class="wf-legend-swatch" style="background:rgba(251,191,36,0.5);"></div>Queued</div>
+    <div class="wf-legend-item"><div class="wf-legend-swatch" style="background:rgba(34,211,238,0.6);"></div>Proving</div>
+    <div class="wf-legend-item"><div class="wf-legend-swatch" style="background:rgba(96,165,250,0.5);"></div>Batching</div>
+    <div class="wf-legend-item"><div class="wf-legend-swatch" style="background:rgba(52,211,153,0.6);"></div>Settled</div>
+  </div>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════
+   TAB SWITCHING
+   ══════════════════════════════════════════════════════════════ */
+function showConcept(idx) {
+  document.querySelectorAll('.concept-tab').forEach((t, i) => t.classList.toggle('active', i === idx));
+  document.querySelectorAll('.concept-panel').forEach((p, i) => p.classList.toggle('active', i === idx));
+}
+
+/* ══════════════════════════════════════════════════════════════
+   CONCEPT 1: PARTICLE STREAM
+   ══════════════════════════════════════════════════════════════ */
+const s1 = { pending: [], proving: [], batching: [], settled: 0, totalProcessed: 0, batches: 0, startTime: Date.now(), idCounter: 0 };
+
+function s1_addProof() {
+  const canvas = document.getElementById('stream-canvas');
+  const type = Math.random() > 0.7 ? 'registration' : 'transition';
+  const p = document.createElement('div');
+  p.className = 'particle ' + type;
+  const rect = canvas.getBoundingClientRect();
+  // Start just left of pending box
+  const yBase = rect.height / 2;
+  const yOff = (Math.random() - 0.5) * 60;
+  p.style.left = '-20px';
+  p.style.top = (yBase + yOff) + 'px';
+  canvas.appendChild(p);
+
+  const id = s1.idCounter++;
+  const obj = { el: p, id, stage: 'entering' };
+  s1.pending.push(obj);
+
+  // Animate into pending zone
+  requestAnimationFrame(() => {
+    const pendingX = rect.width * 0.02 + 30 + (s1.pending.length % 3) * 18;
+    const pendingY = yBase - 20 + Math.floor(s1.pending.length / 3) * 18;
+    p.style.left = pendingX + 'px';
+    p.style.top = pendingY + 'px';
+    obj.stage = 'pending';
+  });
+
+  s1_updateCounts();
+  s1_tryProcess();
+}
+
+function s1_tryProcess() {
+  if (s1.pending.length > 0 && s1.proving.length < 2) {
+    const obj = s1.pending.shift();
+    s1.proving.push(obj);
+    const canvas = document.getElementById('stream-canvas');
+    const rect = canvas.getBoundingClientRect();
+    const provingX = rect.width * 0.27 + 40 + s1.proving.length * 20;
+    const yBase = rect.height / 2;
+    obj.el.style.left = provingX + 'px';
+    obj.el.style.top = (yBase + (Math.random() - 0.5) * 30) + 'px';
+    obj.el.classList.add('in-proving');
+    obj.stage = 'proving';
+    s1_updateCounts();
+
+    // Proving takes 1-2.5s
+    setTimeout(() => {
+      obj.el.classList.remove('in-proving');
+      s1.proving = s1.proving.filter(x => x.id !== obj.id);
+      s1.batching.push(obj);
+      const batchX = rect.width * 0.52 + 30 + (s1.batching.length % 4) * 16;
+      const batchY = yBase - 15 + Math.floor(s1.batching.length / 4) * 16;
+      obj.el.style.left = batchX + 'px';
+      obj.el.style.top = batchY + 'px';
+      obj.el.classList.add('in-batch');
+      obj.stage = 'batching';
+      s1_updateCounts();
+      s1_tryProcess();
+
+      // Auto-batch at 4+
+      if (s1.batching.length >= 4) {
+        setTimeout(() => s1_forceBatch(), 600);
+      }
+    }, 1000 + Math.random() * 1500);
+  }
+}
+
+function s1_forceBatch() {
+  if (s1.batching.length === 0) return;
+  const canvas = document.getElementById('stream-canvas');
+  const rect = canvas.getBoundingClientRect();
+  const yBase = rect.height / 2;
+  const count = s1.batching.length;
+
+  s1.batching.forEach((obj, i) => {
+    const settledX = rect.width * 0.77 + 30 + (i % 5) * 16;
+    obj.el.style.left = settledX + 'px';
+    obj.el.style.top = (yBase + 10) + 'px';
+    obj.el.classList.remove('in-batch');
+    obj.el.classList.add('settled');
+    setTimeout(() => obj.el.remove(), 600);
+  });
+
+  s1.settled += count;
+  s1.totalProcessed += count;
+  s1.batches++;
+  s1.batching = [];
+  s1_updateCounts();
+}
+
+function s1_addBurst() {
+  for (let i = 0; i < 5; i++) setTimeout(() => s1_addProof(), i * 200);
+}
+
+function s1_updateCounts() {
+  document.getElementById('s1-pending').textContent = s1.pending.length;
+  document.getElementById('s1-proving').textContent = s1.proving.length;
+  document.getElementById('s1-batching').textContent = s1.batching.length;
+  document.getElementById('s1-settled').textContent = s1.settled;
+  document.getElementById('s1-total').textContent = s1.totalProcessed;
+  document.getElementById('s1-batches').textContent = s1.batches;
+  const elapsed = (Date.now() - s1.startTime) / 1000;
+  document.getElementById('s1-tps').textContent = elapsed > 0 ? (s1.totalProcessed / elapsed).toFixed(1) : '0.0';
+}
+
+/* ══════════════════════════════════════════════════════════════
+   CONCEPT 2: BATCH HOPPER
+   ══════════════════════════════════════════════════════════════ */
+const h = { binCount: 0, blockCount: 0, idCounter: 0 };
+
+function h_addProof() {
+  const canvas = document.getElementById('hopper-canvas');
+  const type = Math.random() > 0.7 ? 'type-reg' : 'type-txn';
+  const p = document.createElement('div');
+  p.className = 'hex-particle ' + type;
+  p.id = 'hex-' + h.idCounter++;
+  // Start at top center
+  const xOff = (Math.random() - 0.5) * 100;
+  p.style.left = 'calc(50% + ' + xOff + 'px - 8px)';
+  p.style.top = '10px';
+  canvas.appendChild(p);
+
+  // Drop to intake
+  setTimeout(() => {
+    p.style.top = '30px';
+    p.style.left = 'calc(50% + ' + ((Math.random() - 0.5) * 60) + 'px - 8px)';
+  }, 50);
+
+  // Drop to crucible
+  setTimeout(() => {
+    p.style.top = '115px';
+    p.style.left = 'calc(50% + ' + ((Math.random() - 0.5) * 40) + 'px - 8px)';
+  }, 600);
+
+  // Drop to bin
+  setTimeout(() => {
+    p.style.top = '220px';
+    p.style.left = 'calc(50% + ' + ((Math.random() - 0.5) * 50) + 'px - 8px)';
+    h.binCount++;
+    h_updateBin();
+
+    setTimeout(() => p.remove(), 400);
+
+    if (h.binCount >= 4) {
+      setTimeout(() => h_releaseBatch(), 500);
+    }
+  }, 1200);
+}
+
+function h_updateBin() {
+  const fill = document.getElementById('h-bin-fill');
+  const count = document.getElementById('h-bin-count');
+  fill.style.height = Math.min(h.binCount * 10, 55) + 'px';
+  count.textContent = h.binCount;
+}
+
+function h_releaseBatch() {
+  if (h.binCount === 0) return;
+  h.blockCount++;
+  const count = h.binCount;
+  h.binCount = 0;
+  h_updateBin();
+
+  const tower = document.getElementById('h-tower');
+  const block = document.createElement('div');
+  block.className = 'hopper-block';
+  block.textContent = 'Batch #' + h.blockCount + ' (' + count + ' txns)';
+  tower.prepend(block);
+
+  // Limit visible blocks
+  if (tower.querySelectorAll('.hopper-block').length > 4) {
+    tower.querySelector('.hopper-block:last-child').remove();
+  }
+}
+
+function h_addBurst() {
+  for (let i = 0; i < 5; i++) setTimeout(() => h_addProof(), i * 300);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   CONCEPT 3: LIVING MERKLE TREE
+   ══════════════════════════════════════════════════════════════ */
+const m = { leaves: [], pairs: [], batchRoots: [], chainRoot: null, leafCount: 0 };
+
+function m_initTree() {
+  const svg = document.getElementById('merkle-svg');
+  svg.innerHTML = '';
+  // Draw 8 empty leaf positions at bottom
+  const leafY = 350;
+  const spacing = 100;
+  const startX = 450 - (3.5 * spacing);
+  for (let i = 0; i < 8; i++) {
+    const x = startX + i * spacing;
+    const circle = m_makeCircle(x, leafY, 10, 'var(--border-default)', 'rgba(42,49,64,0.5)');
+    circle.setAttribute('data-leaf', i);
+    svg.appendChild(circle);
+    const label = m_makeText(x, leafY + 22, 'leaf ' + i);
+    svg.appendChild(label);
+  }
+  // Pair positions (level 1)
+  const pairY = 260;
+  for (let i = 0; i < 4; i++) {
+    const x = startX + i * spacing * 2 + spacing / 2;
+    const circle = m_makeCircle(x, pairY, 10, 'var(--border-default)', 'rgba(42,49,64,0.3)');
+    circle.setAttribute('data-pair', i);
+    svg.appendChild(circle);
+  }
+  // Batch pair positions (level 2)
+  const batchY = 170;
+  for (let i = 0; i < 2; i++) {
+    const x = startX + i * spacing * 4 + spacing * 1.5;
+    const circle = m_makeCircle(x, batchY, 10, 'var(--border-default)', 'rgba(42,49,64,0.3)');
+    circle.setAttribute('data-bpair', i);
+    svg.appendChild(circle);
+  }
+  // Root position
+  const rootX = 450;
+  const rootY = 80;
+  const rootCircle = m_makeCircle(rootX, rootY, 14, 'var(--border-default)', 'rgba(42,49,64,0.3)');
+  rootCircle.setAttribute('data-root', '0');
+  svg.appendChild(rootCircle);
+  const rootLabel = m_makeText(rootX, rootY - 24, 'ChainRoot');
+  rootLabel.style.fill = 'var(--text-secondary)';
+  rootLabel.style.fontSize = '10px';
+  svg.appendChild(rootLabel);
+
+  // Add pulse ring (hidden initially)
+  const pulseRing = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  pulseRing.setAttribute('cx', rootX);
+  pulseRing.setAttribute('cy', rootY);
+  pulseRing.setAttribute('r', '18');
+  pulseRing.classList.add('merkle-root-ring');
+  pulseRing.id = 'merkle-pulse';
+  svg.appendChild(pulseRing);
+
+  // Draw connection lines
+  const leafPositions = Array.from({length: 8}, (_, i) => startX + i * spacing);
+  const pairPositions = Array.from({length: 4}, (_, i) => startX + i * spacing * 2 + spacing / 2);
+  const batchPositions = Array.from({length: 2}, (_, i) => startX + i * spacing * 4 + spacing * 1.5);
+
+  // Leaf to pair lines
+  for (let i = 0; i < 4; i++) {
+    m_makeLine(svg, leafPositions[i*2], leafY-12, pairPositions[i], pairY+12);
+    m_makeLine(svg, leafPositions[i*2+1], leafY-12, pairPositions[i], pairY+12);
+  }
+  // Pair to batch lines
+  for (let i = 0; i < 2; i++) {
+    m_makeLine(svg, pairPositions[i*2], pairY-12, batchPositions[i], batchY+12);
+    m_makeLine(svg, pairPositions[i*2+1], pairY-12, batchPositions[i], batchY+12);
+  }
+  // Batch to root lines
+  m_makeLine(svg, batchPositions[0], batchY-12, rootX, rootY+16);
+  m_makeLine(svg, batchPositions[1], batchY-12, rootX, rootY+16);
+}
+
+function m_makeCircle(cx, cy, r, stroke, fill) {
+  const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  c.setAttribute('cx', cx); c.setAttribute('cy', cy); c.setAttribute('r', r);
+  c.setAttribute('stroke', stroke); c.setAttribute('stroke-width', '2');
+  c.setAttribute('fill', fill || 'none');
+  c.classList.add('merkle-node-circle');
+  return c;
+}
+function m_makeText(x, y, text) {
+  const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  t.setAttribute('x', x); t.setAttribute('y', y);
+  t.textContent = text;
+  t.classList.add('merkle-label');
+  return t;
+}
+function m_makeLine(svg, x1, y1, x2, y2) {
+  const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  l.setAttribute('x1', x1); l.setAttribute('y1', y1);
+  l.setAttribute('x2', x2); l.setAttribute('y2', y2);
+  l.classList.add('merkle-link');
+  svg.insertBefore(l, svg.firstChild); // lines behind nodes
+}
+
+function m_addLeaf() {
+  if (m.leafCount >= 8) return;
+  const svg = document.getElementById('merkle-svg');
+  const circle = svg.querySelector('[data-leaf="' + m.leafCount + '"]');
+  if (circle) {
+    circle.setAttribute('fill', 'rgba(34,211,238,0.3)');
+    circle.setAttribute('stroke', 'var(--accent)');
+    circle.setAttribute('r', '12');
+    // Pop animation
+    setTimeout(() => circle.setAttribute('r', '10'), 300);
+  }
+  m.leafCount++;
+}
+
+function m_wrapPair() {
+  const pairIdx = Math.floor((m.leafCount - 1) / 2);
+  if (pairIdx < 0 || pairIdx > 3) return;
+  const svg = document.getElementById('merkle-svg');
+  const circle = svg.querySelector('[data-pair="' + pairIdx + '"]');
+  if (circle) {
+    circle.setAttribute('fill', 'rgba(96,165,250,0.3)');
+    circle.setAttribute('stroke', 'var(--info)');
+    circle.setAttribute('r', '12');
+    setTimeout(() => circle.setAttribute('r', '10'), 300);
+    // Activate connecting lines
+    const lines = svg.querySelectorAll('.merkle-link');
+    // Just light up a couple
+    lines.forEach((l, i) => {
+      if (i >= pairIdx * 2 && i < pairIdx * 2 + 2) l.classList.add('active');
+    });
+  }
+}
+
+function m_mergeBatch() {
+  const svg = document.getElementById('merkle-svg');
+  [0, 1].forEach(i => {
+    const circle = svg.querySelector('[data-bpair="' + i + '"]');
+    if (circle) {
+      circle.setAttribute('fill', 'rgba(96,165,250,0.3)');
+      circle.setAttribute('stroke', 'var(--info)');
+      circle.setAttribute('r', '12');
+      setTimeout(() => circle.setAttribute('r', '10'), 300);
+    }
+  });
+  // Activate middle lines
+  const lines = svg.querySelectorAll('.merkle-link');
+  lines.forEach((l, i) => { if (i >= 8 && i < 12) l.classList.add('active'); });
+}
+
+function m_chainAdvance() {
+  const svg = document.getElementById('merkle-svg');
+  const root = svg.querySelector('[data-root="0"]');
+  if (root) {
+    root.setAttribute('fill', 'rgba(52,211,153,0.3)');
+    root.setAttribute('stroke', 'var(--success)');
+    root.setAttribute('r', '16');
+    setTimeout(() => root.setAttribute('r', '14'), 300);
+  }
+  // Activate root lines
+  const lines = svg.querySelectorAll('.merkle-link');
+  lines.forEach((l, i) => { if (i >= 12) l.classList.add('active'); });
+
+  // Pulse ring
+  const pulse = document.getElementById('merkle-pulse');
+  pulse.classList.remove('pulse');
+  void pulse.offsetWidth;
+  pulse.classList.add('pulse');
+}
+
+// Init on load
+setTimeout(m_initTree, 100);
+
+/* ══════════════════════════════════════════════════════════════
+   CONCEPT 4: CONSTELLATION MAP
+   ══════════════════════════════════════════════════════════════ */
+const NODES = [
+  { id: 'leviathan-a', role: 'Sequencer', x: 450, y: 180, primary: true },
+  { id: 'leviathan-b', role: 'Replica', x: 200, y: 120 },
+  { id: 'leviathan-c', role: 'Replica', x: 700, y: 120 },
+  { id: 'leviathan-d', role: 'Replica', x: 450, y: 340 },
+];
+
+function c_initMap() {
+  const svg = document.getElementById('const-svg');
+  svg.innerHTML = '';
+
+  // Draw gossip lines between all pairs
+  for (let i = 0; i < NODES.length; i++) {
+    for (let j = i + 1; j < NODES.length; j++) {
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('x1', NODES[i].x); line.setAttribute('y1', NODES[i].y);
+      line.setAttribute('x2', NODES[j].x); line.setAttribute('y2', NODES[j].y);
+      line.classList.add('gossip-line');
+      line.id = 'gl-' + i + '-' + j;
+      svg.appendChild(line);
+    }
+  }
+
+  // Draw nodes
+  NODES.forEach((node, i) => {
+    // Heartbeat glow
+    const glow = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    glow.setAttribute('cx', node.x); glow.setAttribute('cy', node.y); glow.setAttribute('r', '28');
+    glow.setAttribute('fill', node.primary ? 'var(--accent)' : 'var(--info)');
+    glow.classList.add('node-heartbeat');
+    glow.style.animationDelay = (i * 0.5) + 's';
+    svg.appendChild(glow);
+
+    // Main circle
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', node.x); circle.setAttribute('cy', node.y);
+    circle.setAttribute('r', node.primary ? '22' : '18');
+    circle.setAttribute('fill', node.primary ? 'rgba(34,211,238,0.15)' : 'rgba(96,165,250,0.1)');
+    circle.setAttribute('stroke', node.primary ? 'var(--accent)' : 'var(--info)');
+    circle.setAttribute('stroke-width', node.primary ? '2.5' : '1.5');
+    circle.classList.add('node-glow');
+    circle.id = 'node-' + i;
+    svg.appendChild(circle);
+
+    // Quorum ring (hidden)
+    const qr = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    qr.setAttribute('cx', node.x); qr.setAttribute('cy', node.y); qr.setAttribute('r', '24');
+    qr.classList.add('quorum-ring');
+    qr.id = 'qr-' + i;
+    svg.appendChild(qr);
+
+    // Event ring for sequencer
+    if (node.primary) {
+      const er = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      er.setAttribute('cx', node.x); er.setAttribute('cy', node.y); er.setAttribute('r', '30');
+      er.classList.add('event-ring');
+      er.id = 'event-ring';
+      svg.appendChild(er);
+    }
+
+    // Label
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', node.x); label.setAttribute('y', node.y + 4);
+    label.textContent = node.id.replace('leviathan-', 'lev-');
+    label.classList.add('node-label');
+    svg.appendChild(label);
+
+    // Role label
+    const role = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    role.setAttribute('x', node.x); role.setAttribute('y', node.y + (node.primary ? 38 : 32));
+    role.textContent = node.role;
+    role.classList.add('node-role');
+    svg.appendChild(role);
+  });
+}
+
+function c_submitProof() {
+  const svg = document.getElementById('const-svg');
+  // Animate a pulse from edge to sequencer
+  const startX = 50 + Math.random() * 100;
+  const startY = 50 + Math.random() * 100;
+  const seqNode = NODES[0];
+
+  const pulse = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  pulse.setAttribute('cx', startX); pulse.setAttribute('cy', startY);
+  pulse.setAttribute('r', '5'); pulse.setAttribute('fill', 'var(--accent)');
+  pulse.style.transition = 'all 0.7s ease-in';
+  svg.appendChild(pulse);
+
+  requestAnimationFrame(() => {
+    pulse.setAttribute('cx', seqNode.x);
+    pulse.setAttribute('cy', seqNode.y);
+    pulse.setAttribute('r', '3');
+  });
+
+  setTimeout(() => {
+    pulse.remove();
+    // Flash event ring
+    const er = document.getElementById('event-ring');
+    er.classList.remove('burst');
+    void er.offsetWidth;
+    er.classList.add('burst');
+  }, 700);
+}
+
+function c_gossip() {
+  const svg = document.getElementById('const-svg');
+  // Light up all gossip lines briefly
+  const lines = svg.querySelectorAll('.gossip-line');
+  lines.forEach((l, i) => {
+    setTimeout(() => {
+      l.classList.add('active');
+      setTimeout(() => l.classList.remove('active'), 800);
+    }, i * 100);
+  });
+
+  // Send pulses from sequencer to replicas
+  const seq = NODES[0];
+  [1, 2, 3].forEach((idx, i) => {
+    setTimeout(() => {
+      const target = NODES[idx];
+      const pulse = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      pulse.setAttribute('cx', seq.x); pulse.setAttribute('cy', seq.y);
+      pulse.setAttribute('r', '4'); pulse.setAttribute('fill', 'var(--accent)');
+      pulse.style.transition = 'all 0.5s ease-out';
+      svg.appendChild(pulse);
+      requestAnimationFrame(() => {
+        pulse.setAttribute('cx', target.x);
+        pulse.setAttribute('cy', target.y);
+        pulse.setAttribute('r', '2');
+        pulse.style.opacity = '0.5';
+      });
+      setTimeout(() => pulse.remove(), 600);
+    }, i * 150);
+  });
+}
+
+function c_quorum() {
+  // Flash quorum rings on 3 of 4 nodes (N/2+1)
+  const chosen = [0, 1, 2]; // First 3
+  chosen.forEach((idx, i) => {
+    setTimeout(() => {
+      const qr = document.getElementById('qr-' + idx);
+      qr.classList.remove('flash');
+      void qr.offsetWidth;
+      qr.classList.add('flash');
+    }, i * 150);
+  });
+}
+
+function c_heartbeat() {
+  // Brighten all nodes momentarily
+  NODES.forEach((_, i) => {
+    const circle = document.getElementById('node-' + i);
+    const origR = circle.getAttribute('r');
+    circle.setAttribute('r', parseInt(origR) + 4);
+    circle.setAttribute('stroke-width', '3');
+    setTimeout(() => {
+      circle.setAttribute('r', origR);
+      circle.setAttribute('stroke-width', NODES[i].primary ? '2.5' : '1.5');
+    }, 500);
+  });
+}
+
+setTimeout(c_initMap, 100);
+
+/* ══════════════════════════════════════════════════════════════
+   CONCEPT 5: PROOF WATERFALL
+   ══════════════════════════════════════════════════════════════ */
+let wfCounter = 0;
+const WF_SCALE = 10; // 10s = 100% width
+
+function wf_addProof() {
+  wfCounter++;
+  const container = document.getElementById('wf-rows');
+  const isReg = Math.random() > 0.7;
+  const id = 'rcpt-' + Math.random().toString(36).substr(2, 6);
+  const typeClass = isReg ? 'wf-type-reg' : 'wf-type-txn';
+  const typeLabel = isReg ? 'REG' : 'TXN';
+
+  // Random timing segments (percentages of 10s timeline)
+  const waitStart = Math.random() * 20;
+  const waitLen = 5 + Math.random() * 15;
+  const proveStart = waitStart + waitLen;
+  const proveLen = 15 + Math.random() * 25;
+  const batchStart = proveStart + proveLen;
+  const batchLen = 5 + Math.random() * 10;
+  const settleStart = batchStart + batchLen;
+  const settleLen = 3 + Math.random() * 5;
+
+  const row = document.createElement('div');
+  row.className = 'wf-row';
+  row.innerHTML = '' +
+    '<div class="wf-row-id">' + id + '</div>' +
+    '<div class="wf-row-type"><span class="wf-type-badge ' + typeClass + '">' + typeLabel + '</span></div>' +
+    '<div class="wf-row-bar">' +
+      '<div class="wf-segment wf-seg-wait" style="left:' + waitStart + '%;width:' + waitLen + '%;"></div>' +
+      '<div class="wf-segment wf-seg-prove" style="left:' + proveStart + '%;width:' + proveLen + '%;"></div>' +
+      '<div class="wf-segment wf-seg-batch" style="left:' + batchStart + '%;width:' + batchLen + '%;"></div>' +
+      '<div class="wf-segment wf-seg-settle" style="left:' + settleStart + '%;width:' + settleLen + '%;"></div>' +
+    '</div>';
+
+  container.prepend(row);
+
+  // Auto-scroll
+  container.scrollTop = 0;
+
+  // Limit rows
+  if (container.children.length > 20) {
+    container.lastChild.remove();
+  }
+}
+
+function wf_addBurst() {
+  for (let i = 0; i < 5; i++) setTimeout(() => wf_addProof(), i * 150);
+}
+
+function wf_clearAll() {
+  document.getElementById('wf-rows').innerHTML = '';
+  wfCounter = 0;
+}
+
+// Seed waterfall with some initial data
+setTimeout(() => {
+  for (let i = 0; i < 8; i++) setTimeout(() => wf_addProof(), i * 80);
+}, 200);
+</script>
+
+</body>
+</html>

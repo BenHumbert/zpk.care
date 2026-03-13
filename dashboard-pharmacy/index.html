@@ -2,8 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>&#x1F41A;</text></svg>">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>zkTrident Pharmacy</title>
+  <title>zkp.Care Pharmacy Workstation</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -15,253 +16,194 @@
   <header class="header">
     <div class="header-brand">
       <div class="brand-icon">Rx</div>
-      <span>zkTrident Pharmacy</span>
+      <span>zkp.Care Pharmacy</span>
+    </div>
+    <div class="header-center">
+      <select id="pharmacy-selector" class="pharmacy-selector" title="Switch pharmacy"></select>
+      <button id="badge-tap-btn" class="badge-tap-btn" title="Badge Swipe — Clock in to selected pharmacy">
+        <span class="badge-icon">&#x1F4F3;</span> Alias In
+      </button>
     </div>
     <div class="header-meta">
       <span class="header-wallet" id="header-wallet">--</span>
-      <div class="connection-dot" id="connection-dot" title="SSE connection status"></div>
+      <div class="connection-dot" id="connection-dot" title="SSE connection status" aria-label="Connection status"></div>
     </div>
   </header>
 
   <!-- ── Navigation ─────────────────────────────────────────── -->
-  <nav class="nav" id="nav">
-    <button class="nav-tab active" data-tab="overview">Overview</button>
-    <button class="nav-tab" data-tab="onboarding">Onboarding</button>
-    <button class="nav-tab" data-tab="dispensing">Dispensing</button>
-    <button class="nav-tab" data-tab="dur">DUR</button>
-    <button class="nav-tab" data-tab="nfc">NFC Scan</button>
-    <button class="nav-tab" data-tab="messaging">Messaging</button>
-    <button class="nav-tab" data-tab="proofs">Proofs</button>
+  <nav class="nav" id="nav" role="navigation" aria-label="Main navigation">
+    <button class="nav-tab active" data-tab="workstation" role="tab">Workstation</button>
+    <button class="nav-tab" data-tab="history" role="tab">Script History</button>
+    <button class="nav-tab" data-tab="dur" role="tab">DUR</button>
+    <button class="nav-tab" data-tab="messaging" role="tab">Messaging</button>
+    <button class="nav-tab" data-tab="onboarding" role="tab">Onboarding</button>
+    <button class="nav-tab" data-tab="proofs" role="tab">Proofs</button>
   </nav>
 
   <!-- ── Main Content ───────────────────────────────────────── -->
-  <main class="main">
+  <main class="main" role="main">
 
     <!-- ════════════════════════════════════════════════════════ -->
-    <!--  OVERVIEW                                               -->
+    <!--  WORKSTATION — 3-Column Dispensing Workflow              -->
     <!-- ════════════════════════════════════════════════════════ -->
-    <section class="page active" id="page-overview">
-      <h2 class="page-title">Pharmacy Overview</h2>
-
-      <div class="stats-grid" id="overview-stats">
-        <div class="stat-card">
-          <div class="stat-label">Phase</div>
-          <div class="stat-value accent" id="ov-phase">--</div>
+    <section class="page active" id="page-workstation">
+      <!-- Top Stats Bar -->
+      <div class="ws-stats-bar">
+        <div class="ws-stat">
+          <span class="ws-stat-label">Active</span>
+          <span class="ws-stat-value accent" id="ws-active-count">0</span>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">Wallet ID</div>
-          <div class="stat-value text-sm text-mono" id="ov-wallet" style="font-size:13px; word-break:break-all;">--</div>
+        <div class="ws-stat">
+          <span class="ws-stat-label">Dispensed</span>
+          <span class="ws-stat-value green" id="ws-dispensed-count">0</span>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">Total Dispensed</div>
-          <div class="stat-value blue" id="ov-dispensed">--</div>
+        <div class="ws-stat">
+          <span class="ws-stat-label">Filled</span>
+          <span class="ws-stat-value blue" id="ws-filled-count">0</span>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">Unique Patients</div>
-          <div class="stat-value green" id="ov-patients">--</div>
+        <div class="ws-stat">
+          <span class="ws-stat-label">Completed Today</span>
+          <span class="ws-stat-value purple" id="ws-completed-count">0</span>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">DUR Lookups</div>
-          <div class="stat-value purple" id="ov-dur">--</div>
-        </div>
+        <div class="ws-stat-spacer"></div>
+        <button class="btn btn-sm" id="ws-refresh-btn">Refresh</button>
       </div>
 
-      <div class="grid-2">
-        <div class="card">
-          <div class="card-header">Live Events</div>
-          <div class="card-body no-pad">
-            <div class="event-log" id="ov-events">
-              <div class="empty-state" style="padding:24px;">
-                <div class="empty-state-desc">Waiting for events...</div>
-              </div>
+      <!-- 3-Column Layout -->
+      <div class="ws-columns">
+
+        <!-- LEFT: Active (incoming scripts from prescribers) -->
+        <div class="ws-column">
+          <div class="ws-column-header active-header">
+            <div class="ws-col-title">
+              <span class="ws-col-icon">1</span>
+              Active
             </div>
+            <span class="ws-col-count" id="ws-active-badge">0</span>
+          </div>
+          <div class="ws-column-body" id="ws-active-list">
+            <div class="ws-empty">No active scripts</div>
           </div>
         </div>
-        <div class="card">
-          <div class="card-header">Activity Summary</div>
-          <div class="card-body" id="ov-activity">
-            <div class="loading">Loading...</div>
+
+        <!-- CENTER: Dispensed (filled, waiting for member pickup) -->
+        <div class="ws-column">
+          <div class="ws-column-header dispensed-header">
+            <div class="ws-col-title">
+              <span class="ws-col-icon">2</span>
+              Dispensed
+            </div>
+            <span class="ws-col-count" id="ws-dispensed-badge">0</span>
+          </div>
+          <div class="ws-column-body" id="ws-dispensed-list">
+            <div class="ws-empty">No dispensed scripts</div>
+          </div>
+        </div>
+
+        <!-- RIGHT: Filled (member verified + picked up) -->
+        <div class="ws-column">
+          <div class="ws-column-header filled-header">
+            <div class="ws-col-title">
+              <span class="ws-col-icon">3</span>
+              Filled
+            </div>
+            <span class="ws-col-count" id="ws-filled-badge">0</span>
+          </div>
+          <!-- NFC/Credential Input -->
+          <div class="ws-verify-input">
+            <div class="ws-nfc-icon">NFC</div>
+            <input id="ws-verify-wallet" class="form-input mono" placeholder="Scan NFC or paste wallet ID...">
+            <div class="ws-verify-actions">
+              <button class="btn btn-primary btn-sm" id="ws-nfc-scan-btn">Scan</button>
+              <button class="btn btn-sm" id="ws-verify-lookup-btn">Lookup</button>
+            </div>
+            <div id="ws-verify-status" class="ws-verify-status hidden"></div>
+          </div>
+          <div class="ws-column-body" id="ws-filled-list">
+            <div class="ws-empty">Scan member NFC or paste credential to verify &amp; complete pickup</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Script Detail Modal -->
+      <div class="ws-modal-overlay hidden" id="ws-modal-overlay">
+        <div class="ws-modal" id="ws-modal">
+          <div class="ws-modal-header">
+            <span class="ws-modal-title">Script Detail</span>
+            <button class="btn btn-sm" id="ws-modal-close">&times; Close</button>
+          </div>
+          <div class="ws-modal-body" id="ws-modal-body">
           </div>
         </div>
       </div>
     </section>
 
     <!-- ════════════════════════════════════════════════════════ -->
-    <!--  ONBOARDING                                             -->
+    <!--  SCRIPT HISTORY                                         -->
     <!-- ════════════════════════════════════════════════════════ -->
-    <section class="page" id="page-onboarding">
-      <h2 class="page-title">Pharmacy Onboarding</h2>
-      <p class="page-subtitle">Step-by-step enrollment ceremony: accept token, generate key, derive wallet with NPI/NCPDP credentials, enroll, compile, ready.</p>
+    <section class="page" id="page-history">
+      <h2 class="page-title">Script History</h2>
 
-      <div class="wizard-steps" id="wizard-steps">
-        <div class="wizard-step current" data-step="0">
-          <span class="step-num">1</span> Accept Token
-        </div>
-        <div class="wizard-step" data-step="1">
-          <span class="step-num">2</span> Generate Key
-        </div>
-        <div class="wizard-step" data-step="2">
-          <span class="step-num">3</span> Derive Wallet
-        </div>
-        <div class="wizard-step" data-step="3">
-          <span class="step-num">4</span> Enroll
-        </div>
-        <div class="wizard-step" data-step="4">
-          <span class="step-num">5</span> Compile
-        </div>
-        <div class="wizard-step" data-step="5">
-          <span class="step-num">6</span> Done
-        </div>
-      </div>
-
-      <!-- Step 0: Accept Token -->
-      <div class="wizard-panel" id="wiz-panel-0">
-        <div class="wizard-panel-title">Accept Group Enrollment Token</div>
-        <div class="wizard-panel-desc">Enter the enrollment token provided by your employer or insurer group administrator.</div>
-        <div class="form-group">
-          <label class="form-label">Token ID</label>
-          <input class="form-input mono" id="wiz-tokenId" placeholder="Enrollment token identifier">
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Group ID (optional)</label>
-            <input class="form-input mono" id="wiz-groupId" placeholder="Group identifier">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Plan ID (optional)</label>
-            <input class="form-input mono" id="wiz-planId" placeholder="Plan identifier">
-          </div>
-        </div>
-        <button class="btn btn-primary" id="wiz-btn-0">Accept Token</button>
-        <div class="wizard-result hidden" id="wiz-result-0"></div>
-      </div>
-
-      <!-- Step 1: Generate Key -->
-      <div class="wizard-panel hidden" id="wiz-panel-1">
-        <div class="wizard-panel-title">Generate Enrollment Key</div>
-        <div class="wizard-panel-desc">A cryptographic enrollment key will be generated locally on this device. It is NEVER transmitted.</div>
-        <div class="form-group">
-          <label class="form-label">Enrollment Key (optional -- auto-generated if blank)</label>
-          <input class="form-input mono" id="wiz-enrollmentKey" placeholder="Leave blank to auto-generate">
-        </div>
-        <button class="btn btn-primary" id="wiz-btn-1">Generate Key</button>
-        <div class="wizard-result hidden" id="wiz-result-1"></div>
-      </div>
-
-      <!-- Step 2: Derive Wallet -->
-      <div class="wizard-panel hidden" id="wiz-panel-2">
-        <div class="wizard-panel-title">Derive Pharmacy Wallet</div>
-        <div class="wizard-panel-desc">Enter the pharmacy's service provider credentials. The wallet ID will be derived using Poseidon hashing with NPI or NCPDP qualifier.</div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Service Provider ID Qualifier</label>
-            <select class="form-input" id="wiz-qualifier">
-              <option value="1">1 - NPI (National Provider Identifier)</option>
-              <option value="2">2 - NCPDP Provider ID</option>
-              <option value="3">3 - State License Number</option>
-              <option value="4">4 - DEA Number</option>
-            </select>
-            <div class="form-hint">Qualifier code per NCPDP standard</div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Service Provider ID</label>
-            <input class="form-input mono" id="wiz-providerId" placeholder="e.g. 1234567890">
-            <div class="form-hint">NPI, NCPDP, or other pharmacy identifier</div>
-          </div>
-        </div>
-        <button class="btn btn-primary" id="wiz-btn-2">Derive Wallet</button>
-        <div class="wizard-result hidden" id="wiz-result-2"></div>
-      </div>
-
-      <!-- Step 3: Enroll -->
-      <div class="wizard-panel hidden" id="wiz-panel-3">
-        <div class="wizard-panel-title">Enroll with Insurer</div>
-        <div class="wizard-panel-desc">Register the wallet with the insurer attestation authority. The insurer sees only the opaque wallet ID -- never your credentials or enrollment key.</div>
-        <div class="form-group">
-          <label class="form-label">Insurer URL (optional)</label>
-          <input class="form-input" id="wiz-insurerUrl" placeholder="Leave blank for default">
-        </div>
-        <button class="btn btn-primary" id="wiz-btn-3">Enroll</button>
-        <div class="wizard-result hidden" id="wiz-result-3"></div>
-      </div>
-
-      <!-- Step 4: Compile -->
-      <div class="wizard-panel hidden" id="wiz-panel-4">
-        <div class="wizard-panel-title">Compile ZK Programs</div>
-        <div class="wizard-panel-desc">Compile the zero-knowledge proving circuits. This may take 1-3 minutes depending on hardware.</div>
-        <button class="btn btn-primary" id="wiz-btn-4">Compile</button>
-        <div class="wizard-result hidden" id="wiz-result-4"></div>
-      </div>
-
-      <!-- Step 5: Done -->
-      <div class="wizard-panel hidden" id="wiz-panel-5">
-        <div class="wizard-panel-title">Onboarding Complete</div>
-        <div class="wizard-panel-desc">Your pharmacy node is fully enrolled and ready to process claims. Zero-knowledge circuits are compiled.</div>
-        <div class="wizard-result" id="wiz-result-5" style="display:none;"></div>
-        <div class="stats-grid mt-16" id="wiz-done-stats"></div>
-      </div>
-    </section>
-
-    <!-- ════════════════════════════════════════════════════════ -->
-    <!--  DISPENSING                                              -->
-    <!-- ════════════════════════════════════════════════════════ -->
-    <section class="page" id="page-dispensing">
-      <h2 class="page-title">Dispensing History</h2>
-
-      <div class="stats-grid" id="disp-stats">
-        <div class="stat-card">
-          <div class="stat-label">Total Claims</div>
-          <div class="stat-value blue" id="disp-total">--</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Unique Patients</div>
-          <div class="stat-value green" id="disp-patients">--</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Unique Medications</div>
-          <div class="stat-value purple" id="disp-meds">--</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Unique Prescribers</div>
-          <div class="stat-value yellow" id="disp-prescribers">--</div>
-        </div>
-      </div>
-
-      <div class="filters" id="disp-filters">
-        <div class="filter-group">
-          <label>Patient Wallet</label>
-          <input id="disp-filter-patient" placeholder="Member wallet ID...">
-        </div>
-        <div class="filter-group">
-          <label>Prescriber Wallet</label>
-          <input id="disp-filter-prescriber" placeholder="Prescriber wallet ID...">
-        </div>
-        <div class="filter-group">
-          <label>Medication (NDC Hash)</label>
-          <input id="disp-filter-medication" placeholder="NDC hash...">
-        </div>
+      <div class="filters" id="hist-filters">
         <div class="filter-group">
           <label>Start Date</label>
-          <input type="date" id="disp-filter-start">
+          <input type="date" id="hist-filter-start">
         </div>
         <div class="filter-group">
           <label>End Date</label>
-          <input type="date" id="disp-filter-end">
+          <input type="date" id="hist-filter-end">
+        </div>
+        <div class="filter-group">
+          <label>Patient Wallet</label>
+          <input id="hist-filter-patient" placeholder="Member wallet ID...">
+        </div>
+        <div class="filter-group">
+          <label>Status</label>
+          <select id="hist-filter-status">
+            <option value="">All</option>
+            <option value="active">Active</option>
+            <option value="dispensed">Dispensed</option>
+            <option value="filled">Filled</option>
+            <option value="complete">Complete</option>
+            <option value="reversed">Reversed</option>
+            <option value="rejected">Rejected</option>
+            <option value="transferred">Transferred</option>
+          </select>
         </div>
         <div class="filter-group">
           <label>&nbsp;</label>
-          <button class="btn btn-primary btn-sm" id="disp-filter-btn">Filter</button>
+          <button class="btn btn-primary btn-sm" id="hist-filter-btn">Filter</button>
         </div>
         <div class="filter-group">
           <label>&nbsp;</label>
-          <button class="btn btn-sm" id="disp-clear-btn">Clear</button>
+          <button class="btn btn-sm" id="hist-clear-btn">Clear</button>
+        </div>
+      </div>
+
+      <div class="stats-grid" id="hist-stats">
+        <div class="stat-card">
+          <div class="stat-label">Total Scripts</div>
+          <div class="stat-value blue" id="hist-total">--</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Unique Patients</div>
+          <div class="stat-value green" id="hist-patients">--</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Patient Pay</div>
+          <div class="stat-value yellow" id="hist-patient-pay">--</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Plan Pay</div>
+          <div class="stat-value accent" id="hist-plan-pay">--</div>
         </div>
       </div>
 
       <div class="card">
         <div class="card-header">
-          <span>Claims</span>
-          <span class="text-secondary text-sm" id="disp-count">--</span>
+          <span>Scripts</span>
+          <span class="text-secondary text-sm" id="hist-count">--</span>
         </div>
         <div class="card-body no-pad">
           <div class="table-wrap">
@@ -275,53 +217,13 @@
                   <th>Date</th>
                   <th>Patient Pay</th>
                   <th>Plan Pay</th>
+                  <th>Status</th>
                 </tr>
               </thead>
-              <tbody id="disp-table-body">
-                <tr><td colspan="7" class="loading">Loading...</td></tr>
+              <tbody id="hist-table-body">
+                <tr><td colspan="8" class="loading">Loading...</td></tr>
               </tbody>
             </table>
-          </div>
-        </div>
-      </div>
-
-      <div class="grid-2 mt-20">
-        <div class="card">
-          <div class="card-header">Medication Breakdown</div>
-          <div class="card-body no-pad">
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Medication (NDC Hash)</th>
-                    <th>Count</th>
-                    <th>Total Plan Pay</th>
-                  </tr>
-                </thead>
-                <tbody id="disp-med-breakdown">
-                  <tr><td colspan="3" class="loading">Loading...</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-header">Prescriber Breakdown</div>
-          <div class="card-body no-pad">
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Prescriber</th>
-                    <th>Count</th>
-                    <th>Unique Patients</th>
-                  </tr>
-                </thead>
-                <tbody id="disp-presc-breakdown">
-                  <tr><td colspan="3" class="loading">Loading...</td></tr>
-                </tbody>
-              </table>
-            </div>
           </div>
         </div>
       </div>
@@ -335,7 +237,7 @@
         <div class="dur-hero-title">Drug Utilization Review</div>
         <div class="dur-hero-desc">
           Cross-pharmacy drug history lookup via the leviathan network.
-          All pharmacies in the network contribute claims -- zero-knowledge proofs ensure privacy while enabling complete visibility for clinical safety.
+          All pharmacies in the network contribute claims &mdash; zero-knowledge proofs ensure privacy while enabling complete visibility for clinical safety.
         </div>
         <div class="dur-search">
           <input id="dur-wallet-input" placeholder="Enter patient member wallet ID..." class="mono">
@@ -344,10 +246,7 @@
       </div>
 
       <div id="dur-results-area" class="hidden">
-        <!-- Alerts -->
         <div id="dur-alerts" class="mb-20"></div>
-
-        <!-- Active Medications + Full History -->
         <div class="dur-results">
           <div class="card">
             <div class="card-header">
@@ -389,7 +288,6 @@
           </div>
         </div>
 
-        <!-- Duplicate Therapy Check -->
         <div class="card mt-20">
           <div class="card-header">Duplicate Therapy Check</div>
           <div class="card-body">
@@ -402,7 +300,6 @@
         </div>
       </div>
 
-      <!-- Claim Detail Modal -->
       <div id="dur-claim-detail" class="card mt-20 hidden">
         <div class="card-header">
           <span>Claim Detail with Merkle Proof</span>
@@ -414,147 +311,169 @@
     </section>
 
     <!-- ════════════════════════════════════════════════════════ -->
-    <!--  NFC SCAN                                               -->
+    <!--  MESSAGING                                              -->
     <!-- ════════════════════════════════════════════════════════ -->
-    <section class="page" id="page-nfc">
-      <h2 class="page-title">NFC Patient Scan</h2>
-      <p class="page-subtitle">Scan a patient's NFC credential tag or manually enter their wallet ID to view their drug profile.</p>
+    <section class="page" id="page-messaging">
+      <div class="msg-layout">
+        <!-- Contact/Thread List -->
+        <div class="msg-contacts-panel">
+          <div class="msg-contacts-header">
+            <span class="msg-contacts-title">Messages</span>
+            <button class="btn btn-sm btn-primary" id="msg-compose-btn">+ New</button>
+          </div>
+          <div class="msg-contacts-list" id="msg-contacts-list">
+            <div class="empty-state" style="padding:24px;">
+              <div class="empty-state-desc">No conversations</div>
+            </div>
+          </div>
+        </div>
 
-      <div class="nfc-scan-area" id="nfc-scan-area">
-        <div class="nfc-scan-icon">NFC</div>
-        <div class="nfc-scan-label">Scan Patient Tag</div>
-        <div class="nfc-scan-hint">Hold the patient's NFC credential tag near the reader, or enter wallet ID below.</div>
-        <button class="btn btn-primary btn-lg" id="nfc-scan-btn">Scan NFC Tag</button>
-        <div class="nfc-manual mt-16">
-          <input id="nfc-wallet-input" placeholder="Or enter patient wallet ID..." class="mono">
-          <button class="btn btn-primary" id="nfc-manual-btn">Lookup</button>
+        <!-- Conversation View -->
+        <div class="msg-conversation-panel">
+          <div class="msg-conv-header" id="msg-conv-header">
+            <span class="msg-conv-title">Select a conversation</span>
+          </div>
+          <div class="msg-conv-body" id="msg-conv-body">
+            <div class="empty-state">
+              <div class="empty-state-title">No conversation selected</div>
+              <div class="empty-state-desc">Choose a contact or start a new message.</div>
+            </div>
+          </div>
+          <div class="msg-conv-input hidden" id="msg-conv-input">
+            <input class="form-input" id="msg-input-text" placeholder="Type a message...">
+            <button class="btn btn-primary btn-sm" id="msg-send-btn">Send</button>
+          </div>
         </div>
       </div>
 
-      <div id="nfc-patient-result" class="hidden">
-        <div class="nfc-patient-card">
-          <div class="nfc-patient-header">
-            <div>
-              <div class="text-secondary text-xs fw-600" style="text-transform:uppercase; letter-spacing:0.5px;">Patient Wallet</div>
-              <div class="nfc-patient-id" id="nfc-patient-wallet">--</div>
-            </div>
-            <span class="badge badge-accent" id="nfc-patient-badge">VERIFIED</span>
+      <!-- Compose Modal -->
+      <div class="ws-modal-overlay hidden" id="msg-compose-overlay">
+        <div class="ws-modal" style="max-width:480px;">
+          <div class="ws-modal-header">
+            <span class="ws-modal-title">New Message</span>
+            <button class="btn btn-sm" id="msg-compose-close">&times;</button>
           </div>
-          <div class="nfc-patient-stats">
-            <div class="stat-card">
-              <div class="stat-label">Active Medications</div>
-              <div class="stat-value green" id="nfc-active-meds">--</div>
+          <div class="ws-modal-body">
+            <div class="form-group">
+              <label class="form-label">Recipient Wallet ID</label>
+              <input class="form-input mono" id="msg-compose-recipient" placeholder="Enter recipient wallet ID">
             </div>
-            <div class="stat-card">
-              <div class="stat-label">Total Claims</div>
-              <div class="stat-value blue" id="nfc-total-claims">--</div>
+            <div class="form-group">
+              <label class="form-label">Message</label>
+              <textarea class="form-input" id="msg-compose-body" placeholder="Type your message..." rows="4"></textarea>
             </div>
-            <div class="stat-card">
-              <div class="stat-label">Scan Status</div>
-              <div class="stat-value accent" id="nfc-scan-status">--</div>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-header">Full Drug History</div>
-            <div class="card-body no-pad">
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Medication</th>
-                      <th>Pharmacy</th>
-                      <th>Date</th>
-                      <th>Patient Pay</th>
-                      <th>Plan Pay</th>
-                    </tr>
-                  </thead>
-                  <tbody id="nfc-history-table">
-                    <tr><td colspan="5" class="muted">No history</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <button class="btn btn-primary" id="msg-compose-send-btn">Send Message</button>
+            <div class="wizard-result hidden mt-12" id="msg-compose-result"></div>
           </div>
         </div>
-
-        <button class="btn mt-16" id="nfc-clear-btn">Clear and Scan Another</button>
       </div>
     </section>
 
     <!-- ════════════════════════════════════════════════════════ -->
-    <!--  MESSAGING                                              -->
+    <!--  ONBOARDING                                             -->
     <!-- ════════════════════════════════════════════════════════ -->
-    <section class="page" id="page-messaging">
-      <h2 class="page-title">Messaging</h2>
+    <section class="page" id="page-onboarding">
+      <h2 class="page-title">Pharmacy Onboarding</h2>
+      <p class="page-subtitle">Step-by-step enrollment ceremony: accept token, generate key, derive wallet with NPI/NCPDP credentials, enroll, compile, ready.</p>
 
-      <div class="msg-layout">
-        <div class="msg-sidebar">
-          <button class="msg-sidebar-btn active" data-view="inbox">Inbox</button>
-          <button class="msg-sidebar-btn" data-view="sent">Sent</button>
-          <button class="msg-sidebar-btn" data-view="compose">Compose</button>
+      <div class="wizard-steps" id="wizard-steps">
+        <div class="wizard-step current" data-step="0">
+          <span class="step-num">1</span> Accept Token
         </div>
+        <div class="wizard-step" data-step="1">
+          <span class="step-num">2</span> Generate Key
+        </div>
+        <div class="wizard-step" data-step="2">
+          <span class="step-num">3</span> Derive Wallet
+        </div>
+        <div class="wizard-step" data-step="3">
+          <span class="step-num">4</span> Enroll
+        </div>
+        <div class="wizard-step" data-step="4">
+          <span class="step-num">5</span> Compile
+        </div>
+        <div class="wizard-step" data-step="5">
+          <span class="step-num">6</span> Done
+        </div>
+      </div>
 
-        <div class="card" style="min-height:400px;">
-          <!-- Inbox -->
-          <div id="msg-inbox-view">
-            <div class="card-header">Inbox</div>
-            <div class="card-body no-pad" id="msg-inbox-list">
-              <div class="empty-state">
-                <div class="empty-state-title">No messages</div>
-                <div class="empty-state-desc">Your inbox is empty.</div>
-              </div>
-            </div>
+      <div class="wizard-panel" id="wiz-panel-0">
+        <div class="wizard-panel-title">Accept Group Enrollment Token</div>
+        <div class="wizard-panel-desc">Enter the enrollment token provided by your employer or insurer group administrator.</div>
+        <div class="form-group">
+          <label class="form-label">Token ID</label>
+          <input class="form-input mono" id="wiz-tokenId" placeholder="Enrollment token identifier">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Group ID (optional)</label>
+            <input class="form-input mono" id="wiz-groupId" placeholder="Group identifier">
           </div>
-
-          <!-- Sent -->
-          <div id="msg-sent-view" class="hidden">
-            <div class="card-header">Sent Messages</div>
-            <div class="card-body no-pad" id="msg-sent-list">
-              <div class="empty-state">
-                <div class="empty-state-title">No sent messages</div>
-                <div class="empty-state-desc">You have not sent any messages yet.</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Compose -->
-          <div id="msg-compose-view" class="hidden">
-            <div class="card-header">Compose Message</div>
-            <div class="card-body">
-              <div class="msg-compose">
-                <div class="form-group">
-                  <label class="form-label">Recipient Wallet ID</label>
-                  <input class="form-input mono" id="msg-recipient" placeholder="Enter recipient wallet ID">
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Subject</label>
-                  <input class="form-input" id="msg-subject" placeholder="Message subject">
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Message</label>
-                  <textarea class="form-input" id="msg-body" placeholder="Type your message..."></textarea>
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Thread ID Hash (optional)</label>
-                  <input class="form-input mono" id="msg-thread" placeholder="Reply to existing thread...">
-                </div>
-                <button class="btn btn-primary" id="msg-send-btn">Send Message</button>
-                <div class="wizard-result hidden" id="msg-send-result"></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Thread View -->
-          <div id="msg-thread-view" class="hidden">
-            <div class="card-header">
-              <span>Thread</span>
-              <button class="btn btn-sm" id="msg-thread-back">Back</button>
-            </div>
-            <div class="card-body no-pad" id="msg-thread-list">
-            </div>
+          <div class="form-group">
+            <label class="form-label">Plan ID (optional)</label>
+            <input class="form-input mono" id="wiz-planId" placeholder="Plan identifier">
           </div>
         </div>
+        <button class="btn btn-primary" id="wiz-btn-0">Accept Token</button>
+        <div class="wizard-result hidden" id="wiz-result-0"></div>
+      </div>
+
+      <div class="wizard-panel hidden" id="wiz-panel-1">
+        <div class="wizard-panel-title">Generate Enrollment Key</div>
+        <div class="wizard-panel-desc">A cryptographic enrollment key will be generated locally on this device. It is NEVER transmitted.</div>
+        <div class="form-group">
+          <label class="form-label">Enrollment Key (optional -- auto-generated if blank)</label>
+          <input class="form-input mono" id="wiz-enrollmentKey" placeholder="Leave blank to auto-generate">
+        </div>
+        <button class="btn btn-primary" id="wiz-btn-1">Generate Key</button>
+        <div class="wizard-result hidden" id="wiz-result-1"></div>
+      </div>
+
+      <div class="wizard-panel hidden" id="wiz-panel-2">
+        <div class="wizard-panel-title">Derive Pharmacy Wallet</div>
+        <div class="wizard-panel-desc">Enter the pharmacy's service provider credentials. The wallet ID will be derived using Poseidon hashing with NPI or NCPDP qualifier.</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Service Provider ID Qualifier</label>
+            <select class="form-input" id="wiz-qualifier">
+              <option value="1">1 - NPI (National Provider Identifier)</option>
+              <option value="2">2 - NCPDP Provider ID</option>
+              <option value="3">3 - State License Number</option>
+              <option value="4">4 - DEA Number</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Service Provider ID</label>
+            <input class="form-input mono" id="wiz-providerId" placeholder="e.g. 1234567890">
+          </div>
+        </div>
+        <button class="btn btn-primary" id="wiz-btn-2">Derive Wallet</button>
+        <div class="wizard-result hidden" id="wiz-result-2"></div>
+      </div>
+
+      <div class="wizard-panel hidden" id="wiz-panel-3">
+        <div class="wizard-panel-title">Enroll with Insurer</div>
+        <div class="wizard-panel-desc">Register the wallet with the insurer attestation authority. The insurer sees only the opaque wallet ID.</div>
+        <div class="form-group">
+          <label class="form-label">Insurer URL (optional)</label>
+          <input class="form-input" id="wiz-insurerUrl" placeholder="Leave blank for default">
+        </div>
+        <button class="btn btn-primary" id="wiz-btn-3">Enroll</button>
+        <div class="wizard-result hidden" id="wiz-result-3"></div>
+      </div>
+
+      <div class="wizard-panel hidden" id="wiz-panel-4">
+        <div class="wizard-panel-title">Compile ZK Programs</div>
+        <div class="wizard-panel-desc">Compile the zero-knowledge proving circuits. This may take 1-3 minutes depending on hardware.</div>
+        <button class="btn btn-primary" id="wiz-btn-4">Compile</button>
+        <div class="wizard-result hidden" id="wiz-result-4"></div>
+      </div>
+
+      <div class="wizard-panel hidden" id="wiz-panel-5">
+        <div class="wizard-panel-title">Onboarding Complete</div>
+        <div class="wizard-panel-desc">Your pharmacy node is fully enrolled and ready to process claims.</div>
+        <div class="wizard-result" id="wiz-result-5" style="display:none;"></div>
+        <div class="stats-grid mt-16" id="wiz-done-stats"></div>
       </div>
     </section>
 
@@ -563,7 +482,6 @@
     <!-- ════════════════════════════════════════════════════════ -->
     <section class="page" id="page-proofs">
       <h2 class="page-title">Proof Generation</h2>
-
       <div class="grid-2">
         <div class="card">
           <div class="card-header">Registration Proof</div>
@@ -580,7 +498,6 @@
           </div>
         </div>
       </div>
-
       <div class="card mt-20">
         <div class="card-header">Proof Timings</div>
         <div class="card-body" id="proof-timings">
@@ -590,6 +507,36 @@
     </section>
 
   </main>
+
+  <!-- ── Badge Tap Modal ──────────────────────────────────── -->
+  <div class="badge-modal-overlay" id="badge-modal" style="display:none">
+    <div class="badge-modal">
+      <div class="badge-modal-header">
+        <h3>Badge Swipe — Pharmacy Authentication</h3>
+        <button class="badge-modal-close" id="badge-modal-close">&times;</button>
+      </div>
+      <div class="badge-modal-body">
+        <div class="badge-card" id="badge-card">
+          <div class="badge-card-photo" id="badge-card-avatar">MS</div>
+          <div class="badge-card-info">
+            <div class="badge-card-name" id="badge-card-name">Main Street Pharmacy</div>
+            <div class="badge-card-detail" id="badge-card-specialty">Community/Retail</div>
+            <div class="badge-card-detail" id="badge-card-npi">NPI: 2345678901</div>
+          </div>
+          <div class="badge-nfc-chip" id="badge-nfc-chip">NFC</div>
+        </div>
+        <div class="badge-steps" id="badge-steps">
+          <div class="badge-step" data-step="tap"><span class="step-icon">&#x1F4F3;</span> Tap badge...</div>
+          <div class="badge-step" data-step="decrypt"><span class="step-icon">&#x1F510;</span> Decrypting enrollment key...</div>
+          <div class="badge-step" data-step="derive"><span class="step-icon">&#x1F511;</span> Deriving pharmacy wallet ID...</div>
+          <div class="badge-step" data-step="proof"><span class="step-icon">&#x1F9EE;</span> Generating ZK proof...</div>
+          <div class="badge-step" data-step="verify"><span class="step-icon">&#x2705;</span> Verifying with registry...</div>
+          <div class="badge-step" data-step="session"><span class="step-icon">&#x1F6E1;</span> Session issued</div>
+        </div>
+        <div class="badge-result" id="badge-result" style="display:none"></div>
+      </div>
+    </div>
+  </div>
 
   <script src="rpc.js"></script>
   <script src="app.js"></script>

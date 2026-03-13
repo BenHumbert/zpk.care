@@ -119,6 +119,24 @@ export type {
 } from './message-store-types.js';
 export { MessageStoreService } from './message-store-service.js';
 
+// Provider Registry — credentialing pipeline
+export {
+  PROVIDER_TREE_HEIGHT,
+  ProviderLifecycle,
+  PROVIDER_LIFECYCLE_NAMES,
+  PROVIDER_TYPE_TAG,
+  computeProviderLeafHash,
+} from './provider-registry-types.js';
+export type {
+  ProviderType,
+  ProviderLeaf,
+  ProviderMetadata,
+  ProviderRegistryEntry,
+  ProviderRegistryState,
+  CredentialingApplication,
+} from './provider-registry-types.js';
+export { ProviderRegistryService, ProviderRegistryWitness } from './provider-registry-service.js';
+
 // L2 Checkpoint / Crash Recovery
 export {
   L2CheckpointStore,

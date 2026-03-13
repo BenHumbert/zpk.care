@@ -1,5 +1,5 @@
 /**
- * zkTrident Employer Nautilus — SPA Application
+ * zkp.Care Employer — SPA Application
  * Hash-based routing, auto-refresh, SSE live events.
  */
 (() => {
@@ -168,10 +168,10 @@
     try {
       const data = await API.getOnboardingStatus();
       el.innerHTML = '<div class="detail-grid"><div>' +
-        detailRow('Employer ID', data.employerId || '--') +
-        detailRow('Insurer URL', data.insurerUrl || '--') +
-        detailRow('Configured', data.configured ? 'Yes' : 'No') +
-        detailRow('Status', data.status || '--') +
+        detailRow('Role', data.role || '--') +
+        detailRow('Phase', data.phase || (data.onboarding && data.onboarding.phase) || '--') +
+        detailRow('Configured', (data.phase === 'ready' || data.configured) ? 'Yes' : 'No') +
+        detailRow('Display Name', data.displayName || '--') +
         '</div></div>';
     } catch (e) {
       el.innerHTML = '<div class="error-banner">Failed to load onboarding status: ' + esc(e.message) + '</div>';
@@ -401,11 +401,11 @@
         '<div class="detail-grid"><div>' +
           detailRow('Token ID', data.tokenId || data.id || tokenId) +
           detailRow('Group ID', data.groupId || '--') +
-          detailRow('Employee ID', data.employeeId || '--') +
-          detailRow('Family ID', data.familyId || '--') +
+          detailRow('Employee ID', data.employeeId || data.employeeIdHash || '--') +
+          detailRow('Family ID', data.familyId || data.familyIdHash || '--') +
           detailRow('Valid Until', fmtDateShort(data.validUntil)) +
           detailRow('Status', data.status || '--') +
-          detailRow('Wallet ID', data.walletId || '--') +
+          detailRow('Wallet ID', data.consumedByWalletId || data.walletId || '--') +
         '</div></div>' +
         '<div class="form-actions" style="margin-top:16px">' +
           '<button class="btn" id="btn-validate-tk">Validate</button>' +
@@ -457,7 +457,7 @@
     app.innerHTML = '<div class="section-header"><div class="section-title">Roster</div></div>' +
       '<div class="panel"><div class="filter-bar">' +
         '<label for="roster-filter">Status:</label>' +
-        '<select id="roster-filter"><option value="">All</option><option value="active">Active</option><option value="terminated">Terminated</option></select>' +
+        '<select id="roster-filter"><option value="">All</option><option value="pending">Pending</option><option value="enrolled">Enrolled</option><option value="terminated">Terminated</option></select>' +
         '<button class="btn sm" id="btn-refresh-roster">Refresh</button>' +
       '</div><div class="panel-body no-pad" id="roster-table">' + loading() + '</div></div>';
 
@@ -483,15 +483,15 @@
         '<th>Employee ID Hash</th><th>Group ID</th><th>Wallet ID</th><th>Status</th><th>Enrolled</th><th>Actions</th></tr></thead><tbody>' +
         entries.map(r => {
           const eHash = r.employeeIdHash || r.id || '--';
-          const st = r.status || r.state || 'active';
-          const bc = st === 'active' ? 'green' : st === 'terminated' ? 'red' : 'yellow';
+          const st = r.status || r.state || 'pending';
+          const bc = st === 'enrolled' ? 'green' : st === 'terminated' ? 'red' : 'yellow';
           return '<tr><td class="mono truncate" title="' + esc(eHash) + '">' + esc(truncHash(eHash, 16)) + '</td>' +
             '<td class="mono">' + esc(r.groupId || '--') + '</td>' +
-            '<td class="mono truncate" title="' + esc(r.walletId || '') + '">' + esc(truncHash(r.walletId, 16)) + '</td>' +
+            '<td class="mono truncate" title="' + esc(r.consumedByWalletId || r.walletId || '') + '">' + esc(truncHash(r.consumedByWalletId || r.walletId, 16)) + '</td>' +
             '<td><span class="badge ' + bc + '">' + esc(st) + '</span></td>' +
-            '<td>' + esc(fmtDateShort(r.enrolledAt || r.enrollmentDate)) + '</td>' +
+            '<td>' + esc(fmtDateShort(r.enrolledAt || r.enrollmentDate || r.consumedAt || r.createdAt)) + '</td>' +
             '<td class="actions-cell">' +
-              (st === 'active' ? '<button class="btn sm danger btn-terminate-roster" data-id="' + esc(eHash) + '">Terminate</button>' : '') +
+              (st !== 'terminated' ? '<button class="btn sm danger btn-terminate-roster" data-id="' + esc(eHash) + '">Terminate</button>' : '') +
             '</td></tr>';
         }).join('') +
         '</tbody></table></div>';

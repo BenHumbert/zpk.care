@@ -2,38 +2,656 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>&#x1F41A;</text></svg>">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>zkTrident Insurer Nautilus</title>
-  <link rel="stylesheet" href="style.css">
+  <title>zkp.Care Insurer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+  <!-- ── Header ─────────────────────────────────────────────── -->
   <header class="header">
-    <div class="header-left">
-      <span class="logo">zkTrident Insurer</span>
-      <span class="logo-sub">Nautilus Node</span>
+    <div class="header-brand">
+      <div class="brand-icon">INS</div>
+      <span>zkp.Care Insurer</span>
     </div>
-    <nav class="nav" id="main-nav">
-      <a href="#overview" class="nav-link active" data-tab="overview">Overview</a>
-      <a href="#receipts" class="nav-link" data-tab="receipts">Receipts</a>
-      <a href="#batches" class="nav-link" data-tab="batches">Batches</a>
-      <a href="#claims" class="nav-link" data-tab="claims">Claims</a>
-      <a href="#audit" class="nav-link" data-tab="audit">Audit</a>
-      <a href="#messaging" class="nav-link" data-tab="messaging">Messaging</a>
-      <a href="#admin" class="nav-link" data-tab="admin">Admin</a>
-    </nav>
-    <div class="header-right">
-      <span class="connection-status" id="connection-status">
-        <span class="status-dot disconnected" id="status-dot"></span>
-        <span class="status-label" id="status-label">Disconnected</span>
-      </span>
+    <div class="header-meta">
+      <span class="header-wallet" id="header-wallet">--</span>
+      <div class="connection-dot" id="connection-dot" title="Connection status" aria-label="Connection status"></div>
     </div>
   </header>
 
-  <main class="main" id="app">
+  <!-- ── Navigation ─────────────────────────────────────────── -->
+  <nav class="nav" id="nav" role="navigation" aria-label="Main navigation">
+    <button class="nav-tab active" data-tab="overview" role="tab">Overview</button>
+    <button class="nav-tab" data-tab="formulary" role="tab">Formulary</button>
+    <button class="nav-tab" data-tab="plans" role="tab">Plans</button>
+    <button class="nav-tab" data-tab="employers" role="tab">Employers &amp; Groups</button>
+    <button class="nav-tab" data-tab="eligibility" role="tab">Eligibility</button>
+    <button class="nav-tab" data-tab="pricing" role="tab">Pricing</button>
+    <button class="nav-tab" data-tab="credentialing" role="tab">Credentialing</button>
+    <button class="nav-tab" data-tab="claims" role="tab">Claims</button>
+    <button class="nav-tab" data-tab="reports" role="tab">Reports</button>
+    <button class="nav-tab" data-tab="audit" role="tab">Audit</button>
+    <button class="nav-tab" data-tab="admin" role="tab">Admin</button>
+  </nav>
+
+  <!-- ── Main Content ───────────────────────────────────────── -->
+  <main class="main" role="main">
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!--  OVERVIEW                                                -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <section class="page active" id="page-overview">
+      <div class="identity-card">
+        <div class="identity-avatar">INS</div>
+        <div class="identity-info">
+          <div class="identity-name">Insurer Node</div>
+          <div class="identity-detail" id="ov-detail">Attestation Authority</div>
+        </div>
+        <span class="badge badge-info" id="ov-health-badge">Checking...</span>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card"><span class="stat-label">Total Receipts</span><span class="stat-value" id="ov-receipts">--</span></div>
+        <div class="stat-card"><span class="stat-label">Total Batches</span><span class="stat-value" id="ov-batches">--</span></div>
+        <div class="stat-card"><span class="stat-label">Node Health</span><span class="stat-value" id="ov-health">--</span></div>
+        <div class="stat-card"><span class="stat-label">SSE Events</span><span class="stat-value" id="ov-sse-count">0</span></div>
+      </div>
+
+      <div class="panels-row">
+        <div class="panel">
+          <div class="panel-header"><h3>Onboarding Status</h3></div>
+          <div class="panel-body" id="ov-onboard"><div class="loading">Loading...</div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Live Events</h3>
+            <span class="badge badge-live">SSE</span>
+          </div>
+          <div class="panel-body event-log" id="ov-events">
+            <div class="empty-state">Waiting for events...</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!--  FORMULARY                                               -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <section class="page" id="page-formulary">
+      <!-- Tier Stats -->
+      <div class="stats-grid" id="form-tier-stats"></div>
+
+      <!-- Upload Zone -->
+      <div class="panel">
+        <div class="panel-header"><h3>Upload Formulary (CSV)</h3></div>
+        <div class="panel-body">
+          <div class="upload-zone" id="form-upload-zone">
+            <div class="upload-icon">&#8682;</div>
+            <div class="upload-text">Drag &amp; drop a CSV file here, or click to browse</div>
+            <div class="upload-hint">Columns: ndcHash, tierLevel, copayAmountCents, brandName (optional), requiresPriorAuth (optional)</div>
+            <input type="file" id="form-file-input" accept=".csv,.txt" class="hidden">
+          </div>
+          <div id="form-upload-preview" class="hidden">
+            <div class="panel-header" style="margin-top: 16px; padding: 10px 0; border-top: 1px solid var(--border); border-bottom: none;">
+              <h3>Preview (<span id="form-preview-count">0</span> entries)</h3>
+              <div class="form-actions" style="margin-top: 0;">
+                <button class="btn btn-sm" id="form-cancel-upload">Cancel</button>
+                <button class="btn btn-primary btn-sm" id="form-publish-btn">Publish to Sequencer</button>
+              </div>
+            </div>
+            <div id="form-preview-table"></div>
+          </div>
+          <div id="form-upload-result"></div>
+        </div>
+      </div>
+
+      <!-- Manual Add -->
+      <div class="panel">
+        <div class="panel-header panel-toggle" id="form-manual-toggle">
+          <h3>Add Entry Manually</h3>
+          <span class="toggle-arrow">&#9660;</span>
+        </div>
+        <div class="panel-body hidden" id="form-manual-body">
+          <div class="form-row form-row-4">
+            <div class="form-group">
+              <label class="form-label">NDC Hash</label>
+              <input type="text" class="form-input" id="form-ndc" placeholder="NDC hash">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Brand Name</label>
+              <input type="text" class="form-input" id="form-brand" placeholder="Optional">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Tier Level</label>
+              <select class="form-input form-select" id="form-tier">
+                <option value="1">Tier 1 — Generic</option>
+                <option value="2">Tier 2 — Preferred</option>
+                <option value="3">Tier 3 — Non-Preferred</option>
+                <option value="4">Tier 4 — Specialty</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Copay (cents)</label>
+              <input type="number" class="form-input" id="form-copay" value="1000" min="0">
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary btn-sm" id="form-add-btn">Add to Formulary</button>
+          </div>
+          <div id="form-add-result"></div>
+        </div>
+      </div>
+
+      <!-- Current Formulary Table -->
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Current Formulary</h3>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <input type="text" class="form-input" id="form-search" placeholder="Search NDC or name..." style="width: 220px; padding: 5px 10px; font-size: 12px;">
+            <button class="btn btn-sm" id="form-refresh-btn">Refresh</button>
+          </div>
+        </div>
+        <div class="panel-body" id="form-table-container">
+          <div class="loading">Loading...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!--  BENEFIT PLANS                                           -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <section class="page" id="page-plans">
+      <!-- Create Plan -->
+      <div class="panel">
+        <div class="panel-header panel-toggle" id="plan-create-toggle">
+          <h3>Create Benefit Plan</h3>
+          <span class="toggle-arrow">&#9660;</span>
+        </div>
+        <div class="panel-body hidden" id="plan-create-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Plan Name</label>
+              <input type="text" class="form-input" id="plan-name" placeholder="e.g. Gold PPO 2026">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Plan ID</label>
+              <input type="text" class="form-input" id="plan-id" placeholder="e.g. PLAN-GOLD-001">
+            </div>
+          </div>
+          <div class="form-row form-row-4">
+            <div class="form-group">
+              <label class="form-label">Copay (cents)</label>
+              <input type="number" class="form-input" id="plan-copay" value="2000" min="0">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Deductible (cents)</label>
+              <input type="number" class="form-input" id="plan-deductible" value="100000" min="0">
+            </div>
+            <div class="form-group">
+              <label class="form-label">OOP Max (cents)</label>
+              <input type="number" class="form-input" id="plan-oop" value="500000" min="0">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Annual Max (cents)</label>
+              <input type="number" class="form-input" id="plan-annual" value="10000000" min="0">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Family Deductible (cents)</label>
+              <input type="number" class="form-input" id="plan-fam-ded" value="200000" min="0">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Family OOP Max (cents)</label>
+              <input type="number" class="form-input" id="plan-fam-oop" value="1000000" min="0">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Coverage Type</label>
+            <select class="form-input form-select" id="plan-coverage" style="max-width: 300px;">
+              <option value="pharmacy">Pharmacy</option>
+              <option value="medical">Medical</option>
+              <option value="dental">Dental</option>
+            </select>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="plan-create-btn">Create Plan</button>
+          </div>
+          <div id="plan-create-result"></div>
+        </div>
+      </div>
+
+      <!-- Plan List -->
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Registered Plans</h3>
+          <button class="btn btn-sm" id="plan-refresh-btn">Refresh</button>
+        </div>
+        <div class="panel-body" id="plan-list-container">
+          <div class="loading">Loading...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!--  EMPLOYERS & GROUPS                                      -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <section class="page" id="page-employers">
+      <div class="emp-layout">
+        <!-- Employer List -->
+        <div class="emp-list-panel">
+          <div class="emp-list-header">
+            <h3>Employers</h3>
+            <button class="btn btn-sm" id="emp-refresh-btn">Refresh</button>
+          </div>
+          <div class="emp-list" id="emp-list">
+            <div class="loading">Loading...</div>
+          </div>
+        </div>
+        <!-- Group Detail -->
+        <div class="emp-detail-panel">
+          <div class="emp-detail-header" id="emp-detail-header">
+            <span>Select an employer</span>
+          </div>
+          <div class="emp-detail-body" id="emp-detail-body">
+            <div class="empty-state">Select an employer from the left to view their groups and members</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!--  ELIGIBILITY                                             -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <section class="page" id="page-eligibility">
+      <!-- Lifecycle Stats -->
+      <div class="stats-grid">
+        <div class="stat-card stat-registered"><span class="stat-label">Registered</span><span class="stat-value" id="elig-registered">--</span></div>
+        <div class="stat-card stat-eligible"><span class="stat-label">Eligible</span><span class="stat-value" id="elig-eligible">--</span></div>
+        <div class="stat-card stat-active"><span class="stat-label">Active</span><span class="stat-value" id="elig-active">--</span></div>
+        <div class="stat-card stat-revoked"><span class="stat-label">Revoked</span><span class="stat-value" id="elig-revoked">--</span></div>
+      </div>
+
+      <!-- Member Lookup -->
+      <div class="panel">
+        <div class="panel-header"><h3>Member Lookup</h3></div>
+        <div class="panel-body">
+          <div class="search-row">
+            <input type="text" class="form-input" id="elig-wallet" placeholder="Enter member wallet ID...">
+            <button class="btn btn-primary" id="elig-lookup-btn">Lookup</button>
+          </div>
+          <div id="elig-lookup-result"></div>
+        </div>
+      </div>
+
+      <!-- Lifecycle Actions -->
+      <div class="panel">
+        <div class="panel-header"><h3>Lifecycle Actions</h3></div>
+        <div class="panel-body">
+          <div class="form-row form-row-3">
+            <div class="form-group">
+              <label class="form-label">Wallet ID</label>
+              <input type="text" class="form-input" id="elig-action-wallet" placeholder="Member wallet ID">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Action</label>
+              <select class="form-input form-select" id="elig-action-type">
+                <option value="promote">Promote (next lifecycle)</option>
+                <option value="revoke">Revoke</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Reason</label>
+              <input type="text" class="form-input" id="elig-action-reason" placeholder="Optional reason">
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="elig-action-btn">Execute</button>
+          </div>
+          <div id="elig-action-result"></div>
+        </div>
+      </div>
+
+      <!-- Pending Enrollments -->
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Pending Enrollments</h3>
+          <button class="btn btn-sm" id="elig-pending-refresh">Refresh</button>
+        </div>
+        <div class="panel-body" id="elig-pending-container">
+          <div class="loading">Loading...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!--  PRICING                                                 -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <section class="page" id="page-pricing">
+      <div class="panel">
+        <div class="panel-header"><h3>Cost Estimator</h3></div>
+        <div class="panel-body">
+          <p class="form-desc">Estimate patient cost for a medication at a specific pharmacy. Looks up formulary tier and copay, calculates patient pay vs plan pay split.</p>
+          <div class="form-row form-row-3">
+            <div class="form-group">
+              <label class="form-label">Member Wallet ID</label>
+              <input type="text" class="form-input" id="price-member" placeholder="Member wallet ID">
+            </div>
+            <div class="form-group">
+              <label class="form-label">NDC Hash (medication)</label>
+              <input type="text" class="form-input" id="price-ndc" placeholder="NDC hash">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Pharmacy Wallet ID</label>
+              <input type="text" class="form-input" id="price-pharmacy" placeholder="Pharmacy wallet ID">
+            </div>
+          </div>
+          <div class="form-row form-row-3">
+            <div class="form-group">
+              <label class="form-label">Plan ID Hash</label>
+              <input type="text" class="form-input" id="price-plan" placeholder="Plan ID hash">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Quantity</label>
+              <input type="number" class="form-input" id="price-qty" value="30" min="1">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Ingredient Cost (cents)</label>
+              <input type="number" class="form-input" id="price-ingredient" value="5000" min="0">
+              <span class="form-hint">Pharmacy's reported drug cost</span>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="price-estimate-btn">Estimate Cost</button>
+          </div>
+          <div id="price-result"></div>
+        </div>
+      </div>
+
+      <!-- Recent Estimates -->
+      <div class="panel">
+        <div class="panel-header"><h3>Recent Estimates</h3></div>
+        <div class="panel-body" id="price-history">
+          <div class="empty-state">Run an estimate above to see results here</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!--  CREDENTIALING                                            -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <section class="page" id="page-credentialing">
+      <div class="stats-grid" id="cred-stats"></div>
+
+      <!-- Provider Registry -->
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Provider Registry</h3>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select class="form-input form-select" id="cred-role-filter" style="width:160px;padding:5px 10px;font-size:12px">
+              <option value="">All Providers</option>
+              <option value="prescriber">Prescribers</option>
+              <option value="pharmacy">Pharmacies</option>
+            </select>
+            <button class="btn btn-sm" id="cred-registry-refresh">Refresh</button>
+          </div>
+        </div>
+        <div class="panel-body" id="cred-registry-container">
+          <div class="loading">Loading...</div>
+        </div>
+      </div>
+
+      <!-- Applications -->
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Credentialing Applications</h3>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select class="form-input form-select" id="cred-app-filter" style="width:160px;padding:5px 10px;font-size:12px">
+              <option value="">All</option>
+              <option value="pending">Pending</option>
+              <option value="verified">Verified</option>
+              <option value="approved">Approved</option>
+              <option value="denied">Denied</option>
+            </select>
+            <button class="btn btn-sm" id="cred-app-refresh">Refresh</button>
+          </div>
+        </div>
+        <div class="panel-body" id="cred-app-container">
+          <div class="loading">Loading...</div>
+        </div>
+      </div>
+
+      <!-- Provider Status Lookup -->
+      <div class="panel">
+        <div class="panel-header"><h3>Provider Status Lookup</h3></div>
+        <div class="panel-body">
+          <div class="search-row">
+            <input type="text" class="form-input" id="cred-lookup-wallet" placeholder="Enter provider wallet ID...">
+            <button class="btn btn-primary" id="cred-lookup-btn">Lookup</button>
+          </div>
+          <div id="cred-lookup-result"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!--  REPORTS                                                  -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <section class="page" id="page-reports">
+      <div class="panel">
+        <div class="panel-header"><h3>Generate Report</h3></div>
+        <div class="panel-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Report Type</label>
+              <select class="form-input form-select" id="rpt-type">
+                <option value="claims-register">Claims Register</option>
+                <option value="pharmacy-activity">Pharmacy Activity</option>
+                <option value="prescriber-activity">Prescriber Activity</option>
+                <option value="member-activity">Member Activity</option>
+                <option value="medication-utilization">Medication Utilization</option>
+                <option value="financial-summary">Financial Summary</option>
+                <option value="reversals">Reversals</option>
+                <option value="tier-analysis">Tier Analysis</option>
+                <option value="therapeutic-class">Therapeutic Class</option>
+                <option value="time-series">Time Series</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Claims Source</label>
+              <select class="form-input form-select" id="rpt-source">
+                <option value="member">By Member Wallet</option>
+                <option value="pharmacy">By Pharmacy Wallet</option>
+                <option value="prescriber">By Prescriber Wallet</option>
+                <option value="drug">By NDC Hash</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Source ID</label>
+              <input type="text" class="form-input" id="rpt-source-id" placeholder="Wallet ID or NDC Hash">
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="rpt-generate-btn">Generate Report</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel hidden" id="rpt-results-panel">
+        <div class="panel-header">
+          <h3>Report Results</h3>
+          <span class="badge badge-info" id="rpt-type-badge">--</span>
+        </div>
+        <div class="panel-body" id="rpt-results">
+          <div class="loading">Loading...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!--  CLAIMS                                                  -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <section class="page" id="page-claims">
+      <div class="panel">
+        <div class="panel-header"><h3>Claims Lookup</h3></div>
+        <div class="panel-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Entity Type</label>
+              <select class="form-input form-select" id="cl-type">
+                <option value="member">Member</option>
+                <option value="prescriber">Prescriber</option>
+                <option value="pharmacy">Pharmacy</option>
+                <option value="drug">Drug (NDC Hash)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Wallet ID / NDC Hash</label>
+              <input type="text" class="form-input" id="cl-id" placeholder="Enter wallet ID or NDC hash">
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="cl-query-btn">Query</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel hidden" id="cl-results-panel">
+        <div class="panel-header">
+          <h3>Results</h3>
+          <span class="badge badge-info" id="cl-count">--</span>
+        </div>
+        <div class="panel-body" id="cl-results">
+          <div class="loading">Loading...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!--  AUDIT                                                   -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <section class="page" id="page-audit">
+      <div class="stats-grid">
+        <div class="stat-card stat-clickable" id="audit-chain-card">
+          <span class="stat-label">Chain Integrity</span>
+          <span class="stat-value" id="audit-chain-val">Check</span>
+        </div>
+        <div class="stat-card stat-clickable" id="audit-finance-card">
+          <span class="stat-label">Financial Balance</span>
+          <span class="stat-value" id="audit-finance-val">Check</span>
+        </div>
+        <div class="stat-card stat-clickable" id="audit-dup-card">
+          <span class="stat-label">Duplicate Claims</span>
+          <span class="stat-value" id="audit-dup-val">Check</span>
+        </div>
+      </div>
+
+      <div class="panels-row">
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Audit Log</h3>
+            <button class="btn btn-sm" id="audit-log-refresh">Refresh</button>
+          </div>
+          <div class="panel-body" id="audit-log-container">
+            <div class="loading">Loading...</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Chain Proof</h3>
+            <button class="btn btn-sm" id="audit-proof-refresh">Refresh</button>
+          </div>
+          <div class="panel-body" id="audit-proof-container">
+            <div class="loading">Loading...</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!--  ADMIN                                                   -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <section class="page" id="page-admin">
+      <!-- Admin Token -->
+      <div class="admin-token-bar">
+        <label>Admin Token:</label>
+        <input type="password" class="form-input" id="admin-token-input" placeholder="Enter admin bearer token" style="flex: 1;">
+        <button class="btn btn-sm" id="admin-set-token">Set</button>
+      </div>
+
+      <div class="panels-row">
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Node Health</h3>
+            <button class="btn btn-sm" id="admin-health-refresh">Refresh</button>
+          </div>
+          <div class="panel-body" id="admin-health-container">
+            <div class="loading">Loading...</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><h3>Actions</h3></div>
+          <div class="panel-body">
+            <div class="form-actions" style="flex-wrap: wrap;">
+              <button class="btn btn-primary" id="admin-force-batch">Force Batch</button>
+            </div>
+            <div id="admin-action-result"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Enrollment Processing -->
+      <div class="panel">
+        <div class="panel-header"><h3>Enrollment Processing</h3></div>
+        <div class="panel-body">
+          <div class="form-row form-row-3">
+            <div class="form-group">
+              <label class="form-label">Wallet ID</label>
+              <input type="text" class="form-input" id="admin-enr-wallet" placeholder="Wallet ID to enroll">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Token ID</label>
+              <input type="text" class="form-input" id="admin-enr-token" placeholder="Enrollment token (optional)">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Role</label>
+              <select class="form-input form-select" id="admin-enr-role">
+                <option value="member">Member</option>
+                <option value="prescriber">Prescriber</option>
+                <option value="pharmacy">Pharmacy</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="admin-enr-btn">Process Enrollment</button>
+          </div>
+          <div id="admin-enr-result"></div>
+        </div>
+      </div>
+
+      <!-- Message Store -->
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Message Store Inspection</h3>
+          <button class="btn btn-sm" id="admin-msg-refresh">Refresh Status</button>
+        </div>
+        <div class="panel-body">
+          <div id="admin-msg-status"><div class="loading">Loading...</div></div>
+          <div class="search-row" style="margin-top: 16px;">
+            <input type="text" class="form-input" id="admin-msg-wallet" placeholder="Lookup messages by wallet ID...">
+            <button class="btn btn-primary btn-sm" id="admin-msg-lookup">Lookup</button>
+          </div>
+          <div id="admin-msg-results"></div>
+        </div>
+      </div>
+    </section>
+
   </main>
 
+  <!-- ── Toast Container ────────────────────────────────────── -->
   <div class="toast-container" id="toast-container"></div>
 
   <script src="rpc.js"></script>

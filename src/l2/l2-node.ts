@@ -213,6 +213,15 @@ export class L2Node {
   private attestationAuthority: import('../credentials/nfc-attestation.js').SequencerAttestationAuthority | null = null;
   private attestationCache = new Map<string, import('../credentials/nfc-attestation.js').NfcCredentialAttestation>();
 
+  /** Known wallets registered via entity registry (fed by RPC server) */
+  knownWallets: Set<string> | null = null;
+
+  /** Register a wallet as known to the network (called by RPC server on l2_registerEntity) */
+  registerKnownWallet(walletId: string): void {
+    if (!this.knownWallets) this.knownWallets = new Set();
+    this.knownWallets.add(walletId);
+  }
+
   // Peer network
   private peerNetwork: L2PeerNetwork | null = null;
   private nodeId: string;
@@ -284,8 +293,13 @@ export class L2Node {
 
     // Get current chain state for the attestation fields
     const state = this.sequencer.getChainState();
+    // Check wallet existence via any evidence of network registration
+    // Also accept walletId directly if knownWallets set is provided (populated by RPC server entity registry)
     const receipts = this.sequencer.getReceiptsByWallet(walletId);
-    if (receipts.length === 0) return null; // Not registered
+    const isProvider = !!this.sequencer.getProvider(walletId);
+    const hasMessages = this.sequencer.getMessagesByWallet(walletId).length > 0;
+    const isKnown = this.knownWallets?.has(walletId) ?? false;
+    if (receipts.length === 0 && !isProvider && !hasMessages && !isKnown) return null; // Not known to network
 
     const att = this.attestationAuthority.createAttestation({
       walletId,
@@ -705,6 +719,14 @@ export class L2Node {
     root: string;
   } | undefined {
     return this.sequencer.getClaimWithProof(leafIndex);
+  }
+
+  /** Record a fill directly on the claim accumulator (admin/demo path) */
+  recordFill(
+    leaf: import('./claim-accumulator-types.js').ClaimLeaf,
+    metadata: import('./claim-accumulator-types.js').ClaimMetadata,
+  ): ClaimAccumulatorEntry {
+    return this.sequencer.recordFill(leaf, metadata);
   }
 
   /**

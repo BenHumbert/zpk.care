@@ -217,6 +217,11 @@ export class NautilusAppServer {
     return this.tls;
   }
 
+  /** Check if the server is already listening */
+  isRunning(): boolean {
+    return this.server !== null && this.server.listening;
+  }
+
   /** Get the actual port */
   getPort(): number {
     if (this.server) {
@@ -272,6 +277,14 @@ export class NautilusAppServer {
       return this.handleSSE(req, res);
     }
 
+    // ── JSON-RPC proxy to sequencer ──
+    // The member dashboard sends JSON-RPC 2.0 to /rpc expecting to reach the
+    // Leviathan sequencer. Proxy these requests so the dashboard works when
+    // served from a Nautilus node (same pattern as start-explorer.ts).
+    if (pathname === '/rpc' && method === 'POST') {
+      return this.handleRpcProxy(req, res);
+    }
+
     // ── Registered routes ──
 
     for (const route of this.routes) {
@@ -279,8 +292,11 @@ export class NautilusAppServer {
       const match = pathname.match(route.pattern);
       if (!match) continue;
 
-      // Admin auth check
-      if (route.adminOnly && this.config.adminToken) {
+      // Admin auth check — always enforce for admin routes
+      if (route.adminOnly) {
+        if (!this.config.adminToken) {
+          return this.sendResponse(res, 403, false, undefined, 'Admin routes require adminToken configuration');
+        }
         const authHeader = req.headers['authorization'];
         if (authHeader !== `Bearer ${this.config.adminToken}`) {
           return this.sendResponse(res, 401, false, undefined, 'Unauthorized');
@@ -368,6 +384,31 @@ export class NautilusAppServer {
     });
   }
 
+  // ─── JSON-RPC Proxy ──────────────────────────────────────
+
+  private async handleRpcProxy(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const seqUrl = this.config.sequencerUrl;
+    if (!seqUrl) {
+      this.sendJson(res, 502, { jsonrpc: '2.0', id: null, error: { code: -32603, message: 'No sequencer URL configured' } });
+      return;
+    }
+
+    try {
+      const body = await this.readBody(req);
+      const upstream = await fetch(seqUrl.replace(/\/+$/, '') + '/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      });
+      const text = await upstream.text();
+      res.writeHead(upstream.status, { 'Content-Type': 'application/json' });
+      res.end(text);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Sequencer unreachable';
+      this.sendJson(res, 502, { jsonrpc: '2.0', id: null, error: { code: -32603, message: msg } });
+    }
+  }
+
   // ─── SSE ──────────────────────────────────────────────────
 
   private handleSSE(req: IncomingMessage, res: ServerResponse): void {
@@ -398,7 +439,7 @@ export class NautilusAppServer {
       if (!isNaN(lastId)) {
         for (const entry of this.sseReplayBuffer) {
           if (entry.id > lastId) {
-            res.write(`id: ${entry.id}\nevent: ${entry.event.type}\ndata: ${l2Stringify(entry.event)}\n\n`);
+            res.write(`id: ${entry.id}\ndata: ${l2Stringify(entry.event)}\n\n`);
           }
         }
       }
@@ -419,7 +460,7 @@ export class NautilusAppServer {
     const data = l2Stringify(event);
     for (const client of this.sseClients) {
       try {
-        client.write(`id: ${this.sseEventIdCounter}\nevent: ${event.type}\ndata: ${data}\n\n`);
+        client.write(`id: ${this.sseEventIdCounter}\ndata: ${data}\n\n`);
       } catch {
         this.sseClients.delete(client);
       }

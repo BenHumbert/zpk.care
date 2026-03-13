@@ -2,54 +2,544 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>&#x1F41A;</text></svg>">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>zkTrident Prescriber</title>
-  <link rel="stylesheet" href="style.css">
+  <title>zkp.Care Prescriber</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- Header -->
+
+  <!-- ── Header ─────────────────────────────────────────────── -->
   <header class="header">
-    <div class="header-inner">
-      <a href="#overview" class="logo">
-        <span class="logo-text">zkTrident <span class="logo-sub">Prescriber</span></span>
-      </a>
-      <nav class="nav" id="mainNav">
-        <a href="#overview" class="nav-link active" data-tab="overview">Overview</a>
-        <a href="#onboarding" class="nav-link" data-tab="onboarding">Onboarding</a>
-        <a href="#prescriptions" class="nav-link" data-tab="prescriptions">Prescriptions</a>
-        <a href="#formulary" class="nav-link" data-tab="formulary">Formulary</a>
-        <a href="#providers" class="nav-link" data-tab="providers">Providers</a>
-        <a href="#messaging" class="nav-link" data-tab="messaging">Messaging</a>
-        <a href="#proofs" class="nav-link" data-tab="proofs">Proofs</a>
-      </nav>
-      <div class="header-right">
-        <span class="wallet-display" id="headerWallet" title="">--</span>
-        <span class="header-status">
-          <span class="status-dot" id="statusDot"></span>
-          <span class="status-text" id="statusText">Connecting...</span>
-        </span>
-      </div>
+    <div class="header-brand">
+      <div class="brand-icon">Rx</div>
+      <span>zkp.Care Prescriber</span>
+    </div>
+    <div class="header-center">
+      <select id="prescriber-selector" class="prescriber-selector" title="Switch prescriber"></select>
+      <button id="badge-tap-btn" class="badge-tap-btn" title="Badge Tap — Alias in as selected prescriber">
+        <span class="badge-icon">&#x1F4F3;</span> Alias In
+      </button>
+    </div>
+    <div class="header-meta">
+      <span class="header-wallet" id="header-wallet">--</span>
+      <div class="connection-dot" id="connection-dot" title="SSE connection status" aria-label="Connection status"></div>
     </div>
   </header>
 
-  <!-- Main Content -->
-  <main class="main" id="mainContent">
-    <!-- Content rendered by app.js -->
+  <!-- ── Navigation ─────────────────────────────────────────── -->
+  <nav class="nav" id="nav" role="navigation" aria-label="Main navigation">
+    <button class="nav-tab active" data-tab="overview" role="tab">Overview</button>
+    <button class="nav-tab" data-tab="prescriptions" role="tab">Write Rx</button>
+    <button class="nav-tab" data-tab="patients" role="tab">Patients</button>
+    <button class="nav-tab" data-tab="formulary" role="tab">Formulary</button>
+    <button class="nav-tab" data-tab="providers" role="tab">Providers</button>
+    <button class="nav-tab" data-tab="messaging" role="tab">Messaging</button>
+    <button class="nav-tab" data-tab="onboarding" role="tab">Onboarding</button>
+    <button class="nav-tab" data-tab="proofs" role="tab">Proofs</button>
+  </nav>
+
+  <!-- ── Main Content ───────────────────────────────────────── -->
+  <main class="main" role="main">
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!--  OVERVIEW                                                -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <section class="page active" id="page-overview">
+      <!-- Identity Card -->
+      <div class="identity-card" id="ov-identity">
+        <div class="identity-avatar" id="ov-avatar">?</div>
+        <div class="identity-info">
+          <div class="identity-name" id="ov-name">Loading...</div>
+          <div class="identity-detail" id="ov-detail">--</div>
+        </div>
+        <span class="badge" id="ov-phase-badge">--</span>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <span class="stat-label">Total Prescriptions</span>
+          <span class="stat-value" id="ov-total-rx">--</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Unique Patients</span>
+          <span class="stat-value" id="ov-patients">--</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Unique Pharmacies</span>
+          <span class="stat-value" id="ov-pharmacies">--</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">PCP Patients</span>
+          <span class="stat-value" id="ov-pcp">--</span>
+        </div>
+      </div>
+
+      <!-- Panels -->
+      <div class="panels-row">
+        <div class="panel">
+          <div class="panel-header"><h3>Activity Summary</h3></div>
+          <div class="panel-body" id="ov-summary"><div class="loading">Loading...</div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><h3>Medication Breakdown</h3></div>
+          <div class="panel-body" id="ov-meds"><div class="loading">Loading...</div></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Network Prescribers</h3>
+        </div>
+        <div class="panel-body" id="ov-providers"><div class="loading">Loading...</div></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Live Events</h3>
+          <span class="badge badge-live">SSE</span>
+        </div>
+        <div class="panel-body event-log" id="ov-events">
+          <div class="empty-state">Waiting for events...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!--  WRITE RX                                                -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <section class="page" id="page-prescriptions">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <span class="stat-label">Total Prescriptions</span>
+          <span class="stat-value" id="rx-total">--</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Unique Patients</span>
+          <span class="stat-value" id="rx-patients">--</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Unique Pharmacies</span>
+          <span class="stat-value" id="rx-pharmacies">--</span>
+        </div>
+      </div>
+
+      <!-- Write Rx Form -->
+      <div class="panel">
+        <div class="panel-header panel-toggle" id="rx-write-toggle">
+          <h3>Write Prescription</h3>
+          <span class="toggle-arrow" id="rx-write-arrow">&#9660;</span>
+        </div>
+        <div class="panel-body hidden" id="rx-write-body">
+          <p class="form-desc">Write a new e-Script. The prescription is sent to the selected pharmacy and notifies the patient via the message store.</p>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Patient (Member)</label>
+              <select class="form-input form-select" id="rx-patient-select">
+                <option value="">-- Select Patient --</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Pharmacy</label>
+              <select class="form-input form-select" id="rx-pharmacy-select">
+                <option value="">-- Select Pharmacy --</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Medication</label>
+              <select class="form-input form-select" id="rx-med-select">
+                <option value="">-- Select or enter NDC Hash --</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex: 0 0 200px;">
+              <label class="form-label">NDC Hash (manual)</label>
+              <input type="text" class="form-input" id="rx-ndc-manual" placeholder="Or enter NDC hash directly">
+            </div>
+          </div>
+          <div class="form-row form-row-3">
+            <div class="form-group">
+              <label class="form-label">Quantity</label>
+              <input type="number" class="form-input" id="rx-quantity" value="30" min="1">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Days Supply</label>
+              <input type="number" class="form-input" id="rx-days-supply" value="30" min="1">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Refills</label>
+              <input type="number" class="form-input" id="rx-refills" value="0" min="0" max="11">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Directions (SIG)</label>
+            <input type="text" class="form-input" id="rx-directions" placeholder="e.g. Take 1 tablet by mouth daily">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Diagnosis</label>
+            <input type="text" class="form-input" id="rx-diagnosis" placeholder="e.g. Hypertension (optional)">
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="rx-write-btn" disabled>Send Prescription</button>
+          </div>
+          <div id="rx-write-result"></div>
+        </div>
+      </div>
+
+      <!-- Filter -->
+      <div class="panel">
+        <div class="panel-header"><h3>Filter</h3></div>
+        <div class="panel-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Filter By</label>
+              <select class="form-input form-select" id="rx-filter-type">
+                <option value="all">All Prescriptions</option>
+                <option value="patient">By Patient Wallet ID</option>
+                <option value="medication">By NDC Hash</option>
+                <option value="pharmacy">By Pharmacy Wallet ID</option>
+                <option value="daterange">By Date Range</option>
+              </select>
+            </div>
+            <div class="form-group" id="rx-filter-value-group">
+              <label class="form-label" id="rx-filter-value-label">Value</label>
+              <input type="text" class="form-input" id="rx-filter-value" placeholder="Enter filter value...">
+            </div>
+          </div>
+          <div class="form-row hidden" id="rx-daterange-row">
+            <div class="form-group">
+              <label class="form-label">Start (YYYYMMDD)</label>
+              <input type="text" class="form-input" id="rx-start-date" placeholder="20260101">
+            </div>
+            <div class="form-group">
+              <label class="form-label">End (YYYYMMDD)</label>
+              <input type="text" class="form-input" id="rx-end-date" placeholder="20261231">
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary btn-sm" id="rx-filter-btn">Apply Filter</button>
+            <button class="btn btn-sm" id="rx-clear-btn">Show All</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- History Table -->
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Prescribing History</h3>
+          <span class="badge badge-info" id="rx-count">--</span>
+        </div>
+        <div class="panel-body" id="rx-table-container">
+          <div class="loading">Loading...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!--  PATIENTS                                                -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <section class="page" id="page-patients">
+      <div class="panels-row">
+        <div class="panel" style="flex: 2;">
+          <div class="panel-header">
+            <h3>PCP Patient Panel</h3>
+            <button class="btn btn-sm" id="pt-refresh-btn">Refresh</button>
+          </div>
+          <div class="panel-body" id="pt-list">
+            <div class="loading">Loading...</div>
+          </div>
+        </div>
+        <div class="panel" style="flex: 3;">
+          <div class="panel-header">
+            <h3>Drug Utilization Review</h3>
+          </div>
+          <div class="panel-body">
+            <div class="form-row">
+              <div class="form-group" style="flex: 1;">
+                <label class="form-label">Patient Wallet ID</label>
+                <input type="text" class="form-input" id="dur-wallet" placeholder="Enter or select from patient panel">
+              </div>
+              <div class="form-group" style="flex: 0 0 auto; align-self: flex-end;">
+                <button class="btn btn-primary btn-sm" id="dur-lookup-btn">Lookup</button>
+              </div>
+            </div>
+            <div id="dur-result"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!--  FORMULARY                                               -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <section class="page" id="page-formulary">
+      <div class="panel">
+        <div class="panel-header"><h3>Look Up Plan Formulary</h3></div>
+        <div class="panel-body">
+          <div class="search-row">
+            <input type="text" class="form-input" id="form-plan-id" placeholder="Enter Plan ID Hash...">
+            <button class="btn btn-primary" id="form-lookup-btn">Load Formulary</button>
+          </div>
+          <div id="form-result"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header"><h3>Check Drug Coverage</h3></div>
+        <div class="panel-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Plan ID Hash</label>
+              <input type="text" class="form-input" id="form-check-plan" placeholder="Plan ID Hash">
+            </div>
+            <div class="form-group">
+              <label class="form-label">NDC Hash</label>
+              <input type="text" class="form-input" id="form-check-ndc" placeholder="NDC Hash">
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="form-check-btn">Check Coverage</button>
+          </div>
+          <div id="form-check-result"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!--  PROVIDERS                                               -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <section class="page" id="page-providers">
+      <div class="panels-row">
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Prescribers</h3>
+            <button class="btn btn-sm" id="prov-refresh-btn">Refresh</button>
+          </div>
+          <div class="panel-body" id="prov-prescriber-list">
+            <div class="loading">Loading...</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><h3>Pharmacies</h3></div>
+          <div class="panel-body" id="prov-pharmacy-list">
+            <div class="loading">Loading...</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!--  MESSAGING                                               -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <section class="page" id="page-messaging">
+      <div class="msg-layout">
+        <!-- Contacts Panel -->
+        <div class="msg-contacts-panel">
+          <div class="msg-contacts-header">
+            <h3>Conversations</h3>
+            <button class="btn btn-sm btn-primary" id="msg-compose-btn">New</button>
+          </div>
+          <div class="msg-contacts-list" id="msg-contacts-list">
+            <div class="empty-state">Loading...</div>
+          </div>
+        </div>
+        <!-- Conversation Panel -->
+        <div class="msg-conversation-panel">
+          <div class="msg-conv-header" id="msg-conv-header">
+            <span class="msg-conv-title">Select a conversation</span>
+          </div>
+          <div class="msg-conv-messages" id="msg-conv-messages">
+            <div class="empty-state">Select a conversation from the left panel</div>
+          </div>
+          <div class="msg-conv-input hidden" id="msg-conv-input">
+            <input type="text" class="form-input" id="msg-input-text" placeholder="Type a message...">
+            <button class="btn btn-primary btn-sm" id="msg-send-btn">Send</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Compose Modal -->
+      <div class="modal-overlay hidden" id="msg-compose-overlay">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>New Message</h3>
+            <button class="btn btn-sm" id="msg-compose-close">&times;</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label class="form-label">Recipient Wallet ID</label>
+              <input type="text" class="form-input" id="msg-compose-recipient" placeholder="Wallet ID">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Message</label>
+              <textarea class="form-input form-textarea" id="msg-compose-body" placeholder="Type your message..."></textarea>
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-primary" id="msg-compose-send-btn">Send</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!--  ONBOARDING                                              -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <section class="page" id="page-onboarding">
+      <div class="wizard">
+        <div class="wizard-progress" id="wiz-progress"></div>
+        <div class="wizard-panels">
+          <!-- Step 0: Accept Token -->
+          <div class="wizard-panel" id="wiz-panel-0">
+            <h3>Step 1: Accept Enrollment Token</h3>
+            <p class="wizard-panel-desc">Enter the enrollment token provided by your employer or group administrator.</p>
+            <div class="form-group">
+              <label class="form-label">Token ID (required)</label>
+              <input type="text" class="form-input" id="wiz-token-id" placeholder="e.g. TOKEN-RX-001">
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Group ID</label>
+                <input type="text" class="form-input" id="wiz-group-id" placeholder="Optional">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Plan ID</label>
+                <input type="text" class="form-input" id="wiz-plan-id" placeholder="Optional">
+              </div>
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-primary" id="wiz-btn-0">Accept Token</button>
+            </div>
+            <div id="wiz-result-0"></div>
+          </div>
+          <!-- Step 1: Generate Key -->
+          <div class="wizard-panel hidden" id="wiz-panel-1">
+            <h3>Step 2: Generate Enrollment Key</h3>
+            <p class="wizard-panel-desc">Generate a cryptographic enrollment key. This key is created on your device and never transmitted.</p>
+            <div class="form-actions">
+              <button class="btn btn-primary" id="wiz-btn-1">Generate Key</button>
+            </div>
+            <div id="wiz-result-1"></div>
+          </div>
+          <!-- Step 2: Derive Wallet -->
+          <div class="wizard-panel hidden" id="wiz-panel-2">
+            <h3>Step 3: Derive Wallet (NPI Credentials)</h3>
+            <p class="wizard-panel-desc">Enter your prescriber credentials. The wallet ID is derived via Poseidon hash. No private keys involved — access is proof-gated only.</p>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Prescriber ID Qualifier</label>
+                <input type="number" class="form-input" id="wiz-qualifier" placeholder="1" value="1" min="0">
+                <span class="form-hint">1 = NPI, 2 = DEA, etc.</span>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Prescriber ID (NPI)</label>
+                <input type="text" class="form-input" id="wiz-prescriber-id" placeholder="e.g. 1234567890">
+              </div>
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-primary" id="wiz-btn-2">Derive Wallet</button>
+            </div>
+            <div id="wiz-result-2"></div>
+          </div>
+          <!-- Step 3: Enroll -->
+          <div class="wizard-panel hidden" id="wiz-panel-3">
+            <h3>Step 4: Enroll</h3>
+            <p class="wizard-panel-desc">Register your wallet with the sequencer. The insurer sees only your opaque wallet ID — no credentials or private data are transmitted.</p>
+            <div class="form-group">
+              <label class="form-label">Insurer URL (optional)</label>
+              <input type="text" class="form-input" id="wiz-insurer-url" placeholder="e.g. http://localhost:4010">
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-primary" id="wiz-btn-3">Enroll</button>
+            </div>
+            <div id="wiz-result-3"></div>
+          </div>
+          <!-- Step 4: Compile -->
+          <div class="wizard-panel hidden" id="wiz-panel-4">
+            <h3>Step 5: Compile ZK Programs</h3>
+            <p class="wizard-panel-desc">Compile the zero-knowledge circuits. Generates verification keys and prepares the prover. Typically takes 3-5 minutes.</p>
+            <div class="form-actions">
+              <button class="btn btn-primary" id="wiz-btn-4">Compile Programs</button>
+            </div>
+            <div id="wiz-result-4"></div>
+          </div>
+          <!-- Step 5: Ready -->
+          <div class="wizard-panel hidden" id="wiz-panel-5">
+            <h3>Onboarding Complete</h3>
+            <p class="wizard-panel-desc">Your prescriber node is fully operational.</p>
+            <div class="detail-grid" id="wiz-ready-detail"></div>
+            <div class="form-actions" style="margin-top: 16px;">
+              <button class="btn" id="wiz-backup-btn">Backup Key</button>
+            </div>
+            <div id="wiz-result-5"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!--  PROOFS                                                  -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <section class="page" id="page-proofs">
+      <div class="panel">
+        <div class="panel-header"><h3>Generate Registration Proof</h3></div>
+        <div class="panel-body">
+          <p class="form-desc">Generate a zero-knowledge proof that proves your wallet registration without revealing any private data.</p>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="proof-reg-btn" disabled>Generate Registration Proof</button>
+          </div>
+          <div id="proof-reg-result"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Proof Timings</h3>
+          <button class="btn btn-sm" id="proof-refresh-btn">Refresh</button>
+        </div>
+        <div class="panel-body" id="proof-timings-container">
+          <div class="loading">Loading...</div>
+        </div>
+      </div>
+    </section>
+
   </main>
 
-  <!-- Footer -->
-  <footer class="footer">
-    <div class="footer-inner">
-      <span>zkTrident Prescriber Nautilus</span>
-      <span class="footer-sep">&middot;</span>
-      <span>Zero Knowledge Proof Claim Adjudication</span>
+  <!-- ── Badge Tap Modal ──────────────────────────────────── -->
+  <div class="badge-modal-overlay" id="badge-modal" style="display:none">
+    <div class="badge-modal">
+      <div class="badge-modal-header">
+        <h3>Badge Tap — Provider Authentication</h3>
+        <button class="badge-modal-close" id="badge-modal-close">&times;</button>
+      </div>
+      <div class="badge-modal-body">
+        <div class="badge-card" id="badge-card">
+          <div class="badge-card-photo" id="badge-card-avatar">SC</div>
+          <div class="badge-card-info">
+            <div class="badge-card-name" id="badge-card-name">Dr. Sarah Chen, MD</div>
+            <div class="badge-card-detail" id="badge-card-specialty">Internal Medicine</div>
+            <div class="badge-card-detail" id="badge-card-npi">NPI: 1234567890</div>
+          </div>
+          <div class="badge-nfc-chip" id="badge-nfc-chip">NFC</div>
+        </div>
+        <div class="badge-steps" id="badge-steps">
+          <div class="badge-step" data-step="tap"><span class="step-icon">&#x1F4F3;</span> Tap badge...</div>
+          <div class="badge-step" data-step="decrypt"><span class="step-icon">&#x1F510;</span> Decrypting enrollment key...</div>
+          <div class="badge-step" data-step="derive"><span class="step-icon">&#x1F511;</span> Deriving wallet ID...</div>
+          <div class="badge-step" data-step="proof"><span class="step-icon">&#x1F9EE;</span> Generating ZK proof...</div>
+          <div class="badge-step" data-step="verify"><span class="step-icon">&#x2705;</span> Verifying with registry...</div>
+          <div class="badge-step" data-step="session"><span class="step-icon">&#x1F6E1;</span> Session issued</div>
+        </div>
+        <div class="badge-result" id="badge-result" style="display:none"></div>
+      </div>
     </div>
-  </footer>
+  </div>
 
-  <!-- Toast container -->
-  <div class="toast-container" id="toastContainer"></div>
+  <!-- ── Toast Container ────────────────────────────────────── -->
+  <div class="toast-container" id="toast-container"></div>
 
   <script src="rpc.js"></script>
   <script src="app.js"></script>

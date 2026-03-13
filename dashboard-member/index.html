@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>&#x1F41A;</text></svg>">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>zkp.Care Member</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════════════════
+       LANDING (shown if not enrolled)
+       ═══════════════════════════════════════════════════════ -->
+  <div id="landing-screen" class="screen">
+    <div class="landing">
+      <div class="landing-logo">ZK</div>
+      <div class="landing-brand">zkp.Care</div>
+      <div class="landing-sub">Member</div>
+      <div class="landing-trust">
+        Your health data never leaves your device. Only cryptographic proofs are shared.
+      </div>
+      <div class="landing-actions">
+        <button class="btn btn-primary btn-lg" id="landing-enroll-btn">New Enrollment</button>
+        <button class="btn btn-outline btn-lg" id="landing-restore-btn">Restore from Backup</button>
+      </div>
+      <div class="landing-config">
+        <label>Sequencer URL (leave blank to use this server)</label>
+        <input class="form-input mono" id="landing-seq-url" placeholder="Leave blank for default" value="">
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       ONBOARDING (6-step enrollment ceremony)
+       ═══════════════════════════════════════════════════════ -->
+  <div id="onboarding-screen" class="screen hidden">
+    <div class="onboard-container">
+      <div class="onboard-header">
+        <span class="onboard-step-label" id="onboard-step-label">Step 1 of 6</span>
+        <div class="onboard-progress">
+          <div class="onboard-progress-fill" id="onboard-progress" style="width:16.6%"></div>
+        </div>
+      </div>
+      <div class="onboard-body" id="onboard-body">
+        <!-- Dynamically rendered by app.js -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       RESTORE (import backup)
+       ═══════════════════════════════════════════════════════ -->
+  <div id="restore-screen" class="screen hidden">
+    <div class="restore-container">
+      <h2>Restore from Backup</h2>
+      <p class="text-muted">Paste your recovery card JSON or scan a QR code to restore your wallet.</p>
+      <textarea class="form-input mono" id="restore-json" rows="6" placeholder='{"version":2,"walletId":"...","salt":"...","iv":"...","encryptedKey":"..."}'></textarea>
+      <div class="form-group" style="margin-top:12px">
+        <label>PIN (used during backup)</label>
+        <input type="password" class="form-input" id="restore-pin" placeholder="Enter your backup PIN">
+      </div>
+      <div class="form-actions" style="margin-top:16px">
+        <button class="btn btn-primary" id="restore-submit-btn">Restore Wallet</button>
+        <button class="btn" id="restore-back-btn">Back</button>
+      </div>
+      <div id="restore-result"></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       MAIN APP (post-enrollment)
+       ═══════════════════════════════════════════════════════ -->
+  <div id="app-screen" class="screen hidden">
+
+    <!-- Header -->
+    <header class="header">
+      <div class="header-inner">
+        <a class="logo" href="#dashboard">
+          <span class="logo-mark">zk</span>p.Care
+          <span class="logo-role">Member</span>
+        </a>
+        <nav class="nav" id="nav" role="navigation" aria-label="Main navigation">
+          <a class="nav-link active" href="#dashboard" data-tab="dashboard" role="tab">Dashboard</a>
+          <a class="nav-link" href="#claims" data-tab="claims" role="tab">Drug History</a>
+          <a class="nav-link" href="#formulary" data-tab="formulary" role="tab">Formulary</a>
+          <a class="nav-link" href="#plan" data-tab="plan" role="tab">My Plan</a>
+          <a class="nav-link" href="#providers" data-tab="providers" role="tab">Providers</a>
+          <a class="nav-link" href="#messages" data-tab="messages" role="tab">Messages</a>
+          <a class="nav-link" href="#backup" data-tab="backup" role="tab">Backup</a>
+          <a class="nav-link" href="#settings" data-tab="settings" role="tab">Settings</a>
+        </nav>
+        <div class="header-right">
+          <span class="wallet-badge mono" id="header-wallet" title="Your wallet ID">--</span>
+          <span class="conn-dot" id="conn-dot" aria-label="Connection status"></span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Pages -->
+    <main class="main" id="main" role="main">
+
+      <!-- DASHBOARD -->
+      <section id="page-dashboard" class="page">
+        <!-- PCP nudge banner -->
+        <div class="nudge-banner hidden" id="pcp-nudge">
+          You haven't assigned a Primary Care Provider yet.
+          <a href="#providers" class="nudge-link">Assign PCP</a>
+        </div>
+
+        <!-- Plan Spend Hero -->
+        <div class="spend-hero" id="spend-hero">
+          <div class="spend-hero-loading">Loading plan spend...</div>
+        </div>
+
+        <!-- Quick Stats -->
+        <div class="stats-grid" id="dash-stats"></div>
+
+        <!-- Action Cards -->
+        <div class="action-grid">
+          <a href="#claims" class="action-card"><div class="action-icon">Rx</div><div class="action-label">Drug History</div></a>
+          <a href="#formulary" class="action-card"><div class="action-icon">F</div><div class="action-label">Formulary</div></a>
+          <a href="#providers" class="action-card"><div class="action-icon">P</div><div class="action-label">Providers</div></a>
+          <a href="#messages" class="action-card"><div class="action-icon">M</div><div class="action-label">Messages</div></a>
+        </div>
+
+        <!-- Recent Claims -->
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">Recent Claims</span>
+            <a class="panel-action" href="#claims">View All</a>
+          </div>
+          <div class="panel-body flush" id="dash-recent-claims"><div class="loading">Loading...</div></div>
+        </div>
+      </section>
+
+      <!-- DRUG HISTORY -->
+      <section id="page-claims" class="page hidden">
+        <div class="stats-grid" id="claims-stats"></div>
+        <div class="search-bar">
+          <input class="form-input" id="claims-search" placeholder="Search by drug, pharmacy, date...">
+          <button class="btn btn-primary" id="claims-search-btn">Search</button>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">All Claims</span>
+            <button class="btn btn-sm" id="claims-refresh">Refresh</button>
+          </div>
+          <div class="panel-body" id="claims-list"><div class="loading">Loading...</div></div>
+        </div>
+      </section>
+
+      <!-- FORMULARY -->
+      <section id="page-formulary" class="page hidden">
+        <div class="stats-grid" id="formulary-stats"></div>
+        <div class="search-bar">
+          <input class="form-input" id="formulary-search" placeholder="Search by drug name or NDC...">
+          <button class="btn btn-primary" id="formulary-search-btn">Filter</button>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Formulary</span></div>
+          <div class="panel-body flush" id="formulary-table"><div class="loading">Loading...</div></div>
+        </div>
+      </section>
+
+      <!-- MY PLAN -->
+      <section id="page-plan" class="page hidden">
+        <div class="spend-hero" id="plan-spend-hero"><div class="spend-hero-loading">Loading...</div></div>
+        <div class="panels-row">
+          <div class="panel">
+            <div class="panel-header"><span class="panel-title">Accumulator Balances</span></div>
+            <div class="panel-body" id="plan-accumulators"><div class="loading">Loading...</div></div>
+          </div>
+          <div class="panel">
+            <div class="panel-header"><span class="panel-title">Benefit Plan Tiers</span></div>
+            <div class="panel-body" id="plan-tiers"><div class="loading">Loading...</div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PROVIDERS -->
+      <section id="page-providers" class="page hidden">
+        <div class="search-bar">
+          <select class="form-input form-select" id="provider-role-filter" style="width:160px">
+            <option value="">All Roles</option>
+            <option value="prescriber">Prescribers</option>
+            <option value="pharmacy">Pharmacies</option>
+          </select>
+          <input class="form-input" id="provider-search" placeholder="Search by name...">
+          <button class="btn btn-sm" id="provider-refresh">Refresh</button>
+        </div>
+
+        <!-- PCP Assignment -->
+        <div class="panel" id="pcp-panel">
+          <div class="panel-header"><span class="panel-title">Primary Care Provider</span></div>
+          <div class="panel-body" id="pcp-body">
+            <div class="empty-state">No PCP assigned</div>
+          </div>
+        </div>
+
+        <!-- Provider List -->
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Network Providers</span></div>
+          <div class="panel-body" id="provider-list"><div class="loading">Loading...</div></div>
+        </div>
+      </section>
+
+      <!-- MESSAGES -->
+      <section id="page-messages" class="page hidden">
+        <div class="msg-toolbar">
+          <div class="msg-tabs">
+            <button class="msg-tab active" data-msgtab="inbox">Inbox</button>
+            <button class="msg-tab" data-msgtab="sent">Sent</button>
+            <button class="msg-tab" data-msgtab="system">System Log</button>
+          </div>
+          <button class="btn btn-primary btn-sm" id="msg-compose-btn">Compose</button>
+        </div>
+        <div id="msg-content"><div class="loading">Loading...</div></div>
+
+        <!-- Compose overlay -->
+        <div class="compose-overlay hidden" id="compose-overlay">
+          <div class="compose-box">
+            <div class="compose-header">
+              <span>Compose Message</span>
+              <button class="btn btn-sm" id="compose-close">&times;</button>
+            </div>
+            <div class="form-group">
+              <label>Recipient Wallet ID</label>
+              <input class="form-input mono" id="compose-recipient" placeholder="Recipient wallet ID">
+            </div>
+            <div class="form-group">
+              <label>Message</label>
+              <textarea class="form-input" id="compose-body" rows="4" placeholder="Type your message..."></textarea>
+            </div>
+            <div class="compose-footer">
+              <span class="text-muted" style="font-size:11px">Messages are encrypted end-to-end (AES-256-GCM)</span>
+              <button class="btn btn-primary" id="compose-send">Send</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- BACKUP -->
+      <section id="page-backup" class="page hidden">
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Recovery Backup</span></div>
+          <div class="panel-body">
+            <p class="text-muted" style="margin-bottom:16px">
+              Create an encrypted backup of your enrollment key. You'll need the PIN to restore.
+              On Android, this can be written to an NFC tag. On web, export as JSON to print or save securely.
+            </p>
+            <div class="form-group">
+              <label>Create PIN (6+ digits)</label>
+              <input type="password" class="form-input" id="backup-pin" placeholder="Enter a PIN" minlength="6">
+            </div>
+            <div class="form-group">
+              <label>Confirm PIN</label>
+              <input type="password" class="form-input" id="backup-pin-confirm" placeholder="Confirm PIN">
+            </div>
+            <button class="btn btn-primary" id="backup-create-btn">Generate Backup</button>
+            <div id="backup-result" style="margin-top:16px"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">NFC Credential</span></div>
+          <div class="panel-body">
+            <p class="text-muted" style="margin-bottom:12px">
+              Request an Ed25519-signed attestation from the sequencer. The credential can be written to an NFC tag or downloaded for offline pharmacy verification.
+            </p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-primary" id="attestation-btn">Request Attestation</button>
+              <button class="btn" id="nfc-write-btn" disabled title="Request attestation first">Write to NFC</button>
+              <button class="btn" id="credential-download-btn" disabled title="Request attestation first">Download Credential</button>
+            </div>
+            <div id="attestation-result" style="margin-top:12px"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section id="page-settings" class="page hidden">
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Connection Settings</span></div>
+          <div class="panel-body">
+            <div class="form-group">
+              <label>Sequencer URL</label>
+              <input class="form-input mono" id="settings-seq-url" placeholder="http://localhost:3000">
+            </div>
+            <div class="form-group">
+              <label>Insurer URL</label>
+              <input class="form-input mono" id="settings-insurer-url" placeholder="http://localhost:3001">
+            </div>
+            <div class="form-group">
+              <label>Prover URL</label>
+              <input class="form-input mono" id="settings-prover-url" placeholder="http://localhost:3002">
+            </div>
+            <button class="btn btn-primary" id="settings-save-btn">Save</button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Wallet Info</span></div>
+          <div class="panel-body" id="settings-wallet-info"><div class="loading">Loading...</div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Danger Zone</span></div>
+          <div class="panel-body">
+            <button class="btn btn-danger" id="settings-logout-btn">Clear Local State &amp; Log Out</button>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="rpc.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

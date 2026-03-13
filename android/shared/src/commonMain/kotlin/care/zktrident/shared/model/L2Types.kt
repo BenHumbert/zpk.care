@@ -136,6 +136,7 @@ data class ClaimMetadata(
     val daysSupply: Int? = null,
     val fillNumber: Int? = null,
     val gpi: String? = null,
+    val deaSchedule: Int? = null,
 )
 
 @Serializable
@@ -162,6 +163,7 @@ data class FormularyEntry(
     val requiresPriorAuth: Boolean = false,
     val maxDaySupply: Int? = null,
     val maxQuantityPerFill: Int? = null,
+    val deaSchedule: Int = 0,
 )
 
 @Serializable

@@ -31,3 +31,32 @@ export type {
 
 export { UserWalletService } from './user-wallet-service.js';
 export type { EntityType, MintResult } from './user-wallet-service.js';
+
+// NFC Attestation
+export {
+  SequencerAttestationAuthority,
+  buildAttestationMessage,
+  isAttestation,
+} from './nfc-attestation.js';
+export type {
+  NfcCredentialAttestation,
+  AttestationVerifyResult,
+} from './nfc-attestation.js';
+
+// Provider Badge — NFC tap-to-login
+export {
+  createProviderBadge,
+  decryptBadge,
+  authenticateFromBadge,
+  badgePreimage,
+  estimateBadgeSize,
+  DEMO_BADGE_PIN,
+  validateBadgePin,
+} from './provider-badge-service.js';
+export type {
+  ProviderBadge,
+  BadgeAuthResult,
+  BadgeTapEvent,
+  ProviderBadgeNdefPayload,
+} from './provider-badge-types.js';
+export { isProviderBadge } from './provider-badge-types.js';

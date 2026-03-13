@@ -1,4 +1,4 @@
-/* zkTrident Explorer — Dark Theme (Etherscan-inspired) */
+/* zkTrident Explorer — Dark Theme (Leviathan/Infrastructure) */
 
 :root {
   --bg-primary: #0d1117;
@@ -9,9 +9,9 @@
   --text-primary: #e6edf3;
   --text-secondary: #8b949e;
   --text-muted: #484f58;
-  --accent: #00d4aa;
-  --accent-dim: #00d4aa33;
-  --accent-hover: #00f0c0;
+  --accent: #22d3ee;
+  --accent-dim: #22d3ee33;
+  --accent-hover: #67e8f9;
   --blue: #58a6ff;
   --green: #3fb950;
   --yellow: #d29922;

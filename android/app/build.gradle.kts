@@ -14,9 +14,9 @@ android {
         versionCode = 1
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "DEFAULT_SEQUENCER_URL", "\"http://192.168.139.171:3030\"")
-        buildConfigField("String", "DEFAULT_PROVER_URL", "\"http://192.168.139.171:4040\"")
-        buildConfigField("String", "DEFAULT_INSURER_URL", "\"http://192.168.139.171:4004\"")
+        buildConfigField("String", "DEFAULT_SEQUENCER_URL", "\"http://192.168.139.172:3030\"")
+        buildConfigField("String", "DEFAULT_PROVER_URL", "\"http://192.168.139.172:4040\"")
+        buildConfigField("String", "DEFAULT_INSURER_URL", "\"http://192.168.139.172:4004\"")
         buildConfigField("String", "DEFAULT_PROVER_API_KEY", "\"dev-key\"")
     }
 

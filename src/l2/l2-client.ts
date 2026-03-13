@@ -224,6 +224,39 @@ export class L2Client {
     return this.rpcCall('l2_reconstructAccumulator', { walletId });
   }
 
+  // ─── PCP Assignments ───────────────────────────────────
+
+  /** Register a PCP assignment on the sequencer */
+  async registerPcpAssignment(memberWalletId: string, prescriberWalletId: string, effectiveDate: string): Promise<unknown> {
+    return this.rpcCall('l2_registerPcpAssignment', { memberWalletId, prescriberWalletId, effectiveDate });
+  }
+
+  /** Get PCP assignments for a prescriber */
+  async getPcpAssignments(prescriberWalletId: string): Promise<{ memberWalletId: string; effectiveDate: string; timestamp: number }[]> {
+    return this.rpcCall('l2_getPcpAssignments', { prescriberWalletId });
+  }
+
+  // ─── Claim Recording (Admin/Demo) ──────────────────────
+
+  /** Record a fill directly on the claim accumulator (admin-gated) */
+  async recordFill(params: {
+    memberWalletId: string;
+    ndcHash: string;
+    pharmacyWalletId: string;
+    prescriberWalletId?: string;
+    dateOfService?: string;
+    patientPayCents?: string;
+    planPayCents?: string;
+    operationType?: string;
+    deductibleCreditCents?: string;
+    ndc?: string;
+    brandName?: string;
+    daysSupply?: number;
+    fillNumber?: number;
+  }): Promise<{ ok: boolean; leafIndex: string; leafHash: string }> {
+    return this.rpcCall('l2_recordFill', params);
+  }
+
   // ─── Message Store Queries ──────────────────────────────
 
   /** Get all messages involving a wallet (sent or received) */
@@ -257,6 +290,59 @@ export class L2Client {
       message: message as unknown as Record<string, unknown>,
       payload: payload as unknown as Record<string, unknown>,
     });
+  }
+
+  // ─── Provider Registry ──────────────────────────────────
+
+  /** Credential a provider (admin-gated) */
+  async credentialProvider(params: {
+    walletId: string;
+    displayName: string;
+    providerType: 'prescriber' | 'pharmacy';
+    npi?: string;
+    specialty?: string;
+    pharmacyType?: string;
+    deaNumber?: string;
+    stateOfLicense?: string;
+    verificationMethod?: string;
+    initialState?: number;
+  }): Promise<{ ok: boolean; leafIndex: string; walletId: string }> {
+    return this.rpcCall('l2_credentialProvider', params as unknown as Record<string, unknown>);
+  }
+
+  /** Update a provider's lifecycle state (admin-gated) */
+  async updateProviderStatus(walletId: string, newState: number): Promise<{ ok: boolean; walletId: string; credentialState: string }> {
+    return this.rpcCall('l2_updateProviderStatus', { walletId, newState });
+  }
+
+  /** Get a provider by wallet ID */
+  async getProvider(walletId: string): Promise<{
+    walletId: string;
+    displayName: string;
+    providerType: string;
+    credentialState: number;
+    credentialStateName: string;
+    specialty?: string;
+    pharmacyType?: string;
+  } | null> {
+    return this.rpcCall('l2_getProvider', { walletId });
+  }
+
+  /** Get provider registry root and count */
+  async getProviderRegistryRoot(): Promise<{ root: string; providerCount: string }> {
+    return this.rpcCall('l2_getProviderRegistryRoot');
+  }
+
+  /** Get a provider with Merkle inclusion proof */
+  async getProviderWithProof(walletId: string): Promise<{
+    walletId: string;
+    displayName: string;
+    providerType: string;
+    credentialState: number;
+    witnessJson: string;
+    root: string;
+  } | null> {
+    return this.rpcCall('l2_getProviderWithProof', { walletId });
   }
 
   // ─── Peer Network / Gossip ────────────────────────────

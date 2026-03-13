@@ -586,6 +586,369 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   });
 
   // ══════════════════════════════════════════════════════════
+  //  CREDENTIALING PIPELINE
+  //
+  //  Production flow:
+  //    1. Provider submits application → POST /credentialing/apply
+  //    2. Insurer verifies NPI/NCPDP   → POST /credentialing/verify/:id
+  //    3. Insurer approves/denies      → POST /credentialing/approve/:id
+  //    4. Provider appears in registry  → GET  /credentialing/status/:walletId
+  //    5. Insurer can suspend/terminate → POST /credentialing/suspend/:walletId
+  //
+  //  Demo mode: start-insurer-nautilus.ts batch-credentials all demo providers
+  //  via l2_credentialProvider, skipping the application workflow.
+  // ══════════════════════════════════════════════════════════
+
+  // In-memory application store (production: database-backed)
+  const applications = new Map<string, {
+    applicationId: string;
+    providerType: 'prescriber' | 'pharmacy';
+    npi: string;
+    displayName: string;
+    specialty?: string;
+    pharmacyType?: string;
+    deaNumber?: string;
+    stateOfLicense?: string;
+    walletId?: string;
+    submittedAt: number;
+    status: 'pending' | 'under_review' | 'verified' | 'approved' | 'denied';
+    denialReason?: string;
+    verifiedAt?: number;
+    approvedAt?: number;
+  }>();
+
+  // In-flight approval guard — prevents concurrent approvals of the same application
+  const approvalsInFlight = new Set<string>();
+
+  // POST /credentialing/apply — Provider submits application
+  routes.push({
+    method: 'POST',
+    path: '/credentialing/apply',
+    handler: async (_req, res, _params, _query, body) => {
+      const b = body as {
+        providerType?: string;
+        npi?: string;
+        displayName?: string;
+        specialty?: string;
+        pharmacyType?: string;
+        deaNumber?: string;
+        stateOfLicense?: string;
+        walletId?: string;
+      } | undefined;
+
+      if (!b?.providerType || !b?.npi || !b?.displayName) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing providerType, npi, or displayName');
+      }
+      if (b.providerType !== 'prescriber' && b.providerType !== 'pharmacy') {
+        return server.sendResponse(res, 400, false, undefined, 'providerType must be "prescriber" or "pharmacy"');
+      }
+
+      // Check for duplicate NPI
+      for (const app of applications.values()) {
+        if (app.npi === b.npi && app.status !== 'denied') {
+          return server.sendResponse(res, 409, false, undefined, `NPI ${b.npi} already has a ${app.status} application`);
+        }
+      }
+
+      const applicationId = `APP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const app = {
+        applicationId,
+        providerType: b.providerType as 'prescriber' | 'pharmacy',
+        npi: b.npi,
+        displayName: b.displayName,
+        specialty: b.specialty,
+        pharmacyType: b.pharmacyType,
+        deaNumber: b.deaNumber,
+        stateOfLicense: b.stateOfLicense,
+        walletId: b.walletId,
+        submittedAt: Date.now(),
+        status: 'pending' as const,
+      };
+      applications.set(applicationId, app);
+
+      server.sendResponse(res, 201, true, {
+        applicationId,
+        status: 'pending',
+        message: 'Application submitted. The insurer will verify credentials.',
+      });
+    },
+  });
+
+  // POST /credentialing/verify/:id — Insurer marks application as verified (admin-gated)
+  routes.push({
+    method: 'POST',
+    path: '/credentialing/verify/:id',
+    adminOnly: true,
+    handler: async (_req, res, params) => {
+      const app = applications.get(params.id);
+      if (!app) return server.sendResponse(res, 404, false, undefined, 'Application not found');
+      if (app.status !== 'pending' && app.status !== 'under_review') {
+        return server.sendResponse(res, 409, false, undefined, `Cannot verify in status: ${app.status}`);
+      }
+
+      // In production: call NPPES API, check DEA, state license board, etc.
+      // For now: mark as verified
+      app.status = 'verified';
+      app.verifiedAt = Date.now();
+
+      server.sendResponse(res, 200, true, {
+        applicationId: app.applicationId,
+        status: 'verified',
+        npi: app.npi,
+        displayName: app.displayName,
+        message: 'Credentials verified. Ready for final approval.',
+      });
+    },
+  });
+
+  // POST /credentialing/approve/:id — Insurer approves and credentials provider (admin-gated)
+  routes.push({
+    method: 'POST',
+    path: '/credentialing/approve/:id',
+    adminOnly: true,
+    handler: async (_req, res, params, _query, body) => {
+      const app = applications.get(params.id);
+      if (!app) return server.sendResponse(res, 404, false, undefined, 'Application not found');
+      if (app.status === 'approved' || app.status === 'denied') {
+        return server.sendResponse(res, 409, false, undefined, `Cannot approve in status: ${app.status}`);
+      }
+      if (app.status !== 'verified' && app.status !== 'pending') {
+        return server.sendResponse(res, 409, false, undefined, `Cannot approve in status: ${app.status}`);
+      }
+
+      // Prevent concurrent approvals of the same application
+      if (approvalsInFlight.has(params.id)) {
+        return server.sendResponse(res, 429, false, undefined, 'Approval already in progress for this application');
+      }
+
+      const b = body as { walletId?: string } | undefined;
+      const walletId = b?.walletId ?? app.walletId;
+      if (!walletId) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing walletId (provider must enroll first or supply walletId)');
+      }
+
+      // Credential on the sequencer via RPC
+      const node = server.getEntityNode() as InsurerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+
+      approvalsInFlight.add(params.id);
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        const adminToken = server.getConfig().adminToken;
+        if (adminToken) headers['Authorization'] = 'Bearer ' + adminToken;
+
+        const rpcRes = await fetch(seqUrl + '/rpc', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            jsonrpc: '2.0', id: 1,
+            method: 'l2_credentialProvider',
+            params: {
+              walletId,
+              displayName: app.displayName,
+              providerType: app.providerType,
+              npi: app.npi,
+              specialty: app.specialty,
+              pharmacyType: app.pharmacyType,
+              deaNumber: app.deaNumber,
+              stateOfLicense: app.stateOfLicense,
+              verificationMethod: app.verifiedAt ? 'manual' : 'demo',
+              applicationId: app.applicationId,
+            },
+          }),
+        });
+        const json = await rpcRes.json() as { result?: unknown; error?: { message?: string } };
+        if (json.error) throw new Error(json.error.message ?? 'Sequencer error');
+
+        app.status = 'approved';
+        app.approvedAt = Date.now();
+        app.walletId = walletId;
+
+        server.sendResponse(res, 200, true, {
+          applicationId: app.applicationId,
+          status: 'approved',
+          walletId,
+          displayName: app.displayName,
+          providerType: app.providerType,
+          registryResult: json.result,
+        });
+      } catch (err: any) {
+        server.sendResponse(res, 502, false, undefined, `Failed to credential on sequencer: ${err.message}`);
+      } finally {
+        approvalsInFlight.delete(params.id);
+      }
+    },
+  });
+
+  // POST /credentialing/deny/:id — Insurer denies application (admin-gated)
+  routes.push({
+    method: 'POST',
+    path: '/credentialing/deny/:id',
+    adminOnly: true,
+    handler: async (_req, res, params, _query, body) => {
+      const app = applications.get(params.id);
+      if (!app) return server.sendResponse(res, 404, false, undefined, 'Application not found');
+      if (app.status === 'approved') {
+        return server.sendResponse(res, 409, false, undefined, 'Cannot deny an approved application — use terminate');
+      }
+
+      const b = body as { reason?: string } | undefined;
+      app.status = 'denied';
+      app.denialReason = b?.reason ?? 'Application denied';
+
+      server.sendResponse(res, 200, true, {
+        applicationId: app.applicationId,
+        status: 'denied',
+        reason: app.denialReason,
+      });
+    },
+  });
+
+  // GET /credentialing/applications — List all applications (read-only)
+  routes.push({
+    method: 'GET',
+    path: '/credentialing/applications',
+    handler: async (_req, res, _params, query) => {
+      const statusFilter = query.get('status');
+      let apps = Array.from(applications.values());
+      if (statusFilter) apps = apps.filter(a => a.status === statusFilter);
+      server.sendResponse(res, 200, true, {
+        total: apps.length,
+        applications: apps,
+      });
+    },
+  });
+
+  // GET /credentialing/status/:walletId — Check credentialing status for a provider
+  routes.push({
+    method: 'GET',
+    path: '/credentialing/status/:walletId',
+    handler: async (_req, res, params) => {
+      const node = server.getEntityNode() as InsurerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const rpcRes = await fetch(seqUrl + '/rpc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0', id: 1,
+            method: 'l2_getProvider',
+            params: { walletId: params.walletId },
+          }),
+        });
+        const json = await rpcRes.json() as { result?: unknown; error?: { message?: string } };
+        if (json.error) throw new Error(json.error.message ?? 'Sequencer error');
+
+        if (json.result === null) {
+          return server.sendResponse(res, 404, false, undefined, 'Provider not found in registry');
+        }
+
+        server.sendResponse(res, 200, true, json.result);
+      } catch (err: any) {
+        server.sendResponse(res, 502, false, undefined, err.message);
+      }
+    },
+  });
+
+  // POST /credentialing/suspend/:walletId — Suspend an active provider (admin-gated)
+  routes.push({
+    method: 'POST',
+    path: '/credentialing/suspend/:walletId',
+    adminOnly: true,
+    handler: async (_req, res, params) => {
+      const node = server.getEntityNode() as InsurerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        const adminToken = server.getConfig().adminToken;
+        if (adminToken) headers['Authorization'] = 'Bearer ' + adminToken;
+
+        const rpcRes = await fetch(seqUrl + '/rpc', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            jsonrpc: '2.0', id: 1,
+            method: 'l2_updateProviderStatus',
+            params: { walletId: params.walletId, newState: 3 }, // SUSPENDED
+          }),
+        });
+        const json = await rpcRes.json() as { result?: unknown; error?: { message?: string } };
+        if (json.error) throw new Error(json.error.message ?? 'Sequencer error');
+        server.sendResponse(res, 200, true, json.result);
+      } catch (err: any) {
+        server.sendResponse(res, 502, false, undefined, err.message);
+      }
+    },
+  });
+
+  // POST /credentialing/terminate/:walletId — Terminate a provider (admin-gated)
+  routes.push({
+    method: 'POST',
+    path: '/credentialing/terminate/:walletId',
+    adminOnly: true,
+    handler: async (_req, res, params) => {
+      const node = server.getEntityNode() as InsurerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        const adminToken = server.getConfig().adminToken;
+        if (adminToken) headers['Authorization'] = 'Bearer ' + adminToken;
+
+        const rpcRes = await fetch(seqUrl + '/rpc', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            jsonrpc: '2.0', id: 1,
+            method: 'l2_updateProviderStatus',
+            params: { walletId: params.walletId, newState: 4 }, // TERMINATED
+          }),
+        });
+        const json = await rpcRes.json() as { result?: unknown; error?: { message?: string } };
+        if (json.error) throw new Error(json.error.message ?? 'Sequencer error');
+        server.sendResponse(res, 200, true, json.result);
+      } catch (err: any) {
+        server.sendResponse(res, 502, false, undefined, err.message);
+      }
+    },
+  });
+
+  // GET /credentialing/registry — Full provider registry from sequencer
+  routes.push({
+    method: 'GET',
+    path: '/credentialing/registry',
+    handler: async (_req, res, _params, query) => {
+      const node = server.getEntityNode() as InsurerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const roleFilter = query.get('role');
+        const rpcRes = await fetch(seqUrl + '/rpc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0', id: 1,
+            method: 'l2_getNetworkProviders',
+            params: roleFilter ? { role: roleFilter } : {},
+          }),
+        });
+        const json = await rpcRes.json() as { result?: unknown; error?: { message?: string } };
+        if (json.error) throw new Error(json.error.message ?? 'Sequencer error');
+        server.sendResponse(res, 200, true, json.result);
+      } catch (err: any) {
+        server.sendResponse(res, 502, false, undefined, err.message);
+      }
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
   //  MESSAGING (Read-Only — system-wide queries)
   // ══════════════════════════════════════════════════════════
 

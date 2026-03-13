@@ -1,0 +1,1951 @@
+<!DOCTYPE html>
+<html lang="en" class="role-prescriber">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>zkTrident Care — Prescriber Dashboard</title>
+  <link rel="stylesheet" href="../design-system/tokens.css">
+  <link rel="stylesheet" href="../design-system/components.css">
+  <link rel="stylesheet" href="./style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+<div class="app-shell">
+
+  <!-- ── Header ──────────────────────────────────────────── -->
+  <header class="header">
+    <div class="header-inner">
+      <a class="logo" href="#overview">
+        <span class="logo-mark">zk</span>Trident
+        <span class="logo-role">Prescriber</span>
+      </a>
+      <nav class="nav" id="mainNav">
+        <a class="nav-link active" href="#overview">Overview</a>
+        <a class="nav-link" href="#onboarding">Onboarding</a>
+        <a class="nav-link" href="#prescriptions">Prescriptions</a>
+        <a class="nav-link" href="#formulary">Formulary</a>
+        <a class="nav-link" href="#providers">Providers</a>
+        <a class="nav-link" href="#messaging">Messaging</a>
+        <a class="nav-link" href="#proofs">Proofs</a>
+      </nav>
+      <div class="header-right">
+        <div class="wallet-display" title="98271640392841756310482957631048">9827164039...</div>
+        <div class="connection-status">
+          <span class="status-dot connected"></span>
+          <span>Leviathan</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="main">
+
+    <!-- ═══════════════════════════════════════════════════════
+         SCREEN: Overview
+         ═══════════════════════════════════════════════════════ -->
+    <section id="screen-overview" class="screen active">
+
+      <div class="prescriber-identity">
+        <div class="prescriber-avatar">SC</div>
+        <div class="prescriber-info">
+          <div class="prescriber-name">Dr. Sarah Chen, MD</div>
+          <div class="prescriber-detail">Cardiology &middot; Board Certified &middot; DEA# AC1234567</div>
+        </div>
+        <span class="prescriber-npi">NPI 1234567890</span>
+        <span class="badge badge-accent">Active</span>
+      </div>
+
+      <!-- Stats Grid -->
+      <div class="stats-grid">
+        <div class="stat-card stat-accent">
+          <div class="stat-label">Active Patients</div>
+          <div class="stat-value">8</div>
+          <div class="stat-trend up">+2 this month</div>
+        </div>
+        <div class="stat-card stat-accent">
+          <div class="stat-label">Prescriptions</div>
+          <div class="stat-value">15</div>
+          <div class="stat-trend up">+4 this week</div>
+        </div>
+        <div class="stat-card stat-accent">
+          <div class="stat-label">Network Pharmacies</div>
+          <div class="stat-value">3</div>
+          <div class="stat-detail">All verified</div>
+        </div>
+        <div class="stat-card stat-accent">
+          <div class="stat-label">Messages</div>
+          <div class="stat-value">4</div>
+          <div class="stat-detail">1 unread</div>
+        </div>
+        <div class="stat-card stat-accent">
+          <div class="stat-label">Avg Proof Time</div>
+          <div class="stat-value">2.3s</div>
+          <div class="stat-trend down">-0.4s vs last week</div>
+        </div>
+      </div>
+
+      <!-- Event Log + Quick Actions -->
+      <div class="panels-row">
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">Recent Activity</span>
+            <span class="badge badge-live">SSE Connected</span>
+          </div>
+          <div class="panel-body flush">
+            <div class="event-log" id="eventLog">
+              <div class="event-item">
+                <span class="event-dot rx"></span>
+                <div class="event-body">
+                  <div class="event-text"><strong>Prescription filled</strong> &mdash; Lisinopril 10mg for patient 4f82a...</div>
+                </div>
+                <span class="event-time">14:32</span>
+              </div>
+              <div class="event-item">
+                <span class="event-dot proof"></span>
+                <div class="event-body">
+                  <div class="event-text"><strong>Proof verified</strong> &mdash; StateTransitionProof #247 accepted by leviathan</div>
+                </div>
+                <span class="event-time">14:28</span>
+              </div>
+              <div class="event-item">
+                <span class="event-dot msg"></span>
+                <div class="event-body">
+                  <div class="event-text"><strong>New message</strong> from MedFirst Pharmacy re: Atorvastatin refill</div>
+                </div>
+                <span class="event-time">14:15</span>
+              </div>
+              <div class="event-item">
+                <span class="event-dot rx"></span>
+                <div class="event-body">
+                  <div class="event-text"><strong>Prescription written</strong> &mdash; Metoprolol 25mg for patient 7c19b...</div>
+                </div>
+                <span class="event-time">13:47</span>
+              </div>
+              <div class="event-item">
+                <span class="event-dot alert"></span>
+                <div class="event-body">
+                  <div class="event-text"><strong>PA required</strong> &mdash; Entresto 49/51mg flagged by formulary check</div>
+                </div>
+                <span class="event-time">13:22</span>
+              </div>
+              <div class="event-item">
+                <span class="event-dot proof"></span>
+                <div class="event-body">
+                  <div class="event-text"><strong>Batch settled</strong> &mdash; Batch #18 finalized with 6 proofs</div>
+                </div>
+                <span class="event-time">12:58</span>
+              </div>
+              <div class="event-item">
+                <span class="event-dot system"></span>
+                <div class="event-body">
+                  <div class="event-text"><strong>Circuit compiled</strong> &mdash; FulfillmentProgram ready (3.1s)</div>
+                </div>
+                <span class="event-time">12:40</span>
+              </div>
+              <div class="event-item">
+                <span class="event-dot rx"></span>
+                <div class="event-body">
+                  <div class="event-text"><strong>Prescription filled</strong> &mdash; Amlodipine 5mg for patient a3d61...</div>
+                </div>
+                <span class="event-time">12:12</span>
+              </div>
+              <div class="event-item">
+                <span class="event-dot msg"></span>
+                <div class="event-body">
+                  <div class="event-text"><strong>Message sent</strong> to patient 7c19b... re: Dosage adjustment</div>
+                </div>
+                <span class="event-time">11:50</span>
+              </div>
+              <div class="event-item">
+                <span class="event-dot system"></span>
+                <div class="event-body">
+                  <div class="event-text"><strong>Node synced</strong> &mdash; Leviathan peer state verified at block #247</div>
+                </div>
+                <span class="event-time">11:30</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">My Patients</span>
+            <span class="panel-action" onclick="navigate('prescriptions')">View All</span>
+          </div>
+          <div class="panel-body flush">
+            <div class="patient-item">
+              <div class="patient-avatar">JD</div>
+              <div class="patient-info">
+                <div class="patient-name">Patient JD</div>
+                <div class="patient-wallet">4f82a9c7e13b...</div>
+              </div>
+              <span class="patient-claims-badge">3 Rx</span>
+            </div>
+            <div class="patient-item">
+              <div class="patient-avatar">MR</div>
+              <div class="patient-info">
+                <div class="patient-name">Patient MR</div>
+                <div class="patient-wallet">7c19b3d8f24a...</div>
+              </div>
+              <span class="patient-claims-badge">2 Rx</span>
+            </div>
+            <div class="patient-item">
+              <div class="patient-avatar">EW</div>
+              <div class="patient-info">
+                <div class="patient-name">Patient EW</div>
+                <div class="patient-wallet">a3d61f0e82c9...</div>
+              </div>
+              <span class="patient-claims-badge">3 Rx</span>
+            </div>
+            <div class="patient-item">
+              <div class="patient-avatar">TH</div>
+              <div class="patient-info">
+                <div class="patient-name">Patient TH</div>
+                <div class="patient-wallet">d8e24a7b91f3...</div>
+              </div>
+              <span class="patient-claims-badge">2 Rx</span>
+            </div>
+            <div class="patient-item">
+              <div class="patient-avatar">LK</div>
+              <div class="patient-info">
+                <div class="patient-name">Patient LK</div>
+                <div class="patient-wallet">f1c93e5d74a2...</div>
+              </div>
+              <span class="patient-claims-badge">1 Rx</span>
+            </div>
+            <div class="patient-item">
+              <div class="patient-avatar">AB</div>
+              <div class="patient-info">
+                <div class="patient-name">Patient AB</div>
+                <div class="patient-wallet">1b47d9f8c3e6...</div>
+              </div>
+              <span class="patient-claims-badge">2 Rx</span>
+            </div>
+            <div class="patient-item">
+              <div class="patient-avatar">CG</div>
+              <div class="patient-info">
+                <div class="patient-name">Patient CG</div>
+                <div class="patient-wallet">5e82a1c4d7f0...</div>
+              </div>
+              <span class="patient-claims-badge">1 Rx</span>
+            </div>
+            <div class="patient-item">
+              <div class="patient-avatar">NP</div>
+              <div class="patient-info">
+                <div class="patient-name">Patient NP</div>
+                <div class="patient-wallet">9a36f2e8b1d4...</div>
+              </div>
+              <span class="patient-claims-badge">1 Rx</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Connection Status Panel -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Network Status</span>
+        </div>
+        <div class="panel-body">
+          <div class="detail-grid">
+            <div class="detail-key">Leviathan Node</div>
+            <div class="detail-val"><span class="badge badge-success">Connected</span> leviathan-01.zktrident.care:3100</div>
+            <div class="detail-key">Partition</div>
+            <div class="detail-val mono">cardiology-east-1</div>
+            <div class="detail-key">Latest Block</div>
+            <div class="detail-val mono">#247</div>
+            <div class="detail-key">Peer Count</div>
+            <div class="detail-val">3 replicas synced</div>
+            <div class="detail-key">SSE Stream</div>
+            <div class="detail-val"><span class="badge badge-success">Active</span> 142 events received</div>
+            <div class="detail-key">Uptime</div>
+            <div class="detail-val mono">4d 7h 23m</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         SCREEN: Onboarding
+         ═══════════════════════════════════════════════════════ -->
+    <section id="screen-onboarding" class="screen">
+
+      <div class="section-header">
+        <div>
+          <div class="section-title">Prescriber Onboarding</div>
+          <div class="section-subtitle">Three-party enrollment ceremony &mdash; NPI-based identity derivation</div>
+        </div>
+      </div>
+
+      <div class="wizard-container">
+        <!-- Stepper -->
+        <div class="stepper" id="onboardingStepper">
+          <div class="stepper-step completed" data-step="0">
+            <div class="stepper-dot">&#10003;</div>
+            <div class="stepper-label">Accept Token</div>
+          </div>
+          <div class="stepper-step completed" data-step="1">
+            <div class="stepper-dot">&#10003;</div>
+            <div class="stepper-label">Generate Key</div>
+          </div>
+          <div class="stepper-step active" data-step="2">
+            <div class="stepper-dot">3</div>
+            <div class="stepper-label">Derive Wallet</div>
+          </div>
+          <div class="stepper-step" data-step="3">
+            <div class="stepper-dot">4</div>
+            <div class="stepper-label">Enroll</div>
+          </div>
+          <div class="stepper-step" data-step="4">
+            <div class="stepper-dot">5</div>
+            <div class="stepper-label">Compile Circuits</div>
+          </div>
+          <div class="stepper-step" data-step="5">
+            <div class="stepper-dot">6</div>
+            <div class="stepper-label">Ready</div>
+          </div>
+        </div>
+
+        <!-- Step 0: Accept Token -->
+        <div class="wizard-step" data-step="0">
+          <div class="wizard-step-content">
+            <h3>Accept Enrollment Token</h3>
+            <p>Your employer has issued a GroupEnrollmentToken. Enter the token code to begin the enrollment process.</p>
+            <div class="form-group" style="max-width: 400px; margin: 0 auto;">
+              <label class="form-label">Enrollment Token</label>
+              <input type="text" class="form-input mono" placeholder="Enter 16-character token code" value="PRX-4F82-9C7E-13BD" readonly>
+              <div class="form-hint">Token issued by Unified Health Group for cardiology department</div>
+            </div>
+            <div class="wizard-status success">Token verified. GroupConfig: cardiology-dept-01. Plan: Gold PPO. Issued: 2026-03-01T08:00:00Z</div>
+            <div class="wizard-actions">
+              <button class="btn btn-primary btn-lg" onclick="wizardNext()">Continue</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 1: Generate Key -->
+        <div class="wizard-step" data-step="1">
+          <div class="wizard-step-content">
+            <h3>Generate Enrollment Key</h3>
+            <p>Your enrollment key is a 2FA secret generated on this device. It never leaves your device and is mixed into your wallet derivation.</p>
+            <div class="form-group" style="max-width: 400px; margin: 0 auto;">
+              <label class="form-label">Enrollment Key (device-local)</label>
+              <input type="password" class="form-input mono" value="************************" readonly>
+              <div class="form-hint">256-bit random secret &mdash; stored securely on device only</div>
+            </div>
+            <div class="wizard-status success">Enrollment key generated and stored in secure local storage. This key NEVER leaves your device.</div>
+            <div class="wizard-actions">
+              <button class="btn" onclick="wizardPrev()">Back</button>
+              <button class="btn btn-primary btn-lg" onclick="wizardNext()">Continue</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 2: Derive Wallet (Active) -->
+        <div class="wizard-step active" data-step="2">
+          <div class="wizard-step-content">
+            <h3>Derive Wallet Identity</h3>
+            <p>Your wallet ID is derived from your NPI number, DEA number, specialty, and enrollment key using Poseidon hashing. No private keys involved.</p>
+            <div class="npi-input">
+              <div class="form-group">
+                <label class="form-label">NPI Number</label>
+                <input type="text" class="form-input mono" value="1234567890" readonly>
+              </div>
+            </div>
+            <div class="form-group" style="max-width: 400px; margin: 0 auto;">
+              <label class="form-label">DEA Number</label>
+              <input type="text" class="form-input mono" value="AC1234567" readonly>
+            </div>
+            <div class="form-group" style="max-width: 400px; margin: 0 auto;">
+              <label class="form-label">Specialty</label>
+              <input type="text" class="form-input" value="Cardiology" readonly>
+            </div>
+            <div class="wizard-status info">
+              walletId = Poseidon.hash([domainTag(PRESCRIBER), hash(NPI), hash(DEA), hash(specialty), hash(enrollmentKey)])
+            </div>
+            <div class="wizard-actions">
+              <button class="btn" onclick="wizardPrev()">Back</button>
+              <button class="btn btn-primary btn-lg" onclick="wizardNext()">Derive Wallet</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 3: Enroll -->
+        <div class="wizard-step" data-step="3">
+          <div class="wizard-step-content">
+            <h3>Submit Enrollment</h3>
+            <p>Your opaque wallet ID will be registered with the insurer. The insurer sees only the hash &mdash; no PHI/PII is transmitted.</p>
+            <div class="form-group" style="max-width: 500px; margin: 0 auto;">
+              <label class="form-label">Wallet ID (Poseidon Hash)</label>
+              <input type="text" class="form-input mono" value="98271640392841756310482957631048295763104829576310" readonly style="font-size: 11px;">
+              <div class="form-hint">This is the only identifier the insurer ever sees</div>
+            </div>
+            <div class="wizard-status pending">Awaiting enrollment submission to leviathan network...</div>
+            <div class="wizard-actions">
+              <button class="btn" onclick="wizardPrev()">Back</button>
+              <button class="btn btn-primary btn-lg" onclick="wizardNext()">Submit Enrollment</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 4: Compile Circuits -->
+        <div class="wizard-step" data-step="4">
+          <div class="wizard-step-content">
+            <h3>Compile ZK Circuits</h3>
+            <p>Compiling the zero-knowledge programs needed for prescribing. This is a one-time process that enables proof generation.</p>
+            <div style="max-width: 400px; margin: 0 auto; text-align: left;">
+              <div style="margin-bottom: 12px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                  <span class="text-sm">FulfillmentProgram</span>
+                  <span class="badge badge-success">Compiled</span>
+                </div>
+                <div class="progress"><div class="progress-fill success" style="width: 100%"></div></div>
+              </div>
+              <div style="margin-bottom: 12px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                  <span class="text-sm">StateTransitionProgram</span>
+                  <span class="badge badge-success">Compiled</span>
+                </div>
+                <div class="progress"><div class="progress-fill success" style="width: 100%"></div></div>
+              </div>
+              <div style="margin-bottom: 12px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                  <span class="text-sm">AccumulatorFulfillmentProgram</span>
+                  <span class="badge badge-warning">Compiling...</span>
+                </div>
+                <div class="progress"><div class="progress-fill warning" style="width: 65%"></div></div>
+              </div>
+              <div style="margin-bottom: 12px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                  <span class="text-sm">EligibilityProgram</span>
+                  <span class="badge badge-muted">Queued</span>
+                </div>
+                <div class="progress"><div class="progress-fill" style="width: 0%"></div></div>
+              </div>
+            </div>
+            <div class="wizard-status pending">Compiling circuit 3 of 4... estimated 8s remaining</div>
+            <div class="wizard-actions">
+              <button class="btn" onclick="wizardPrev()">Back</button>
+              <button class="btn btn-primary btn-lg" disabled>Compiling...</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 5: Ready -->
+        <div class="wizard-step" data-step="5">
+          <div class="wizard-step-content">
+            <h3>Enrollment Complete</h3>
+            <p>Your prescriber identity is enrolled and all circuits are compiled. You can now write prescriptions with zero-knowledge proofs.</p>
+            <div style="max-width: 500px; margin: 0 auto; text-align: left;">
+              <div class="detail-grid">
+                <div class="detail-key">Name</div>
+                <div class="detail-val">Dr. Sarah Chen, MD</div>
+                <div class="detail-key">NPI</div>
+                <div class="detail-val mono">1234567890</div>
+                <div class="detail-key">Specialty</div>
+                <div class="detail-val">Cardiology</div>
+                <div class="detail-key">Wallet ID</div>
+                <div class="detail-val mono" style="font-size: 11px;">9827164039284175...</div>
+                <div class="detail-key">Lifecycle</div>
+                <div class="detail-val"><span class="badge badge-success">ACTIVE</span></div>
+                <div class="detail-key">Credential</div>
+                <div class="detail-val"><span class="badge badge-accent">NFT Minted</span></div>
+              </div>
+            </div>
+            <div class="wizard-status success">All systems ready. Proofs can be generated for prescriptions.</div>
+            <div class="wizard-actions">
+              <button class="btn btn-primary btn-lg" onclick="navigate('prescriptions')">Start Prescribing</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         SCREEN: Prescriptions
+         ═══════════════════════════════════════════════════════ -->
+    <section id="screen-prescriptions" class="screen">
+
+      <div class="section-header">
+        <div>
+          <div class="section-title">Prescriptions</div>
+          <div class="section-subtitle">Write new prescriptions and manage history</div>
+        </div>
+        <button class="btn btn-primary" onclick="toggleNewRx()">+ New Prescription</button>
+      </div>
+
+      <!-- New Prescription Form (toggled) -->
+      <div class="panel" id="newRxForm" style="display: none;">
+        <div class="panel-header">
+          <span class="panel-title">Write New Prescription</span>
+          <span class="panel-action" onclick="toggleNewRx()">Cancel</span>
+        </div>
+        <div class="panel-body">
+          <div class="rx-form-grid">
+            <div class="form-group">
+              <label class="form-label">Patient Wallet ID</label>
+              <select class="form-input">
+                <option value="">Select patient...</option>
+                <option value="4f82a9c7e13b">Patient JD &mdash; 4f82a9c7e13b...</option>
+                <option value="7c19b3d8f24a">Patient MR &mdash; 7c19b3d8f24a...</option>
+                <option value="a3d61f0e82c9">Patient EW &mdash; a3d61f0e82c9...</option>
+                <option value="d8e24a7b91f3">Patient TH &mdash; d8e24a7b91f3...</option>
+                <option value="f1c93e5d74a2">Patient LK &mdash; f1c93e5d74a2...</option>
+                <option value="1b47d9f8c3e6">Patient AB &mdash; 1b47d9f8c3e6...</option>
+                <option value="5e82a1c4d7f0">Patient CG &mdash; 5e82a1c4d7f0...</option>
+                <option value="9a36f2e8b1d4">Patient NP &mdash; 9a36f2e8b1d4...</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Pharmacy</label>
+              <select class="form-input">
+                <option value="">Select pharmacy...</option>
+                <option value="ph1">MedFirst Pharmacy &mdash; 123 Main St</option>
+                <option value="ph2">CareRx Pharmacy &mdash; 456 Oak Ave</option>
+                <option value="ph3">WellPoint Drugs &mdash; 789 Elm Blvd</option>
+              </select>
+            </div>
+            <div class="form-group" style="grid-column: 1 / -1;">
+              <label class="form-label">Medication</label>
+              <input type="text" class="form-input" id="medSearch" placeholder="Search medication by name or NDC..." oninput="checkFormulary(this.value)">
+              <div id="formularyCheckResult"></div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Days Supply</label>
+              <select class="form-input">
+                <option value="30">30 days</option>
+                <option value="60">60 days</option>
+                <option value="90" selected>90 days</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Refill Count</label>
+              <select class="form-input">
+                <option value="0">0 refills</option>
+                <option value="1">1 refill</option>
+                <option value="2">2 refills</option>
+                <option value="3" selected>3 refills</option>
+                <option value="5">5 refills</option>
+                <option value="11">11 refills</option>
+              </select>
+            </div>
+            <div class="form-group" style="grid-column: 1 / -1;">
+              <label class="form-label">Sig / Instructions</label>
+              <textarea class="form-input" placeholder="e.g., Take 1 tablet by mouth daily in the morning" rows="3"></textarea>
+            </div>
+          </div>
+          <div style="display: flex; justify-content: flex-end; gap: var(--space-3); margin-top: var(--space-4);">
+            <button class="btn" onclick="toggleNewRx()">Cancel</button>
+            <button class="btn btn-primary">Generate Proof &amp; Submit</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="filter-bar">
+        <input type="date" class="form-input date-input" value="2026-02-01" title="Start date">
+        <input type="date" class="form-input date-input" value="2026-03-08" title="End date">
+        <input type="text" class="form-input" placeholder="Filter by patient..." style="min-width: 180px;">
+        <select class="form-input" style="min-width: 160px;">
+          <option value="">All medications</option>
+          <option>Lisinopril</option>
+          <option>Atorvastatin</option>
+          <option>Metoprolol</option>
+          <option>Amlodipine</option>
+          <option>Warfarin</option>
+          <option>Losartan</option>
+          <option>Entresto</option>
+          <option>Eliquis</option>
+        </select>
+        <select class="form-input" style="min-width: 130px;">
+          <option value="">All statuses</option>
+          <option>Active</option>
+          <option>Filled</option>
+          <option>Pending</option>
+          <option>Expired</option>
+          <option>Cancelled</option>
+        </select>
+      </div>
+
+      <!-- Prescription History Table -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Prescription History</span>
+          <span class="text-sm text-muted">15 prescriptions</span>
+        </div>
+        <div class="panel-body flush">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Rx ID</th>
+                  <th>Patient</th>
+                  <th>Medication</th>
+                  <th>Dose</th>
+                  <th>Pharmacy</th>
+                  <th>Date</th>
+                  <th>Supply</th>
+                  <th>Refills</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="mono">#RX-0247</td>
+                  <td>Patient JD <span class="text-muted text-xs">(4f82a...)</span></td>
+                  <td>Lisinopril</td>
+                  <td>10mg</td>
+                  <td>MedFirst</td>
+                  <td class="mono">2026-03-08</td>
+                  <td>90d</td>
+                  <td>3</td>
+                  <td><span class="rx-status filled">Filled</span></td>
+                </tr>
+                <tr>
+                  <td class="mono">#RX-0246</td>
+                  <td>Patient MR <span class="text-muted text-xs">(7c19b...)</span></td>
+                  <td>Metoprolol</td>
+                  <td>25mg</td>
+                  <td>CareRx</td>
+                  <td class="mono">2026-03-08</td>
+                  <td>30d</td>
+                  <td>5</td>
+                  <td><span class="rx-status active">Active</span></td>
+                </tr>
+                <tr>
+                  <td class="mono">#RX-0245</td>
+                  <td>Patient EW <span class="text-muted text-xs">(a3d61...)</span></td>
+                  <td>Amlodipine</td>
+                  <td>5mg</td>
+                  <td>MedFirst</td>
+                  <td class="mono">2026-03-07</td>
+                  <td>90d</td>
+                  <td>3</td>
+                  <td><span class="rx-status filled">Filled</span></td>
+                </tr>
+                <tr>
+                  <td class="mono">#RX-0244</td>
+                  <td>Patient TH <span class="text-muted text-xs">(d8e24...)</span></td>
+                  <td>Entresto</td>
+                  <td>49/51mg</td>
+                  <td>WellPoint</td>
+                  <td class="mono">2026-03-07</td>
+                  <td>30d</td>
+                  <td>2</td>
+                  <td><span class="rx-status pending">Pending PA</span></td>
+                </tr>
+                <tr>
+                  <td class="mono">#RX-0243</td>
+                  <td>Patient JD <span class="text-muted text-xs">(4f82a...)</span></td>
+                  <td>Atorvastatin</td>
+                  <td>40mg</td>
+                  <td>MedFirst</td>
+                  <td class="mono">2026-03-06</td>
+                  <td>90d</td>
+                  <td>3</td>
+                  <td><span class="rx-status active">Active</span></td>
+                </tr>
+                <tr>
+                  <td class="mono">#RX-0242</td>
+                  <td>Patient AB <span class="text-muted text-xs">(1b47d...)</span></td>
+                  <td>Warfarin</td>
+                  <td>5mg</td>
+                  <td>CareRx</td>
+                  <td class="mono">2026-03-05</td>
+                  <td>30d</td>
+                  <td>1</td>
+                  <td><span class="rx-status active">Active</span></td>
+                </tr>
+                <tr>
+                  <td class="mono">#RX-0241</td>
+                  <td>Patient EW <span class="text-muted text-xs">(a3d61...)</span></td>
+                  <td>Losartan</td>
+                  <td>50mg</td>
+                  <td>MedFirst</td>
+                  <td class="mono">2026-03-04</td>
+                  <td>90d</td>
+                  <td>3</td>
+                  <td><span class="rx-status filled">Filled</span></td>
+                </tr>
+                <tr>
+                  <td class="mono">#RX-0240</td>
+                  <td>Patient LK <span class="text-muted text-xs">(f1c93...)</span></td>
+                  <td>Eliquis</td>
+                  <td>5mg</td>
+                  <td>WellPoint</td>
+                  <td class="mono">2026-03-03</td>
+                  <td>30d</td>
+                  <td>5</td>
+                  <td><span class="rx-status active">Active</span></td>
+                </tr>
+                <tr>
+                  <td class="mono">#RX-0239</td>
+                  <td>Patient MR <span class="text-muted text-xs">(7c19b...)</span></td>
+                  <td>Furosemide</td>
+                  <td>40mg</td>
+                  <td>CareRx</td>
+                  <td class="mono">2026-03-02</td>
+                  <td>30d</td>
+                  <td>5</td>
+                  <td><span class="rx-status filled">Filled</span></td>
+                </tr>
+                <tr>
+                  <td class="mono">#RX-0238</td>
+                  <td>Patient JD <span class="text-muted text-xs">(4f82a...)</span></td>
+                  <td>Spironolactone</td>
+                  <td>25mg</td>
+                  <td>MedFirst</td>
+                  <td class="mono">2026-03-01</td>
+                  <td>90d</td>
+                  <td>3</td>
+                  <td><span class="rx-status active">Active</span></td>
+                </tr>
+                <tr>
+                  <td class="mono">#RX-0237</td>
+                  <td>Patient CG <span class="text-muted text-xs">(5e82a...)</span></td>
+                  <td>Diltiazem</td>
+                  <td>120mg</td>
+                  <td>WellPoint</td>
+                  <td class="mono">2026-02-28</td>
+                  <td>30d</td>
+                  <td>2</td>
+                  <td><span class="rx-status filled">Filled</span></td>
+                </tr>
+                <tr>
+                  <td class="mono">#RX-0236</td>
+                  <td>Patient TH <span class="text-muted text-xs">(d8e24...)</span></td>
+                  <td>Clopidogrel</td>
+                  <td>75mg</td>
+                  <td>CareRx</td>
+                  <td class="mono">2026-02-25</td>
+                  <td>90d</td>
+                  <td>3</td>
+                  <td><span class="rx-status active">Active</span></td>
+                </tr>
+                <tr>
+                  <td class="mono">#RX-0235</td>
+                  <td>Patient AB <span class="text-muted text-xs">(1b47d...)</span></td>
+                  <td>Digoxin</td>
+                  <td>0.125mg</td>
+                  <td>MedFirst</td>
+                  <td class="mono">2026-02-22</td>
+                  <td>30d</td>
+                  <td>5</td>
+                  <td><span class="rx-status expired">Expired</span></td>
+                </tr>
+                <tr>
+                  <td class="mono">#RX-0234</td>
+                  <td>Patient NP <span class="text-muted text-xs">(9a36f...)</span></td>
+                  <td>Hydralazine</td>
+                  <td>25mg</td>
+                  <td>CareRx</td>
+                  <td class="mono">2026-02-18</td>
+                  <td>30d</td>
+                  <td>2</td>
+                  <td><span class="rx-status active">Active</span></td>
+                </tr>
+                <tr>
+                  <td class="mono">#RX-0233</td>
+                  <td>Patient EW <span class="text-muted text-xs">(a3d61...)</span></td>
+                  <td>Isosorbide Mononitrate</td>
+                  <td>30mg</td>
+                  <td>WellPoint</td>
+                  <td class="mono">2026-02-14</td>
+                  <td>30d</td>
+                  <td>5</td>
+                  <td><span class="rx-status cancelled">Cancelled</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         SCREEN: Formulary
+         ═══════════════════════════════════════════════════════ -->
+    <section id="screen-formulary" class="screen">
+
+      <div class="section-header">
+        <div>
+          <div class="section-title">Formulary</div>
+          <div class="section-subtitle">Plan drug coverage, tier status, and interaction checks</div>
+        </div>
+      </div>
+
+      <div class="formulary-header">
+        <select class="form-input plan-selector">
+          <option value="gold">Gold PPO &mdash; Unified Health Group</option>
+          <option value="silver">Silver HMO &mdash; Unified Health Group</option>
+          <option value="bronze">Bronze HDHP &mdash; Unified Health Group</option>
+        </select>
+        <div class="search-bar" style="flex: 1; margin-bottom: 0;">
+          <input type="text" class="form-input" placeholder="Search drug name, NDC, or class..." id="formularySearch" oninput="filterFormulary(this.value)">
+        </div>
+      </div>
+
+      <div class="chip-group">
+        <span class="chip active" onclick="filterTier('all', this)">All Tiers</span>
+        <span class="chip" onclick="filterTier('t1', this)">Tier 1 &mdash; Generic</span>
+        <span class="chip" onclick="filterTier('t2', this)">Tier 2 &mdash; Preferred</span>
+        <span class="chip" onclick="filterTier('t3', this)">Tier 3 &mdash; Non-Preferred</span>
+        <span class="chip" onclick="filterTier('t4', this)">Tier 4 &mdash; Specialty</span>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Drug List</span>
+          <span class="text-sm text-muted">22 medications</span>
+        </div>
+        <div class="panel-body flush" id="drugList">
+          <div class="drug-card" data-tier="t1">
+            <div class="drug-name"><strong>Lisinopril</strong><span>ACE Inhibitor &middot; NDC 00093-7179-01</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t1">Tier 1</span>
+              <span class="copay-amount">$5</span>
+            </div>
+          </div>
+          <div class="drug-card" data-tier="t1">
+            <div class="drug-name"><strong>Atorvastatin</strong><span>HMG-CoA Reductase Inhibitor &middot; NDC 00071-0155-23</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t1">Tier 1</span>
+              <span class="copay-amount">$5</span>
+            </div>
+          </div>
+          <div class="drug-card" data-tier="t1">
+            <div class="drug-name"><strong>Metoprolol Succinate</strong><span>Beta Blocker &middot; NDC 00186-1085-05</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t1">Tier 1</span>
+              <span class="copay-amount">$5</span>
+            </div>
+          </div>
+          <div class="drug-card" data-tier="t1">
+            <div class="drug-name"><strong>Amlodipine</strong><span>Calcium Channel Blocker &middot; NDC 00069-1520-30</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t1">Tier 1</span>
+              <span class="copay-amount">$5</span>
+            </div>
+          </div>
+          <div class="drug-card" data-tier="t1">
+            <div class="drug-name"><strong>Losartan</strong><span>ARB &middot; NDC 00093-7365-01</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t1">Tier 1</span>
+              <span class="copay-amount">$5</span>
+            </div>
+          </div>
+          <div class="drug-card" data-tier="t1">
+            <div class="drug-name"><strong>Furosemide</strong><span>Loop Diuretic &middot; NDC 00054-4299-25</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t1">Tier 1</span>
+              <span class="copay-amount">$5</span>
+            </div>
+          </div>
+          <div class="drug-card" data-tier="t1">
+            <div class="drug-name"><strong>Spironolactone</strong><span>Potassium-Sparing Diuretic &middot; NDC 00093-0412-01</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t1">Tier 1</span>
+              <span class="copay-amount">$5</span>
+            </div>
+          </div>
+          <div class="drug-card" data-tier="t1">
+            <div class="drug-name"><strong>Warfarin</strong><span>Anticoagulant &middot; NDC 00056-0170-75</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t1">Tier 1</span>
+              <span class="copay-amount">$5</span>
+            </div>
+          </div>
+          <div class="drug-card" data-tier="t1">
+            <div class="drug-name"><strong>Clopidogrel</strong><span>Antiplatelet &middot; NDC 63653-1151-01</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t1">Tier 1</span>
+              <span class="copay-amount">$5</span>
+            </div>
+          </div>
+          <div class="drug-card" data-tier="t1">
+            <div class="drug-name"><strong>Digoxin</strong><span>Cardiac Glycoside &middot; NDC 00173-0249-55</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t1">Tier 1</span>
+              <span class="copay-amount">$5</span>
+            </div>
+          </div>
+          <div class="drug-card" data-tier="t1">
+            <div class="drug-name"><strong>Hydralazine</strong><span>Vasodilator &middot; NDC 00591-5466-01</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t1">Tier 1</span>
+              <span class="copay-amount">$5</span>
+            </div>
+          </div>
+          <div class="drug-card" data-tier="t1">
+            <div class="drug-name"><strong>Isosorbide Mononitrate</strong><span>Nitrate &middot; NDC 00093-5266-01</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t1">Tier 1</span>
+              <span class="copay-amount">$5</span>
+            </div>
+          </div>
+          <div class="drug-card" data-tier="t2">
+            <div class="drug-name"><strong>Diltiazem ER</strong><span>Calcium Channel Blocker (Extended) &middot; NDC 00187-0796-01</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t2">Tier 2</span>
+              <span class="copay-amount">$25</span>
+            </div>
+          </div>
+          <div class="drug-card" data-tier="t2">
+            <div class="drug-name"><strong>Carvedilol</strong><span>Alpha/Beta Blocker &middot; NDC 00007-4140-20</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t2">Tier 2</span>
+              <span class="copay-amount">$25</span>
+            </div>
+          </div>
+          <div class="drug-card" data-tier="t2">
+            <div class="drug-name"><strong>Valsartan</strong><span>ARB &middot; NDC 00078-0359-34</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t2">Tier 2</span>
+              <span class="copay-amount">$25</span>
+            </div>
+          </div>
+          <div class="drug-card" data-tier="t2">
+            <div class="drug-name"><strong>Rosuvastatin</strong><span>HMG-CoA Reductase Inhibitor &middot; NDC 00310-0755-90</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t2">Tier 2</span>
+              <span class="copay-amount">$25</span>
+            </div>
+          </div>
+          <div class="drug-card" data-tier="t3">
+            <div class="drug-name"><strong>Eliquis (Apixaban)</strong><span>DOAC Anticoagulant &middot; NDC 00003-0893-21</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t3">Tier 3</span>
+              <span class="badge badge-warning">QL: 60/30d</span>
+              <span class="copay-amount">$65</span>
+            </div>
+          </div>
+          <div class="drug-card" data-tier="t3">
+            <div class="drug-name"><strong>Xarelto (Rivaroxaban)</strong><span>DOAC Anticoagulant &middot; NDC 50458-0580-30</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t3">Tier 3</span>
+              <span class="badge badge-warning">QL: 30/30d</span>
+              <span class="copay-amount">$65</span>
+            </div>
+          </div>
+          <div class="drug-card" data-tier="t3">
+            <div class="drug-name"><strong>Jardiance (Empagliflozin)</strong><span>SGLT2 Inhibitor &middot; NDC 00597-0152-30</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t3">Tier 3</span>
+              <span class="copay-amount">$65</span>
+            </div>
+          </div>
+          <div class="drug-card" data-tier="t4">
+            <div class="drug-name"><strong>Entresto (Sacubitril/Valsartan)</strong><span>ARNI &middot; NDC 00078-0696-15</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t4">Tier 4</span>
+              <span class="badge badge-error">PA Required</span>
+              <span class="copay-amount">$150</span>
+            </div>
+          </div>
+          <div class="drug-card" data-tier="t4">
+            <div class="drug-name"><strong>Repatha (Evolocumab)</strong><span>PCSK9 Inhibitor &middot; NDC 55513-0730-01</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t4">Tier 4</span>
+              <span class="badge badge-error">PA Required</span>
+              <span class="badge badge-warning">QL: 1/30d</span>
+              <span class="copay-amount">$200</span>
+            </div>
+          </div>
+          <div class="drug-card" data-tier="t4">
+            <div class="drug-name"><strong>Verquvo (Vericiguat)</strong><span>sGC Stimulator &middot; NDC 50419-0395-01</span></div>
+            <div class="drug-meta">
+              <span class="badge badge-t4">Tier 4</span>
+              <span class="badge badge-error">PA Required</span>
+              <span class="copay-amount">$175</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Drug Interaction Check -->
+      <div class="interaction-check">
+        <h4>Drug Interaction Check</h4>
+        <p class="text-sm text-secondary mb-4">Select two medications to check for interactions.</p>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Drug A</label>
+            <select class="form-input" id="interactionDrugA">
+              <option value="">Select medication...</option>
+              <option value="warfarin">Warfarin</option>
+              <option value="clopidogrel">Clopidogrel</option>
+              <option value="eliquis">Eliquis (Apixaban)</option>
+              <option value="digoxin">Digoxin</option>
+              <option value="lisinopril">Lisinopril</option>
+              <option value="spironolactone">Spironolactone</option>
+              <option value="metoprolol">Metoprolol</option>
+              <option value="diltiazem">Diltiazem</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Drug B</label>
+            <select class="form-input" id="interactionDrugB">
+              <option value="">Select medication...</option>
+              <option value="warfarin">Warfarin</option>
+              <option value="clopidogrel">Clopidogrel</option>
+              <option value="eliquis">Eliquis (Apixaban)</option>
+              <option value="digoxin">Digoxin</option>
+              <option value="lisinopril">Lisinopril</option>
+              <option value="spironolactone">Spironolactone</option>
+              <option value="metoprolol">Metoprolol</option>
+              <option value="diltiazem">Diltiazem</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-outline" onclick="checkInteraction()">Check Interaction</button>
+        <div id="interactionResult"></div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         SCREEN: Providers
+         ═══════════════════════════════════════════════════════ -->
+    <section id="screen-providers" class="screen">
+
+      <div class="section-header">
+        <div>
+          <div class="section-title">Network Directory</div>
+          <div class="section-subtitle">In-network prescribers and pharmacies (view only)</div>
+        </div>
+      </div>
+
+      <h3 style="font-size: var(--text-md); font-weight: 600; margin-bottom: var(--space-4);">Prescribers</h3>
+
+      <div class="provider-grid">
+        <div class="provider-card">
+          <div class="provider-card-header">
+            <div class="provider-avatar">SC</div>
+            <div>
+              <div class="provider-card-name">Dr. Sarah Chen, MD</div>
+              <div class="provider-card-specialty">Cardiology</div>
+            </div>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">NPI</span>
+            <span class="provider-stat-value">1234567890</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Claims</span>
+            <span class="provider-stat-value">247</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Active Patients</span>
+            <span class="provider-stat-value">8</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Status</span>
+            <span class="badge badge-success">Active</span>
+          </div>
+        </div>
+
+        <div class="provider-card">
+          <div class="provider-card-header">
+            <div class="provider-avatar">RJ</div>
+            <div>
+              <div class="provider-card-name">Dr. Robert James, DO</div>
+              <div class="provider-card-specialty">Internal Medicine</div>
+            </div>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">NPI</span>
+            <span class="provider-stat-value">2345678901</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Claims</span>
+            <span class="provider-stat-value">412</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Active Patients</span>
+            <span class="provider-stat-value">15</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Status</span>
+            <span class="badge badge-success">Active</span>
+          </div>
+        </div>
+
+        <div class="provider-card">
+          <div class="provider-card-header">
+            <div class="provider-avatar">LP</div>
+            <div>
+              <div class="provider-card-name">Dr. Lisa Park, MD</div>
+              <div class="provider-card-specialty">Electrophysiology</div>
+            </div>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">NPI</span>
+            <span class="provider-stat-value">3456789012</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Claims</span>
+            <span class="provider-stat-value">189</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Active Patients</span>
+            <span class="provider-stat-value">6</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Status</span>
+            <span class="badge badge-success">Active</span>
+          </div>
+        </div>
+
+        <div class="provider-card">
+          <div class="provider-card-header">
+            <div class="provider-avatar">MK</div>
+            <div>
+              <div class="provider-card-name">Dr. Michael Kim, MD</div>
+              <div class="provider-card-specialty">Interventional Cardiology</div>
+            </div>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">NPI</span>
+            <span class="provider-stat-value">4567890123</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Claims</span>
+            <span class="provider-stat-value">328</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Active Patients</span>
+            <span class="provider-stat-value">11</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Status</span>
+            <span class="badge badge-success">Active</span>
+          </div>
+        </div>
+
+        <div class="provider-card">
+          <div class="provider-card-header">
+            <div class="provider-avatar">AT</div>
+            <div>
+              <div class="provider-card-name">Dr. Angela Torres, MD</div>
+              <div class="provider-card-specialty">Heart Failure</div>
+            </div>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">NPI</span>
+            <span class="provider-stat-value">5678901234</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Claims</span>
+            <span class="provider-stat-value">156</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Active Patients</span>
+            <span class="provider-stat-value">5</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Status</span>
+            <span class="badge badge-success">Active</span>
+          </div>
+        </div>
+      </div>
+
+      <h3 style="font-size: var(--text-md); font-weight: 600; margin-top: var(--space-8); margin-bottom: var(--space-4);">Pharmacies</h3>
+
+      <div class="pharmacy-grid">
+        <div class="pharmacy-card">
+          <div class="pharmacy-card-name">MedFirst Pharmacy</div>
+          <div class="pharmacy-card-addr">123 Main Street, Suite 100, Hartford CT 06103</div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Wallet</span>
+            <span class="provider-stat-value" style="font-size: 11px;">b4c82f1a93d7...</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Claims Processed</span>
+            <span class="provider-stat-value">1,247</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Avg Fill Time</span>
+            <span class="provider-stat-value">18 min</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Status</span>
+            <span class="badge badge-success">Active</span>
+          </div>
+        </div>
+
+        <div class="pharmacy-card">
+          <div class="pharmacy-card-name">CareRx Pharmacy</div>
+          <div class="pharmacy-card-addr">456 Oak Avenue, West Hartford CT 06107</div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Wallet</span>
+            <span class="provider-stat-value" style="font-size: 11px;">e7f93a2d81c4...</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Claims Processed</span>
+            <span class="provider-stat-value">892</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Avg Fill Time</span>
+            <span class="provider-stat-value">24 min</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Status</span>
+            <span class="badge badge-success">Active</span>
+          </div>
+        </div>
+
+        <div class="pharmacy-card">
+          <div class="pharmacy-card-name">WellPoint Drugs</div>
+          <div class="pharmacy-card-addr">789 Elm Boulevard, Glastonbury CT 06033</div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Wallet</span>
+            <span class="provider-stat-value" style="font-size: 11px;">3a18d5f7c2b9...</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Claims Processed</span>
+            <span class="provider-stat-value">634</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Avg Fill Time</span>
+            <span class="provider-stat-value">32 min</span>
+          </div>
+          <div class="provider-stat-row">
+            <span class="provider-stat-label">Status</span>
+            <span class="badge badge-success">Active</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         SCREEN: Messaging
+         ═══════════════════════════════════════════════════════ -->
+    <section id="screen-messaging" class="screen">
+
+      <div class="section-header">
+        <div>
+          <div class="section-title">Messaging</div>
+          <div class="section-subtitle">End-to-end encrypted communication with patients and pharmacies</div>
+        </div>
+      </div>
+
+      <div class="msg-tabs" id="msgTabs">
+        <button class="msg-tab active" onclick="switchMsgTab('inbox', this)">Inbox (1)</button>
+        <button class="msg-tab" onclick="switchMsgTab('sent', this)">Sent</button>
+        <button class="msg-tab" onclick="switchMsgTab('compose', this)">Compose</button>
+      </div>
+
+      <!-- Inbox / Sent view -->
+      <div id="msgInboxSent">
+        <div class="messaging-layout">
+          <!-- Message List Panel -->
+          <div class="msg-list-panel">
+            <div class="msg-list-header">
+              <input type="text" class="form-input" placeholder="Search messages..." style="min-height: 32px; padding: 6px 12px;">
+            </div>
+            <div class="msg-list-scroll" id="msgListScroll">
+              <div class="msg-item selected" onclick="selectMessage(0)">
+                <div class="msg-header-row">
+                  <span class="msg-from">MedFirst Pharmacy</span>
+                  <span class="msg-time">14:15</span>
+                </div>
+                <div class="msg-preview">Re: Atorvastatin refill for patient 4f82a... &mdash; Refill processed, patient notified</div>
+                <div style="display: flex; align-items: center; gap: 6px; margin-top: 4px;">
+                  <span class="msg-encrypted-badge">E2E</span>
+                  <span class="msg-unread-dot"></span>
+                </div>
+              </div>
+              <div class="msg-item" onclick="selectMessage(1)">
+                <div class="msg-header-row">
+                  <span class="msg-from">Patient MR (7c19b...)</span>
+                  <span class="msg-time">Mar 7</span>
+                </div>
+                <div class="msg-preview">Re: Dosage adjustment &mdash; Thank you, I will start the new dose tomorrow</div>
+                <div style="margin-top: 4px;"><span class="msg-encrypted-badge">E2E</span></div>
+              </div>
+              <div class="msg-item" onclick="selectMessage(2)">
+                <div class="msg-header-row">
+                  <span class="msg-from">CareRx Pharmacy</span>
+                  <span class="msg-time">Mar 5</span>
+                </div>
+                <div class="msg-preview">Warfarin 5mg stock update &mdash; Currently in stock, expected 3-day supply remaining</div>
+                <div style="margin-top: 4px;"><span class="msg-encrypted-badge">E2E</span></div>
+              </div>
+              <div class="msg-item" onclick="selectMessage(3)">
+                <div class="msg-header-row">
+                  <span class="msg-from">Patient TH (d8e24...)</span>
+                  <span class="msg-time">Mar 3</span>
+                </div>
+                <div class="msg-preview">Prior auth question &mdash; How long does the Entresto PA process usually take?</div>
+                <div style="margin-top: 4px;"><span class="msg-encrypted-badge">E2E</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Thread Panel -->
+          <div class="msg-thread-panel" id="threadPanel">
+            <div class="msg-thread-header">
+              <div class="msg-thread-subject">Re: Atorvastatin refill for patient 4f82a...</div>
+              <div class="msg-thread-meta">
+                <span>MedFirst Pharmacy</span>
+                <span>&middot;</span>
+                <span>Thread #TH-0892</span>
+                <span>&middot;</span>
+                <span class="msg-encrypted-badge">End-to-End Encrypted</span>
+              </div>
+            </div>
+            <div class="msg-thread-body">
+              <div class="msg-bubble sent">
+                <div class="msg-bubble-sender">Dr. Sarah Chen</div>
+                Please process the Atorvastatin 40mg refill for patient 4f82a9c7e13b. 90-day supply, 3 refills authorized. Patient has been tolerating the medication well on current dose.
+                <div class="msg-bubble-time">Mar 8, 10:22 AM</div>
+              </div>
+              <div class="msg-bubble received">
+                <div class="msg-bubble-sender">MedFirst Pharmacy</div>
+                Received. Verifying insurance coverage and checking stock. Will process within the hour.
+                <div class="msg-bubble-time">Mar 8, 11:45 AM</div>
+              </div>
+              <div class="msg-bubble received">
+                <div class="msg-bubble-sender">MedFirst Pharmacy</div>
+                Refill processed and ready for pickup. Patient has been notified via their member app. Copay: $5.00 (Tier 1 generic). Proof submitted to leviathan and verified.
+                <div class="msg-bubble-time">Mar 8, 2:15 PM</div>
+              </div>
+            </div>
+            <div class="msg-compose-bar">
+              <textarea class="form-input" placeholder="Type a message..." rows="1"></textarea>
+              <button class="btn btn-primary">Send</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Compose view (hidden by default) -->
+      <div id="msgCompose" style="display: none;">
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">New Message</span>
+          </div>
+          <div class="compose-panel">
+            <div class="form-group">
+              <label class="form-label">Recipient</label>
+              <select class="form-input">
+                <option value="">Select recipient...</option>
+                <optgroup label="Patients">
+                  <option value="p1">Patient JD (4f82a9c7e13b...)</option>
+                  <option value="p2">Patient MR (7c19b3d8f24a...)</option>
+                  <option value="p3">Patient EW (a3d61f0e82c9...)</option>
+                  <option value="p4">Patient TH (d8e24a7b91f3...)</option>
+                  <option value="p5">Patient LK (f1c93e5d74a2...)</option>
+                  <option value="p6">Patient AB (1b47d9f8c3e6...)</option>
+                  <option value="p7">Patient CG (5e82a1c4d7f0...)</option>
+                  <option value="p8">Patient NP (9a36f2e8b1d4...)</option>
+                </optgroup>
+                <optgroup label="Pharmacies">
+                  <option value="ph1">MedFirst Pharmacy (b4c82f1a93d7...)</option>
+                  <option value="ph2">CareRx Pharmacy (e7f93a2d81c4...)</option>
+                  <option value="ph3">WellPoint Drugs (3a18d5f7c2b9...)</option>
+                </optgroup>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Subject</label>
+              <input type="text" class="form-input" placeholder="Message subject...">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Message</label>
+              <textarea class="form-input" rows="6" placeholder="Type your message..."></textarea>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <span class="msg-encrypted-badge" style="font-size: 11px;">End-to-End Encrypted &mdash; Only sender and recipient can read</span>
+              <div style="display: flex; gap: var(--space-3);">
+                <button class="btn" onclick="switchMsgTab('inbox', document.querySelector('.msg-tab'))">Cancel</button>
+                <button class="btn btn-primary">Send Message</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         SCREEN: Proofs
+         ═══════════════════════════════════════════════════════ -->
+    <section id="screen-proofs" class="screen">
+
+      <div class="section-header">
+        <div>
+          <div class="section-title">ZK Proofs</div>
+          <div class="section-subtitle">Proof generation timing, compilation status, and ZkProgram inventory</div>
+        </div>
+      </div>
+
+      <!-- Compilation Status -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Circuit Compilation Status</span>
+          <span class="badge badge-success">All Compiled</span>
+        </div>
+        <div class="panel-body">
+          <div class="compile-status-grid">
+            <div class="compile-card">
+              <div class="compile-icon compiled">&#10003;</div>
+              <div class="compile-info">
+                <div class="compile-name">FulfillmentProgram</div>
+                <div class="compile-detail">Compiled in 3.1s</div>
+              </div>
+            </div>
+            <div class="compile-card">
+              <div class="compile-icon compiled">&#10003;</div>
+              <div class="compile-info">
+                <div class="compile-name">StateTransitionProgram</div>
+                <div class="compile-detail">Compiled in 4.7s</div>
+              </div>
+            </div>
+            <div class="compile-card">
+              <div class="compile-icon compiled">&#10003;</div>
+              <div class="compile-info">
+                <div class="compile-name">AccumulatorFulfillmentProgram</div>
+                <div class="compile-detail">Compiled in 5.2s</div>
+              </div>
+            </div>
+            <div class="compile-card">
+              <div class="compile-icon compiled">&#10003;</div>
+              <div class="compile-info">
+                <div class="compile-name">EligibilityProgram</div>
+                <div class="compile-detail">Compiled in 2.8s</div>
+              </div>
+            </div>
+            <div class="compile-card">
+              <div class="compile-icon compiled">&#10003;</div>
+              <div class="compile-info">
+                <div class="compile-name">BatchProgram</div>
+                <div class="compile-detail">Compiled in 6.4s</div>
+              </div>
+            </div>
+            <div class="compile-card">
+              <div class="compile-icon compiled">&#10003;</div>
+              <div class="compile-info">
+                <div class="compile-name">ChainProgram</div>
+                <div class="compile-detail">Compiled in 5.9s</div>
+              </div>
+            </div>
+            <div class="compile-card">
+              <div class="compile-icon compiled">&#10003;</div>
+              <div class="compile-info">
+                <div class="compile-name">WalletMigrationProgram</div>
+                <div class="compile-detail">Compiled in 1.9s</div>
+              </div>
+            </div>
+            <div class="compile-card">
+              <div class="compile-icon compiled">&#10003;</div>
+              <div class="compile-info">
+                <div class="compile-name">PrescriptionProofProgram</div>
+                <div class="compile-detail">Compiled in 3.5s</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Proof Timing History -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Proof Timing History</span>
+          <span class="text-sm text-muted">Last 10 proofs</span>
+        </div>
+        <div class="panel-body">
+          <div class="proof-timing-bar">
+            <span class="proof-program-name">FulfillmentProof #247</span>
+            <div class="proof-bar-track">
+              <div class="proof-bar-fill fast" style="width: 25%;">
+                <span class="proof-bar-label">1.8s</span>
+              </div>
+            </div>
+            <span class="proof-timing-value">1.8s</span>
+          </div>
+          <div class="proof-timing-bar">
+            <span class="proof-program-name">StateTransitionProof #247</span>
+            <div class="proof-bar-track">
+              <div class="proof-bar-fill medium" style="width: 45%;">
+                <span class="proof-bar-label">3.2s</span>
+              </div>
+            </div>
+            <span class="proof-timing-value">3.2s</span>
+          </div>
+          <div class="proof-timing-bar">
+            <span class="proof-program-name">FulfillmentProof #246</span>
+            <div class="proof-bar-track">
+              <div class="proof-bar-fill fast" style="width: 28%;">
+                <span class="proof-bar-label">2.0s</span>
+              </div>
+            </div>
+            <span class="proof-timing-value">2.0s</span>
+          </div>
+          <div class="proof-timing-bar">
+            <span class="proof-program-name">StateTransitionProof #246</span>
+            <div class="proof-bar-track">
+              <div class="proof-bar-fill medium" style="width: 42%;">
+                <span class="proof-bar-label">3.0s</span>
+              </div>
+            </div>
+            <span class="proof-timing-value">3.0s</span>
+          </div>
+          <div class="proof-timing-bar">
+            <span class="proof-program-name">AccumulatorProof #245</span>
+            <div class="proof-bar-track">
+              <div class="proof-bar-fill medium" style="width: 55%;">
+                <span class="proof-bar-label">3.9s</span>
+              </div>
+            </div>
+            <span class="proof-timing-value">3.9s</span>
+          </div>
+          <div class="proof-timing-bar">
+            <span class="proof-program-name">FulfillmentProof #245</span>
+            <div class="proof-bar-track">
+              <div class="proof-bar-fill fast" style="width: 22%;">
+                <span class="proof-bar-label">1.6s</span>
+              </div>
+            </div>
+            <span class="proof-timing-value">1.6s</span>
+          </div>
+          <div class="proof-timing-bar">
+            <span class="proof-program-name">StateTransitionProof #245</span>
+            <div class="proof-bar-track">
+              <div class="proof-bar-fill slow" style="width: 70%;">
+                <span class="proof-bar-label">5.0s</span>
+              </div>
+            </div>
+            <span class="proof-timing-value">5.0s</span>
+          </div>
+          <div class="proof-timing-bar">
+            <span class="proof-program-name">EligibilityProof #244</span>
+            <div class="proof-bar-track">
+              <div class="proof-bar-fill fast" style="width: 20%;">
+                <span class="proof-bar-label">1.4s</span>
+              </div>
+            </div>
+            <span class="proof-timing-value">1.4s</span>
+          </div>
+          <div class="proof-timing-bar">
+            <span class="proof-program-name">BatchProof #18</span>
+            <div class="proof-bar-track">
+              <div class="proof-bar-fill slow" style="width: 85%;">
+                <span class="proof-bar-label">6.1s</span>
+              </div>
+            </div>
+            <span class="proof-timing-value">6.1s</span>
+          </div>
+          <div class="proof-timing-bar">
+            <span class="proof-program-name">ChainProof #18</span>
+            <div class="proof-bar-track">
+              <div class="proof-bar-fill slow" style="width: 100%;">
+                <span class="proof-bar-label">7.2s</span>
+              </div>
+            </div>
+            <span class="proof-timing-value">7.2s</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ZkProgram Inventory -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">ZkProgram Inventory</span>
+          <span class="text-sm text-muted">8 programs loaded</span>
+        </div>
+        <div class="panel-body flush">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Program</th>
+                  <th>Methods</th>
+                  <th>Max Proofs Verified</th>
+                  <th>Public Output Fields</th>
+                  <th>Avg Prove Time</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="fw-600">FulfillmentProgram</td>
+                  <td class="mono">fulfill</td>
+                  <td class="mono">0</td>
+                  <td class="mono">8 (FulfillmentOutput)</td>
+                  <td class="mono">1.8s</td>
+                  <td><span class="badge badge-success">Ready</span></td>
+                </tr>
+                <tr>
+                  <td class="fw-600">StateTransitionProgram</td>
+                  <td class="mono">transition</td>
+                  <td class="mono">1</td>
+                  <td class="mono">6 (TransitionOutput)</td>
+                  <td class="mono">3.1s</td>
+                  <td><span class="badge badge-success">Ready</span></td>
+                </tr>
+                <tr>
+                  <td class="fw-600">AccumulatorFulfillmentProgram</td>
+                  <td class="mono">fulfillWithAccumulator</td>
+                  <td class="mono">0</td>
+                  <td class="mono">10 (AccFulfillOutput)</td>
+                  <td class="mono">3.9s</td>
+                  <td><span class="badge badge-success">Ready</span></td>
+                </tr>
+                <tr>
+                  <td class="fw-600">EligibilityProgram</td>
+                  <td class="mono">verify</td>
+                  <td class="mono">0</td>
+                  <td class="mono">4 (EligibilityOutput)</td>
+                  <td class="mono">1.4s</td>
+                  <td><span class="badge badge-success">Ready</span></td>
+                </tr>
+                <tr>
+                  <td class="fw-600">BatchProgram</td>
+                  <td class="mono">wrapTransition, mergeBatches</td>
+                  <td class="mono">2</td>
+                  <td class="mono">6 (BatchOutput)</td>
+                  <td class="mono">6.1s</td>
+                  <td><span class="badge badge-success">Ready</span></td>
+                </tr>
+                <tr>
+                  <td class="fw-600">ChainProgram</td>
+                  <td class="mono">genesis, advance</td>
+                  <td class="mono">1</td>
+                  <td class="mono">10 (GlobalState)</td>
+                  <td class="mono">7.2s</td>
+                  <td><span class="badge badge-success">Ready</span></td>
+                </tr>
+                <tr>
+                  <td class="fw-600">WalletMigrationProgram</td>
+                  <td class="mono">migrate</td>
+                  <td class="mono">0</td>
+                  <td class="mono">3 (MigrationOutput)</td>
+                  <td class="mono">1.9s</td>
+                  <td><span class="badge badge-success">Ready</span></td>
+                </tr>
+                <tr>
+                  <td class="fw-600">PrescriptionProofProgram</td>
+                  <td class="mono">prescribe, verify</td>
+                  <td class="mono">0</td>
+                  <td class="mono">5 (PrescriptionOutput)</td>
+                  <td class="mono">2.4s</td>
+                  <td><span class="badge badge-success">Ready</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── Footer ──────────────────────────────────────────── -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <span>zkTrident Care</span>
+      <span>&middot;</span>
+      <span>Prescriber Dashboard v0.1.0</span>
+      <span>&middot;</span>
+      <span>Zero-Knowledge Proof Claim Adjudication</span>
+    </div>
+  </footer>
+
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   Prescriber Dashboard — Client-Side Logic
+   ═══════════════════════════════════════════════════════════════ */
+
+// ── Routing ──────────────────────────────────────────────────
+
+const screens = ['overview', 'onboarding', 'prescriptions', 'formulary', 'providers', 'messaging', 'proofs'];
+
+function navigate(screen) {
+  window.location.hash = '#' + screen;
+}
+
+function handleRoute() {
+  const hash = window.location.hash.replace('#', '') || 'overview';
+  const screen = screens.includes(hash) ? hash : 'overview';
+
+  // Hide all screens, show active
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const target = document.getElementById('screen-' + screen);
+  if (target) target.classList.add('active');
+
+  // Update nav
+  document.querySelectorAll('.nav-link').forEach(link => {
+    link.classList.toggle('active', link.getAttribute('href') === '#' + screen);
+  });
+}
+
+window.addEventListener('hashchange', handleRoute);
+window.addEventListener('DOMContentLoaded', handleRoute);
+
+// ── Onboarding Wizard ────────────────────────────────────────
+
+let currentWizardStep = 2; // Start at step 2 (Derive Wallet) for demo
+
+function updateWizard() {
+  // Update stepper
+  document.querySelectorAll('#onboardingStepper .stepper-step').forEach((step, i) => {
+    step.classList.remove('active', 'completed');
+    if (i < currentWizardStep) step.classList.add('completed');
+    else if (i === currentWizardStep) step.classList.add('active');
+  });
+
+  // Update step content
+  document.querySelectorAll('.wizard-step').forEach(step => {
+    step.classList.toggle('active', parseInt(step.dataset.step) === currentWizardStep);
+  });
+}
+
+function wizardNext() {
+  if (currentWizardStep < 5) {
+    currentWizardStep++;
+    updateWizard();
+  }
+}
+
+function wizardPrev() {
+  if (currentWizardStep > 0) {
+    currentWizardStep--;
+    updateWizard();
+  }
+}
+
+// ── Prescription Form Toggle ─────────────────────────────────
+
+function toggleNewRx() {
+  const form = document.getElementById('newRxForm');
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+}
+
+// ── Formulary Check (inline in prescription form) ────────────
+
+const formularyData = {
+  'lisinopril':     { tier: 1, copay: '$5',   pa: false, label: 'Covered' },
+  'atorvastatin':   { tier: 1, copay: '$5',   pa: false, label: 'Covered' },
+  'metoprolol':     { tier: 1, copay: '$5',   pa: false, label: 'Covered' },
+  'amlodipine':     { tier: 1, copay: '$5',   pa: false, label: 'Covered' },
+  'losartan':       { tier: 1, copay: '$5',   pa: false, label: 'Covered' },
+  'furosemide':     { tier: 1, copay: '$5',   pa: false, label: 'Covered' },
+  'spironolactone': { tier: 1, copay: '$5',   pa: false, label: 'Covered' },
+  'warfarin':       { tier: 1, copay: '$5',   pa: false, label: 'Covered' },
+  'clopidogrel':    { tier: 1, copay: '$5',   pa: false, label: 'Covered' },
+  'digoxin':        { tier: 1, copay: '$5',   pa: false, label: 'Covered' },
+  'hydralazine':    { tier: 1, copay: '$5',   pa: false, label: 'Covered' },
+  'isosorbide':     { tier: 1, copay: '$5',   pa: false, label: 'Covered' },
+  'diltiazem':      { tier: 2, copay: '$25',  pa: false, label: 'Covered' },
+  'carvedilol':     { tier: 2, copay: '$25',  pa: false, label: 'Covered' },
+  'valsartan':      { tier: 2, copay: '$25',  pa: false, label: 'Covered' },
+  'rosuvastatin':   { tier: 2, copay: '$25',  pa: false, label: 'Covered' },
+  'eliquis':        { tier: 3, copay: '$65',  pa: false, label: 'Covered', ql: '60/30d' },
+  'xarelto':        { tier: 3, copay: '$65',  pa: false, label: 'Covered', ql: '30/30d' },
+  'jardiance':      { tier: 3, copay: '$65',  pa: false, label: 'Covered' },
+  'entresto':       { tier: 4, copay: '$150', pa: true,  label: 'PA Required' },
+  'repatha':        { tier: 4, copay: '$200', pa: true,  label: 'PA Required', ql: '1/30d' },
+  'verquvo':        { tier: 4, copay: '$175', pa: true,  label: 'PA Required' },
+};
+
+function checkFormulary(value) {
+  const el = document.getElementById('formularyCheckResult');
+  if (!value || value.length < 3) { el.innerHTML = ''; return; }
+
+  const key = value.toLowerCase().trim();
+  const match = Object.keys(formularyData).find(k => k.startsWith(key));
+
+  if (match) {
+    const d = formularyData[match];
+    const cls = d.pa ? 'pa-required' : 'covered';
+    const tierClass = 'T' + d.tier;
+    let html = '<div class="formulary-check-badge ' + cls + '">';
+    html += '<span class="tier">' + tierClass + '</span> ';
+    html += d.label + ' &mdash; Copay: ' + d.copay;
+    if (d.ql) html += ' &middot; QL: ' + d.ql;
+    html += '</div>';
+    el.innerHTML = html;
+  } else {
+    el.innerHTML = '<div class="formulary-check-badge not-covered">Not Found in Formulary</div>';
+  }
+}
+
+// ── Formulary Search + Tier Filter ───────────────────────────
+
+let activeTierFilter = 'all';
+
+function filterTier(tier, chip) {
+  activeTierFilter = tier;
+  document.querySelectorAll('.chip-group .chip').forEach(c => c.classList.remove('active'));
+  chip.classList.add('active');
+  applyFormularyFilters();
+}
+
+function filterFormulary(search) {
+  applyFormularyFilters();
+}
+
+function applyFormularyFilters() {
+  const search = (document.getElementById('formularySearch')?.value || '').toLowerCase();
+  document.querySelectorAll('#drugList .drug-card').forEach(card => {
+    const text = card.textContent.toLowerCase();
+    const tier = card.dataset.tier;
+    const matchSearch = !search || text.includes(search);
+    const matchTier = activeTierFilter === 'all' || tier === activeTierFilter;
+    card.style.display = (matchSearch && matchTier) ? '' : 'none';
+  });
+}
+
+// ── Drug Interaction Check ───────────────────────────────────
+
+const interactions = {
+  'warfarin|clopidogrel': { level: 'danger', text: 'MAJOR: Increased bleeding risk. Concurrent use of Warfarin and Clopidogrel significantly increases the risk of hemorrhagic events. Monitor INR closely if co-prescribed.' },
+  'warfarin|eliquis':     { level: 'danger', text: 'CONTRAINDICATED: Do not co-prescribe Warfarin with Eliquis. Dual anticoagulation carries unacceptable bleeding risk.' },
+  'digoxin|spironolactone': { level: 'warning', text: 'MODERATE: Spironolactone may increase Digoxin levels by reducing renal clearance. Monitor serum digoxin levels and adjust dose accordingly.' },
+  'digoxin|diltiazem':    { level: 'warning', text: 'MODERATE: Diltiazem may increase serum Digoxin concentrations and enhance AV nodal blockade. Monitor heart rate and digoxin levels.' },
+  'lisinopril|spironolactone': { level: 'warning', text: 'MODERATE: Risk of hyperkalemia when combining ACE inhibitors with potassium-sparing diuretics. Monitor serum potassium levels regularly.' },
+  'metoprolol|diltiazem': { level: 'warning', text: 'MODERATE: Both agents slow AV conduction. Co-administration may cause severe bradycardia or heart block. Use with caution and monitor ECG.' },
+};
+
+function checkInteraction() {
+  const a = document.getElementById('interactionDrugA').value;
+  const b = document.getElementById('interactionDrugB').value;
+  const el = document.getElementById('interactionResult');
+
+  if (!a || !b) {
+    el.innerHTML = '<div class="interaction-result warning" style="margin-top: 12px;">Please select both medications to check.</div>';
+    return;
+  }
+  if (a === b) {
+    el.innerHTML = '<div class="interaction-result warning" style="margin-top: 12px;">Please select two different medications.</div>';
+    return;
+  }
+
+  const key1 = a + '|' + b;
+  const key2 = b + '|' + a;
+  const result = interactions[key1] || interactions[key2];
+
+  if (result) {
+    el.innerHTML = '<div class="interaction-result ' + result.level + '" style="margin-top: 12px;">' + result.text + '</div>';
+  } else {
+    el.innerHTML = '<div class="interaction-result safe" style="margin-top: 12px;">No known interactions between these medications. Always verify with current reference databases.</div>';
+  }
+}
+
+// ── Messaging ────────────────────────────────────────────────
+
+const threads = [
+  {
+    subject: 'Re: Atorvastatin refill for patient 4f82a...',
+    from: 'MedFirst Pharmacy',
+    threadId: 'TH-0892',
+    messages: [
+      { sender: 'Dr. Sarah Chen', sent: true, text: 'Please process the Atorvastatin 40mg refill for patient 4f82a9c7e13b. 90-day supply, 3 refills authorized. Patient has been tolerating the medication well on current dose.', time: 'Mar 8, 10:22 AM' },
+      { sender: 'MedFirst Pharmacy', sent: false, text: 'Received. Verifying insurance coverage and checking stock. Will process within the hour.', time: 'Mar 8, 11:45 AM' },
+      { sender: 'MedFirst Pharmacy', sent: false, text: 'Refill processed and ready for pickup. Patient has been notified via their member app. Copay: $5.00 (Tier 1 generic). Proof submitted to leviathan and verified.', time: 'Mar 8, 2:15 PM' },
+    ]
+  },
+  {
+    subject: 'Re: Dosage adjustment',
+    from: 'Patient MR (7c19b...)',
+    threadId: 'TH-0887',
+    messages: [
+      { sender: 'Dr. Sarah Chen', sent: true, text: 'Based on your latest labs, I am adjusting your Metoprolol from 25mg to 50mg. Please start the new dose tomorrow morning. Continue monitoring your heart rate and blood pressure daily.', time: 'Mar 7, 9:15 AM' },
+      { sender: 'Patient MR', sent: false, text: 'Thank you Dr. Chen. I will start the new dose tomorrow. Should I continue taking it at the same time each morning?', time: 'Mar 7, 10:30 AM' },
+      { sender: 'Dr. Sarah Chen', sent: true, text: 'Yes, same time each morning with food. If you experience any dizziness or unusual fatigue, let me know right away. We will recheck labs in 2 weeks.', time: 'Mar 7, 11:02 AM' },
+    ]
+  },
+  {
+    subject: 'Warfarin 5mg stock update',
+    from: 'CareRx Pharmacy',
+    threadId: 'TH-0879',
+    messages: [
+      { sender: 'CareRx Pharmacy', sent: false, text: 'Heads up Dr. Chen: our Warfarin 5mg supply is running low. We currently have about 3 days of stock remaining. We have placed a reorder but wanted to let you know in case you have patients needing refills this week.', time: 'Mar 5, 2:44 PM' },
+      { sender: 'Dr. Sarah Chen', sent: true, text: 'Thank you for the advance notice. Patient AB (1b47d...) has a refill due this week. Can you transfer to MedFirst if stock runs out? I will update the prescription routing.', time: 'Mar 5, 3:12 PM' },
+    ]
+  },
+  {
+    subject: 'Prior auth question',
+    from: 'Patient TH (d8e24...)',
+    threadId: 'TH-0871',
+    messages: [
+      { sender: 'Patient TH', sent: false, text: 'Dr. Chen, I saw that my Entresto prescription is pending prior authorization. How long does this process usually take? I am running low on my current supply from my previous provider.', time: 'Mar 3, 4:18 PM' },
+      { sender: 'Dr. Sarah Chen', sent: true, text: 'The prior auth process typically takes 2-3 business days. I have submitted the clinical documentation including your echocardiogram results and NYHA classification. I will follow up with the insurer tomorrow if we have not heard back. In the meantime, your previous prescription should cover you for another week.', time: 'Mar 3, 4:45 PM' },
+    ]
+  }
+];
+
+function selectMessage(index) {
+  // Update list selection
+  document.querySelectorAll('.msg-item').forEach((item, i) => {
+    item.classList.toggle('selected', i === index);
+  });
+
+  // Render thread
+  const thread = threads[index];
+  const panel = document.getElementById('threadPanel');
+  let html = '<div class="msg-thread-header">';
+  html += '<div class="msg-thread-subject">' + thread.subject + '</div>';
+  html += '<div class="msg-thread-meta"><span>' + thread.from + '</span><span>&middot;</span>';
+  html += '<span>Thread #' + thread.threadId + '</span><span>&middot;</span>';
+  html += '<span class="msg-encrypted-badge">End-to-End Encrypted</span></div></div>';
+  html += '<div class="msg-thread-body">';
+  thread.messages.forEach(m => {
+    html += '<div class="msg-bubble ' + (m.sent ? 'sent' : 'received') + '">';
+    html += '<div class="msg-bubble-sender">' + m.sender + '</div>';
+    html += m.text;
+    html += '<div class="msg-bubble-time">' + m.time + '</div>';
+    html += '</div>';
+  });
+  html += '</div>';
+  html += '<div class="msg-compose-bar">';
+  html += '<textarea class="form-input" placeholder="Type a message..." rows="1"></textarea>';
+  html += '<button class="btn btn-primary">Send</button>';
+  html += '</div>';
+  panel.innerHTML = html;
+}
+
+function switchMsgTab(tab, el) {
+  document.querySelectorAll('#msgTabs .msg-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+
+  if (tab === 'compose') {
+    document.getElementById('msgInboxSent').style.display = 'none';
+    document.getElementById('msgCompose').style.display = 'block';
+  } else {
+    document.getElementById('msgInboxSent').style.display = 'block';
+    document.getElementById('msgCompose').style.display = 'none';
+  }
+}
+
+// ── Toast Notifications ──────────────────────────────────────
+
+function showToast(message, type) {
+  type = type || 'info';
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = 'toast toast-' + type;
+  toast.textContent = message;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 4000);
+}
+
+// ── SSE Placeholder ──────────────────────────────────────────
+
+function connectSSE() {
+  // Placeholder for SSE connection to leviathan
+  // const evtSource = new EventSource('/api/events');
+  // evtSource.onmessage = (e) => { ... };
+  console.log('[SSE] Placeholder: would connect to leviathan SSE endpoint');
+}
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+  connectSSE();
+});
+</script>
+</body>
+</html>

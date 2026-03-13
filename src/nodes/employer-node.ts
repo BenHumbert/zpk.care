@@ -20,6 +20,7 @@ import type { GroupEnrollmentToken } from '../onboarding/group-enrollment-token.
 import { EntityNodeBase } from './entity-node-base.js';
 import type { EmployerNodeConfig } from './entity-node-types.js';
 import type { L2ChainState } from '../l2/l2-types.js';
+import type { MessageStoreEntry } from '../l2/message-store-types.js';
 
 // ─── Internal Types ──────────────────────────────────────────
 
@@ -57,10 +58,15 @@ export class EmployerNode extends EntityNodeBase {
   private roster: Map<string, EmployerRosterEntry> = new Map();
   private insurerUrl: string | null;
 
+  /** Pseudo-walletId derived from employerId for messaging */
+  private employerWalletId: string;
+
   constructor(config: EmployerNodeConfig) {
     super({ ...config, role: 'employer' });
     this.tokenAuthority = new TokenAuthority(config.employerId);
     this.insurerUrl = config.insurerUrl ?? null;
+    // Derive a stable pseudo-walletId from employerId for messaging queries
+    this.employerWalletId = Poseidon.hash([hashString(config.employerId)]).toString();
   }
 
   // ─── Group Management ──────────────────────────────────────
@@ -256,6 +262,65 @@ export class EmployerNode extends EntityNodeBase {
       if (entry.status !== 'terminated') count++;
     }
     return count;
+  }
+
+  // ─── Messaging ────────────────────────────────────────────
+
+  /** Get the employer's pseudo-walletId used for messaging */
+  getEmployerWalletId(): string {
+    return this.employerWalletId;
+  }
+
+  /**
+   * Send a message via the sequencer message store.
+   * Uses the employer's pseudo-walletId as sender.
+   * Payload is stored as hex-encoded plaintext (employer has no encryption keys).
+   */
+  async sendMessage(
+    recipientWalletId: string,
+    subject: string,
+    body: string,
+  ): Promise<MessageStoreEntry> {
+    const plaintext = JSON.stringify({ subject, body });
+    const ciphertextHex = Buffer.from(plaintext, 'utf8').toString('hex');
+    const threadIdHash = Poseidon.hash([
+      Field(BigInt(this.employerWalletId)),
+      hashString(recipientWalletId + ':' + subject),
+    ]).toString();
+    const messageCommitment = Poseidon.hash([
+      hashString(ciphertextHex.slice(0, 64)),
+    ]).toString();
+
+    return this.client.storeMessage(
+      {
+        messageCommitment,
+        senderWalletId: this.employerWalletId,
+        recipientWalletId,
+        messageType: '2', // admin message type
+        threadIdHash,
+      },
+      {
+        ciphertext: ciphertextHex,
+        iv: '00000000000000000000000000000000',
+        tag: '00000000000000000000000000000000',
+        timestamp: Date.now(),
+      },
+    );
+  }
+
+  /** Get messages received by this employer */
+  async getInbox(): Promise<MessageStoreEntry[]> {
+    return this.client.getMessagesByRecipient(this.employerWalletId);
+  }
+
+  /** Get messages sent by this employer */
+  async getSent(): Promise<MessageStoreEntry[]> {
+    return this.client.getMessagesBySender(this.employerWalletId);
+  }
+
+  /** Get all messages in a thread */
+  async getThread(threadIdHash: string): Promise<MessageStoreEntry[]> {
+    return this.client.getMessagesByThread(threadIdHash);
   }
 
   // ─── Sequencer Queries (Read-Only) ─────────────────────────

@@ -31,6 +31,7 @@
  *   npx tsx src/nodes/start-leviathan.ts
  *   ZKTRIDENT_PORT=3030 ZKTRIDENT_PARTITION_COUNT=3 ZKTRIDENT_PARTITION_INDEX=0 npx tsx src/nodes/start-leviathan.ts
  */
+import { spawn, type ChildProcess } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -92,7 +93,7 @@ const nodeOptions: Partial<L2NodeOptions> = {
 
 // Resolve dashboard directory (relative to project root)
 const thisDir = path.dirname(fileURLToPath(import.meta.url));
-const dashboardDir = path.resolve(thisDir, '..', '..', 'dashboard');
+const dashboardDir = path.resolve(thisDir, '..', '..', 'dashboard-leviathan');
 const hasDashboard = fs.existsSync(path.join(dashboardDir, 'index.html'));
 
 const rpcOptions: Partial<L2RpcServerOptions> = {
@@ -203,68 +204,8 @@ async function main(): Promise<void> {
   const rpcServer = new L2RpcServer(node, rpcOptions);
   await rpcServer.start();
 
-  // ── Seed Demo Providers ──
-  // Register demo prescribers and pharmacies in the entity registry so
-  // member apps can see the network providers immediately.
-  {
-    const { DEMO_PRESCRIBERS } = await import('../demo/prescribers.js');
-    const { DEMO_PHARMACIES } = await import('../demo/pharmacies.js');
-    const { derivePrescriberWalletId, derivePharmacyWalletId } = await import('../wallets/wallet-derivation.js');
-
-    const entities = [
-      ...DEMO_PRESCRIBERS.map((p) => ({
-        walletId: derivePrescriberWalletId(p.localData, p.enrollmentKey).toString(),
-        displayName: `Dr. ${p.firstName} ${p.lastName}, ${p.credential}`,
-        type: 'prescriber' as const,
-        specialty: p.specialty,
-      })),
-      ...DEMO_PHARMACIES.map((p) => ({
-        walletId: derivePharmacyWalletId(p.localData, p.enrollmentKey).toString(),
-        displayName: p.storeName,
-        type: 'pharmacy' as const,
-        pharmacyType: p.pharmacyTypeDesc,
-      })),
-    ];
-
-    rpcServer.seedEntities(entities);
-    console.log('  [init] Seeded %d network providers (%d prescribers, %d pharmacies)',
-      entities.length, DEMO_PRESCRIBERS.length, DEMO_PHARMACIES.length);
-
-    // Seed demo formulary so member apps can see medications immediately.
-    // Published under the "standard-plan" planIdHash that the employer group uses.
-    const { DEMO_MEDICATIONS } = await import('../demo/medications.js');
-    const { Poseidon } = await import('o1js');
-    const { hashString } = await import('../zkp/hash-utils.js');
-
-    const standardPlanIdHash = Poseidon.hash(
-      [...'standard-plan'].map((c) => Field(c.charCodeAt(0))),
-    ).toString();
-
-    const formularyEntries = DEMO_MEDICATIONS.map((m) => ({
-      ndc: m.ndc,
-      brandName: m.brandName,
-      genericName: m.genericName,
-      dosageForm: m.dosageForm,
-      strength: m.strength,
-      tierLevel: m.formularyEntry.tierLevel,
-      therapeuticClass: m.therapeuticClass,
-      gpi: m.gpi,
-      ndcHash: hashString(m.ndc).toString(),
-      pricePerUnit: m.awpUnitPriceCents / 100,
-      copayAmountCents: m.formularyEntry.copayAmount,
-      requiresPriorAuth: m.formularyEntry.requiresPriorAuth,
-      maxDaySupply: m.formularyEntry.maxDaySupply,
-      maxQuantityPerFill: m.formularyEntry.maxQuantityPerFill,
-    }));
-
-    const formularyRoot = Poseidon.hash([Field(formularyEntries.length)]).toString();
-    const entriesJson = JSON.stringify(formularyEntries);
-    node.getSequencer().storeFormulary(standardPlanIdHash, formularyRoot, entriesJson);
-    // Also store under "default" so apps without a planIdHash can still find it
-    node.getSequencer().storeFormulary('default', formularyRoot, entriesJson);
-    console.log('  [init] Seeded formulary: %d medications (planIdHash: %s...)',
-      formularyEntries.length, standardPlanIdHash.slice(0, 16));
-  }
+  // Provider credentialing + formulary publishing is handled by the Insurer node.
+  // The Leviathan is pure infrastructure — no demo data seeding.
 
   // ── NFC Attestation Authority ──
   // Enable Ed25519 attestation signing for NFC credential cards.
@@ -276,6 +217,212 @@ async function main(): Promise<void> {
   // ── Start Node ──
 
   node.start();
+
+  // ── Replica Nodes (2 replicators per sequencer) ──
+
+  const replicaNodes: L2Node[] = [];
+  const replicaServers: L2RpcServer[] = [];
+  const REPLICA_COUNT = 2;
+  const sequencerUrl = `http://localhost:${port}`;
+
+  for (let ri = 0; ri < REPLICA_COUNT; ri++) {
+    const replicaPort = port + 1 + ri;
+    const replicaId = `replica-${ri + 1}`;
+    const replicaStore = new InMemoryStore();
+    const emptyTree = new MerkleTree(WALLET_TREE_HEIGHT);
+    const emptyRoot = emptyTree.getRoot();
+
+    const replicaOpts: Partial<L2NodeOptions> = {
+      role: 'replica',
+      nodeId: replicaId,
+      l2Only,
+      seedPeers: [sequencerUrl],
+      batchIntervalMs,
+      ...(gossipSecret ? { gossipSecret } : {}),
+    };
+
+    const replica = new L2Node(replicaOpts, replicaStore, emptyRoot, emptyRoot, Field(0));
+
+    const replicaRpcOpts: Partial<L2RpcServerOptions> = {
+      port: replicaPort,
+      host,
+      enableSSE: false,
+      allowedOrigins,
+    };
+    const replicaRpc = new L2RpcServer(replica, replicaRpcOpts);
+    await replicaRpc.start();
+    replica.start();
+
+    replicaNodes.push(replica);
+    replicaServers.push(replicaRpc);
+    console.log('  [replica] %s started on port %d (seed: %s)', replicaId, replicaPort, sequencerUrl);
+  }
+
+  // Connect sequencer to replicas so it knows about them
+  if (!node.getPeerNetwork()) {
+    // Force peer network init on sequencer by adding replica URLs as seed peers
+    (node as any).options.seedPeers = replicaNodes.map((_, i) => `http://localhost:${port + 1 + i}`);
+    await (node as any).initPeerNetwork();
+  } else {
+    for (let ri = 0; ri < REPLICA_COUNT; ri++) {
+      try {
+        await node.getPeerNetwork()!.connectToPeer(`http://localhost:${port + 1 + ri}`);
+      } catch { /* replica may still be starting */ }
+    }
+  }
+
+  // ── Child Processes ──
+
+  let stopping = false;
+
+  // ── Proof Delegate (child process on port 4040) ──
+
+  let proverChild: ChildProcess | null = null;
+  const proverPort = parseInt(env.ZKTRIDENT_PROVER_PORT ?? '4040', 10);
+  const proverApiKey = env.ZKTRIDENT_PROVER_API_KEY ?? 'dev-key';
+  const proverScript = path.resolve(thisDir, 'start-prover.ts');
+
+  if (fs.existsSync(proverScript)) {
+    const proverEnv = {
+      ...process.env,
+      ZKTRIDENT_PROVER_PORT: String(proverPort),
+      ZKTRIDENT_PROVER_API_KEY: proverApiKey,
+    };
+    proverChild = spawn('npx', ['tsx', proverScript], {
+      env: proverEnv,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: true,
+    });
+    proverChild.stdout?.on('data', (d: Buffer) => process.stdout.write(d));
+    proverChild.stderr?.on('data', (d: Buffer) => process.stderr.write(d));
+    proverChild.on('exit', (code) => {
+      if (!stopping) console.error('  [prover] Proof delegate exited unexpectedly (code %d)', code);
+      proverChild = null;
+    });
+    console.log('  [prover] Proof delegate spawned (port %d, api-key: %s)', proverPort, proverApiKey ? 'configured' : 'NONE');
+  } else {
+    console.log('  [prover] start-prover.ts not found — skipping proof delegate');
+  }
+
+  // ── Entity Nodes (child processes) ──
+  // Spawn all entity nodes as child processes of the leviathan.
+  // Each node connects back to the sequencer on this port.
+
+  interface EntityChild { name: string; child: ChildProcess; port: number; }
+  const entityChildren: EntityChild[] = [];
+
+  function spawnEntity(name: string, script: string, entityPort: number, extraEnv: Record<string, string> = {}): void {
+    const scriptPath = path.resolve(thisDir, script);
+    if (!fs.existsSync(scriptPath)) {
+      console.log('  [entity] %s script not found — skipping', name);
+      return;
+    }
+    const childEnv = {
+      ...process.env,
+      ZKTRIDENT_PORT: String(entityPort),
+      ZKTRIDENT_SEQUENCER_URL: `http://localhost:${port}`,
+      ...extraEnv,
+    };
+    const child = spawn('npx', ['tsx', scriptPath], {
+      env: childEnv,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: true,
+    });
+    child.stdout?.on('data', (d: Buffer) => process.stdout.write(d));
+    child.stderr?.on('data', (d: Buffer) => process.stderr.write(d));
+    child.on('exit', (code) => {
+      if (!stopping) console.error('  [entity] %s exited unexpectedly (code %d)', name, code);
+    });
+    entityChildren.push({ name, child, port: entityPort });
+    console.log('  [entity] %s spawned (port %d)', name, entityPort);
+  }
+
+  // ── Health-Gated Boot Sequence ──
+  //
+  // Phase 1: Insurer (credentials providers + publishes formulary)
+  // Phase 2: Wait for insurer health → ready (providers credentialed)
+  // Phase 3: Provider nodes + employer + member (can now verify credentialing)
+  //
+  // This ensures the provider registry is populated before nodes
+  // attempt to self-gate on their credentialing status.
+
+  async function waitForHealth(healthUrl: string, maxAttempts: number = 45): Promise<boolean> {
+    for (let i = 0; i < maxAttempts; i++) {
+      try {
+        const resp = await fetch(healthUrl);
+        if (resp.ok) {
+          const data = await resp.json() as { data?: { phase?: string } };
+          if (data?.data?.phase === 'ready') return true;
+        }
+      } catch { /* not ready yet */ }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    return false;
+  }
+
+  // Phase 1: Insurer (port 4004) — must start first to credential providers
+  console.log('');
+  console.log('  ── Boot Phase 1: Insurer (credentialing authority) ──');
+  spawnEntity('insurer', 'start-insurer-nautilus.ts', 4004, {
+    ZKTRIDENT_ADMIN_TOKEN: adminToken ?? 'admin123',
+  });
+
+  // Phase 2: Wait for insurer to become ready (providers credentialed + formulary published)
+  console.log('  [boot] Waiting for insurer to credential providers...');
+  const insurerReady = await waitForHealth(`http://localhost:4004/health`, 120);
+  if (insurerReady) {
+    console.log('  [boot] Insurer ready — providers credentialed');
+  } else {
+    console.log('  [boot] Insurer health timeout — continuing with remaining entities');
+  }
+
+  // Phase 3: Provider nodes + employer + member
+  console.log('');
+  console.log('  ── Boot Phase 2: Provider nodes + employer + member ──');
+
+  // Prescriber (port 4002) — uses demo identity index 0 (Dr. Sarah Chen)
+  // Will poll l2_getProvider to confirm credentialing before ready
+  spawnEntity('prescriber', 'start-prescriber-nautilus.ts', 4002, {
+    ZKTRIDENT_DEMO_PRESCRIBER: '0',
+  });
+
+  // Pharmacy (port 4003) — uses demo identity index 0
+  // Will poll l2_getProvider to confirm credentialing before ready
+  spawnEntity('pharmacy', 'start-pharmacy-nautilus.ts', 4003, {
+    ZKTRIDENT_DEMO_PHARMACY: '0',
+  });
+
+  // Employer (port 4005) — needs employer ID + insurer URL
+  spawnEntity('employer', 'start-employer-nautilus.ts', 4005, {
+    ZKTRIDENT_EMPLOYER_ID: env.ZKTRIDENT_EMPLOYER_ID ?? 'ACME-001',
+    ZKTRIDENT_ADMIN_TOKEN: adminToken ?? 'admin123',
+    ZKTRIDENT_INSURER_URL: `http://localhost:4004`,
+  });
+
+  // Member (port 4001) — depends on employer tokens + insurer plan
+  // Pass ZKTRIDENT_MEMBER_PIN through so local state can be unlocked for onboarding
+  spawnEntity('member', 'start-member-nautilus.ts', 4001, {
+    ...(env.ZKTRIDENT_MEMBER_PIN ? { ZKTRIDENT_PIN: env.ZKTRIDENT_MEMBER_PIN } : {}),
+  });
+
+  // Explorer (port 8000) — static file server + proxy to sequencer
+  {
+    const explorerScript = path.resolve(thisDir, 'start-explorer.ts');
+    if (fs.existsSync(explorerScript)) {
+      const child = spawn('npx', ['tsx', explorerScript], {
+        env: { ...process.env, ZKTRIDENT_EXPLORER_PORT: '8000', ZKTRIDENT_SEQUENCER_URL: `http://localhost:${port}` },
+        stdio: ['ignore', 'pipe', 'pipe'],
+        shell: true,
+      });
+      child.stdout?.on('data', (d: Buffer) => process.stdout.write(d));
+      child.stderr?.on('data', (d: Buffer) => process.stderr.write(d));
+      child.on('exit', (code) => {
+        if (!stopping) console.error('  [entity] explorer exited unexpectedly (code %d)', code);
+      });
+      entityChildren.push({ name: 'explorer', child, port: 8000 });
+      console.log('  [entity] explorer spawned (port 8000)');
+    }
+  }
 
   // ── Startup Banner ──
 
@@ -290,6 +437,11 @@ async function main(): Promise<void> {
   console.log('  Batch interval: %ds', batchIntervalMs / 1000);
   console.log('  L2-only:       %s', l2Only);
   console.log('  Proving pool:  %s', poolWorkerCount > 0 ? `${poolWorkerCount} worker(s)` : 'disabled');
+  console.log('  Replicas:      %d (ports %d–%d)', REPLICA_COUNT, port + 1, port + REPLICA_COUNT);
+  console.log('  Proof delegate: %s', proverChild ? `http://${host}:${proverPort}/prove` : 'disabled');
+  if (entityChildren.length > 0) {
+    console.log('  Entity nodes:  %s', entityChildren.map(e => `${e.name}(:${e.port})`).join(', '));
+  }
   if (partitionConfig) {
     console.log('  Partition:     %d of %d', partitionIndex, partitionCount);
   }
@@ -303,14 +455,31 @@ async function main(): Promise<void> {
 
   // ── Graceful Shutdown ──
 
-  let stopping = false;
   const shutdown = async (signal: string) => {
     if (stopping) return;
     stopping = true;
     console.log('');
     console.log('  [%s] Shutting down gracefully...', signal);
+    // Stop entity nodes
+    for (const e of entityChildren) {
+      try { e.child.kill('SIGTERM'); } catch {}
+    }
+    if (entityChildren.length > 0) {
+      console.log('  [shutdown] %d entity node(s) stopped', entityChildren.length);
+    }
+    // Stop prover delegate
+    if (proverChild) {
+      proverChild.kill('SIGTERM');
+      console.log('  [shutdown] Proof delegate stopped');
+    }
+    // Stop replicas
+    for (let ri = 0; ri < replicaNodes.length; ri++) {
+      await replicaNodes[ri].stop();
+      await replicaServers[ri].stop();
+    }
+    console.log('  [shutdown] %d replica(s) stopped', replicaNodes.length);
     await node.stop();
-    console.log('  [shutdown] Node stopped (checkpoint saved)');
+    console.log('  [shutdown] Sequencer stopped (checkpoint saved)');
     await rpcServer.stop();
     console.log('  [shutdown] RPC server stopped');
     // ProvingPool is shut down by node.stop() via provingPool.shutdown()

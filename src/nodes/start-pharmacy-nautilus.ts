@@ -80,8 +80,77 @@ async function main(): Promise<void> {
   // Register pharmacy routes
   server.registerRoutes(buildPharmacyRoutes(server));
 
-  // ── State Recovery ──
+  // ── Demo Pharmacy (skip onboarding — seed identity from demo data) ──
 
+  const demoPharmacyId = env.ZKTRIDENT_DEMO_PHARMACY;
+  if (demoPharmacyId) {
+    const { DEMO_PHARMACIES } = await import('../demo/pharmacies.js');
+    const { derivePharmacyWalletId } = await import('../wallets/wallet-derivation.js');
+
+    const idx = parseInt(demoPharmacyId, 10);
+    const pharmacy = !isNaN(idx) && idx >= 0 && idx < DEMO_PHARMACIES.length
+      ? DEMO_PHARMACIES[idx]
+      : DEMO_PHARMACIES.find((p) =>
+          p.storeName.toLowerCase().includes(demoPharmacyId.toLowerCase()) ||
+          p.ncpdpProviderId === demoPharmacyId
+        );
+
+    if (!pharmacy) {
+      console.error('  [FATAL] Demo pharmacy not found: %s', demoPharmacyId);
+      console.error('  Available: %s', DEMO_PHARMACIES.map((p, i) =>
+        `${i}=${p.storeName}`).join(', '));
+      process.exit(1);
+    }
+
+    const walletId = derivePharmacyWalletId(pharmacy.localData, pharmacy.enrollmentKey).toString();
+
+    console.log('  [demo] Pharmacy:  %s', pharmacy.storeName);
+    console.log('  [demo] Type:      %s', pharmacy.pharmacyTypeDesc);
+    console.log('  [demo] Wallet:    %s...', walletId.slice(0, 20));
+
+    const node = new PharmacyNode({
+      role: 'pharmacy',
+      walletId,
+      sequencerUrl: config.sequencerUrl,
+      displayName: pharmacy.storeName,
+    });
+    server.setEntityNode(node);
+
+    // Start server BEFORE credentialing poll so dashboard is accessible during the wait
+    server.setOnboardingPhase('awaiting_credentialing' as any);
+    await server.start();
+    console.log('  [demo] Server started — waiting for credentialing on sequencer...');
+
+    const seqUrl = config.sequencerUrl.replace(/\/+$/, '');
+    let credentialed = false;
+    for (let attempt = 0; attempt < 60; attempt++) {
+      try {
+        const resp = await fetch(seqUrl + '/rpc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getProvider', params: { walletId } }),
+        });
+        const json = await resp.json() as { result?: { credentialState?: number } | null };
+        if (json.result && json.result.credentialState === 2) { // ACTIVE
+          credentialed = true;
+          break;
+        }
+      } catch { /* sequencer not ready yet */ }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+
+    if (credentialed) {
+      console.log('  [demo] Credentialed on sequencer — transitioning to ready');
+      server.setOnboardingPhase('ready');
+    } else {
+      console.log('  [demo] Credentialing timeout — starting in ready mode (insurer may not be running)');
+      server.setOnboardingPhase('ready');
+    }
+  }
+
+  // ── State Recovery (non-demo mode) ──
+
+  else {
   const stateExists = await localState.exists();
   if (stateExists && pin) {
     console.log('  [state] Unlocking encrypted state...');
@@ -112,10 +181,13 @@ async function main(): Promise<void> {
     console.log('  [state] No PIN provided (set ZKTRIDENT_PIN for auto-unlock)');
     console.log('  [state] Starting in fresh onboarding mode');
   }
+  } // end else (non-demo mode)
 
-  // ── Start Server ──
+  // ── Start Server (if not already started by demo credentialing path) ──
 
-  await server.start();
+  if (!server.isRunning()) {
+    await server.start();
+  }
 
   const proto = server.isTls() ? 'https' : 'http';
   console.log('');

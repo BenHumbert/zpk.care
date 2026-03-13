@@ -11,6 +11,24 @@ const API = (() => {
   function setBaseUrl(url) { baseUrl = url.replace(/\/$/, ''); }
   function getBaseUrl() { return baseUrl; }
 
+  // Strip __bigint__:NNN prefixes from serialized BigInt values
+  function stripBigints(obj) {
+    if (obj === null || obj === undefined) return obj;
+    if (typeof obj === 'string') {
+      if (obj.startsWith('__bigint__:')) return obj.slice(11);
+      return obj;
+    }
+    if (Array.isArray(obj)) return obj.map(stripBigints);
+    if (typeof obj === 'object') {
+      var out = {};
+      for (var k in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, k)) out[k] = stripBigints(obj[k]);
+      }
+      return out;
+    }
+    return obj;
+  }
+
   // ── Core request helper ────────────────────────────────────
 
   async function request(method, path, body) {
@@ -23,12 +41,17 @@ const API = (() => {
       opts.body = JSON.stringify(body);
     }
     const res = await fetch(`${baseUrl}${path}`, opts);
+    if (!res.ok) {
+      let msg = 'HTTP ' + res.status;
+      try { const j = await res.json(); msg = j.error || j.message || msg; } catch { /* use status */ }
+      throw new Error(msg);
+    }
     const json = await res.json();
     // Envelope: { ok, data, error, timestamp }
     if (!json.ok) {
       throw new Error(json.error || `Request failed: ${method} ${path}`);
     }
-    return json.data;
+    return stripBigints(json.data);
   }
 
   async function get(path) { return request('GET', path); }
@@ -36,19 +59,38 @@ const API = (() => {
 
   // ── SSE ────────────────────────────────────────────────────
 
+  let sseReconnectDelay = 1000;
+  const SSE_MAX_DELAY = 30000;
+
   function connectSSE(onEvent, onError, onOpen) {
     if (eventSource) {
       eventSource.close();
+      eventSource = null;
     }
-    eventSource = new EventSource(`${baseUrl}/events`);
-    eventSource.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (onEvent) onEvent(data);
-      } catch { /* ignore parse errors */ }
-    };
-    eventSource.onopen = () => { if (onOpen) onOpen(); };
-    eventSource.onerror = () => { if (onError) onError(); };
+    try {
+      eventSource = new EventSource(`${baseUrl}/events`);
+      eventSource.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (onEvent) onEvent(data);
+        } catch { /* ignore parse errors */ }
+      };
+      eventSource.onopen = () => {
+        sseReconnectDelay = 1000; // Reset on successful connection
+        if (onOpen) onOpen();
+      };
+      eventSource.onerror = () => {
+        if (onError) onError();
+        eventSource.close();
+        eventSource = null;
+        // Reconnect with exponential backoff
+        setTimeout(() => connectSSE(onEvent, onError, onOpen), sseReconnectDelay);
+        sseReconnectDelay = Math.min(sseReconnectDelay * 2, SSE_MAX_DELAY);
+      };
+    } catch {
+      setTimeout(() => connectSSE(onEvent, onError, onOpen), sseReconnectDelay);
+      sseReconnectDelay = Math.min(sseReconnectDelay * 2, SSE_MAX_DELAY);
+    }
     return eventSource;
   }
 

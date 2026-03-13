@@ -116,7 +116,37 @@ async function main(): Promise<void> {
       displayName,
     });
     server.setEntityNode(node);
-    server.setOnboardingPhase('ready');
+
+    // Start server BEFORE credentialing poll so dashboard is accessible during the wait
+    server.setOnboardingPhase('awaiting_credentialing' as any);
+    await server.start();
+    console.log('  [demo] Server started — waiting for credentialing on sequencer...');
+
+    const seqUrl = config.sequencerUrl.replace(/\/+$/, '');
+    let credentialed = false;
+    for (let attempt = 0; attempt < 60; attempt++) {
+      try {
+        const resp = await fetch(seqUrl + '/rpc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getProvider', params: { walletId } }),
+        });
+        const json = await resp.json() as { result?: { credentialState?: number } | null };
+        if (json.result && json.result.credentialState === 2) { // ACTIVE
+          credentialed = true;
+          break;
+        }
+      } catch { /* sequencer not ready yet */ }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+
+    if (credentialed) {
+      console.log('  [demo] Credentialed on sequencer — transitioning to ready');
+      server.setOnboardingPhase('ready');
+    } else {
+      console.log('  [demo] Credentialing timeout — starting in ready mode (insurer may not be running)');
+      server.setOnboardingPhase('ready');
+    }
   }
 
   // ── State Recovery (non-demo mode) ──
@@ -154,9 +184,11 @@ async function main(): Promise<void> {
     }
   }
 
-  // ── Start Server ──
+  // ── Start Server (if not already started by demo credentialing path) ──
 
-  await server.start();
+  if (!server.isRunning()) {
+    await server.start();
+  }
 
   const proto = server.isTls() ? 'https' : 'http';
   console.log('');

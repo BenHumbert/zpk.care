@@ -1,0 +1,148 @@
+/*
+ * zkTrident Insurer Dashboard — Role-Specific Styles
+ * Blue accent. Audit checks, claims filter tabs, admin token bar, two-column panels.
+ */
+
+/* ── Audit Check Cards ──────────────────────────────────────── */
+
+.audit-checks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.audit-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  transition: border-color var(--transition-fast);
+}
+
+.audit-check:hover {
+  border-color: var(--border-default);
+}
+
+.audit-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.audit-pass .audit-icon {
+  background: var(--success-bg);
+  color: var(--success);
+  border: 1px solid var(--success-border);
+}
+
+.audit-fail .audit-icon {
+  background: var(--error-bg);
+  color: var(--error);
+  border: 1px solid var(--error-border);
+}
+
+.audit-check-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.audit-check-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.audit-check-detail {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* ── Claims Filter Tabs ─────────────────────────────────────── */
+
+.claims-filter-tabs {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.claims-filter-tabs .chip.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-muted);
+}
+
+/* ── Admin Token Bar ────────────────────────────────────────── */
+
+.admin-token-bar {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-6);
+}
+
+.admin-token-bar .form-label {
+  margin-bottom: var(--space-2);
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: var(--text-xs);
+}
+
+.admin-token-bar .search-bar {
+  margin-bottom: 0;
+}
+
+/* ── Two-Column Panel Overrides ─────────────────────────────── */
+
+.panels-row .panel {
+  margin-bottom: 0;
+}
+
+/* ── Receipt/Batch Detail Rows ──────────────────────────────── */
+
+.receipt-detail td,
+.batch-detail td {
+  padding: 0;
+  background: var(--bg-secondary);
+}
+
+.receipt-detail .detail-grid,
+.batch-detail .detail-grid {
+  margin: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+/* ── Clickable Rows ─────────────────────────────────────────── */
+
+.receipt-row,
+.batch-row {
+  cursor: pointer;
+}
+
+.receipt-row:hover td,
+.batch-row:hover td {
+  background: var(--bg-hover);
+}
+
+/* ── Message Items ──────────────────────────────────────────── */
+
+.msg-item .badge {
+  margin-left: var(--space-2);
+}

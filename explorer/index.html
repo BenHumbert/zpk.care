@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>&#x1F530;</text></svg>">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>zkTrident Explorer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ── Header ─────────────────────────────────────────── -->
+  <header class="header">
+    <div class="header-inner">
+      <a class="logo" href="#overview">
+        <span class="logo-mark">zk</span>Trident
+        <span class="logo-role">Explorer</span>
+      </a>
+      <nav class="nav" id="nav">
+        <a class="nav-link active" href="#overview" data-tab="overview">Overview</a>
+        <a class="nav-link" href="#batches" data-tab="batches">Batches</a>
+        <a class="nav-link" href="#receipts" data-tab="receipts">Receipts</a>
+        <a class="nav-link" href="#wallets" data-tab="wallets">Wallets</a>
+        <a class="nav-link" href="#claims" data-tab="claims">Claims</a>
+        <a class="nav-link" href="#messages" data-tab="messages">Messages</a>
+        <a class="nav-link" href="#audit" data-tab="audit">Audit</a>
+        <a class="nav-link" href="#network" data-tab="network">Network</a>
+      </nav>
+      <div class="header-right">
+        <div class="global-search">
+          <input class="form-input mono search-input" id="global-search"
+                 placeholder="Search wallet, receipt, batch #...">
+        </div>
+        <div class="conn-indicator">
+          <span class="conn-dot" id="conn-dot"></span>
+          <span class="conn-label" id="conn-label">--</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Main ───────────────────────────────────────────── -->
+  <main class="main" id="app">
+
+    <!-- ════ OVERVIEW ════════════════════════════════════ -->
+    <section id="page-overview" class="page">
+      <!-- Stats row -->
+      <div class="stats-grid" id="ov-stats"></div>
+
+      <!-- Sequencer Pipeline -->
+      <div class="panel mb">
+        <div class="panel-header">
+          <span class="panel-title">Sequencer Pipeline</span>
+          <span class="badge badge-live" id="pipe-live-badge">Live</span>
+        </div>
+        <div class="panel-body flush">
+          <div class="stream-canvas" id="stream-canvas">
+            <div class="stream-stage ss-pending">
+              <div class="stream-stage-count" id="pipe-pending">0</div>
+              <div class="stream-stage-label">Pending</div>
+            </div>
+            <div class="stream-connector"><div class="stream-connector-line"></div><div class="stream-connector-head"></div></div>
+            <div class="stream-stage ss-proving">
+              <div class="stream-stage-count" id="pipe-proving">0</div>
+              <div class="stream-stage-label">Proving</div>
+              <div class="stream-stage-sub" id="pipe-workers-sub">-- workers</div>
+            </div>
+            <div class="stream-connector"><div class="stream-connector-line"></div><div class="stream-connector-head"></div></div>
+            <div class="stream-stage ss-batching">
+              <div class="stream-stage-count" id="pipe-batching">0</div>
+              <div class="stream-stage-label">Batching</div>
+            </div>
+            <div class="stream-connector"><div class="stream-connector-line"></div><div class="stream-connector-head"></div></div>
+            <div class="stream-stage ss-settled">
+              <div class="stream-stage-count" id="pipe-settled">0</div>
+              <div class="stream-stage-label">Settled</div>
+            </div>
+          </div>
+          <div class="throughput-strip" id="throughput-strip"></div>
+        </div>
+      </div>
+
+      <!-- Recent Batches + Receipts -->
+      <div class="panels-row">
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">Recent Batches</span>
+            <a class="panel-action" href="#batches">View All</a>
+          </div>
+          <div class="panel-body flush" id="ov-batches"><div class="loading">Loading...</div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">Recent Receipts</span>
+            <a class="panel-action" href="#receipts">View All</a>
+          </div>
+          <div class="panel-body flush" id="ov-receipts"><div class="loading">Loading...</div></div>
+        </div>
+      </div>
+
+      <!-- Live Event Log -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Live Event Log</span>
+          <span class="badge badge-live">SSE</span>
+        </div>
+        <div class="panel-body flush">
+          <div class="event-log" id="ov-events">
+            <div class="empty-state">Waiting for events...</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════ BATCHES ════════════════════════════════════ -->
+    <section id="page-batches" class="page hidden">
+      <div class="stats-grid" id="batch-stats"></div>
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">All Batches</span>
+          <button class="btn btn-sm" id="batch-refresh">Refresh</button>
+        </div>
+        <div class="panel-body flush" id="batch-table-wrap"><div class="loading">Loading...</div></div>
+      </div>
+
+      <!-- Batch Detail (shown on click) -->
+      <div class="panel hidden" id="batch-detail-panel">
+        <div class="panel-header">
+          <span class="panel-title">Batch Detail</span>
+          <button class="btn btn-sm" onclick="document.getElementById('batch-detail-panel').classList.add('hidden')">Close</button>
+        </div>
+        <div class="panel-body" id="batch-detail"></div>
+      </div>
+    </section>
+
+    <!-- ════ RECEIPTS ═══════════════════════════════════ -->
+    <section id="page-receipts" class="page hidden">
+      <div class="search-bar">
+        <input class="form-input mono" id="receipt-search" placeholder="Search by receipt ID or wallet ID...">
+        <button class="btn btn-primary" id="receipt-search-btn">Search</button>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">All Receipts</span>
+          <button class="btn btn-sm" id="receipt-refresh">Refresh</button>
+        </div>
+        <div class="panel-body flush" id="receipt-table-wrap"><div class="loading">Loading...</div></div>
+      </div>
+
+      <div class="panel hidden" id="receipt-detail-panel">
+        <div class="panel-header">
+          <span class="panel-title">Receipt Detail</span>
+          <button class="btn btn-sm" onclick="document.getElementById('receipt-detail-panel').classList.add('hidden')">Close</button>
+        </div>
+        <div class="panel-body" id="receipt-detail"></div>
+      </div>
+    </section>
+
+    <!-- ════ WALLETS ════════════════════════════════════ -->
+    <section id="page-wallets" class="page hidden">
+      <div class="search-bar">
+        <input class="form-input mono" id="wallet-search" placeholder="Enter wallet ID to look up...">
+        <button class="btn btn-primary" id="wallet-lookup-btn">Lookup</button>
+      </div>
+
+      <div class="panel hidden" id="wallet-detail-panel">
+        <div class="panel-header"><span class="panel-title">Wallet Details</span></div>
+        <div class="panel-body" id="wallet-detail"></div>
+      </div>
+
+      <div class="panels-row hidden" id="wallet-data-row">
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Wallet Receipts</span></div>
+          <div class="panel-body flush" id="wallet-receipts"><div class="loading">Loading...</div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Wallet Claims</span></div>
+          <div class="panel-body flush" id="wallet-claims"><div class="loading">Loading...</div></div>
+        </div>
+      </div>
+
+      <div class="panel hidden" id="wallet-messages-panel">
+        <div class="panel-header"><span class="panel-title">Wallet Messages (encrypted)</span></div>
+        <div class="panel-body flush" id="wallet-messages"><div class="loading">Loading...</div></div>
+      </div>
+    </section>
+
+    <!-- ════ CLAIMS ═════════════════════════════════════ -->
+    <section id="page-claims" class="page hidden">
+      <div class="stats-grid" id="claims-stats"></div>
+      <div class="search-bar">
+        <select class="form-input form-select" id="claim-search-type" style="width:180px">
+          <option value="member">By Member Wallet</option>
+          <option value="pharmacy">By Pharmacy Wallet</option>
+          <option value="prescriber">By Prescriber Wallet</option>
+          <option value="ndc">By NDC Hash</option>
+          <option value="leaf">By Leaf Index</option>
+        </select>
+        <input class="form-input mono" id="claim-search-input" placeholder="Enter wallet ID, NDC hash, or leaf index...">
+        <button class="btn btn-primary" id="claim-search-btn">Search</button>
+      </div>
+      <div class="panel">
+        <div class="panel-header"><span class="panel-title">Claim Results</span></div>
+        <div class="panel-body flush" id="claim-results"><div class="empty-state">Enter a search to view claims</div></div>
+      </div>
+    </section>
+
+    <!-- ════ MESSAGES ═══════════════════════════════════ -->
+    <section id="page-messages" class="page hidden">
+      <div class="stats-grid" id="msg-stats"></div>
+      <div class="search-bar">
+        <select class="form-input form-select" id="msg-search-type" style="width:180px">
+          <option value="wallet">By Wallet (sent/received)</option>
+          <option value="sender">By Sender</option>
+          <option value="recipient">By Recipient</option>
+          <option value="thread">By Thread Hash</option>
+        </select>
+        <input class="form-input mono" id="msg-search-input" placeholder="Enter wallet ID or thread hash...">
+        <button class="btn btn-primary" id="msg-search-btn">Search</button>
+      </div>
+      <div class="panel">
+        <div class="panel-header"><span class="panel-title">Message Results</span></div>
+        <div class="panel-body flush" id="msg-results"><div class="empty-state">Enter a search to view messages</div></div>
+      </div>
+      <div class="privacy-notice">
+        All message content is AES-256-GCM encrypted. Only sender/recipient wallet hashes, message type, and timestamps are publicly visible.
+        Content can only be decrypted by the recipient holding the X25519 private key.
+      </div>
+    </section>
+
+    <!-- ════ AUDIT ══════════════════════════════════════ -->
+    <section id="page-audit" class="page hidden">
+      <div class="stats-grid">
+        <div class="stat-card stat-clickable" id="audit-chain-card">
+          <div class="stat-label">Chain Integrity</div>
+          <div class="stat-value" id="audit-chain-val">Check</div>
+        </div>
+        <div class="stat-card stat-clickable" id="audit-finance-card">
+          <div class="stat-label">Financial Balance</div>
+          <div class="stat-value" id="audit-finance-val">Check</div>
+        </div>
+        <div class="stat-card stat-clickable" id="audit-dup-card">
+          <div class="stat-label">Duplicate Claims</div>
+          <div class="stat-value" id="audit-dup-val">Check</div>
+        </div>
+      </div>
+
+      <div class="panels-row">
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">Audit Log</span>
+            <button class="btn btn-sm" id="audit-log-refresh">Refresh</button>
+          </div>
+          <div class="panel-body flush" id="audit-log-container"><div class="loading">Loading...</div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">Chain Proof / Global State</span>
+            <button class="btn btn-sm" id="audit-proof-refresh">Refresh</button>
+          </div>
+          <div class="panel-body" id="audit-proof-container"><div class="loading">Loading...</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════ NETWORK ════════════════════════════════════ -->
+    <section id="page-network" class="page hidden">
+      <div class="stats-grid" id="net-stats"></div>
+      <div class="panels-row">
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">Connected Peers</span>
+            <button class="btn btn-sm" id="net-refresh">Refresh</button>
+          </div>
+          <div class="panel-body" id="net-peers"><div class="loading">Loading...</div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Node Info</span></div>
+          <div class="panel-body" id="net-info"><div class="loading">Loading...</div></div>
+        </div>
+      </div>
+      <div class="panel hidden" id="net-leviathan-panel">
+        <div class="panel-header"><span class="panel-title">Leviathan Status</span></div>
+        <div class="panel-body" id="net-leviathan"><div class="loading">Loading...</div></div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── Footer ─────────────────────────────────────────── -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <span>zkTrident Leviathan Explorer</span>
+      <span>&middot;</span>
+      <span id="footer-node">--</span>
+      <span>&middot;</span>
+      <span>Block Height <span id="footer-height">--</span></span>
+      <span>&middot;</span>
+      <span><span id="footer-peers">0</span> Peers</span>
+    </div>
+  </footer>
+
+  <!-- ── Toast ──────────────────────────────────────────── -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="rpc.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
