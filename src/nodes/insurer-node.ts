@@ -42,6 +42,8 @@ import type {
   InsurerNodeConfig,
   EntityClaimView,
 } from './entity-node-types.js';
+import type { BenefitPlanConfig } from '../l2/l2-types.js';
+export type { BenefitPlanConfig };
 
 export class InsurerNode extends EntityNodeBase {
   private reportingService: ReportingService;
@@ -49,6 +51,67 @@ export class InsurerNode extends EntityNodeBase {
   constructor(config: InsurerNodeConfig) {
     super({ ...config, role: 'insurer' });
     this.reportingService = new ReportingService();
+  }
+
+  // ─── Plan Management (delegates to sequencer via L2Client) ──
+
+  /** Create a new benefit plan (persisted on sequencer) */
+  async createPlan(plan: Omit<BenefitPlanConfig, 'published' | 'createdAt' | 'updatedAt'>): Promise<BenefitPlanConfig> {
+    const existing = await this.client.getPlan(plan.planId);
+    if (existing) throw new Error(`Plan ${plan.planId} already exists`);
+    const now = Date.now();
+    const config: BenefitPlanConfig = {
+      ...plan,
+      published: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.client.storePlan(config);
+    return config;
+  }
+
+  /** Update an existing plan */
+  async updatePlan(planId: string, updates: Partial<Omit<BenefitPlanConfig, 'planId' | 'createdAt'>>): Promise<BenefitPlanConfig> {
+    const existing = await this.client.getPlan(planId);
+    if (!existing) throw new Error(`Plan ${planId} not found`);
+    const updated: BenefitPlanConfig = {
+      ...existing,
+      ...updates,
+      planId,
+      createdAt: existing.createdAt,
+      updatedAt: Date.now(),
+      published: updates.formularyRoot ? existing.published : false,
+    };
+    await this.client.storePlan(updated);
+    return updated;
+  }
+
+  /** Get a plan by ID */
+  async getPlan(planId: string): Promise<BenefitPlanConfig | undefined> {
+    return (await this.client.getPlan(planId)) ?? undefined;
+  }
+
+  /** List all plans */
+  async listPlans(): Promise<BenefitPlanConfig[]> {
+    return await this.client.getPlans();
+  }
+
+  /** Delete a plan */
+  async deletePlan(planId: string): Promise<boolean> {
+    const result = await this.client.deletePlan(planId);
+    return result.success;
+  }
+
+  /** Mark a plan as published (called after formulary + network roots are stored) */
+  async markPlanPublished(planId: string, formularyRoot: string, networkRoot: string): Promise<BenefitPlanConfig> {
+    const plan = await this.client.getPlan(planId);
+    if (!plan) throw new Error(`Plan ${planId} not found`);
+    plan.formularyRoot = formularyRoot;
+    plan.networkRoot = networkRoot;
+    plan.published = true;
+    plan.updatedAt = Date.now();
+    await this.client.storePlan(plan);
+    return plan;
   }
 
   // ─── System-Wide Queries ────────────────────────────────

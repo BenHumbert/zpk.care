@@ -155,6 +155,9 @@ const API = (() => {
     return request('GET', '/sequencer/status');
   }
 
+  // ---- Available Plans (from insurer) ----
+  function getAvailablePlans() { return request('GET', '/plans/available'); }
+
   // ---- Messaging ----
   function sendMessage(recipientWalletId, subject, body) {
     return request('POST', '/messaging/send', { recipientWalletId, subject, body }, true);
@@ -244,6 +247,7 @@ const API = (() => {
     listRoster,
     getRosterEntry,
     terminateRosterEntry,
+    getAvailablePlans,
     getChainState,
     getSequencerStatus,
     sendMessage,

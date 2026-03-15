@@ -27,7 +27,7 @@ import {
   getMembersByFamily,
   getMembersByEmployee,
   getSubscribers,
-} from '../src/demo/members.js';
+} from '../src/data/index.js';
 
 import {
   buildGroupEnrollmentToken,

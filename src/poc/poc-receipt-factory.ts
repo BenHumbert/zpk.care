@@ -22,11 +22,8 @@ import {
   derivePharmacyWalletId,
 } from '../wallets/wallet-derivation.js';
 import { hashString } from '../zkp/hash-utils.js';
-import { DEMO_MEMBERS } from '../demo/members.js';
-import { DEMO_PRESCRIBERS } from '../demo/prescribers.js';
-import { DEMO_PHARMACIES } from '../demo/pharmacies.js';
-import { DEMO_MEDICATIONS } from '../demo/medications.js';
-import type { DemoMedication } from '../demo/medications.js';
+import { DEMO_MEMBERS, DEMO_PRESCRIBERS, DEMO_PHARMACIES, DEMO_MEDICATIONS } from '../data/index.js';
+import type { DemoMedication } from '../data/index.js';
 
 // ─── Wallet ID Derivation ────────────────────────────────
 
@@ -227,7 +224,7 @@ export class ReceiptFactory {
       timestamp: Date.now(),
       ndc: medication.ndc,
       brandName: medication.brandName,
-      tierLevel: medication.tierLevel,
+      tierLevel: medication.formularyEntry.tierLevel,
       gpi: medication.gpi,
       therapeuticClass: medication.therapeuticClass,
       daysSupply: 30,
@@ -306,7 +303,7 @@ export function getMedicationPricing(med: DemoMedication): { patientPayCents: nu
     3: 6000,   // Tier 3 Non-Preferred Brand: $60
     4: 15000,  // Tier 4 Specialty: $150
   };
-  const patientPayCents = copayByTier[med.tierLevel] ?? 3000;
+  const patientPayCents = copayByTier[med.formularyEntry.tierLevel] ?? 3000;
   // Plan pays the AWP-based cost minus patient copay (30 units)
   const totalCost = med.awpUnitPriceCents * 30;
   const planPayCents = Math.max(0, totalCost - patientPayCents);

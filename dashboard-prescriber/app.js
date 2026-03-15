@@ -968,10 +968,20 @@
           if (btn) btn.textContent = 'Compiling... (3-5 min)';
           onboardingPhase = 'compiling';
           res = await API.compile();
+          // Auto-submit registration proof after compile (phase is now 'ready')
+          if (resultEl) resultEl.innerHTML = '<div class="form-result">Compiled — generating registration proof (30-120s)...</div>';
+          try {
+            var proofRes = await API.generateRegistrationProof();
+            if (resultEl) resultEl.innerHTML = '<div class="form-result success">Compiled + proof submitted. Receipt: ' + esc(proofRes.receiptId || 'ok') + '</div>';
+            console.log('[onboard] Registration proof submitted to sequencer:', proofRes.receiptId);
+          } catch (proofErr) {
+            console.error('[onboard] Registration proof failed after compile:', proofErr.message);
+            if (resultEl) resultEl.innerHTML = '<div class="form-result error">Compiled but proof failed: ' + esc(proofErr.message) + ' — use Proofs tab to retry</div>';
+          }
           break;
       }
       onboardingPhase = res.phase;
-      if (resultEl) resultEl.innerHTML = '<div class="form-result success">Success! Phase: ' + esc(res.phase) + (res.walletId ? ' | Wallet: ' + esc(truncHash(res.walletId, 24)) : '') + '</div>';
+      if (resultEl && !resultEl.innerHTML.includes('form-result')) resultEl.innerHTML = '<div class="form-result success">Success! Phase: ' + esc(res.phase) + (res.walletId ? ' | Wallet: ' + esc(truncHash(res.walletId, 24)) : '') + '</div>';
       toast('Step completed', 'success');
       setTimeout(function () { loadOnboarding(); }, 600);
     } catch (err) {
@@ -1218,10 +1228,13 @@
         card.classList.add('badge-authenticated');
         var sessionEvt = events.find(function (e) { return e.type === 'badge:session'; });
         var proofEvt = events.find(function (e) { return e.type === 'badge:proof'; });
+        var verifyEvt = events.find(function (e) { return e.type === 'badge:verify'; });
+        var isNewWallet = verifyEvt && verifyEvt.data && verifyEvt.data.isNewWallet;
         result.style.display = 'block';
         result.innerHTML =
           '<div class="badge-result-success">' +
-          '<div class="badge-result-title">Authenticated</div>' +
+          '<div class="badge-result-title">' + (isNewWallet ? 'Wallet Created &amp; Authenticated' : 'Authenticated') + '</div>' +
+          (isNewWallet ? '<div class="badge-result-detail" style="color:#3fb950;font-weight:600">New wallet registered on sequencer</div>' : '') +
           '<div class="badge-result-detail">Provider: ' + esc(prescriber.name) + '</div>' +
           '<div class="badge-result-detail">Wallet: ' + esc((data.events.find(function (e) { return e.type === 'badge:derive'; }) || {}).data?.walletId?.slice(0, 20) || '--') + '...</div>' +
           (proofEvt && proofEvt.data && proofEvt.data.proofHash ? '<div class="badge-result-detail">ZK Proof: ' + esc(proofEvt.data.proofHash) + '</div>' : '') +

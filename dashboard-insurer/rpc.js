@@ -170,6 +170,14 @@ const API = (() => {
     return request('POST', '/admin/formulary/publish', { planIdHash, formularyRoot, entriesJson }, true);
   }
 
+  // ---- Plans ----
+  function getPlans() { return request('GET', '/plans'); }
+  function getPlan(planId) { return request('GET', '/plans/' + encodeURIComponent(planId)); }
+  function createPlan(data) { return request('POST', '/plans', data, true); }
+  function updatePlan(planId, data) { return request('PUT', '/plans/' + encodeURIComponent(planId), data, true); }
+  function deletePlan(planId) { return request('DELETE', '/plans/' + encodeURIComponent(planId), {}, true); }
+  function publishPlan(planId) { return request('POST', '/plans/' + encodeURIComponent(planId) + '/publish', {}, true); }
+
   // ---- Messaging ----
   function getMessagesByWallet(walletId) { return request('GET', '/messaging/wallet/' + encodeURIComponent(walletId)); }
   function getMessagesByThread(threadIdHash) { return request('GET', '/messaging/thread/' + encodeURIComponent(threadIdHash)); }
@@ -229,6 +237,7 @@ const API = (() => {
     verifyApplication, approveApplication, denyApplication,
     getCredentialingStatus, suspendProvider, terminateProvider,
     getProviderRegistry,
+    getPlans, getPlan, createPlan, updatePlan, deletePlan, publishPlan,
     getFormulary, publishFormulary,
     getMessagesByWallet, getMessagesByThread, getMessageStoreStatus,
     connectSSE, disconnectSSE, onConnectionChange, checkConnection,

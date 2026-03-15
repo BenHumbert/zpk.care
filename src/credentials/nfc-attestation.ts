@@ -258,7 +258,7 @@ export class SequencerAttestationAuthority {
       }
 
       if (expired) {
-        return { valid: true, expired: true, reason: 'Attestation has expired' };
+        return { valid: false, expired: true, reason: 'Attestation has expired' };
       }
 
       return { valid: true, expired: false };

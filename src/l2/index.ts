@@ -33,6 +33,7 @@ export type {
   AdminOpStatus,
   AdminStateDelta,
   ClaimSubmissionMetadata,
+  BenefitPlanConfig,
 } from './l2-types.js';
 
 export {
@@ -171,6 +172,9 @@ export type {
   BatchSettledPayload,
   BatchFailedPayload,
   MessageStoredPayload,
+  PlanUpdatedPayload,
+  PlanDeletedPayload,
+  FormularyUpdatedPayload,
   PeerAnnouncePayload,
   StateDigest,
   PeerNetworkConfig,

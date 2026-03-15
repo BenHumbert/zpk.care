@@ -53,10 +53,7 @@ import { FormularyRegistry } from '../src/access-control/formulary-registry.js';
 import { AccumulatorData, ACCUMULATOR_LEAF_INDEX } from '../src/access-control/accumulator-data.js';
 import { hashString, dateToField, centsToField, quantityToField, codeToField } from '../src/zkp/hash-utils.js';
 import { PlanTemplate } from '../src/onboarding/plan-template.js';
-import { DEMO_MEMBERS } from '../src/demo/members.js';
-import { DEMO_PRESCRIBERS } from '../src/demo/prescribers.js';
-import { DEMO_PHARMACIES } from '../src/demo/pharmacies.js';
-import { DEMO_MEDICATIONS, getAllFormularyEntries } from '../src/demo/medications.js';
+import { DEMO_MEMBERS, DEMO_PRESCRIBERS, DEMO_PHARMACIES, DEMO_MEDICATIONS, getAllFormularyEntries } from '../src/data/index.js';
 
 // ─── Constants ──────────────────────────────────────────────
 

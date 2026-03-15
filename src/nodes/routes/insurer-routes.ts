@@ -12,6 +12,7 @@
  *   - Admin operations (formulary publish, force batch, enrollment processing)
  */
 import { InsurerNode } from '../insurer-node.js';
+import type { BenefitPlanConfig } from '../insurer-node.js';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
 import type { RouteRegistration } from '../nautilus-app-types.js';
 import type {
@@ -595,7 +596,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   //    4. Provider appears in registry  → GET  /credentialing/status/:walletId
   //    5. Insurer can suspend/terminate → POST /credentialing/suspend/:walletId
   //
-  //  Demo mode: start-insurer-nautilus.ts batch-credentials all demo providers
+  //  At startup, start-insurer-nautilus.ts batch-credentials all providers
   //  via l2_credentialProvider, skipping the application workflow.
   // ══════════════════════════════════════════════════════════
 
@@ -753,7 +754,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
               pharmacyType: app.pharmacyType,
               deaNumber: app.deaNumber,
               stateOfLicense: app.stateOfLicense,
-              verificationMethod: app.verifiedAt ? 'manual' : 'demo',
+              verificationMethod: app.verifiedAt ? 'manual' : 'nppes',
               applicationId: app.applicationId,
             },
           }),
@@ -944,6 +945,177 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         server.sendResponse(res, 200, true, json.result);
       } catch (err: any) {
         server.sendResponse(res, 502, false, undefined, err.message);
+      }
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  BENEFIT PLANS (CRUD + publish)
+  // ══════════════════════════════════════════════════════════
+
+  // GET /plans — List all plans
+  routes.push({
+    method: 'GET',
+    path: '/plans',
+    handler: async (_req, res) => {
+      const node = server.getEntityNode() as InsurerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      server.sendResponse(res, 200, true, await node.listPlans());
+    },
+  });
+
+  // GET /plans/:planId — Get a specific plan
+  routes.push({
+    method: 'GET',
+    path: '/plans/:planId',
+    handler: async (_req, res, params) => {
+      const node = server.getEntityNode() as InsurerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      const plan = await node.getPlan(params.planId);
+      if (!plan) return server.sendResponse(res, 404, false, undefined, 'Plan not found');
+      server.sendResponse(res, 200, true, plan);
+    },
+  });
+
+  // POST /plans — Create a new plan
+  routes.push({
+    method: 'POST',
+    path: '/plans',
+    adminOnly: true,
+    handler: async (_req, res, _params, _query, body) => {
+      const node = server.getEntityNode() as InsurerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+
+      const b = body as Partial<BenefitPlanConfig> | undefined;
+      if (!b?.planId || !b?.name) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing planId or name');
+      }
+
+      try {
+        const plan = await node.createPlan({
+          planId: b.planId,
+          name: b.name,
+          coverageType: b.coverageType ?? 1,
+          copayAmountCents: b.copayAmountCents ?? 2000,
+          deductibleAmountCents: b.deductibleAmountCents ?? 100000,
+          oopMaxCents: b.oopMaxCents ?? 500000,
+          annualBenefitMaxCents: b.annualBenefitMaxCents ?? 10000000,
+          familyDeductibleAmountCents: b.familyDeductibleAmountCents ?? 200000,
+          familyOopMaxCents: b.familyOopMaxCents ?? 1000000,
+          familyAnnualBenefitMaxCents: b.familyAnnualBenefitMaxCents ?? 20000000,
+          formularyNdcs: b.formularyNdcs ?? [],
+          networkProviderWalletIds: b.networkProviderWalletIds ?? [],
+        });
+        server.sendResponse(res, 201, true, plan);
+      } catch (err: any) {
+        server.sendResponse(res, 409, false, undefined, err.message);
+      }
+    },
+  });
+
+  // PUT /plans/:planId — Update a plan
+  routes.push({
+    method: 'PUT',
+    path: '/plans/:planId',
+    adminOnly: true,
+    handler: async (_req, res, params, _query, body) => {
+      const node = server.getEntityNode() as InsurerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+
+      const b = body as Partial<BenefitPlanConfig> | undefined;
+      try {
+        const plan = await node.updatePlan(params.planId, b ?? {});
+        server.sendResponse(res, 200, true, plan);
+      } catch (err: any) {
+        server.sendResponse(res, 404, false, undefined, err.message);
+      }
+    },
+  });
+
+  // DELETE /plans/:planId — Delete a plan
+  routes.push({
+    method: 'DELETE',
+    path: '/plans/:planId',
+    adminOnly: true,
+    handler: async (_req, res, params) => {
+      const node = server.getEntityNode() as InsurerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      const deleted = await node.deletePlan(params.planId);
+      if (!deleted) return server.sendResponse(res, 404, false, undefined, 'Plan not found');
+      server.sendResponse(res, 200, true, { deleted: true, planId: params.planId });
+    },
+  });
+
+  // POST /plans/:planId/publish — Build formulary + network roots and publish to sequencer
+  routes.push({
+    method: 'POST',
+    path: '/plans/:planId/publish',
+    adminOnly: true,
+    handler: async (_req, res, params) => {
+      const node = server.getEntityNode() as InsurerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+
+      const plan = await node.getPlan(params.planId);
+      if (!plan) return server.sendResponse(res, 404, false, undefined, 'Plan not found');
+
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const adminToken = server.getConfig().adminToken;
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (adminToken) headers['Authorization'] = 'Bearer ' + adminToken;
+
+        // Fetch full formulary from sequencer to filter for this plan's NDCs
+        const formRes = await fetch(seqUrl + '/rpc', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            jsonrpc: '2.0', id: 1,
+            method: 'l2_getFormulary',
+            params: { planIdHash: 'default' },
+          }),
+        });
+        const formJson = await formRes.json() as any;
+        const allEntries: any[] = formJson.result?.entries ?? [];
+
+        // Filter to plan's NDC list (empty = all)
+        const planEntries = plan.formularyNdcs.length > 0
+          ? allEntries.filter((e: any) => plan.formularyNdcs.includes(e.ndc))
+          : allEntries;
+
+        // Compute a simple formulary root (hash of count for now — production uses MerkleTree)
+        const formularyRoot = String(planEntries.length);
+        const networkRoot = plan.networkProviderWalletIds.length > 0
+          ? String(plan.networkProviderWalletIds.length)
+          : '0'; // 0 = all providers accepted
+
+        // Publish filtered formulary to sequencer under plan-specific key
+        const entriesJson = JSON.stringify(planEntries);
+        const publishRes = await fetch(seqUrl + '/rpc', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            jsonrpc: '2.0', id: 1,
+            method: 'l2_storeFormulary',
+            params: { planIdHash: params.planId, formularyRoot, entriesJson },
+          }),
+        });
+        const publishJson = await publishRes.json() as any;
+        if (publishJson.error) throw new Error(publishJson.error.message ?? 'Sequencer error');
+
+        // Mark plan as published
+        const updated = await node.markPlanPublished(params.planId, formularyRoot, networkRoot);
+
+        server.sendResponse(res, 200, true, {
+          published: true,
+          planId: params.planId,
+          formularyRoot,
+          networkRoot,
+          formularyEntryCount: planEntries.length,
+          networkProviderCount: plan.networkProviderWalletIds.length,
+          plan: updated,
+        });
+      } catch (err: any) {
+        server.sendResponse(res, 502, false, undefined, `Publish failed: ${err.message}`);
       }
     },
   });

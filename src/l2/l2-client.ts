@@ -16,7 +16,7 @@ import http from 'http';
 import https from 'https';
 import type { StateTransitionProof } from '../engine/state-transition.js';
 import type { L2ChainEvent, L2EventHandler, L2NodeStatus } from './l2-node.js';
-import type { L2Receipt, L2Block, L2Batch, L2ChainState, L2ChainProofResponse, ClaimSubmissionMetadata } from './l2-types.js';
+import type { L2Receipt, L2Block, L2Batch, L2ChainState, L2ChainProofResponse, ClaimSubmissionMetadata, BenefitPlanConfig } from './l2-types.js';
 import type { ClaimAccumulatorEntry } from './claim-accumulator-types.js';
 import type { StoredMessage, MessagePayload, MessageStoreEntry } from './message-store-types.js';
 import type { AuditLog } from '../audit/audit-types.js';
@@ -150,6 +150,28 @@ export class L2Client {
     return this.rpcCall('l2_storeFormulary', { planIdHash, formularyRoot, entriesJson });
   }
 
+  // ─── Plan Store ────────────────────────────────────────
+
+  /** Store a benefit plan on the sequencer */
+  async storePlan(plan: BenefitPlanConfig): Promise<{ success: boolean; planId: string }> {
+    return this.rpcCall('l2_storePlan', { plan });
+  }
+
+  /** Get a benefit plan by ID */
+  async getPlan(planId: string): Promise<BenefitPlanConfig | null> {
+    return this.rpcCall('l2_getPlan', { planId });
+  }
+
+  /** Get all benefit plans */
+  async getPlans(): Promise<BenefitPlanConfig[]> {
+    return this.rpcCall<BenefitPlanConfig[]>('l2_getPlans');
+  }
+
+  /** Delete a benefit plan */
+  async deletePlan(planId: string): Promise<{ success: boolean; planId: string }> {
+    return this.rpcCall('l2_deletePlan', { planId });
+  }
+
   // ─── Claim Accumulator Queries ──────────────────────────
 
   /** Get all claims for a member wallet ID */
@@ -209,6 +231,15 @@ export class L2Client {
     return this.rpcCall('l2_getWalletWitnesses', { walletId });
   }
 
+  /** Get the current wallet state (nonce + credentialInventoryRoot) */
+  async getWalletState(walletId: string): Promise<{
+    walletId: string;
+    credentialInventoryRoot: string;
+    nonce: string;
+  }> {
+    return this.rpcCall('l2_getWalletState', { walletId });
+  }
+
   /**
    * Reconstruct a member's accumulator totals from claim history.
    * Used during wallet migration to seed the new wallet's AccumulatorData.
@@ -253,6 +284,12 @@ export class L2Client {
     brandName?: string;
     daysSupply?: number;
     fillNumber?: number;
+    /** NADAC ingredient cost in cents */
+    ingredientCostCents?: number;
+    /** Pharmacy dispensing fee in cents */
+    dispensingFeeCents?: number;
+    /** Quantity dispensed */
+    quantityDispensed?: number;
   }): Promise<{ ok: boolean; leafIndex: string; leafHash: string }> {
     return this.rpcCall('l2_recordFill', params);
   }

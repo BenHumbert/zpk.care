@@ -212,14 +212,31 @@
     loadGroupsTable();
   }
 
-  function toggleCreateGroupForm() {
+  async function toggleCreateGroupForm() {
     const el = document.getElementById('create-group-form');
     if (el.style.display === 'none') {
       el.style.display = 'block';
+
+      // Fetch available plans from insurer
+      let planOptions = '<option value="">-- Select a Plan --</option>';
+      try {
+        const plans = await API.getAvailablePlans();
+        if (Array.isArray(plans) && plans.length > 0) {
+          planOptions += plans.map(function (p) {
+            var pid = p.planId || p.id;
+            var label = esc(p.name) + ' (' + esc(pid) + ')';
+            if (p.published) label += ' [Published]';
+            return '<option value="' + esc(pid) + '">' + label + '</option>';
+          }).join('');
+        }
+      } catch { /* insurer not reachable — allow manual entry */ }
+
       el.innerHTML = '<div class="panel"><div class="panel-header"><span class="panel-title">Create New Group</span></div><div class="panel-body">' +
         '<div class="form-grid">' +
-          formField('cg-groupId', 'Group ID', 'text', 'e.g. GRP-001') +
-          formField('cg-planId', 'Plan ID', 'text', 'e.g. PLAN-A') +
+          formField('cg-groupId', 'Group ID', 'text', 'e.g. GRP-EPIC-ENG') +
+          '<div class="form-group"><label for="cg-planId">Benefit Plan</label>' +
+            '<select id="cg-planId" style="width:100%;padding:8px;border:1px solid var(--border-color,#ccc);border-radius:4px;font-size:13px">' + planOptions + '</select>' +
+            '<span class="field-error" id="cg-planId-err"></span></div>' +
           formField('cg-effectiveDate', 'Effective Date', 'date', '') +
           formField('cg-enrollmentCap', 'Enrollment Cap', 'number', 'e.g. 100') +
         '</div>' +

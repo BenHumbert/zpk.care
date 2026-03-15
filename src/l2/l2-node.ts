@@ -45,8 +45,12 @@ import type {
   BatchSettledPayload,
   BatchFailedPayload,
   MessageStoredPayload,
+  PlanUpdatedPayload,
+  PlanDeletedPayload,
+  FormularyUpdatedPayload,
 } from './l2-peer-types.js';
 import type { StoredMessage, MessagePayload, MessageStoreEntry } from './message-store-types.js';
+import type { BenefitPlanConfig } from './l2-types.js';
 import type { ProvingPool } from './l2-proving-pool.js';
 
 // ─── Settlement Strategy ─────────────────────────────────
@@ -130,6 +134,8 @@ export type L2EventType =
   | 'batch:failed'
   | 'audit:event'
   | 'formulary:updated'
+  | 'plan:updated'
+  | 'plan:deleted'
   | 'network:updated'
   | 'pool:worker:spawned'
   | 'pool:worker:compiling'
@@ -283,7 +289,7 @@ export class L2Node {
   async enableAttestations(seed?: string): Promise<void> {
     const { SequencerAttestationAuthority } = await import('../credentials/nfc-attestation.js');
     this.attestationAuthority = seed
-      ? SequencerAttestationAuthority.fromSeed(seed)
+      ? new SequencerAttestationAuthority(Buffer.from(seed, 'hex'))
       : new SequencerAttestationAuthority();
   }
 
@@ -292,7 +298,8 @@ export class L2Node {
     if (!this.attestationAuthority) return null;
 
     // Get current chain state for the attestation fields
-    const state = this.sequencer.getChainState();
+    const registryRoot = this.sequencer.getCurrentRegistryRoot().toString();
+    const globalStateRoot = this.sequencer.getCurrentGlobalStateRoot().toString();
     // Check wallet existence via any evidence of network registration
     // Also accept walletId directly if knownWallets set is provided (populated by RPC server entity registry)
     const receipts = this.sequencer.getReceiptsByWallet(walletId);
@@ -303,9 +310,9 @@ export class L2Node {
 
     const att = this.attestationAuthority.createAttestation({
       walletId,
-      credentialCommitment: state.registryRoot, // Best available commitment
+      credentialCommitment: registryRoot, // Best available commitment
       lifecycleState: 3, // ACTIVE (only registered wallets can request)
-      forestRoot: state.globalStateRoot ?? state.registryRoot,
+      forestRoot: globalStateRoot || registryRoot,
       expirySeconds,
     });
 
@@ -599,6 +606,65 @@ export class L2Node {
     }
 
     return entry;
+  }
+
+  /**
+   * Store a benefit plan and broadcast via gossip.
+   * Delegates to the sequencer's storePlanWithWal(), then broadcasts
+   * a `plan:updated` gossip message so replicas replicate the entry.
+   */
+  async storePlan(plan: BenefitPlanConfig): Promise<void> {
+    await this.sequencer.storePlanWithWal(plan);
+
+    if (this.role === 'sequencer' && this.peerNetwork) {
+      const gossipMsg: GossipMessage = {
+        messageId: generateMessageId('plan:updated', this.nodeId, Date.now(), plan.planId),
+        type: 'plan:updated',
+        senderId: this.nodeId,
+        timestamp: Date.now(),
+        payload: { plan } as PlanUpdatedPayload,
+      };
+      this.peerNetwork.broadcast(gossipMsg).catch(() => {});
+    }
+  }
+
+  /**
+   * Delete a benefit plan and broadcast via gossip.
+   */
+  async deletePlan(planId: string): Promise<boolean> {
+    const deleted = await this.sequencer.deletePlanWithWal(planId);
+    if (!deleted) return false;
+
+    if (this.role === 'sequencer' && this.peerNetwork) {
+      const gossipMsg: GossipMessage = {
+        messageId: generateMessageId('plan:deleted', this.nodeId, Date.now(), planId),
+        type: 'plan:deleted',
+        senderId: this.nodeId,
+        timestamp: Date.now(),
+        payload: { planId } as PlanDeletedPayload,
+      };
+      this.peerNetwork.broadcast(gossipMsg).catch(() => {});
+    }
+    return true;
+  }
+
+  /**
+   * Store a formulary and broadcast via gossip.
+   * Wraps sequencer.storeFormulary() with gossip replication.
+   */
+  storeFormularyWithGossip(planIdHash: string, formularyRoot: string, entriesJson: string): void {
+    this.sequencer.storeFormulary(planIdHash, formularyRoot, entriesJson);
+
+    if (this.role === 'sequencer' && this.peerNetwork) {
+      const gossipMsg: GossipMessage = {
+        messageId: generateMessageId('formulary:updated', this.nodeId, Date.now(), planIdHash),
+        type: 'formulary:updated',
+        senderId: this.nodeId,
+        timestamp: Date.now(),
+        payload: { planIdHash, formularyRoot, entriesJson } as FormularyUpdatedPayload,
+      };
+      this.peerNetwork.broadcast(gossipMsg).catch(() => {});
+    }
   }
 
   // ─── Events ─────────────────────────────────────────────
@@ -916,6 +982,27 @@ export class L2Node {
           payload.message,
           payload.payload,
         );
+        break;
+      }
+
+      case 'plan:updated': {
+        if (this.role !== 'replica') return;
+        const planPayload = msg.payload as PlanUpdatedPayload;
+        this.sequencer.applyReplicatedPlan(planPayload.plan);
+        break;
+      }
+
+      case 'plan:deleted': {
+        if (this.role !== 'replica') return;
+        const delPayload = msg.payload as PlanDeletedPayload;
+        this.sequencer.applyReplicatedPlanDeletion(delPayload.planId);
+        break;
+      }
+
+      case 'formulary:updated': {
+        if (this.role !== 'replica') return;
+        const formPayload = msg.payload as FormularyUpdatedPayload;
+        this.sequencer.storeFormulary(formPayload.planIdHash, formPayload.formularyRoot, formPayload.entriesJson);
         break;
       }
 
@@ -1297,7 +1384,9 @@ export class L2Node {
     if (!job) return emptyBatch;
 
     try {
-      const result = await this.provingPool!.prove(job);
+      const proofCount = job.transitionProofJsons.length;
+      const desc = `Batch — ${proofCount} proof${proofCount !== 1 ? 's' : ''}${job.adminState ? ' + chain' : ''}`;
+      const result = await this.provingPool!.prove(job, desc);
       return await this.sequencer.finalizeBatch(result);
     } catch (err) {
       // Proving failed — restore drained transitions to the pool
@@ -1413,7 +1502,7 @@ export class L2Node {
       }
     }
 
-    return {
+    const checkpoint: L2Checkpoint = {
       version: CHECKPOINT_VERSION,
       createdAt: Date.now(),
       trigger,
@@ -1427,6 +1516,13 @@ export class L2Node {
         nextSettlementId: this.nextSettlementId,
       },
     };
+
+    // Persist known wallets for attestation eligibility after restart
+    if (this.knownWallets && this.knownWallets.size > 0) {
+      checkpoint.sequencerState.knownWallets = Array.from(this.knownWallets);
+    }
+
+    return checkpoint;
   }
 
   /**
@@ -1442,6 +1538,14 @@ export class L2Node {
     this.totalBatchesSettled = checkpoint.nodeStats.totalBatchesSettled;
     this.totalBatchesFailed = checkpoint.nodeStats.totalBatchesFailed;
     this.nextSettlementId = checkpoint.nodeStats.nextSettlementId;
+
+    // Restore known wallets for attestation eligibility
+    if (checkpoint.sequencerState.knownWallets) {
+      if (!this.knownWallets) this.knownWallets = new Set();
+      for (const wid of checkpoint.sequencerState.knownWallets) {
+        this.knownWallets.add(wid);
+      }
+    }
   }
 
   /**

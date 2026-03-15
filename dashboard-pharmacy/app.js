@@ -422,8 +422,12 @@
           '<button class="btn btn-sm btn-danger" onclick="App.rejectScript(\'' + escapeHtml(key) + '\')">Reject</button>' +
           '<button class="btn btn-sm" onclick="App.transferScript(\'' + escapeHtml(key) + '\')">Transfer</button>';
       } else if (columnType === 'dispensed') {
+        var memberWid = claim.memberWalletId || claim.patient || claim.patientWalletId || '';
+        var isVerified = verifiedMemberWallet && memberWid && verifiedMemberWallet === memberWid;
         actionsHtml =
-          '<button class="btn btn-sm btn-paid' + (paid ? ' paid' : '') + '" onclick="App.markPaid(\'' + escapeHtml(key) + '\')">' + (paid ? 'PAID' : 'PAID') + '</button>' +
+          (isVerified
+            ? '<button class="btn btn-sm btn-paid" onclick="App.markPaid(\'' + escapeHtml(key) + '\')">PAID</button>'
+            : '<span class="btn btn-sm" style="opacity:0.4;cursor:not-allowed" title="Verify member first (NFC/attestation)">PAID</span>') +
           '<button class="btn btn-sm btn-reverse" onclick="App.reverseScript(\'' + escapeHtml(key) + '\')">Reverse</button>' +
           '<button class="btn btn-sm" onclick="App.transferScript(\'' + escapeHtml(key) + '\')">Transfer</button>';
       } else if (columnType === 'filled') {
@@ -446,8 +450,11 @@
         '</div>' +
         '<div class="script-card-bottom">' +
           '<div class="script-pricing">' +
-            '<span class="script-price-tag patient-pay">' + escapeHtml(patientPay) + '</span>' +
-            '<span class="script-price-tag plan-pay">' + escapeHtml(planPay) + '</span>' +
+            '<span class="script-price-tag patient-pay" title="Member Copay">' + escapeHtml(patientPay) + '</span>' +
+            '<span class="script-price-tag plan-pay" title="Plan Pays">' + escapeHtml(planPay) + '</span>' +
+            (claim.ingredientCostCents || (claim.metadata && claim.metadata.ingredientCostCents)
+              ? '<span class="script-price-tag drug-cost" title="NADAC + Dispensing Fee">' + formatCents(Number(claim.ingredientCostCents || claim.metadata.ingredientCostCents) + Number(claim.dispensingFeeCents || (claim.metadata && claim.metadata.dispensingFeeCents) || 0)) + '</span>'
+              : '') +
           '</div>' +
           '<div class="script-actions" onclick="event.stopPropagation();">' + actionsHtml + '</div>' +
         '</div>' +
@@ -506,6 +513,11 @@
       } catch (_) { /* use defaults */ }
     }
 
+    // NADAC transparent pricing — pharmacy reports actual cost breakdown
+    var ingredientCostCents = Number(claim.ingredientCostCents || claim.ingredientCost || 0);
+    var dispensingFeeCents = Number(claim.dispensingFeeCents || claim.dispensingFee || 1300); // default $13 dispensing fee
+    var quantityDispensed = Number(claim.quantityDispensed || claim.quantity || 0);
+
     // Record the fill on the sequencer's claim accumulator (best-effort)
     API.dispensing.fill({
       memberWalletId: claim.memberWalletId || claim.patient || claim.patientWalletId || '',
@@ -517,11 +529,17 @@
       ndc: claim.ndc || '',
       patientPayCents: patientPayCents,
       planPayCents: planPayCents,
+      ingredientCostCents: ingredientCostCents,
+      dispensingFeeCents: dispensingFeeCents,
+      quantityDispensed: quantityDispensed,
     }).then(function (result) {
       // Update claim with the leaf index and adjudicated pricing
       if (result && result.leafIndex) claim.leafIndex = result.leafIndex;
       claim.patientPayCents = patientPayCents;
       claim.planPayCents = planPayCents;
+      claim.ingredientCostCents = ingredientCostCents;
+      claim.dispensingFeeCents = dispensingFeeCents;
+      claim.quantityDispensed = quantityDispensed;
       claim._isEscript = false;
       renderWorkstationColumns();
     }).catch(function (err) {
@@ -559,9 +577,21 @@
     renderWorkstationColumns();
   }
 
+  function fillScript(key) {
+    const claim = findClaimByKey(key);
+    if (!claim) return;
+    setScriptStatus(claim, 'filled');
+    renderWorkstationColumns();
+  }
+
   function markPaid(key) {
     const claim = findClaimByKey(key);
     if (!claim) return;
+    var status = getScriptStatus(claim);
+    // PAID on a dispensed script also marks it as filled (payment = pickup complete)
+    if (status === 'dispensed') {
+      setScriptStatus(claim, 'filled');
+    }
     setScriptPaid(claim);
     renderWorkstationColumns();
   }
@@ -612,14 +642,45 @@
     statusEl.textContent = 'Verifying...';
 
     try {
-      const result = await API.nfc.scan({ walletId: walletId });
+      // Try to parse as JSON attestation (credential-attestation or wrapper)
+      var scanParams = {};
+      try {
+        var parsed = JSON.parse(walletId);
+        if (parsed.type === 'credential-attestation' && parsed.attestation) {
+          // Full wrapper: { type, version, walletId, attestation }
+          scanParams = { attestation: parsed.attestation };
+        } else if (parsed.v === 2 && parsed.t === 'credential-attestation' && parsed.sig) {
+          // Raw attestation object
+          scanParams = { attestation: parsed };
+        } else if (parsed.w) {
+          // Some NFC payload with a wallet field
+          scanParams = { payloadObject: parsed };
+        } else {
+          scanParams = { walletId: walletId };
+        }
+      } catch (_) {
+        // Not JSON — treat as raw walletId
+        scanParams = { walletId: walletId };
+      }
+
+      const result = await API.nfc.scan(scanParams);
       verifiedMemberWallet = result.walletId || walletId;
 
       // Move their dispensed scripts to filled
       const moved = fillScriptsForMember(verifiedMemberWallet);
 
+      // Build verification status text
+      var statusText = 'Verified: ' + truncate(verifiedMemberWallet, 20);
+      if (result.attestationVerified) {
+        statusText += ' [Attestation: Ed25519 signature valid';
+        if (result.attestationExpired) statusText += ', EXPIRED';
+        statusText += ']';
+      }
+      if (moved > 0) statusText += ' — ' + moved + ' script(s) moved to Filled';
+      else statusText += ' — no dispensed scripts found';
+
       statusEl.classList.add('verified');
-      statusEl.textContent = 'Verified: ' + truncate(verifiedMemberWallet, 20) + (moved > 0 ? ' — ' + moved + ' script(s) moved to Filled' : ' — no dispensed scripts found');
+      statusEl.textContent = statusText;
 
       renderWorkstationColumns();
     } catch (err) {
@@ -629,6 +690,12 @@
   }
 
   async function nfcScanHardware() {
+    // If the textarea already has content, treat it as a pasted credential/walletId
+    const pastedContent = $('#ws-verify-wallet').value.trim();
+    if (pastedContent) {
+      return verifyMember(pastedContent);
+    }
+
     const statusEl = $('#ws-verify-status');
     statusEl.classList.remove('hidden', 'verified', 'error');
     statusEl.textContent = 'Scanning NFC tag...';
@@ -658,19 +725,42 @@
     const issue = getScriptIssue(claim);
     const w = scriptWorkflow[key] || {};
 
+    // Resolve pricing metadata from leaf or claim-level data
+    var meta = claim.metadata || {};
+    var ingredientCost = meta.ingredientCostCents || claim.ingredientCostCents || claim.ingredientCost;
+    var dispensingFee = meta.dispensingFeeCents || claim.dispensingFeeCents || claim.dispensingFee;
+    var totalDrugCost = meta.totalDrugCostCents || claim.totalDrugCostCents;
+    if (!totalDrugCost && ingredientCost != null && dispensingFee != null) {
+      totalDrugCost = Number(ingredientCost) + Number(dispensingFee);
+    }
+    var qty = meta.quantityDispensed || claim.quantityDispensed || claim.quantity;
+
     const fields = [
       ['Leaf Index', claim.leafIndex || claim.index],
       ['Member Wallet', claim.memberWalletId || claim.patient || claim.patientWalletId],
       ['Medication (NDC Hash)', claim.ndcHash || claim.medication],
+      ['Brand Name', meta.brandName || claim.brandName],
       ['Prescriber Wallet', claim.prescriberWalletId || claim.prescriber],
       ['Pharmacy Wallet', claim.pharmacyWalletId || claim.pharmacy],
       ['Date of Service', formatDate(claim.dateOfService || claim.date)],
-      ['Patient Pay', formatCents(claim.patientPayCents || claim.patientPay)],
-      ['Plan Pay', formatCents(claim.planPayCents || claim.planPay)],
-      ['Deductible Credit', formatCents(claim.deductibleCreditCents || claim.deductibleCredit)],
-      ['Workflow Status', status.toUpperCase()],
-      ['Payment', paid ? 'PAID' : 'UNPAID'],
+      ['Qty Dispensed', qty || '--'],
+      ['Days Supply', meta.daysSupply || claim.daysSupply || '--'],
     ];
+
+    // NADAC transparent pricing breakdown
+    if (ingredientCost != null || dispensingFee != null) {
+      fields.push(['--- COST BREAKDOWN ---', '']);
+      fields.push(['NADAC Ingredient Cost', formatCents(ingredientCost)]);
+      fields.push(['Dispensing Fee', formatCents(dispensingFee)]);
+      fields.push(['Total Drug Cost', formatCents(totalDrugCost)]);
+    }
+
+    fields.push(['--- SETTLEMENT ---', '']);
+    fields.push(['Patient Copay', formatCents(claim.patientPayCents || claim.patientPay)]);
+    fields.push(['Plan Pays', formatCents(claim.planPayCents || claim.planPay)]);
+    fields.push(['Deductible Credit', formatCents(claim.deductibleCreditCents || claim.deductibleCredit)]);
+    fields.push(['Workflow Status', status.toUpperCase()]);
+    fields.push(['Payment', paid ? 'PAID' : 'UNPAID']);
 
     if (issue) fields.push(['Issue', issue]);
     if (w.transferTo) fields.push(['Transferred To', w.transferTo]);
@@ -690,7 +780,17 @@
       html += '<button class="btn btn-danger" onclick="App.rejectScript(\'' + escapeHtml(key) + '\'); App.closeModal();">Reject</button>';
       html += '<button class="btn" onclick="App.transferScript(\'' + escapeHtml(key) + '\'); App.closeModal();">Transfer</button>';
     }
-    if (status === 'dispensed' || status === 'filled') {
+    if (status === 'dispensed') {
+      var memberWid = claim.memberWalletId || claim.patient || claim.patientWalletId || '';
+      var isVerified = verifiedMemberWallet && memberWid && verifiedMemberWallet === memberWid;
+      if (isVerified) {
+        html += '<button class="btn btn-paid" onclick="App.markPaid(\'' + escapeHtml(key) + '\'); App.closeModal();">Collect Payment & Fill</button>';
+      } else {
+        html += '<div style="color:var(--text-muted);font-size:12px;margin:8px 0">Verify member (NFC/attestation) to enable payment</div>';
+      }
+      html += '<button class="btn btn-reverse" onclick="App.reverseScript(\'' + escapeHtml(key) + '\'); App.closeModal();">Reverse</button>';
+    }
+    if (status === 'filled') {
       html += '<button class="btn btn-paid' + (paid ? ' paid' : '') + '" onclick="App.markPaid(\'' + escapeHtml(key) + '\'); App.closeModal();">Mark PAID</button>';
       html += '<button class="btn btn-reverse" onclick="App.reverseScript(\'' + escapeHtml(key) + '\'); App.closeModal();">Reverse</button>';
     }
@@ -1260,9 +1360,25 @@
           break;
         case 4:
           result = await API.onboarding.compile();
+          // Auto-submit registration proof after compile (phase is now 'ready')
+          if (resultEl) {
+            resultEl.classList.remove('error');
+            resultEl.textContent = 'Compiled — generating registration proof (30-120s)...';
+          }
+          try {
+            var proofRes = await API.proof.registration();
+            if (resultEl) resultEl.textContent = 'Compiled + proof submitted. Receipt: ' + (proofRes.receiptId || 'ok');
+            console.log('[onboard] Registration proof submitted to sequencer:', proofRes.receiptId);
+          } catch (proofErr) {
+            console.error('[onboard] Registration proof failed after compile:', proofErr.message);
+            if (resultEl) {
+              resultEl.classList.add('error');
+              resultEl.textContent = 'Compiled but proof failed: ' + (proofErr.message || String(proofErr)) + ' — use Proofs tab to retry';
+            }
+          }
           break;
       }
-      if (resultEl) {
+      if (resultEl && !resultEl.textContent) {
         resultEl.classList.remove('error');
         resultEl.textContent = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
       }
@@ -1363,7 +1479,12 @@
       verifyMember();
     });
     $('#ws-verify-wallet').addEventListener('keypress', function (e) {
-      if (e.key === 'Enter') verifyMember();
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); verifyMember(); }
+    });
+    $('#ws-verify-wallet').addEventListener('input', function () {
+      // Auto-resize textarea for JSON attestation payloads
+      this.style.height = 'auto';
+      this.style.height = Math.min(this.scrollHeight, 120) + 'px';
     });
     $('#ws-modal-close').addEventListener('click', closeModal);
     $('#ws-modal-overlay').addEventListener('click', function (e) {
@@ -1638,6 +1759,7 @@
   // Expose for inline onclick handlers
   window.App = {
     dispenseScript: dispenseScript,
+    fillScript: fillScript,
     rejectScript: rejectScript,
     transferScript: transferScript,
     markPaid: markPaid,

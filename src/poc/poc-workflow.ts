@@ -10,7 +10,7 @@
 import { Field, Poseidon } from 'o1js';
 import type { L2Leviathan } from '../l2/l2-leviathan.js';
 import { getPartition } from '../l2/l2-partition.js';
-import { DEMO_MEDICATIONS } from '../demo/medications.js';
+import { DEMO_MEDICATIONS } from '../data/index.js';
 import {
   ReceiptFactory,
   getMedicationPricing,

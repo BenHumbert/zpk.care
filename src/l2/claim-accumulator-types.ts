@@ -94,6 +94,16 @@ export interface ClaimMetadata {
   daysSupply?: number;
   /** Fill number: 0=original, 1+=refill */
   fillNumber?: number;
+
+  // ─── NADAC Transparent Pricing Breakdown ──────────────
+  /** Drug ingredient cost in cents (NADAC acquisition cost) */
+  ingredientCostCents?: number;
+  /** Pharmacy dispensing fee in cents (e.g. 1300 = $13.00) */
+  dispensingFeeCents?: number;
+  /** Total drug cost in cents (ingredient + dispensing fee) */
+  totalDrugCostCents?: number;
+  /** Quantity dispensed (decimal, e.g. 30 tablets) */
+  quantityDispensed?: number;
 }
 
 // ─── Claim Accumulator Entry ────────────────────────────────
@@ -107,7 +117,7 @@ export interface ClaimMetadata {
 export interface ClaimAccumulatorEntry {
   /** Position in the MerkleTree (0-indexed) */
   leafIndex: bigint;
-  /** The cryptographic leaf data (8 Fields) */
+  /** The cryptographic leaf data (9 Fields) */
   leaf: ClaimLeaf;
   /** The Poseidon hash of the leaf (what's actually in the tree) */
   leafHash: string;

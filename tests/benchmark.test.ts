@@ -77,8 +77,8 @@ import { OpaqueRoster } from '../src/onboarding/opaque-roster.js';
 import { PlanTemplate } from '../src/onboarding/plan-template.js';
 import { EnrollmentService } from '../src/onboarding/enrollment-service.js';
 
-// Demo
-import { DEMO_PRESCRIBERS, DEMO_PHARMACIES, DEMO_MEMBERS, getAllFormularyEntries } from '../src/demo/index.js';
+// Production data
+import { DEMO_PRESCRIBERS, DEMO_PHARMACIES, DEMO_MEMBERS, getAllFormularyEntries } from '../src/data/index.js';
 
 // ─── Timing Infrastructure ──────────────────────────────────
 

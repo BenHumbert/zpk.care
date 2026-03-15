@@ -28,6 +28,7 @@ import type { L2PeerNetwork } from './l2-peer-network.js';
 import type { GossipMessage, PeerInfo, StateDigest } from './l2-peer-types.js';
 import { ProviderLifecycle, PROVIDER_TYPE_TAG } from './provider-registry-types.js';
 import type { ProviderType } from './provider-registry-types.js';
+import type { BenefitPlanConfig } from './l2-types.js';
 import { hashString } from '../zkp/hash-utils.js';
 import { AuditService } from '../audit/audit-service.js';
 
@@ -169,10 +170,11 @@ export class L2RpcServer {
   private static readonly ADMIN_METHODS = new Set([
     'l2_forceBatch',
     'l2_storeFormulary',
+    'l2_storePlan',
+    'l2_deletePlan',
     'l2_registerEntity',
     'l2_credentialProvider',
     'l2_updateProviderStatus',
-    'l2_syncFromL1',
     'l2_requestSnapshot',
     'l2_gossipRelay',
     'l2_recordFill',
@@ -604,9 +606,10 @@ export class L2RpcServer {
         this.sendRpcError(res, rpcReq.id, RPC_PROOF_REJECTED, message);
       } else if (message.includes('not running')) {
         this.sendRpcError(res, rpcReq.id, RPC_NODE_NOT_RUNNING, message);
-      } else if (message.includes('Missing or invalid') || message.includes('not configured') || message.includes('Duplicate proof') || message.includes('Wrong partition') || message.includes('Not leader') || message.includes('Not a leviathan') || message.includes('already registered') || message.includes('registry full')) {
+      } else if (message.includes('Missing or invalid') || message.includes('not configured') || message.includes('Duplicate proof') || message.includes('Wrong partition') || message.includes('Not leader') || message.includes('Not a leviathan') || message.includes('already registered') || message.includes('registry full') || message.includes('unavailable') || message.includes('not known')) {
         this.sendRpcError(res, rpcReq.id, RPC_INVALID_PARAMS, message);
       } else {
+        console.error(`[rpc] Internal error in ${rpcReq.method}:`, err);
         this.sendRpcError(res, rpcReq.id, RPC_INTERNAL_ERROR, 'Internal error');
       }
     }
@@ -855,7 +858,10 @@ export class L2RpcServer {
         if (typeof entriesJson !== 'string') {
           throw new Error('Missing or invalid entriesJson parameter');
         }
-        this.node.getSequencer().storeFormulary(planIdHash, formularyRoot, entriesJson);
+        // Use gossip-aware method for replication to peers
+        // Both L2Node and L2Leviathan implement storeFormularyWithGossip()
+        await (this.node as unknown as { storeFormularyWithGossip(p: string, r: string, e: string): Promise<void> })
+          .storeFormularyWithGossip(planIdHash, formularyRoot, entriesJson);
         this.node.emit({
           type: 'formulary:updated',
           timestamp: Date.now(),
@@ -864,25 +870,41 @@ export class L2RpcServer {
         return { success: true, planIdHash, formularyRoot };
       }
 
+      // ── Plan Store CRUD ──
+
+      case 'l2_storePlan': {
+        const plan = params.plan as BenefitPlanConfig | undefined;
+        if (!plan || typeof plan.planId !== 'string' || typeof plan.name !== 'string') {
+          throw new Error('Missing or invalid plan parameter (requires planId, name)');
+        }
+        await this.node.storePlan(plan);
+        this.node.emit({ type: 'plan:updated', timestamp: Date.now(), data: { planId: plan.planId } });
+        return { success: true, planId: plan.planId };
+      }
+
+      case 'l2_getPlan': {
+        const planId = params.planId;
+        if (typeof planId !== 'string') throw new Error('Missing planId parameter');
+        return this.node.getSequencer().getPlan(planId);
+      }
+
+      case 'l2_getPlans': {
+        return this.node.getSequencer().getPlans();
+      }
+
+      case 'l2_deletePlan': {
+        const planId = params.planId;
+        if (typeof planId !== 'string') throw new Error('Missing planId parameter');
+        const deleted = await this.node.deletePlan(planId);
+        if (deleted) {
+          this.node.emit({ type: 'plan:deleted', timestamp: Date.now(), data: { planId } });
+        }
+        return { success: deleted, planId };
+      }
+
       case 'l2_syncFromL1': {
-        const regRoot = params.registryRoot;
-        const lcRoot = params.lifecycleRoot;
-        const walletCount = params.walletCount;
-        if (typeof regRoot !== 'string') {
-          throw new Error('Missing or invalid registryRoot parameter');
-        }
-        if (typeof lcRoot !== 'string') {
-          throw new Error('Missing or invalid lifecycleRoot parameter');
-        }
-        if (typeof walletCount !== 'string') {
-          throw new Error('Missing or invalid walletCount parameter');
-        }
-        this.node.syncFromL1(
-          Field(BigInt(regRoot)),
-          Field(BigInt(lcRoot)),
-          Field(BigInt(walletCount)),
-        );
-        return { success: true, registryRoot: regRoot, lifecycleRoot: lcRoot, walletCount };
+        // L1 sync disabled — Leviathan is the sole trust layer (no MINA L1)
+        throw new Error('l2_syncFromL1 is disabled: this network operates in L2-only mode without MINA L1');
       }
 
       // ── Claim Accumulator queries ──
@@ -949,9 +971,22 @@ export class L2RpcServer {
         const fillOpType = (params.operationType as string) ?? '1';
         const fillDeductible = (params.deductibleCreditCents as string) ?? '0';
         const fillSeq = this.node.getSequencer();
+        const fillIngredient = params.ingredientCostCents != null ? Number(params.ingredientCostCents) : undefined;
+        const fillDispFee = params.dispensingFeeCents != null ? Number(params.dispensingFeeCents) : undefined;
+        const fillQty = params.quantityDispensed != null ? Number(params.quantityDispensed) : undefined;
+        const fillTotalDrug = (fillIngredient != null && fillDispFee != null) ? fillIngredient + fillDispFee : undefined;
         const fillEntry = fillSeq.recordFill(
           { memberWalletId: fillMember, ndcHash: fillNdc, pharmacyWalletId: fillPharmacy, prescriberWalletId: fillPrescriber, dateOfService: fillDate, patientPayCents: fillPatientPay, planPayCents: fillPlanPay, operationType: fillOpType, deductibleCreditCents: fillDeductible },
-          { receiptId: `FILL-${Date.now()}`, timestamp: Date.now(), ndc: params.ndc as string, brandName: params.brandName as string, daysSupply: params.daysSupply as number, fillNumber: params.fillNumber as number },
+          { receiptId: `FILL-${Date.now()}`, timestamp: Date.now(), ndc: params.ndc as string, brandName: params.brandName as string, daysSupply: params.daysSupply as number, fillNumber: params.fillNumber as number, ingredientCostCents: fillIngredient, dispensingFeeCents: fillDispFee, totalDrugCostCents: fillTotalDrug, quantityDispensed: fillQty },
+        );
+        // Emit viz event for pharmacy fill
+        const fillPharmacyEntity = this.entityRegistry.get(fillPharmacy);
+        const fillMemberEntity = this.entityRegistry.get(fillMember);
+        this.emitVizEvent('viz:pharmacy:dispensed', 'fulfillment',
+          fillPharmacyEntity?.displayName ?? fillPharmacy.slice(0, 12) + '…',
+          'pharmacy',
+          { memberWalletId: fillMember, ndcHash: fillNdc, leafIndex: fillEntry.leafIndex.toString(), brandName: params.brandName, daysSupply: params.daysSupply },
+          { target: fillMemberEntity?.displayName ?? fillMember.slice(0, 12) + '…', targetType: 'member' },
         );
         return { ok: true, leafIndex: fillEntry.leafIndex.toString(), leafHash: fillEntry.leafHash };
       }
@@ -964,6 +999,12 @@ export class L2RpcServer {
         const wid = params.walletId ?? params[0];
         if (typeof wid !== 'string') throw new Error('Missing walletId parameter');
         return this.node.getSequencer().getWalletWitnesses(wid);
+      }
+
+      case 'l2_getWalletState': {
+        const wid = params.walletId ?? params[0];
+        if (typeof wid !== 'string') throw new Error('Missing walletId parameter');
+        return this.node.getSequencer().getWalletStateForRpc(wid);
       }
 
       // ── Message Store queries ──
@@ -1049,7 +1090,17 @@ export class L2RpcServer {
           timestamp: typeof pl.timestamp === 'number' ? pl.timestamp : Date.now(),
           receiptId: typeof pl.receiptId === 'string' ? pl.receiptId : undefined,
         };
-        return this.node.storeMessage(storedMessage, messagePayload);
+        const storeResult = this.node.storeMessage(storedMessage, messagePayload);
+        // Emit viz event for messaging
+        const senderEntity = this.entityRegistry.get(storedMessage.senderWalletId);
+        const recipientEntity = this.entityRegistry.get(storedMessage.recipientWalletId);
+        this.emitVizEvent('viz:message:sent', 'messaging',
+          senderEntity?.displayName ?? storedMessage.senderWalletId.slice(0, 12) + '…',
+          (senderEntity?.type as VizActorType) ?? 'member',
+          { messageType: rawType, threadIdHash: storedMessage.threadIdHash, leafIndex: String(storeResult.leafIndex), leafHash: storeResult.leafHash },
+          { target: recipientEntity?.displayName ?? storedMessage.recipientWalletId.slice(0, 12) + '…', targetType: recipientEntity?.type ?? 'prescriber' },
+        );
+        return storeResult;
       }
 
       // ── Entity Registry (admin-gated) — dual-writes to viz registry + provider registry ──
@@ -1101,7 +1152,14 @@ export class L2RpcServer {
           }
         }
         // Track wallet for attestation eligibility
-        this.node.registerKnownWallet(walletId);
+        if ('registerKnownWallet' in this.node) {
+          (this.node as L2Node).registerKnownWallet(walletId);
+        }
+        // Emit viz event for entity registration
+        this.emitVizEvent('viz:enrollment:started', 'enrollment',
+          displayName, type as VizActorType,
+          { walletId, type, specialty: params.specialty, pharmacyType: params.pharmacyType },
+        );
         return { ok: true, walletId, displayName, type };
       }
 
@@ -1153,6 +1211,12 @@ export class L2RpcServer {
           specialty: params.specialty as string | undefined,
           pharmacyType: params.pharmacyType as string | undefined,
         });
+        // Emit viz event for provider credentialing
+        this.emitVizEvent('viz:credential:generated', 'enrollment',
+          displayName, providerType as VizActorType,
+          { walletId, providerType, leafIndex: entry.leafIndex.toString(), credentialState: entry.leaf.credentialState, npi: npi || undefined },
+          { target: 'Provider Registry', targetType: 'leviathan' },
+        );
         return {
           ok: true,
           leafIndex: entry.leafIndex.toString(),
@@ -1170,6 +1234,13 @@ export class L2RpcServer {
         if (isNaN(newState) || newState < 0 || newState > 4) throw new Error('Invalid newState (0-4)');
         const seq = this.node.getSequencer();
         const entry = seq.updateProviderStatus(walletId, newState);
+        // Emit viz event for provider status update
+        const STATE_NAMES = ['pending', 'verified', 'active', 'suspended', 'terminated'];
+        this.emitVizEvent('viz:enrollment:lifecycle', 'enrollment',
+          entry.metadata.displayName, entry.metadata.providerType as VizActorType,
+          { walletId, newState, stateName: STATE_NAMES[newState] ?? 'unknown', providerType: entry.metadata.providerType },
+          { target: 'Provider Registry', targetType: 'leviathan' },
+        );
         return {
           ok: true,
           walletId,
@@ -1317,13 +1388,20 @@ export class L2RpcServer {
       // ── NFC Attestation ──
 
       case 'l2_requestAttestation': {
+        if (!('requestAttestation' in this.node)) {
+          throw new Error('Attestation not available on this node type');
+        }
         const walletId = params.walletId;
         if (typeof walletId !== 'string') {
           throw new Error('Missing or invalid walletId parameter');
         }
+        // Ensure entity-registry wallets are known to the node (survives restarts)
+        if (this.entityRegistry.has(walletId) && 'registerKnownWallet' in this.node) {
+          (this.node as L2Node).registerKnownWallet(walletId);
+        }
         const expirySeconds = typeof params.expirySeconds === 'number'
           ? params.expirySeconds : undefined;
-        const att = this.node.requestAttestation(walletId, expirySeconds);
+        const att = (this.node as L2Node).requestAttestation(walletId, expirySeconds);
         if (!att) {
           throw new Error('Attestation unavailable — wallet not found or attestation authority not configured');
         }
@@ -1331,11 +1409,14 @@ export class L2RpcServer {
       }
 
       case 'l2_getAttestation': {
+        if (!('getAttestation' in this.node)) {
+          throw new Error('Attestation not available on this node type');
+        }
         const walletId = params.walletId;
         if (typeof walletId !== 'string') {
           throw new Error('Missing or invalid walletId parameter');
         }
-        const cached = this.node.getAttestation(walletId);
+        const cached = (this.node as L2Node).getAttestation(walletId);
         if (!cached) {
           throw new Error('No cached attestation for this wallet');
         }
@@ -1343,7 +1424,10 @@ export class L2RpcServer {
       }
 
       case 'l2_getAttestationPublicKey': {
-        const pk = this.node.getAttestationPublicKey();
+        if (!('getAttestationPublicKey' in this.node)) {
+          throw new Error('Attestation not available on this node type');
+        }
+        const pk = (this.node as L2Node).getAttestationPublicKey();
         if (!pk) throw new Error('Attestation authority not configured');
         return { publicKey: pk };
       }
@@ -1598,7 +1682,7 @@ export class L2RpcServer {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',
     });
-    res.end(JSON.stringify(this.vizEventBuffer));
+    res.end(l2Stringify(this.vizEventBuffer));
   }
 
   /** Clear viz event buffer and entity registry (POST /viz/clear) */
@@ -1665,7 +1749,7 @@ export class L2RpcServer {
 
   /** Broadcast a VizEvent to all viz SSE clients */
   private broadcastVizSSE(event: VizEvent): void {
-    const data = JSON.stringify(event);
+    const data = l2Stringify(event);
     for (const client of this.vizSseClients) {
       try {
         client.write(`data: ${data}\n\n`);
@@ -1673,6 +1757,38 @@ export class L2RpcServer {
         this.vizSseClients.delete(client);
       }
     }
+  }
+
+  /**
+   * Emit a viz event from an RPC handler — pushes to buffer + broadcasts via SSE.
+   * This wires up sequencer operations that are otherwise silent (no chain event).
+   */
+  private emitVizEvent(
+    type: VizEventType,
+    lane: VizLane,
+    actor: string,
+    actorType: VizActorType,
+    data: Record<string, unknown>,
+    opts?: { target?: string; targetType?: string; stage?: number; totalStages?: number },
+  ): void {
+    const event: VizEvent = {
+      type,
+      timestamp: Date.now(),
+      id: `viz-${String(++this.vizEventIdCounter).padStart(6, '0')}`,
+      actor,
+      actorType,
+      data,
+      lane,
+      stage: opts?.stage ?? 1,
+      totalStages: opts?.totalStages ?? 1,
+      target: opts?.target,
+      targetType: opts?.targetType,
+    };
+    this.vizEventBuffer.push(event);
+    if (this.vizEventBuffer.length > 10_000) {
+      this.vizEventBuffer.shift();
+    }
+    this.broadcastVizSSE(event);
   }
 
   /** Number of connected viz SSE clients */

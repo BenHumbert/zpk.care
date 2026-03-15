@@ -12,14 +12,16 @@
  *   - secureMemberDerivation() immediately scrubs the input
  *   - The enrollment key NEVER appears in any API response
  */
-import { Field } from 'o1js';
+import { Field, MerkleTree } from 'o1js';
 import { generateEnrollmentKey } from '../../wallets/wallet-derivation.js';
-import { WalletRegistryWitness } from '../../wallets/wallet-state.js';
+import { WalletRegistryWitness, CREDENTIAL_INVENTORY_HEIGHT } from '../../wallets/wallet-state.js';
 import { LifecycleWitness } from '../../engine/lifecycle.js';
 import { secureMemberDerivation } from '../../security/secure-context.js';
 import { exportEnrollmentBackup, importEnrollmentBackup } from '../../security/enrollment-backup.js';
-import { buildPcpAssignmentData } from '../../eligibility/pcp-assignment-data.js';
+import { buildPcpAssignmentData, PCP_ASSIGNMENT_LEAF_INDEX } from '../../eligibility/pcp-assignment-data.js';
 import type { PcpAssignmentLocalData } from '../../eligibility/pcp-assignment-data.js';
+import { MerkleForest, ForestDomain } from '../../zkp/merkle-forest.js';
+import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY } from '../../credentials/credential-data.js';
 import { buildNfcIdentityRecord, fitsOnTag } from '../nfc-identity.js';
 import { MemberNode } from '../member-node.js';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
@@ -245,7 +247,9 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
           }),
         });
         sequencerRegistered = regResp.ok;
-      } catch { /* sequencer unreachable — continue */ }
+      } catch (seqErr: unknown) {
+        console.warn('[enroll] Sequencer registration failed:', seqErr instanceof Error ? seqErr.message : String(seqErr));
+      }
 
       // Notify insurer of enrollment (non-blocking — enrollment succeeds even if insurer is unreachable)
       let insurerNotified = false;
@@ -257,7 +261,10 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
             body: JSON.stringify({ walletId: data.walletId, tokenId: data.onboarding.tokenId, role: 'member' }),
           });
           insurerNotified = resp.ok;
-        } catch { /* insurer unreachable — continue */ }
+          if (!resp.ok) console.warn('[enroll] Insurer notification returned non-OK:', resp.status);
+        } catch (insErr: unknown) {
+          console.warn('[enroll] Insurer notification failed:', insErr instanceof Error ? insErr.message : String(insErr));
+        }
       }
 
       data.onboarding.phase = 'enrolled';
@@ -655,6 +662,144 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
     },
   });
 
+  // ── Proof: PCP Assignment (wallet update) ─────────────────
+  // Generates a ZK proof that commits the PCP assignment into the
+  // MEMBER domain tree of the credential's MerkleForest, then submits
+  // the wallet update proof to the sequencer.
+
+  routes.push({
+    method: 'POST',
+    path: '/proof/pcp-assignment',
+    handler: async (_req, res, _params, _query, _body) => {
+      if (server.getOnboardingPhase() !== 'ready') {
+        return server.sendResponse(res, 409, false, undefined, `Cannot generate proof in phase: ${server.getOnboardingPhase()}`);
+      }
+      const node = server.getEntityNode() as MemberNode | null;
+      if (!node) {
+        return server.sendResponse(res, 409, false, undefined, 'Node not initialized');
+      }
+
+      const state = server.getLocalState();
+      const data = state.getState();
+      if (!data?.walletId || !data?.preimageFields) {
+        return server.sendResponse(res, 409, false, undefined, 'Wallet preimage not available');
+      }
+
+      const pcpAssignment = (data as any)?.pcpAssignment;
+      if (!pcpAssignment?.pcpWalletId) {
+        return server.sendResponse(res, 409, false, undefined, 'No PCP assignment — call /pcp/assign first');
+      }
+
+      try {
+        const client = node.getClient();
+
+        // 1. Get current wallet state from sequencer (nonce + credentialInventoryRoot)
+        const walletState = await client.getWalletState(data.walletId);
+        const oldNonce = Field(BigInt(walletState.nonce));
+        const oldCredentialRoot = Field(BigInt(walletState.credentialInventoryRoot));
+
+        // 2. Build PCP assignment data and compute its commitment
+        const pcpData = buildPcpAssignmentData({
+          memberWalletId: data.walletId,
+          pcpWalletId: pcpAssignment.pcpWalletId,
+          effectiveDate: pcpAssignment.effectiveDate,
+          terminationDate: '',
+          specialty: pcpAssignment.specialty ?? 'General Practice',
+          consentTimestamp: pcpAssignment.effectiveDate,
+          consentScopeFlags: pcpAssignment.consentScopeFlags ?? 7,
+        });
+        const pcpCommitment = pcpData.commitment();
+
+        // 3. Reconstruct the member's credential state:
+        //    - Empty MerkleForest (6 domain trees, height 8)
+        //    - Mutate MEMBER tree leaf 0 with PCP commitment
+        //    - Compute new forestRoot
+        const forest = new MerkleForest();
+        forest.setLeaf(ForestDomain.MEMBER, PCP_ASSIGNMENT_LEAF_INDEX, pcpCommitment);
+        const newForestRoot = forest.getForestRoot();
+
+        // 4. Build updated CredentialData with the new forestRoot
+        const updatedCredential = new CredentialData({
+          credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
+          forestRoot: newForestRoot,
+          issuerWalletId: Field(0), // self-issued PCP assignment
+          subjectWalletId: Field(BigInt(data.walletId)),
+          issuedAt: Field(BigInt(pcpAssignment.effectiveDate.replace(/-/g, '') || '0')),
+          expiresAt: Field(0),
+          revoked: Field(0),
+        });
+
+        // 5. Compute the new credentialInventoryRoot:
+        //    - Start with empty credential inventory tree (height 7)
+        //    - Set slot 0 = updatedCredential.commitment()
+        const inventoryTree = new MerkleTree(CREDENTIAL_INVENTORY_HEIGHT);
+        inventoryTree.setLeaf(0n, updatedCredential.commitment());
+        const newCredentialRoot = inventoryTree.getRoot();
+
+        // 6. Get witnesses from sequencer
+        const witnesses = await client.getWalletWitnesses(data.walletId);
+
+        const regWitnessData = typeof witnesses.registryWitnessJson === 'string'
+          ? JSON.parse(witnesses.registryWitnessJson)
+          : witnesses.registryWitnessJson;
+        const lcWitnessData = typeof witnesses.lifecycleWitnessJson === 'string'
+          ? JSON.parse(witnesses.lifecycleWitnessJson)
+          : witnesses.lifecycleWitnessJson;
+        const regWitness = WalletRegistryWitness.fromJSON(regWitnessData);
+        const lcWitness = LifecycleWitness.fromJSON(lcWitnessData);
+        const regRoot = Field(BigInt(witnesses.currentRegistryRoot));
+        const lcRoot = Field(BigInt(witnesses.currentLifecycleRoot));
+        const currentLifecycle = Field(BigInt(witnesses.currentLifecycleState));
+
+        // 7. Reconstruct preimage
+        const walletFields = data.preimageFields.map((s: string) => Field(BigInt(s)));
+        const padded = [...walletFields];
+        while (padded.length < 5) padded.push(Field(0));
+        const preimage = [Field(data.domainTag ?? 0), ...padded];
+
+        // 8. Generate wallet update proof (~30-120s)
+        console.log('[pcp-proof] Generating wallet update proof for PCP assignment...');
+        const proof = await node.proveWalletUpdate(
+          preimage,
+          oldCredentialRoot,
+          oldNonce,
+          newCredentialRoot,
+          regWitness,
+          lcWitness,
+          regRoot,
+          lcRoot,
+          currentLifecycle,
+        );
+
+        // 9. Submit proof to sequencer
+        const receipt = await node.submitProof(proof);
+        console.log('[pcp-proof] PCP assignment proof submitted, receipt:', receipt.receiptId);
+
+        // 10. Save proof status to local state
+        const stateData = state.getState() as any;
+        if (stateData?.pcpAssignment) {
+          stateData.pcpAssignment.proofSubmitted = true;
+          stateData.pcpAssignment.receiptId = receipt.receiptId;
+          await state.save(stateData);
+        }
+
+        server.sendResponse(res, 200, true, {
+          receiptId: receipt.receiptId,
+          walletId: data.walletId,
+          pcpWalletId: pcpAssignment.pcpWalletId,
+          proofGenerated: true,
+          submittedToSequencer: true,
+          newForestRoot: newForestRoot.toString(),
+          newCredentialRoot: newCredentialRoot.toString(),
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
+        console.error('[pcp-proof] Failed:', msg);
+        return server.sendResponse(res, 500, false, undefined, msg);
+      }
+    },
+  });
+
   // ── NFC Identity (tap-to-identify at pharmacy) ─────────────
 
   routes.push({
@@ -730,8 +875,13 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       if (!b?.message || !b?.payload) {
         return server.sendResponse(res, 400, false, undefined, 'Missing message or payload');
       }
+      // Ensure senderWalletId is set server-side (dashboard may not have it yet)
+      const msg = b.message;
+      if (!msg.senderWalletId || msg.senderWalletId === '') {
+        msg.senderWalletId = node.getWalletId();
+      }
       const entry = await node.storeMessage(
-        b.message as any,
+        msg as any,
         b.payload as any,
       );
       server.sendResponse(res, 200, true, entry);

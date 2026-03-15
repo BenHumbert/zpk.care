@@ -23,7 +23,8 @@
     "start:flowchart:clean": "npm run kill:ports && npx tsx visualizer/demo/flowchart-orchestrator.ts",
     "start:patent-studio": "npx tsx patent-studio/server.ts",
     "bootstrap": "npx tsx scripts/bootstrap-system.ts",
-    "bootstrap:clean": "npm run kill:ports && npx tsx scripts/bootstrap-system.ts --skip-kill"
+    "clean:state": "node -e \"const{rmSync:r}=require('fs');['.l2-checkpoints','l2-data','nautilus-data','visualizer/.l2-checkpoints'].forEach(d=>{try{r(d,{recursive:true,force:true});console.log('Deleted '+d)}catch{}});console.log('State cleaned.')\"",
+    "bootstrap:clean": "npm run kill:ports && npm run clean:state && npx tsx scripts/bootstrap-system.ts --skip-kill"
   },
   "keywords": [
     "zkp",

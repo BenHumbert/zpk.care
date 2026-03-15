@@ -13,6 +13,7 @@ import type {
   L2Batch,
   AdminStateDelta,
   L1Status,
+  BenefitPlanConfig,
 } from './l2-types.js';
 import { AuditService } from '../audit/audit-service.js';
 import { AuditMerkleIndex } from '../audit/audit-merkle-index.js';
@@ -166,6 +167,9 @@ export class L2SequencerService {
     publishedAt: number;
     version: number;
   }> = new Map();
+
+  // Plan store — benefit plan configs indexed by planId
+  private planStore: Map<string, BenefitPlanConfig> = new Map();
 
   // Last-settled roots — safe recovery point matching L1 state.
   // Updated ONLY in markBatchSettled(). Used by restoreState() to
@@ -1251,6 +1255,7 @@ export class L2SequencerService {
     this.preBatchAuditMerkleLeafCount = 0n;
     this.preBatchFingerprints.clear();
     this.formularyStore.clear();
+    this.planStore.clear();
     this.lastSettledRegistryRoot = initialRegistryRoot;
     this.lastSettledLifecycleRoot = initialLifecycleRoot;
     this.lastSettledWalletCount = Field(0);
@@ -1411,6 +1416,78 @@ export class L2SequencerService {
     return new Map(this.formularyStore);
   }
 
+  // ─── Plan Store ──────────────────────────────────────────
+
+  /** Store a benefit plan config (sync — used by replication) */
+  storePlan(plan: BenefitPlanConfig): void {
+    this.planStore.set(plan.planId, plan);
+  }
+
+  /** Get a plan by ID */
+  getPlan(planId: string): BenefitPlanConfig | null {
+    return this.planStore.get(planId) ?? null;
+  }
+
+  /** Get all plans */
+  getPlans(): BenefitPlanConfig[] {
+    return Array.from(this.planStore.values());
+  }
+
+  /** Delete a plan (sync — used by replication) */
+  deletePlan(planId: string): boolean {
+    return this.planStore.delete(planId);
+  }
+
+  /** Apply a replicated plan from a peer (gossip: plan:updated). Idempotent. */
+  applyReplicatedPlan(plan: BenefitPlanConfig): void {
+    this.planStore.set(plan.planId, plan);
+  }
+
+  /** Apply a replicated plan deletion from a peer (gossip: plan:deleted). Idempotent. */
+  applyReplicatedPlanDeletion(planId: string): void {
+    this.planStore.delete(planId);
+  }
+
+  /**
+   * Store a plan with WAL durability (async — used by the leader path).
+   * WAL entry is written BEFORE the in-memory mutation, committed AFTER.
+   */
+  async storePlanWithWal(plan: BenefitPlanConfig): Promise<void> {
+    const pi = this.partitionConfig?.partitionIndex ?? 0;
+    let walEntryId: string | undefined;
+    if (this.walProvider) {
+      walEntryId = await this.walProvider.append({
+        type: 'plan_store',
+        partitionIndex: pi,
+        sequenceNumber: this.walProvider.getLatestSequenceNumber(pi) + 1n,
+        planData: plan as unknown as Record<string, unknown>,
+        timestamp: Date.now(),
+      });
+    }
+    this.planStore.set(plan.planId, plan);
+    if (walEntryId) await this.walProvider!.commit(walEntryId);
+  }
+
+  /**
+   * Delete a plan with WAL durability (async — used by the leader path).
+   */
+  async deletePlanWithWal(planId: string): Promise<boolean> {
+    const pi = this.partitionConfig?.partitionIndex ?? 0;
+    let walEntryId: string | undefined;
+    if (this.walProvider) {
+      walEntryId = await this.walProvider.append({
+        type: 'plan_delete',
+        partitionIndex: pi,
+        sequenceNumber: this.walProvider.getLatestSequenceNumber(pi) + 1n,
+        planData: { planId } as unknown as Record<string, unknown>,
+        timestamp: Date.now(),
+      });
+    }
+    if (walEntryId) await this.walProvider!.commit(walEntryId);
+    const deleted = this.planStore.delete(planId);
+    return deleted;
+  }
+
   // ─── Getters ────────────────────────────────────────────
 
   /** Current L2 registry root (may be ahead of L1) */
@@ -1483,6 +1560,24 @@ export class L2SequencerService {
       currentLifecycleRoot: this.currentLifecycleRoot.toString(),
       slotIndex: index.toString(),
       currentLifecycleState: LIFECYCLE_REGISTERED.toString(),
+    };
+  }
+
+  /**
+   * Get the current wallet state (nonce + credentialInventoryRoot) for RPC.
+   * Used by entity nodes to compute wallet update proof inputs.
+   */
+  getWalletStateForRpc(walletId: string): {
+    walletId: string;
+    credentialInventoryRoot: string;
+    nonce: string;
+  } {
+    const wid = Field(BigInt(walletId));
+    const state = this.walletRegistry.getState(wid);
+    return {
+      walletId,
+      credentialInventoryRoot: state.credentialInventoryRoot.toString(),
+      nonce: state.nonce.toString(),
     };
   }
 
@@ -2269,6 +2364,11 @@ export class L2SequencerService {
       state.formularyStore = Object.fromEntries(this.formularyStore);
     }
 
+    // Include plan store state
+    if (this.planStore.size > 0) {
+      state.planStore = Object.fromEntries(this.planStore);
+    }
+
     // Include last-settled roots for crash recovery
     state.lastSettledRegistryRoot = this.lastSettledRegistryRoot.toString();
     state.lastSettledLifecycleRoot = this.lastSettledLifecycleRoot.toString();
@@ -2443,6 +2543,14 @@ export class L2SequencerService {
       }
     }
 
+    // Restore plan store state
+    this.planStore.clear();
+    if (state.planStore) {
+      for (const [key, value] of Object.entries(state.planStore)) {
+        this.planStore.set(key, value as BenefitPlanConfig);
+      }
+    }
+
     // Restore L2-only flag (backward compat: defaults to current value)
     if (state.l2Only !== undefined) {
       this.l2Only = state.l2Only;
@@ -2547,6 +2655,22 @@ export class L2SequencerService {
         // Mark as committed in the WAL
         await this.walProvider.commit(entry.entryId);
       }
+      // Plan WAL recovery
+      if (entry.type === 'plan_store' && entry.planData) {
+        const plan = entry.planData as unknown as BenefitPlanConfig;
+        if (plan.planId) {
+          this.planStore.set(plan.planId, plan);
+        }
+        await this.walProvider.commit(entry.entryId);
+        replayed++;
+      }
+      if (entry.type === 'plan_delete' && entry.planData) {
+        const planId = (entry.planData as Record<string, unknown>).planId as string;
+        if (planId) this.planStore.delete(planId);
+        await this.walProvider.commit(entry.entryId);
+        replayed++;
+      }
+
       // batch_begin without batch_commit → discard
       // The pending pool is empty after recovery; clients resubmit
     }

@@ -9,60 +9,27 @@
   var sseCount = 0;
   var formularyData = [];       // in-memory, fetched from sequencer
   var planData = [];             // in-memory, initialized from defaults
-  var employerData = [];         // demo employers/groups
+  var employerData = [];         // employers/groups
   var priceHistory = [];         // recent pricing estimates
 
-  // ── Demo Employers & Groups ────────────────────────────────
+  // ── Employer defaults (fallback — live data comes from sequencer roster) ──
   var EMPLOYERS = [
     {
-      id: 'EMP-001', name: 'Acme Corporation', industry: 'Technology', state: 'CA',
+      id: 'EMP-10001', name: 'Epic Systems Corporation', industry: 'Healthcare IT', state: 'WI',
       groups: [
-        { id: 'GRP-001', name: 'Acme Engineering', planId: 'PLAN-GOLD-001', members: [
-          { walletId: '18927346501...', lifecycle: 'ACTIVE', role: 'member' },
-          { walletId: '29038475612...', lifecycle: 'ACTIVE', role: 'member' },
-          { walletId: '37482910563...', lifecycle: 'ELIGIBLE', role: 'member' },
-        ]},
-        { id: 'GRP-002', name: 'Acme Sales', planId: 'PLAN-SILVER-002', members: [
-          { walletId: '48219305746...', lifecycle: 'ACTIVE', role: 'member' },
-          { walletId: '52948371065...', lifecycle: 'REGISTERED', role: 'member' },
-        ]},
+        { id: 'GRP-EPIC-ENG', name: 'Epic Engineering', planId: 'PLAN-GOLD-001', members: [] },
+        { id: 'GRP-EPIC-OPS', name: 'Epic Operations', planId: 'PLAN-SILVER-002', members: [] },
       ]
     },
     {
-      id: 'EMP-002', name: 'Global Health Partners', industry: 'Healthcare', state: 'NY',
+      id: 'EMP-10002', name: 'Exact Sciences Corporation', industry: 'Diagnostics', state: 'WI',
       groups: [
-        { id: 'GRP-003', name: 'GHP Clinical Staff', planId: 'PLAN-PLATINUM-003', members: [
-          { walletId: '61039284756...', lifecycle: 'ACTIVE', role: 'member' },
-          { walletId: '72940185637...', lifecycle: 'ACTIVE', role: 'member' },
-          { walletId: '83051296748...', lifecycle: 'ACTIVE', role: 'member' },
-          { walletId: '94162307859...', lifecycle: 'REVOKED', role: 'member' },
-        ]},
-      ]
-    },
-    {
-      id: 'EMP-003', name: 'Pinnacle Manufacturing', industry: 'Manufacturing', state: 'TX',
-      groups: [
-        { id: 'GRP-004', name: 'Pinnacle Factory Floor', planId: 'PLAN-BRONZE-004', members: [
-          { walletId: '10527384961...', lifecycle: 'ACTIVE', role: 'member' },
-          { walletId: '21638495072...', lifecycle: 'ELIGIBLE', role: 'member' },
-        ]},
-        { id: 'GRP-005', name: 'Pinnacle Office Staff', planId: 'PLAN-GOLD-001', members: [
-          { walletId: '32749506183...', lifecycle: 'ACTIVE', role: 'member' },
-        ]},
-      ]
-    },
-    {
-      id: 'EMP-004', name: 'Summit Financial Group', industry: 'Finance', state: 'IL',
-      groups: [
-        { id: 'GRP-006', name: 'Summit Advisors', planId: 'PLAN-PLATINUM-003', members: [
-          { walletId: '43850617294...', lifecycle: 'ACTIVE', role: 'member' },
-          { walletId: '54961728305...', lifecycle: 'ACTIVE', role: 'member' },
-        ]},
+        { id: 'GRP-EXACT-RD', name: 'Exact Sciences R&D', planId: 'PLAN-PLATINUM-003', members: [] },
       ]
     },
   ];
 
-  // ── Demo Formulary Seed ────────────────────────────────────
+  // ── Formulary fallback (live data loaded from sequencer) ──
   var DEFAULT_FORMULARY = [
     { ndcHash: '2819374650192837465019283746', brandName: 'Lisinopril 10mg', tierLevel: 1, copayAmountCents: 500, requiresPriorAuth: false },
     { ndcHash: '3920485761203948576120394857', brandName: 'Metformin 500mg', tierLevel: 1, copayAmountCents: 500, requiresPriorAuth: false },
@@ -140,9 +107,14 @@
     if (formularyData.length === 0) formularyData = DEFAULT_FORMULARY.slice();
   }
 
-  function loadPlans() {
-    // Plans are managed in-memory with defaults; no localStorage
-    if (planData.length === 0) planData = DEFAULT_PLANS.slice();
+  async function loadPlans() {
+    try {
+      var plans = await API.getPlans();
+      planData = Array.isArray(plans) ? plans : [];
+    } catch {
+      // Server not available — seed from defaults
+      if (planData.length === 0) planData = DEFAULT_PLANS.slice();
+    }
   }
 
   // ── Router ─────────────────────────────────────────────────
@@ -498,34 +470,316 @@
   //  PLANS
   // ═══════════════════════════════════════════════════════════
 
-  function loadPlansPage() {
+  async function loadPlansPage() {
+    await fetchPlans();
     renderPlanList();
     initPlanCreate();
+    initPlanTemplates();
+  }
+
+  async function fetchPlans() {
+    try {
+      var plans = await API.getPlans();
+      planData = Array.isArray(plans) ? plans : [];
+    } catch { /* keep existing planData */ }
+  }
+
+  function coverageLabel(t) {
+    if (t === 1 || t === 'pharmacy') return 'Pharmacy';
+    if (t === 2 || t === 'medical') return 'Medical';
+    if (t === 3 || t === 'dental') return 'Dental';
+    return String(t || 'Pharmacy');
   }
 
   function renderPlanList() {
     var el = $('plan-list-container');
     if (!el) return;
     if (planData.length === 0) {
-      el.innerHTML = '<div class="empty-state">No plans registered yet</div>';
+      el.innerHTML = '<div class="empty-state">No plans registered yet. Create one above.</div>';
       return;
     }
     el.innerHTML =
       '<table class="data-table"><thead><tr>' +
-        '<th>Plan ID</th><th>Name</th><th>Copay</th><th>Deductible</th><th>OOP Max</th><th>Annual Max</th><th>Coverage</th>' +
+        '<th>Plan ID</th><th>Name</th><th>Copay</th><th>Deductible</th><th>OOP Max</th><th>Annual Max</th><th>Coverage</th><th>Formulary</th><th>Network</th><th>Status</th><th>Actions</th>' +
       '</tr></thead><tbody>' +
       planData.map(function (p) {
+        var pid = p.planId || p.id;
+        var published = p.published;
+        var formularyCount = (p.formularyNdcs && p.formularyNdcs.length) || 0;
+        var networkCount = (p.networkProviderWalletIds && p.networkProviderWalletIds.length) || 0;
         return '<tr>' +
-          '<td style="font-family:var(--font-mono);font-size:12px">' + esc(p.id) + '</td>' +
-          '<td>' + esc(p.name) + '</td>' +
-          '<td style="font-family:var(--font-mono)">' + fmtCents(p.copay) + '</td>' +
-          '<td style="font-family:var(--font-mono)">' + fmtCents(p.deductible) + '</td>' +
-          '<td style="font-family:var(--font-mono)">' + fmtCents(p.oopMax) + '</td>' +
-          '<td style="font-family:var(--font-mono)">' + fmtCents(p.annualMax) + '</td>' +
-          '<td>' + esc(p.coverage || 'pharmacy') + '</td>' +
+          '<td style="font-family:var(--font-mono);font-size:12px">' + esc(pid) + '</td>' +
+          '<td><a href="#" class="plan-edit-link" data-plan-id="' + esc(pid) + '" style="color:var(--accent-blue);text-decoration:underline;cursor:pointer">' + esc(p.name) + '</a></td>' +
+          '<td style="font-family:var(--font-mono)">' + fmtCents(p.copayAmountCents || p.copay || 0) + '</td>' +
+          '<td style="font-family:var(--font-mono)">' + fmtCents(p.deductibleAmountCents || p.deductible || 0) + '</td>' +
+          '<td style="font-family:var(--font-mono)">' + fmtCents(p.oopMaxCents || p.oopMax || 0) + '</td>' +
+          '<td style="font-family:var(--font-mono)">' + fmtCents(p.annualBenefitMaxCents || p.annualMax || 0) + '</td>' +
+          '<td>' + coverageLabel(p.coverageType || p.coverage) + '</td>' +
+          '<td style="font-family:var(--font-mono)">' + (formularyCount > 0 ? formularyCount + ' NDCs' : 'All') + '</td>' +
+          '<td style="font-family:var(--font-mono)">' + (networkCount > 0 ? networkCount + ' providers' : 'All') + '</td>' +
+          '<td>' + (published ? '<span class="badge badge-active">Published</span>' : '<span class="badge badge-pending">Draft</span>') + '</td>' +
+          '<td style="white-space:nowrap">' +
+            '<button class="btn btn-sm btn-primary plan-publish-btn" data-plan-id="' + esc(pid) + '"' + (published ? ' disabled' : '') + '>Publish</button> ' +
+            '<button class="btn btn-sm plan-delete-btn" data-plan-id="' + esc(pid) + '">Delete</button>' +
+          '</td>' +
         '</tr>';
       }).join('') +
       '</tbody></table>';
+
+    // Bind publish/delete buttons
+    el.querySelectorAll('.plan-publish-btn').forEach(function (btn) {
+      btn.onclick = async function () {
+        var pid = btn.dataset.planId;
+        btn.disabled = true;
+        btn.textContent = 'Publishing...';
+        try {
+          var result = await API.publishPlan(pid);
+          toast('Plan published: ' + pid + ' (' + (result.formularyEntryCount || 0) + ' formulary entries)', 'success');
+          await fetchPlans();
+          renderPlanList();
+        } catch (err) {
+          toast('Publish failed: ' + err.message, 'error');
+          btn.disabled = false;
+          btn.textContent = 'Publish';
+        }
+      };
+    });
+
+    el.querySelectorAll('.plan-delete-btn').forEach(function (btn) {
+      btn.onclick = async function () {
+        var pid = btn.dataset.planId;
+        if (!confirm('Delete plan ' + pid + '?')) return;
+        try {
+          await API.deletePlan(pid);
+          toast('Plan deleted: ' + pid, 'success');
+          await fetchPlans();
+          renderPlanList();
+        } catch (err) {
+          toast('Delete failed: ' + err.message, 'error');
+        }
+      };
+    });
+
+    el.querySelectorAll('.plan-edit-link').forEach(function (link) {
+      link.onclick = function (e) {
+        e.preventDefault();
+        openPlanDetail(link.dataset.planId);
+      };
+    });
+  }
+
+  // ── Transparent PBM Plan Templates ─────────────────────
+
+  var PLAN_TEMPLATES = [
+    {
+      planId: 'COST-PLUS-BASIC',
+      name: 'Cost Plus Basic',
+      desc: 'NADAC + 2% + $3.50 dispensing fee. $0 generic copay, 100% rebate passthrough.',
+      coverageType: 1,
+      copayAmountCents: 0,
+      deductibleAmountCents: 0,
+      oopMaxCents: 200000,
+      annualBenefitMaxCents: 0,
+      familyDeductibleAmountCents: 0,
+      familyOopMaxCents: 400000,
+      familyAnnualBenefitMaxCents: 0,
+    },
+    {
+      planId: 'TRANSPARENT-VALUE',
+      name: 'Transparent Value',
+      desc: 'Flat admin fee, pass-through pricing. Low deductible with moderate copays.',
+      coverageType: 1,
+      copayAmountCents: 500,
+      deductibleAmountCents: 10000,
+      oopMaxCents: 300000,
+      annualBenefitMaxCents: 0,
+      familyDeductibleAmountCents: 20000,
+      familyOopMaxCents: 600000,
+      familyAnnualBenefitMaxCents: 0,
+    },
+    {
+      planId: 'HDHP-RX-INTEGRATED',
+      name: 'HDHP Pharmacy Integrated',
+      desc: 'HSA-compatible. IRS-compliant $1,650/$3,300 deductible. Per-claim admin fee.',
+      coverageType: 1,
+      copayAmountCents: 1000,
+      deductibleAmountCents: 165000,
+      oopMaxCents: 450000,
+      annualBenefitMaxCents: 0,
+      familyDeductibleAmountCents: 330000,
+      familyOopMaxCents: 900000,
+      familyAnnualBenefitMaxCents: 0,
+    },
+    {
+      planId: 'EMPLOYER-PREMIER',
+      name: 'Employer Premier',
+      desc: 'Richest benefit. $0 generic, flat specialty copay, $0 deductible.',
+      coverageType: 1,
+      copayAmountCents: 0,
+      deductibleAmountCents: 0,
+      oopMaxCents: 150000,
+      annualBenefitMaxCents: 0,
+      familyDeductibleAmountCents: 0,
+      familyOopMaxCents: 300000,
+      familyAnnualBenefitMaxCents: 0,
+    },
+    {
+      planId: 'COSTPLUS-COPAY-ASSIST',
+      name: 'Cost Plus + Copay Assist',
+      desc: 'NADAC + 3% + $2 dispensing. 5-tier with manufacturer copay assistance.',
+      coverageType: 1,
+      copayAmountCents: 300,
+      deductibleAmountCents: 15000,
+      oopMaxCents: 350000,
+      annualBenefitMaxCents: 0,
+      familyDeductibleAmountCents: 30000,
+      familyOopMaxCents: 700000,
+      familyAnnualBenefitMaxCents: 0,
+    },
+    {
+      planId: 'SMALL-EMPLOYER-ESSENTIAL',
+      name: 'Small Employer Essential',
+      desc: 'Simplified 3-tier for groups under 100 lives. Annual benefit max included.',
+      coverageType: 1,
+      copayAmountCents: 1000,
+      deductibleAmountCents: 20000,
+      oopMaxCents: 400000,
+      annualBenefitMaxCents: 5000000,
+      familyDeductibleAmountCents: 40000,
+      familyOopMaxCents: 800000,
+      familyAnnualBenefitMaxCents: 10000000,
+    },
+    {
+      planId: 'GLP1-INCLUSIVE',
+      name: 'GLP-1 Inclusive',
+      desc: 'Dedicated GLP-1/metabolic tier with clinical guardrails and annual sub-limit.',
+      coverageType: 1,
+      copayAmountCents: 500,
+      deductibleAmountCents: 25000,
+      oopMaxCents: 400000,
+      annualBenefitMaxCents: 0,
+      familyDeductibleAmountCents: 50000,
+      familyOopMaxCents: 800000,
+      familyAnnualBenefitMaxCents: 0,
+    },
+    {
+      planId: 'MUNICIPAL-PUBLIC',
+      name: 'Municipal / Public Sector',
+      desc: 'Broad access, $0 deductible, flat $50 specialty copay. Public sector compliant.',
+      coverageType: 1,
+      copayAmountCents: 500,
+      deductibleAmountCents: 0,
+      oopMaxCents: 200000,
+      annualBenefitMaxCents: 0,
+      familyDeductibleAmountCents: 0,
+      familyOopMaxCents: 400000,
+      familyAnnualBenefitMaxCents: 0,
+    },
+  ];
+
+  var selectedTemplates = new Set();
+
+  function renderTemplateCards() {
+    var container = $('plan-template-cards');
+    if (!container) return;
+    // check which planIds already exist
+    var existingIds = new Set(planData.map(function (p) { return p.planId || p.id; }));
+    container.innerHTML = PLAN_TEMPLATES.map(function (t) {
+      var exists = existingIds.has(t.planId);
+      var selected = selectedTemplates.has(t.planId);
+      return '<div class="template-card' + (selected ? ' template-selected' : '') + (exists ? ' template-exists' : '') + '" data-plan-id="' + esc(t.planId) + '" style="' +
+        'border:2px solid ' + (exists ? 'var(--border)' : selected ? 'var(--accent-blue)' : 'var(--border)') + ';' +
+        'border-radius:8px;padding:12px;width:220px;cursor:' + (exists ? 'default' : 'pointer') + ';' +
+        'background:' + (exists ? 'var(--bg-secondary)' : selected ? 'rgba(59,130,246,0.08)' : 'var(--bg-primary)') + ';' +
+        'opacity:' + (exists ? '0.6' : '1') + ';transition:all 0.15s' +
+      '">' +
+        '<div style="font-weight:600;font-size:13px;margin-bottom:4px">' + esc(t.name) + '</div>' +
+        '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;line-height:1.4">' + esc(t.desc) + '</div>' +
+        '<div style="font-size:11px;font-family:var(--font-mono);color:var(--text-secondary)">' +
+          'Copay ' + fmtCents(t.copayAmountCents) +
+          ' | Ded ' + fmtCents(t.deductibleAmountCents) +
+          ' | OOP ' + fmtCents(t.oopMaxCents) +
+        '</div>' +
+        (exists ? '<div style="font-size:11px;color:var(--accent-green);margin-top:6px;font-weight:600">Already created</div>' : '') +
+      '</div>';
+    }).join('');
+
+    container.querySelectorAll('.template-card').forEach(function (card) {
+      var pid = card.dataset.planId;
+      if (existingIds.has(pid)) return;
+      card.onclick = function () {
+        if (selectedTemplates.has(pid)) {
+          selectedTemplates.delete(pid);
+        } else {
+          selectedTemplates.add(pid);
+        }
+        renderTemplateCards();
+      };
+    });
+  }
+
+  async function createSelectedTemplates() {
+    if (selectedTemplates.size === 0) {
+      toast('Select at least one plan template', 'error');
+      return;
+    }
+    var btn = $('plan-template-create-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Creating...'; }
+    var created = 0;
+    var errors = [];
+    for (var i = 0; i < PLAN_TEMPLATES.length; i++) {
+      var t = PLAN_TEMPLATES[i];
+      if (!selectedTemplates.has(t.planId)) continue;
+      try {
+        await API.createPlan({
+          planId: t.planId,
+          name: t.name,
+          coverageType: t.coverageType,
+          copayAmountCents: t.copayAmountCents,
+          deductibleAmountCents: t.deductibleAmountCents,
+          oopMaxCents: t.oopMaxCents,
+          annualBenefitMaxCents: t.annualBenefitMaxCents,
+          familyDeductibleAmountCents: t.familyDeductibleAmountCents,
+          familyOopMaxCents: t.familyOopMaxCents,
+          familyAnnualBenefitMaxCents: t.familyAnnualBenefitMaxCents || 0,
+          formularyNdcs: [],
+          networkProviderWalletIds: [],
+        });
+        created++;
+      } catch (err) {
+        errors.push(t.planId + ': ' + err.message);
+      }
+    }
+    selectedTemplates.clear();
+    await fetchPlans();
+    renderPlanList();
+    renderTemplateCards();
+    if (btn) { btn.disabled = false; btn.textContent = 'Create Selected Plans'; }
+    if (created > 0) toast('Created ' + created + ' plan(s)', 'success');
+    if (errors.length > 0) toast('Errors: ' + errors.join('; '), 'error');
+    showResult('plan-template-result', 'Created ' + created + ' of ' + (created + errors.length) + ' plans', errors.length === 0);
+  }
+
+  function initPlanTemplates() {
+    var toggle = $('plan-templates-toggle');
+    var body = $('plan-templates-body');
+    if (toggle && body) {
+      toggle.onclick = function () { body.classList.toggle('hidden'); };
+    }
+    var selectAll = $('plan-template-select-all');
+    var clearBtn = $('plan-template-clear');
+    var createBtn = $('plan-template-create-btn');
+    var existingIds = new Set(planData.map(function (p) { return p.planId || p.id; }));
+    if (selectAll) selectAll.onclick = function () {
+      PLAN_TEMPLATES.forEach(function (t) { if (!existingIds.has(t.planId)) selectedTemplates.add(t.planId); });
+      renderTemplateCards();
+    };
+    if (clearBtn) clearBtn.onclick = function () {
+      selectedTemplates.clear();
+      renderTemplateCards();
+    };
+    if (createBtn) createBtn.onclick = createSelectedTemplates;
+    renderTemplateCards();
   }
 
   function initPlanCreate() {
@@ -538,34 +792,263 @@
     if (createBtn) createBtn.onclick = createPlan;
 
     var refreshBtn = $('plan-refresh-btn');
-    if (refreshBtn) refreshBtn.onclick = renderPlanList;
+    if (refreshBtn) refreshBtn.onclick = async function () {
+      await fetchPlans();
+      renderPlanList();
+    };
   }
 
-  function createPlan() {
+  async function createPlan() {
     var name = ($('plan-name') || {}).value || '';
     var id = ($('plan-id') || {}).value || '';
     if (!name.trim() || !id.trim()) { toast('Plan Name and Plan ID are required', 'error'); return; }
 
-    if (planData.some(function (p) { return p.id === id.trim(); })) {
-      toast('Plan ID already exists', 'error');
-      return;
+    var coverageMap = { pharmacy: 1, medical: 2, dental: 3 };
+    var coverageVal = ($('plan-coverage') || {}).value || 'pharmacy';
+
+    try {
+      await API.createPlan({
+        planId: id.trim(),
+        name: name.trim(),
+        coverageType: coverageMap[coverageVal] || 1,
+        copayAmountCents: Number(($('plan-copay') || {}).value) || 2000,
+        deductibleAmountCents: Number(($('plan-deductible') || {}).value) || 100000,
+        oopMaxCents: Number(($('plan-oop') || {}).value) || 500000,
+        annualBenefitMaxCents: Number(($('plan-annual') || {}).value) || 10000000,
+        familyDeductibleAmountCents: Number(($('plan-fam-ded') || {}).value) || 200000,
+        familyOopMaxCents: Number(($('plan-fam-oop') || {}).value) || 1000000,
+        formularyNdcs: [],
+        networkProviderWalletIds: [],
+      });
+      toast('Plan created: ' + name.trim(), 'success');
+      showResult('plan-create-result', 'Created plan ' + id.trim(), true);
+      await fetchPlans();
+      renderPlanList();
+    } catch (err) {
+      toast('Create failed: ' + err.message, 'error');
+      showResult('plan-create-result', err.message, false);
+    }
+  }
+
+  // ── Plan Detail — Formulary + Network Selection ──────────
+
+  var editingPlanId = null;
+  var allFormularyEntries = [];
+  var allNetworkProviders = [];
+  var selectedFormularyNdcs = new Set();
+  var selectedNetworkWalletIds = new Set();
+
+  async function openPlanDetail(planId) {
+    var plan = planData.find(function (p) { return (p.planId || p.id) === planId; });
+    if (!plan) { toast('Plan not found', 'error'); return; }
+
+    editingPlanId = planId;
+    selectedFormularyNdcs = new Set(plan.formularyNdcs || []);
+    selectedNetworkWalletIds = new Set(plan.networkProviderWalletIds || []);
+
+    var panel = $('plan-detail-panel');
+    if (panel) panel.classList.remove('hidden');
+    var nameEl = $('plan-detail-name');
+    if (nameEl) nameEl.textContent = plan.name + ' (' + planId + ')';
+
+    // Fetch formulary + providers in parallel
+    try {
+      var [formData, provData] = await Promise.all([
+        API.getFormulary('default').catch(function () { return { entries: [] }; }),
+        API.getProviderRegistry().catch(function () { return { providers: [] }; }),
+      ]);
+      allFormularyEntries = (formData && formData.entries) || formData || [];
+      if (!Array.isArray(allFormularyEntries)) allFormularyEntries = [];
+      allNetworkProviders = (provData && provData.providers) || provData || [];
+      if (!Array.isArray(allNetworkProviders)) allNetworkProviders = [];
+    } catch {
+      allFormularyEntries = [];
+      allNetworkProviders = [];
     }
 
-    planData.push({
-      id: id.trim(),
-      name: name.trim(),
-      copay: Number(($('plan-copay') || {}).value) || 2000,
-      deductible: Number(($('plan-deductible') || {}).value) || 100000,
-      oopMax: Number(($('plan-oop') || {}).value) || 500000,
-      annualMax: Number(($('plan-annual') || {}).value) || 10000000,
-      famDeductible: Number(($('plan-fam-ded') || {}).value) || 200000,
-      famOopMax: Number(($('plan-fam-oop') || {}).value) || 1000000,
-      coverage: ($('plan-coverage') || {}).value || 'pharmacy',
+    renderFormularySelection();
+    renderNetworkSelection();
+    initPlanDetailEvents();
+  }
+
+  function renderFormularySelection() {
+    var search = (($('plan-formulary-search') || {}).value || '').toLowerCase();
+    var tierFilter = ($('plan-formulary-tier-filter') || {}).value || '';
+
+    var filtered = allFormularyEntries.filter(function (e) {
+      if (tierFilter && String(e.tierLevel) !== tierFilter) return false;
+      if (search) {
+        var name = (e.brandName || e.genericName || e.description || '').toLowerCase();
+        var ndc = (e.ndc || '').toLowerCase();
+        if (!name.includes(search) && !ndc.includes(search)) return false;
+      }
+      return true;
     });
-    // Plans kept in-memory (no localStorage)
-    renderPlanList();
-    toast('Plan created: ' + name.trim(), 'success');
-    showResult('plan-create-result', 'Created plan ' + id.trim(), true);
+
+    var statsEl = $('plan-formulary-stats');
+    if (statsEl) statsEl.textContent = selectedFormularyNdcs.size + ' selected / ' + allFormularyEntries.length + ' total (' + filtered.length + ' shown)';
+
+    var listEl = $('plan-formulary-list');
+    if (!listEl) return;
+
+    // Show max 200 for performance
+    var visible = filtered.slice(0, 200);
+    listEl.innerHTML = visible.map(function (e) {
+      var checked = selectedFormularyNdcs.has(e.ndc) ? ' checked' : '';
+      var tier = 'T' + (e.tierLevel || '?');
+      return '<label style="display:flex;align-items:center;gap:6px;padding:3px 6px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border)">' +
+        '<input type="checkbox" class="plan-form-ndc-cb" data-ndc="' + esc(e.ndc) + '"' + checked + '>' +
+        '<span style="font-family:var(--font-mono);min-width:90px">' + esc(e.ndc) + '</span>' +
+        '<span style="flex:1">' + esc(e.brandName || e.genericName || e.description || 'Unknown') + '</span>' +
+        '<span class="badge badge-' + (e.tierLevel === 1 ? 'active' : e.tierLevel === 2 ? 'info' : e.tierLevel === 3 ? 'pending' : 'error') + '" style="font-size:10px">' + tier + '</span>' +
+      '</label>';
+    }).join('') + (filtered.length > 200 ? '<div style="padding:8px;text-align:center;color:var(--text-secondary);font-size:11px">Showing 200 of ' + filtered.length + ' — use search to narrow</div>' : '');
+
+    // Bind checkbox changes
+    listEl.querySelectorAll('.plan-form-ndc-cb').forEach(function (cb) {
+      cb.onchange = function () {
+        if (cb.checked) selectedFormularyNdcs.add(cb.dataset.ndc);
+        else selectedFormularyNdcs.delete(cb.dataset.ndc);
+        var s = $('plan-formulary-stats');
+        if (s) s.textContent = selectedFormularyNdcs.size + ' selected / ' + allFormularyEntries.length + ' total (' + filtered.length + ' shown)';
+      };
+    });
+  }
+
+  function renderNetworkSelection() {
+    var search = (($('plan-network-search') || {}).value || '').toLowerCase();
+    var typeFilter = ($('plan-network-type-filter') || {}).value || '';
+
+    var filtered = allNetworkProviders.filter(function (p) {
+      if (typeFilter && p.providerType !== typeFilter) return false;
+      if (search) {
+        var name = (p.displayName || '').toLowerCase();
+        var npi = (p.npi || '').toLowerCase();
+        if (!name.includes(search) && !npi.includes(search)) return false;
+      }
+      return true;
+    });
+
+    var statsEl = $('plan-network-stats');
+    if (statsEl) statsEl.textContent = selectedNetworkWalletIds.size + ' selected / ' + allNetworkProviders.length + ' total (' + filtered.length + ' shown)';
+
+    var listEl = $('plan-network-list');
+    if (!listEl) return;
+
+    listEl.innerHTML = filtered.map(function (p) {
+      var checked = selectedNetworkWalletIds.has(p.walletId) ? ' checked' : '';
+      var typeIcon = p.providerType === 'pharmacy' ? 'Rx' : 'Dr';
+      return '<label style="display:flex;align-items:center;gap:6px;padding:3px 6px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border)">' +
+        '<input type="checkbox" class="plan-net-cb" data-wallet="' + esc(p.walletId) + '"' + checked + '>' +
+        '<span class="badge badge-info" style="font-size:10px;min-width:24px;text-align:center">' + typeIcon + '</span>' +
+        '<span style="flex:1">' + esc(p.displayName || 'Unknown') + '</span>' +
+        '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary)">' + esc(p.npi || '') + '</span>' +
+      '</label>';
+    }).join('');
+
+    listEl.querySelectorAll('.plan-net-cb').forEach(function (cb) {
+      cb.onchange = function () {
+        if (cb.checked) selectedNetworkWalletIds.add(cb.dataset.wallet);
+        else selectedNetworkWalletIds.delete(cb.dataset.wallet);
+        var s = $('plan-network-stats');
+        if (s) s.textContent = selectedNetworkWalletIds.size + ' selected / ' + allNetworkProviders.length + ' total (' + filtered.length + ' shown)';
+      };
+    });
+  }
+
+  var planDetailEventsInitialized = false;
+  function initPlanDetailEvents() {
+    if (planDetailEventsInitialized) return;
+    planDetailEventsInitialized = true;
+
+    var closeBtn = $('plan-detail-close');
+    if (closeBtn) closeBtn.onclick = function () {
+      var panel = $('plan-detail-panel');
+      if (panel) panel.classList.add('hidden');
+      editingPlanId = null;
+    };
+
+    // Search/filter handlers
+    var formSearch = $('plan-formulary-search');
+    if (formSearch) formSearch.oninput = renderFormularySelection;
+    var formTier = $('plan-formulary-tier-filter');
+    if (formTier) formTier.onchange = renderFormularySelection;
+    var netSearch = $('plan-network-search');
+    if (netSearch) netSearch.oninput = renderNetworkSelection;
+    var netType = $('plan-network-type-filter');
+    if (netType) netType.onchange = renderNetworkSelection;
+
+    // Select all / clear
+    var formSelectAll = $('plan-formulary-select-all');
+    if (formSelectAll) formSelectAll.onclick = function () {
+      $('plan-formulary-list').querySelectorAll('.plan-form-ndc-cb').forEach(function (cb) {
+        cb.checked = true;
+        selectedFormularyNdcs.add(cb.dataset.ndc);
+      });
+      renderFormularySelection();
+    };
+    var formClear = $('plan-formulary-clear');
+    if (formClear) formClear.onclick = function () {
+      selectedFormularyNdcs.clear();
+      renderFormularySelection();
+    };
+    var netSelectAll = $('plan-network-select-all');
+    if (netSelectAll) netSelectAll.onclick = function () {
+      $('plan-network-list').querySelectorAll('.plan-net-cb').forEach(function (cb) {
+        cb.checked = true;
+        selectedNetworkWalletIds.add(cb.dataset.wallet);
+      });
+      renderNetworkSelection();
+    };
+    var netClear = $('plan-network-clear');
+    if (netClear) netClear.onclick = function () {
+      selectedNetworkWalletIds.clear();
+      renderNetworkSelection();
+    };
+
+    // Save
+    var saveBtn = $('plan-detail-save');
+    if (saveBtn) saveBtn.onclick = async function () {
+      if (!editingPlanId) return;
+      try {
+        await API.updatePlan(editingPlanId, {
+          formularyNdcs: Array.from(selectedFormularyNdcs),
+          networkProviderWalletIds: Array.from(selectedNetworkWalletIds),
+        });
+        toast('Plan configuration saved', 'success');
+        showResult('plan-detail-result', 'Saved formulary (' + selectedFormularyNdcs.size + ' NDCs) + network (' + selectedNetworkWalletIds.size + ' providers)', true);
+        await fetchPlans();
+        renderPlanList();
+      } catch (err) {
+        toast('Save failed: ' + err.message, 'error');
+        showResult('plan-detail-result', err.message, false);
+      }
+    };
+
+    // Save & Publish
+    var publishBtn = $('plan-detail-publish');
+    if (publishBtn) publishBtn.onclick = async function () {
+      if (!editingPlanId) return;
+      publishBtn.disabled = true;
+      publishBtn.textContent = 'Publishing...';
+      try {
+        await API.updatePlan(editingPlanId, {
+          formularyNdcs: Array.from(selectedFormularyNdcs),
+          networkProviderWalletIds: Array.from(selectedNetworkWalletIds),
+        });
+        var result = await API.publishPlan(editingPlanId);
+        toast('Plan published: ' + (result.formularyEntryCount || 0) + ' formulary entries, ' + (result.networkProviderCount || 0) + ' network providers', 'success');
+        showResult('plan-detail-result', 'Published successfully', true);
+        await fetchPlans();
+        renderPlanList();
+      } catch (err) {
+        toast('Publish failed: ' + err.message, 'error');
+        showResult('plan-detail-result', err.message, false);
+      } finally {
+        publishBtn.disabled = false;
+        publishBtn.textContent = 'Save & Publish';
+      }
+    };
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -1515,7 +1998,7 @@
   // ═══════════════════════════════════════════════════════════
 
   async function init() {
-    loadPlans();
+    await loadPlans();
     await loadFormularyFromSequencer();
     checkConnection();
     initSSE();

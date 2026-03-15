@@ -123,7 +123,7 @@ async function main(): Promise<void> {
 
   if (seqReady) {
     // ── Credential Prescribers (via provider registry) ──
-    const { DEMO_PRESCRIBERS } = await import('../demo/prescribers.js');
+    const { DEMO_PRESCRIBERS } = await import('../data/index.js');
     const { derivePrescriberWalletId } = await import('../wallets/wallet-derivation.js');
 
     let prescriberCount = 0;
@@ -138,7 +138,7 @@ async function main(): Promise<void> {
           specialty: p.specialty,
           stateOfLicense: p.state,
           deaNumber: p.deaNumber,
-          verificationMethod: 'demo',
+          verificationMethod: 'nppes',
         });
         prescriberCount++;
       } catch (err: unknown) {
@@ -153,7 +153,7 @@ async function main(): Promise<void> {
     console.log('  [credential] Credentialed %d prescribers in provider registry', prescriberCount);
 
     // ── Credential Pharmacies (via provider registry) ──
-    const { DEMO_PHARMACIES } = await import('../demo/pharmacies.js');
+    const { DEMO_PHARMACIES } = await import('../data/index.js');
     const { derivePharmacyWalletId } = await import('../wallets/wallet-derivation.js');
 
     let pharmacyCount = 0;
@@ -164,10 +164,10 @@ async function main(): Promise<void> {
           walletId,
           displayName: p.storeName,
           providerType: 'pharmacy',
-          npi: p.ncpdpProviderId,
+          npi: p.localData.serviceProviderId,
           pharmacyType: p.pharmacyTypeDesc,
           stateOfLicense: p.state,
-          verificationMethod: 'demo',
+          verificationMethod: 'nppes',
         });
         pharmacyCount++;
       } catch (err: unknown) {
@@ -182,7 +182,7 @@ async function main(): Promise<void> {
     console.log('  [credential] Credentialed %d pharmacies in provider registry', pharmacyCount);
 
     // ── Publish Formulary ──
-    const { DEMO_MEDICATIONS } = await import('../demo/medications.js');
+    const { DEMO_MEDICATIONS } = await import('../data/index.js');
     const { Poseidon, Field } = await import('o1js');
     const { hashString } = await import('../zkp/hash-utils.js');
 

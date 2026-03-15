@@ -455,6 +455,12 @@ html, body {
   color: var(--accent);
 }
 
+.script-price-tag.drug-cost {
+  color: var(--text-muted);
+  font-size: 11px;
+  opacity: 0.8;
+}
+
 .script-actions {
   display: flex;
   gap: 4px;
@@ -503,6 +509,19 @@ html, body {
 .script-status-badge.status-complete {
   background: rgba(63,185,80,0.15);
   color: var(--green);
+}
+
+/* Fill button */
+.btn-fill {
+  background: rgba(88,166,255,0.15);
+  color: #58a6ff;
+  border-color: #58a6ff;
+  font-weight: 600;
+  font-size: 10px;
+  padding: 2px 8px;
+}
+.btn-fill:hover {
+  background: rgba(88,166,255,0.3);
 }
 
 /* PAID button */

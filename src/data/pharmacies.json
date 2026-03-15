@@ -1,0 +1,287 @@
+[
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "1194759316"
+    },
+    "enrollmentKey": "E945F51376337b114d79a41711a7d6!a",
+    "storeName": "AURORA PHARMACY INC",
+    "chain": "Independent",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "5718 RAYMOND RD",
+    "city": "MADISON",
+    "state": "WI",
+    "zip": "53711",
+    "phone": "608-271-8772",
+    "npi": "1194759316",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  },
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "1699793380"
+    },
+    "enrollmentKey": "2D5D342202ad8b0ee1128288c74d41!b",
+    "storeName": "COMMUNITY PHARMACY CO-OPERATIVE",
+    "chain": "Independent",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "130 FAIROAKS AVE",
+    "city": "MADISON",
+    "state": "WI",
+    "zip": "53704",
+    "phone": "608-251-4454",
+    "npi": "1699793380",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "333600000X"
+  },
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "1164524567"
+    },
+    "enrollmentKey": "8F47375f71ec26a2f6a73f95fcb2a7!c",
+    "storeName": "DEAN RETAIL SERVICES INC",
+    "chain": "Independent",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "700 S PARK ST",
+    "city": "MADISON",
+    "state": "WI",
+    "zip": "53715",
+    "phone": "608-256-6465",
+    "npi": "1164524567",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  },
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "1003926791"
+    },
+    "enrollmentKey": "9BDA38990118fabb5ffdebcc874bd6!d",
+    "storeName": "DEAN RETAIL SERVICES INC",
+    "chain": "Independent",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "1211 FISH HATCHERY RD STE 300",
+    "city": "MADISON",
+    "state": "WI",
+    "zip": "53715",
+    "phone": "608-252-8044",
+    "npi": "1003926791",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  },
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "1396331401"
+    },
+    "enrollmentKey": "044212002A638f42dcd39c5ff2b095!e",
+    "storeName": "DEAN RETAIL SERVICES, INC.",
+    "chain": "Independent",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "130 CORPORATE DR STE 300",
+    "city": "BEAVER DAM",
+    "state": "WI",
+    "zip": "53916",
+    "phone": "920-885-8510",
+    "npi": "1396331401",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  },
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "1265052211"
+    },
+    "enrollmentKey": "3ACBf2df7e98f33498c5d4bb958b11!f",
+    "storeName": "DEAN RETAIL SERVICES, INC.",
+    "chain": "Independent",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "310 INTEGRITY DR STE 103",
+    "city": "MADISON",
+    "state": "WI",
+    "zip": "53717",
+    "phone": "833-354-2223",
+    "npi": "1265052211",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  },
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "1467562157"
+    },
+    "enrollmentKey": "4A3507ef87240a96b09a0a927d97f1!g",
+    "storeName": "DEAN RETAIL SERVICES, INC.",
+    "chain": "Independent",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "10 TOWER DR",
+    "city": "SUN PRAIRIE",
+    "state": "WI",
+    "zip": "53590",
+    "phone": "608-825-3690",
+    "npi": "1467562157",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  },
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "1407966195"
+    },
+    "enrollmentKey": "CF160f545edeb9e16ac114560f2896!h",
+    "storeName": "DEAN RETAIL SERVICES, INC.",
+    "chain": "Independent",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "1821 S. STOUGHTON RD.",
+    "city": "MADISON",
+    "state": "WI",
+    "zip": "53716",
+    "phone": "608-260-6500",
+    "npi": "1407966195",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  },
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "1194227694"
+    },
+    "enrollmentKey": "854F299cdc07d3d2219e7b65a3f75e!i",
+    "storeName": "DEAN RETAIL SERVICES, INC.",
+    "chain": "Independent",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "752 N HIGH POINT RD STE L701",
+    "city": "MADISON",
+    "state": "WI",
+    "zip": "53717",
+    "phone": "608-824-4025",
+    "npi": "1194227694",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  },
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "1780794479"
+    },
+    "enrollmentKey": "C34F6c4d1b44a2952c758cebf71583!j",
+    "storeName": "DEAN RETAIL SERVICES, INC.",
+    "chain": "Independent",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "752 N. HIGH POINT RD",
+    "city": "MADISON",
+    "state": "WI",
+    "zip": "53717",
+    "phone": "608-824-4500",
+    "npi": "1780794479",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  },
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "1992815682"
+    },
+    "enrollmentKey": "81E0F82f4e039b61fc7cbfe41fb647!k",
+    "storeName": "DEAN RETAIL SERVICES, INC.",
+    "chain": "Independent",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "3200 EAST RACINE STREET",
+    "city": "JANESVILLE",
+    "state": "WI",
+    "zip": "53546",
+    "phone": "608-371-8100",
+    "npi": "1992815682",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  },
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "1982943924"
+    },
+    "enrollmentKey": "7745013E6483d10a963952f4727e7b!l",
+    "storeName": "DISTRICT COUNCIL OF MADISON INC",
+    "chain": "Independent",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "2033 FISH HATCHERY RD",
+    "city": "MADISON",
+    "state": "WI",
+    "zip": "53725",
+    "phone": "608-268-0355",
+    "npi": "1982943924",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  },
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "1801028030"
+    },
+    "enrollmentKey": "35C07f529492f1b301d39b9430218a!m",
+    "storeName": "HY-VEE INC",
+    "chain": "HY-VEE",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "3801 E WASHINGTON AVE",
+    "city": "MADISON",
+    "state": "WI",
+    "zip": "53704",
+    "phone": "608-244-4991",
+    "npi": "1801028030",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  },
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "1376885152"
+    },
+    "enrollmentKey": "C6CC6375a6005729f98ed135e90112!n",
+    "storeName": "HY-VEE INC",
+    "chain": "HY-VEE",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "675 S WHITNEY WAY",
+    "city": "MADISON",
+    "state": "WI",
+    "zip": "53711",
+    "phone": "608-277-6731",
+    "npi": "1376885152",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  },
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "1093408767"
+    },
+    "enrollmentKey": "BF6B7dd68a0d6339857fa5bad42a23!o",
+    "storeName": "IMAGEMOVERMD",
+    "chain": "Independent",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "25 W MAIN ST STE 500",
+    "city": "MADISON",
+    "state": "WI",
+    "zip": "53703",
+    "phone": "608-620-4980",
+    "npi": "1093408767",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  }
+]

@@ -19,6 +19,11 @@ import {
   parseNfcIdentityBase64,
   isValidWalletId,
 } from '../nfc-identity.js';
+import {
+  SequencerAttestationAuthority,
+  isAttestation,
+  type NfcCredentialAttestation,
+} from '../../credentials/nfc-attestation.js';
 import { PharmacyNode } from '../pharmacy-node.js';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
 import type { RouteRegistration } from '../nautilus-app-types.js';
@@ -157,7 +162,9 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
             body: JSON.stringify({ walletId: data.walletId, tokenId: data.onboarding.tokenId, role: 'pharmacy' }),
           });
           insurerNotified = resp.ok;
-        } catch { /* insurer unreachable — continue */ }
+        } catch (insErr: unknown) {
+          console.warn('[pharmacy-enroll] Insurer notification failed:', insErr instanceof Error ? insErr.message : String(insErr));
+        }
       }
 
       data.onboarding.phase = 'enrolled';
@@ -401,6 +408,9 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
         patientPayCents?: string;
         planPayCents?: string;
         fillNumber?: number;
+        ingredientCostCents?: number;
+        dispensingFeeCents?: number;
+        quantityDispensed?: number;
       } | undefined;
 
       if (!b?.memberWalletId || !b?.ndcHash) {
@@ -420,6 +430,9 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
           ndc: b.ndc,
           daysSupply: b.daysSupply,
           fillNumber: b.fillNumber,
+          ingredientCostCents: b.ingredientCostCents,
+          dispensingFeeCents: b.dispensingFeeCents,
+          quantityDispensed: b.quantityDispensed,
         });
         server.sendResponse(res, 200, true, result);
       } catch (err) {
@@ -542,24 +555,89 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
         payloadBase64?: string;
         /** Direct walletId (manual entry or already-extracted) */
         walletId?: string;
+        /** Full credential-attestation object (from member dashboard export) */
+        attestation?: NfcCredentialAttestation;
       } | undefined;
 
       // Extract walletId from whichever input format is provided
       let walletId: string | null = null;
+      let attestationResult: { valid: boolean; expired: boolean; reason?: string; attestation?: NfcCredentialAttestation } | null = null;
 
-      if (b?.walletId && isValidWalletId(b.walletId)) {
+      // Priority 0: full body is the attestation wrapper { type, version, walletId, attestation }
+      if (b && (b as any).type === 'credential-attestation' && (b as any).attestation && isAttestation((b as any).attestation)) {
+        const att = (b as any).attestation as NfcCredentialAttestation;
+        const result = SequencerAttestationAuthority.verifyAttestation(att);
+        attestationResult = { ...result, attestation: att };
+        if (result.valid) {
+          walletId = att.w;
+        }
+      }
+      // Priority 1: credential-attestation (Ed25519 offline verification)
+      else if (b?.attestation && isAttestation(b.attestation)) {
+        const result = SequencerAttestationAuthority.verifyAttestation(b.attestation);
+        attestationResult = { ...result, attestation: b.attestation };
+        if (result.valid) {
+          walletId = b.attestation.w;
+        }
+      }
+      // Priority 2: payloadObject that might be an attestation wrapper
+      else if (b?.payloadObject) {
+        // Check if it's a credential-attestation wrapper { type, version, walletId, attestation }
+        const po = b.payloadObject as Record<string, unknown>;
+        if (po.type === 'credential-attestation' && po.attestation && isAttestation(po.attestation as NfcCredentialAttestation)) {
+          const att = po.attestation as NfcCredentialAttestation;
+          const result = SequencerAttestationAuthority.verifyAttestation(att);
+          attestationResult = { ...result, attestation: att };
+          if (result.valid) {
+            walletId = att.w;
+          }
+        } else {
+          // Fall back to member-id parsing
+          walletId = parseNfcIdentityPayload(b.payloadObject);
+        }
+      }
+      // Priority 3: JSON string that might be an attestation
+      else if (b?.payload) {
+        try {
+          const parsed = JSON.parse(b.payload);
+          if (parsed.type === 'credential-attestation' && parsed.attestation && isAttestation(parsed.attestation)) {
+            const result = SequencerAttestationAuthority.verifyAttestation(parsed.attestation);
+            attestationResult = { ...result, attestation: parsed.attestation };
+            if (result.valid) {
+              walletId = parsed.attestation.w;
+            }
+          } else if (isAttestation(parsed)) {
+            const result = SequencerAttestationAuthority.verifyAttestation(parsed);
+            attestationResult = { ...result, attestation: parsed };
+            if (result.valid) {
+              walletId = parsed.w;
+            }
+          } else {
+            walletId = parseNfcIdentityPayload(b.payload);
+          }
+        } catch {
+          walletId = parseNfcIdentityPayload(b.payload);
+        }
+      }
+      // Priority 4: direct walletId (no attestation verification)
+      else if (b?.walletId && isValidWalletId(b.walletId)) {
         walletId = b.walletId;
-      } else if (b?.payload) {
-        walletId = parseNfcIdentityPayload(b.payload);
-      } else if (b?.payloadObject) {
-        walletId = parseNfcIdentityPayload(b.payloadObject);
-      } else if (b?.payloadBase64) {
+      }
+      // Priority 5: base64-encoded payload
+      else if (b?.payloadBase64) {
         walletId = parseNfcIdentityBase64(b.payloadBase64);
+      }
+
+      // If attestation was provided but failed verification, return the failure
+      if (attestationResult && !attestationResult.valid) {
+        return server.sendResponse(res, 403, false, {
+          attestationVerification: attestationResult,
+        }, `Attestation verification failed: ${attestationResult.reason || 'unknown'}`);
       }
 
       if (!walletId) {
         return server.sendResponse(res, 400, false, undefined,
-          'Invalid or missing NFC payload. Provide payload (JSON string), payloadObject, payloadBase64, or walletId.');
+          'Invalid or missing NFC payload. Provide attestation, payload (JSON string), payloadObject, payloadBase64, or walletId.');
       }
 
       // One-shot patient lookup: active medications + claim count + latest claims
@@ -574,6 +652,13 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
         activeMedicationCount: Array.isArray(activeMeds) ? activeMeds.length : 0,
         totalClaims: Array.isArray(fullHistory) ? fullHistory.length : 0,
         fullHistory,
+        // Include attestation verification result when available
+        ...(attestationResult ? {
+          attestationVerified: true,
+          attestationExpiry: attestationResult.attestation?.exp,
+          attestationLifecycleState: attestationResult.attestation?.ls,
+          attestationExpired: attestationResult.expired,
+        } : {}),
       });
     },
   });
@@ -602,7 +687,11 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       if (!b?.message || !b?.payload) {
         return server.sendResponse(res, 400, false, undefined, 'Missing message or payload');
       }
-      const entry = await node.storeMessage(b.message as any, b.payload as any);
+      const msg = b.message as any;
+      if (!msg.senderWalletId || msg.senderWalletId === '') {
+        msg.senderWalletId = node.getWalletId();
+      }
+      const entry = await node.storeMessage(msg, b.payload as any);
       server.sendResponse(res, 200, true, entry);
     },
   });

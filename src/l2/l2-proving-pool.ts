@@ -69,12 +69,14 @@ interface WorkerHandle {
   busy: boolean;
   restartCount: number;
   currentJobId: string | null;
+  currentJobDescription: string | null;
   status: WorkerState;
   jobsProcessed: number;
 }
 
 interface PendingJob {
   jobId: string;
+  description: string | null;
   request: ProvingJobRequest;
   resolve: (result: ProvingJobResult) => void;
   reject: (error: Error) => void;
@@ -284,14 +286,14 @@ export class ProvingPool {
    * Submit a proving job to the pool.
    * Dispatches to first available worker; queues if all busy.
    */
-  prove(request: ProvingJobRequest): Promise<ProvingJobResult> {
+  prove(request: ProvingJobRequest, description?: string): Promise<ProvingJobResult> {
     if (!this.running) {
       return Promise.reject(new Error('ProvingPool: not running'));
     }
 
     return new Promise<ProvingJobResult>((resolve, reject) => {
       const jobId = `job-${this.nextJobId++}`;
-      const job: PendingJob = { jobId, request, resolve, reject, timer: null };
+      const job: PendingJob = { jobId, description: description ?? null, request, resolve, reject, timer: null };
 
       // Try to dispatch immediately to an idle worker
       const worker = this.getIdleWorker();
@@ -351,6 +353,7 @@ export class ProvingPool {
         id: handle.id,
         busy: handle.busy,
         currentJobId: handle.currentJobId,
+        currentJobDescription: handle.currentJobDescription,
         status: handle.status,
         jobsProcessed: handle.jobsProcessed,
       });
@@ -380,6 +383,7 @@ export class ProvingPool {
       busy: false,
       restartCount: 0,
       currentJobId: null,
+      currentJobDescription: null,
       status: 'compiling',
       jobsProcessed: 0,
     };
@@ -474,6 +478,7 @@ export class ProvingPool {
   private dispatchJob(worker: WorkerHandle, job: PendingJob): void {
     worker.busy = true;
     worker.currentJobId = job.jobId;
+    worker.currentJobDescription = job.description;
     worker.status = 'proving';
     this.pendingJobs.set(job.jobId, job);
 
@@ -489,6 +494,7 @@ export class ProvingPool {
       this.pendingJobs.delete(job.jobId);
       worker.busy = false;
       worker.currentJobId = null;
+      worker.currentJobDescription = null;
       worker.status = 'idle';
       this.totalJobsFailed++;
       job.reject(new Error(
@@ -523,6 +529,7 @@ export class ProvingPool {
         this.pendingJobs.delete(msg.jobId);
         handle.busy = false;
         handle.currentJobId = null;
+        handle.currentJobDescription = null;
         handle.status = 'idle';
         this.totalJobsCompleted++;
         this.totalProveTimeMs += msg.result.proveTimeMs;
@@ -555,6 +562,7 @@ export class ProvingPool {
         this.pendingJobs.delete(msg.jobId);
         handle.busy = false;
         handle.currentJobId = null;
+        handle.currentJobDescription = null;
         handle.status = 'idle';
         this.totalJobsFailed++;
         job.reject(new Error(`ProvingPool: worker ${handle.id} error: ${msg.message}`));

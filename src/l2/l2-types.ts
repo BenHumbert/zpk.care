@@ -306,3 +306,34 @@ export interface L2ChainProofResponse {
   /** L2 block height certified by this proof */
   blockHeight: string;
 }
+
+// ─── Benefit Plan Config ────────────────────────────────────
+
+/**
+ * BenefitPlanConfig — stored on the sequencer's plan store.
+ * Contains all plan parameters + formulary NDC list + network provider list.
+ */
+export interface BenefitPlanConfig {
+  planId: string;
+  name: string;
+  coverageType: number;            // 1=pharmacy, 2=medical, 3=dental
+  copayAmountCents: number;
+  deductibleAmountCents: number;
+  oopMaxCents: number;
+  annualBenefitMaxCents: number;
+  familyDeductibleAmountCents: number;
+  familyOopMaxCents: number;
+  familyAnnualBenefitMaxCents: number;
+  /** NDCs included in this plan's formulary (subset of full NADAC list) */
+  formularyNdcs: string[];
+  /** Provider wallet IDs in-network for this plan (empty = all accepted) */
+  networkProviderWalletIds: string[];
+  /** Computed formulary root (after publish) */
+  formularyRoot?: string;
+  /** Computed network root (after publish) */
+  networkRoot?: string;
+  /** Whether plan has been published to sequencer */
+  published: boolean;
+  createdAt: number;
+  updatedAt: number;
+}

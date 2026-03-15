@@ -440,12 +440,14 @@ export class L2QuorumService {
     pendingProposals: number;
     knownPeers: number;
     stateCertificateCount: number;
+    quorumTimeoutMs: number;
   } {
     return {
       quorumThreshold: this.config.quorumThreshold,
       pendingProposals: this.pending.size,
       knownPeers: this.config.peerPublicKeys.size,
       stateCertificateCount: this.stateCertificates.size,
+      quorumTimeoutMs: this.config.quorumTimeoutMs,
     };
   }
 

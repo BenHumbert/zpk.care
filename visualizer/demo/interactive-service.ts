@@ -108,7 +108,7 @@ import { OpaqueRoster, buildRosterEntry } from '../../src/onboarding/opaque-rost
 import { PlanTemplate } from '../../src/onboarding/plan-template.js';
 import { EnrollmentService } from '../../src/onboarding/enrollment-service.js';
 
-// Demo data
+// Production data (NPPES + NADAC)
 import {
   DEMO_PRESCRIBERS,
   DEMO_PHARMACIES,
@@ -116,7 +116,7 @@ import {
   DEMO_MEDICATIONS,
   getAllFormularyEntries,
   getMembersByFamily,
-} from '../../src/demo/index.js';
+} from '../../src/data/index.js';
 
 // Family accumulator pooling
 import { FamilyAccumulatorService } from '../../src/onboarding/family-accumulator-service.js';

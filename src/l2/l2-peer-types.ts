@@ -14,7 +14,7 @@
  *
  * Zero external dependencies — uses Node.js built-in http + o1js Poseidon.
  */
-import type { L2Receipt, L2Block, L2Batch } from './l2-types.js';
+import type { L2Receipt, L2Block, L2Batch, BenefitPlanConfig } from './l2-types.js';
 import type { AuditEvent } from '../audit/audit-types.js';
 import type { ClaimAccumulatorEntry } from './claim-accumulator-types.js';
 import type { StoredMessage, MessagePayload } from './message-store-types.js';
@@ -66,6 +66,9 @@ export type GossipMessageType =
   | 'state:snapshot'      // Full state for IBD (response to sync request)
   | 'peer:announce'       // Peer discovery + exchange peer lists
   | 'message:stored'      // New encrypted message stored in Message Store
+  | 'plan:updated'        // Benefit plan created or updated
+  | 'plan:deleted'        // Benefit plan deleted
+  | 'formulary:updated'   // Formulary published or updated (gossip replication)
   | 'leader:heartbeat'    // Leviathan leader heartbeat (partition leadership)
   | 'leader:promotion'    // Leviathan leader promotion (failover)
   | 'quorum:propose'      // Leader proposes WAL entry for quorum consensus
@@ -151,6 +154,37 @@ export interface MessageStoredPayload {
 }
 
 /**
+ * PlanUpdatedPayload — broadcast when a benefit plan is created or updated.
+ * Plans are global (not partitioned) — all nodes store all plans.
+ */
+export interface PlanUpdatedPayload {
+  plan: BenefitPlanConfig;
+  /** Partition index (leviathan mode). Undefined for single-sequencer backward compat. */
+  partitionIndex?: number;
+}
+
+/**
+ * PlanDeletedPayload — broadcast when a benefit plan is deleted.
+ */
+export interface PlanDeletedPayload {
+  planId: string;
+  /** Partition index (leviathan mode). Undefined for single-sequencer backward compat. */
+  partitionIndex?: number;
+}
+
+/**
+ * FormularyUpdatedPayload — broadcast when a formulary is published or updated.
+ * Formularies are global (not partitioned) — all nodes store all formularies.
+ */
+export interface FormularyUpdatedPayload {
+  planIdHash: string;
+  formularyRoot: string;
+  entriesJson: string;
+  /** Partition index (leviathan mode). Undefined for single-sequencer backward compat. */
+  partitionIndex?: number;
+}
+
+/**
  * PeerAnnouncePayload — broadcast for peer discovery.
  *
  * Contains this node's identity and a list of known peer URLs
@@ -169,6 +203,9 @@ export type GossipPayload =
   | BatchSettledPayload
   | BatchFailedPayload
   | MessageStoredPayload
+  | PlanUpdatedPayload
+  | PlanDeletedPayload
+  | FormularyUpdatedPayload
   | PeerAnnouncePayload
   | L2SequencerState         // For state:snapshot (IBD)
   | LeaderHeartbeatPayload   // For leader:heartbeat (leviathan)

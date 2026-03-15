@@ -402,5 +402,27 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
     },
   });
 
+  // ══════════════════════════════════════════════════════════
+  //  AVAILABLE PLANS (from sequencer plan store)
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'GET',
+    path: '/plans/available',
+    handler: async (_req, res) => {
+      const node = server.getEntityNode() as EmployerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
+
+      try {
+        const allPlans = await node.getClient().getPlans();
+        // Only return published plans to employers
+        const published = allPlans.filter((p: any) => p.published);
+        server.sendResponse(res, 200, true, published);
+      } catch (err: any) {
+        server.sendResponse(res, 502, false, undefined, 'Failed to fetch plans: ' + err.message);
+      }
+    },
+  });
+
   return routes;
 }

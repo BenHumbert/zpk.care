@@ -93,6 +93,11 @@ export interface L2SequencerState {
     version: number;
   }>;
 
+  // ── Plan Store state (optional — present when benefit plans have been stored) ──
+
+  /** Stored benefit plan configs indexed by planId */
+  planStore?: Record<string, import('./l2-types.js').BenefitPlanConfig>;
+
   // ── Audit Merkle Index state (optional — present when audit events have been indexed) ──
 
   /** Serialized audit Merkle index state for crash recovery */
@@ -149,6 +154,11 @@ export interface L2SequencerState {
 
   /** Ordered list of registered walletId strings for rebuilding WalletRegistry + lifecycle tree */
   registeredWallets?: string[];
+
+  // ── Known wallets (entity registry persistence) ──
+
+  /** Wallet IDs registered via l2_registerEntity — persisted for attestation eligibility after restart */
+  knownWallets?: string[];
 }
 
 /**

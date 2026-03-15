@@ -9,12 +9,159 @@
   let currentTab = 'overview';
   let levStatus = null;       // cached leviathan status
   let topoNodes = [];         // { id, type, x, y, role, partition, state, ... }
-  let topoLinks = [];         // { source, target, type }
+  let topoLinks = [];         // { source, target, el }
   let eventLog = [];          // max 200
   let gossipLog = [];         // max 200
   let pollTimer = null;
 
   const MAX_LOG = 200;
+
+  // ── Pipeline State ──────────────────────────────────────────
+  var entityCache = [];       // from /viz/entities
+  var entityCacheTime = 0;
+  var batchCache = [];        // last 5 batches for pipeline view
+  var nodePositions = {};     // { id: { x, y } } for animation targeting
+  var animFrameId = null;
+  var metrics = {
+    proofTimestamps: [],      // timestamps of recent proof:accepted (60s window)
+    proveTimes: [],           // last 20 prove durations (ms)
+    queueDepth: 0,
+    batchFillRate: 0
+  };
+  var metricsFrameCount = 0;
+
+  // ── Node Health Monitor ────────────────────────────────────
+  var NETWORK_NODES = [
+    { id: 'leviathan',  label: 'Leviathan',  port: 3030, url: 'http://localhost:3030',  healthPath: '/health' },
+    { id: 'member',     label: 'Member',     port: 4001, url: 'http://localhost:4001',  healthPath: '/health' },
+    { id: 'prescriber', label: 'Prescriber', port: 4002, url: 'http://localhost:4002',  healthPath: '/health' },
+    { id: 'pharmacy',   label: 'Pharmacy',   port: 4003, url: 'http://localhost:4003',  healthPath: '/health' },
+    { id: 'insurer',    label: 'Insurer',    port: 4004, url: 'http://localhost:4004',  healthPath: '/health' },
+    { id: 'employer',   label: 'Employer',   port: 4005, url: 'http://localhost:4005',  healthPath: '/health' },
+    { id: 'replica-1',  label: 'Replica-1',  port: 3031, url: 'http://localhost:3031',  healthPath: '/health' },
+    { id: 'replica-2',  label: 'Replica-2',  port: 3032, url: 'http://localhost:3032',  healthPath: '/health' },
+  ];
+  var nodeHealthState = {}; // { nodeId: { alive, lastCheck, latencyMs, phase, error, detail } }
+
+  /** Probe a single node's health endpoint */
+  async function probeNode(node) {
+    var t0 = Date.now();
+    try {
+      var controller = new AbortController();
+      var timeout = setTimeout(function () { controller.abort(); }, 3000);
+      var res = await fetch(node.url + node.healthPath, { signal: controller.signal });
+      clearTimeout(timeout);
+      var latency = Date.now() - t0;
+      var text = await res.text();
+      var data;
+      try { data = JSON.parse(text); } catch (e) { data = { raw: text }; }
+
+      var phase = 'unknown';
+      if (data && data.data && data.data.phase) phase = data.data.phase;
+      else if (data && data.ok) phase = 'running';
+      else if (res.ok) phase = 'ok';
+
+      var detail = '';
+      if (data && data.chain) {
+        detail = 'proofs:' + (data.chain.pendingProofs || 0) + ' batches:' + (data.chain.totalBatchesBuilt || 0);
+      }
+      if (data && data.workers) {
+        detail += ' workers:' + data.workers.length;
+      }
+      if (data && data.data && data.data.walletId) {
+        detail = 'wallet:' + shortHash(data.data.walletId);
+      }
+      if (data && data.data && data.data.providerId) {
+        detail = data.data.providerId;
+      }
+
+      nodeHealthState[node.id] = {
+        alive: true, lastCheck: Date.now(), latencyMs: latency,
+        phase: phase, error: null, detail: detail
+      };
+    } catch (e) {
+      nodeHealthState[node.id] = {
+        alive: false, lastCheck: Date.now(), latencyMs: Date.now() - t0,
+        phase: 'dead', error: e.name === 'AbortError' ? 'timeout (3s)' : e.message, detail: ''
+      };
+    }
+  }
+
+  /** Check all nodes and render the health bar */
+  async function checkAllNodeHealth() {
+    // Set all to 'checking' first
+    NETWORK_NODES.forEach(function (n) {
+      if (!nodeHealthState[n.id]) {
+        nodeHealthState[n.id] = { alive: false, lastCheck: 0, latencyMs: 0, phase: 'checking', error: null, detail: '' };
+      }
+    });
+    renderHealthBar();
+
+    // Probe all in parallel
+    await Promise.all(NETWORK_NODES.map(probeNode));
+    renderHealthBar();
+
+    // Log results to feed
+    var alive = 0, dead = 0, errors = [];
+    NETWORK_NODES.forEach(function (n) {
+      var s = nodeHealthState[n.id];
+      if (s && s.alive) {
+        alive++;
+      } else {
+        dead++;
+        errors.push(n.label + ':' + n.port + ' — ' + (s ? s.error : 'unknown'));
+      }
+    });
+
+    addFeedItem({
+      type: 'health-check',
+      typeClass: dead === 0 ? 'proof' : 'error',
+      from: 'Dashboard', fromColor: '#26c6da',
+      to: alive + '/' + NETWORK_NODES.length + ' alive', toColor: dead === 0 ? '#3fb950' : '#f85149',
+      detail: dead > 0 ? 'DEAD: ' + errors.join(' | ') : 'All nodes responding',
+      timestamp: Date.now(),
+      _diagClass: dead === 0 ? 'diag-ok' : 'diag-error'
+    });
+  }
+
+  /** Render the health bar chips */
+  function renderHealthBar() {
+    var el = $('node-health-grid');
+    if (!el) return;
+    var html = '';
+    NETWORK_NODES.forEach(function (n) {
+      var s = nodeHealthState[n.id] || {};
+      var cls = s.alive ? 'alive' : (s.phase === 'checking' ? 'checking' : 'dead');
+      var statusText = s.alive ? s.latencyMs + 'ms' : (s.phase === 'checking' ? '...' : 'DOWN');
+      html += '<div class="node-health-chip ' + cls + '" title="' +
+        escHtml(n.url + ' — ' + (s.error || s.phase || '')) + '">' +
+        '<span class="nh-dot"></span>' +
+        '<span class="nh-label">' + escHtml(n.label) + '</span>' +
+        '<span class="nh-status">' + statusText + '</span>' +
+        (s.detail ? '<span class="nh-detail">' + escHtml(s.detail) + '</span>' : '') +
+        '</div>';
+    });
+    el.innerHTML = html;
+  }
+
+  /** Check if a specific node is alive (for pre-flight checks) */
+  function isNodeAlive(nodeId) {
+    var s = nodeHealthState[nodeId];
+    return s && s.alive;
+  }
+
+  /** Log a diagnostic message to the feed */
+  function diagLog(msg, isError) {
+    addFeedItem({
+      type: isError ? 'DIAG-ERROR' : 'DIAG',
+      typeClass: isError ? 'error' : 'worker',
+      from: 'Dashboard', fromColor: isError ? '#f85149' : '#ffc107',
+      to: null, toColor: null,
+      detail: msg,
+      timestamp: Date.now(),
+      _diagClass: isError ? 'diag-error' : 'diag'
+    });
+  }
 
   // ── Helpers ──────────────────────────────────────────────────
   function $(id) { return document.getElementById(id); }
@@ -80,332 +227,441 @@
     }
   }
 
-  // ── Topology Renderer ───────────────────────────────────────
-  function renderTopology(status) {
-    var svg = $('topology-svg');
-    var rect = svg.getBoundingClientRect();
-    var W = rect.width || 1200;
-    var H = rect.height || 420;
-    var cx = W / 2;
-    var cy = H / 2 - 20;
+  // ── Command Center Renderer ────────────────────────────────
+  // 6-panel grid: Throughput | Workers | Feed | Batches | Network | Entities
 
-    // Clear layers
-    $('topo-lanes').innerHTML = '';
-    $('topo-connections').innerHTML = '';
-    $('topo-animations').innerHTML = '';
-    $('topo-nodes').innerHTML = '';
-    topoNodes = [];
-    topoLinks = [];
+  var ENTITY_COLORS = {
+    member: '#3fb950', prescriber: '#58a6ff',
+    pharmacy: '#bc8cff', insurer: '#db6d28',
+    employer: '#ec4899'
+  };
+  var ENTITY_ORDER = ['member', 'prescriber', 'pharmacy', 'insurer'];
 
-    if (!status) return;
+  // Sparkline ring buffer — 60 bars, each = 1 second
+  var sparkBars = new Array(60).fill(0);
+  var sparkIdx = 0;
+  var sparkPeak = 0;
+  var sparkTotal = 0;
+
+  // Feed buffer — max 80 items
+  var feedLog = [];
+  var FEED_MAX = 80;
+
+  // Entity activity tracking — recent 60s
+  var entityActivity = {}; // { type: Set<walletId> }
+
+  // Worker elapsed timers
+  var workerStartTimes = {}; // { workerId: timestamp }
+  var workerTimerInterval = null;
+
+  // ── Command Center Panel Renderers ──────────────────────────
+
+  /** Render sparkline bars into the sparkline container */
+  function renderSparkline() {
+    var el = $('cc-sparkline');
+    if (!el) return;
+    // Initialize bars if empty
+    if (!el.children.length || el.children[0].className === 'cc-empty') {
+      var html = '';
+      for (var i = 0; i < 60; i++) html += '<div class="cc-spark-bar" style="height:2px"></div>';
+      el.innerHTML = html;
+    }
+    var bars = el.children;
+    var max = Math.max.apply(null, sparkBars) || 1;
+    for (var i = 0; i < 60; i++) {
+      var idx = (sparkIdx + 1 + i) % 60; // oldest to newest
+      var val = sparkBars[idx];
+      var pct = Math.max((val / max) * 100, 3);
+      bars[i].style.height = pct + '%';
+      bars[i].className = 'cc-spark-bar' + (i === 59 ? ' active' : '');
+    }
+  }
+
+  /** Update throughput stats */
+  function updateThroughputPanel() {
+    var now = Date.now();
+    metrics.proofTimestamps = metrics.proofTimestamps.filter(function (t) { return now - t < 60000; });
+    var rate = metrics.proofTimestamps.length / 60;
+    $('cc-rate').innerHTML = rate.toFixed(1) + '<small>/s</small>';
+    $('cc-peak').textContent = sparkPeak.toFixed(1);
+    var sum = 0;
+    for (var i = 0; i < 60; i++) sum += sparkBars[i];
+    var avg = sum / 60;
+    $('cc-avg').textContent = avg.toFixed(1);
+    $('cc-total').textContent = String(sparkTotal);
+    renderSparkline();
+  }
+
+  /** Tick the sparkline — called every 1s */
+  function tickSparkline() {
+    var now = Date.now();
+    var count = metrics.proofTimestamps.filter(function (t) { return now - t < 1000; }).length;
+    sparkIdx = (sparkIdx + 1) % 60;
+    sparkBars[sparkIdx] = count;
+    if (count > sparkPeak) sparkPeak = count;
+    updateThroughputPanel();
+  }
+
+  /** Render worker pool panel from levStatus */
+  function renderWorkerPanel(status) {
+    var workers = status.workers || (Array.isArray(status.provingPool) ? status.provingPool : []);
+    if (!Array.isArray(workers)) workers = [];
+
+    var el = $('cc-worker-list');
+    var badge = $('cc-worker-badge');
+
+    if (!workers.length) {
+      el.innerHTML = '<div class="cc-empty">No workers</div>';
+      badge.textContent = '0';
+      return;
+    }
+
+    var alive = 0, proving = 0;
+    var html = '';
+    workers.forEach(function (w, i) {
+      var s = (w.state || w.status || 'idle').toLowerCase();
+      if (s === 'idle' || s === 'ready') s = 'idle';
+      else if (s === 'proving' || s === 'busy') { s = 'proving'; proving++; }
+      else if (s === 'compiling') s = 'compiling';
+      else s = 'dead';
+      if (s !== 'dead') alive++;
+
+      var wId = 'W' + (w.id !== undefined ? w.id : i);
+      var elapsed = '';
+      if (s === 'proving' && workerStartTimes[wId]) {
+        elapsed = fmtAgo(Date.now() - workerStartTimes[wId]);
+      }
+
+      // Bar width: for proving, simulate progress based on avg prove time
+      var barWidth = '0';
+      if (s === 'proving') {
+        var avgProve = metrics.proveTimes.length
+          ? metrics.proveTimes.reduce(function (a, b) { return a + b; }, 0) / metrics.proveTimes.length
+          : 30000;
+        var elapsedMs = workerStartTimes[wId] ? Date.now() - workerStartTimes[wId] : 0;
+        barWidth = Math.min(95, (elapsedMs / avgProve) * 100).toFixed(0);
+      } else if (s === 'compiling') {
+        barWidth = '40';
+      } else if (s === 'dead') {
+        barWidth = '100';
+      }
+
+      var jobDesc = w.currentJobDescription || '';
+      html += '<div class="cc-worker-row">' +
+        '<span class="cc-worker-id">' + escHtml(wId) + '</span>' +
+        '<div class="cc-worker-bar-bg"><div class="cc-worker-bar-fill ' + s + '" style="width:' + barWidth + '%"></div></div>' +
+        '<span class="cc-worker-state ' + s + '">' + s + '</span>' +
+        (jobDesc ? '<span class="cc-worker-job">' + escHtml(jobDesc) + '</span>' : '') +
+        (elapsed ? '<span class="cc-worker-elapsed">' + elapsed + '</span>' : '') +
+        '</div>';
+    });
+    el.innerHTML = html;
+    badge.textContent = alive + '/' + workers.length;
+
+    // Stats
+    if (metrics.proveTimes.length) {
+      var sum = metrics.proveTimes.reduce(function (a, b) { return a + b; }, 0);
+      var avg = sum / metrics.proveTimes.length;
+      $('cc-avg-prove').textContent = avg < 1000 ? avg.toFixed(0) + 'ms' : (avg / 1000).toFixed(1) + 's';
+    }
+    $('cc-queue').textContent = String(metrics.queueDepth);
+  }
+
+  /** Add a feed item with From→To flow detail */
+  function addFeedItem(item) {
+    // item: { type, typeClass, from, to, detail, timestamp }
+    feedLog.unshift(item);
+    if (feedLog.length > FEED_MAX) feedLog.pop();
+    if (currentTab === 'overview') renderFeedPanel();
+  }
+
+  /** Render feed panel */
+  function renderFeedPanel() {
+    var el = $('cc-feed-list');
+    if (!feedLog.length) {
+      el.innerHTML = '<div class="cc-empty">Waiting for events...</div>';
+      return;
+    }
+    var html = '';
+    feedLog.slice(0, 40).forEach(function (item) {
+      var extraClass = item._diagClass ? ' ' + item._diagClass : '';
+      html += '<div class="cc-feed-item' + extraClass + '">' +
+        '<div class="cc-feed-top">' +
+        '<span class="cc-feed-type ' + (item.typeClass || '') + '">' + escHtml(item.type) + '</span>' +
+        '<span class="cc-feed-time">' + fmtTime(item.timestamp) + '</span>' +
+        '</div>';
+      if (item.from || item.to) {
+        html += '<div class="cc-feed-flow">';
+        if (item.from) {
+          html += '<span class="cc-feed-entity">' +
+            '<span class="cc-dot" style="background:' + (item.fromColor || '#8b949e') + '"></span>' +
+            escHtml(item.from) + '</span>';
+        }
+        if (item.from && item.to) {
+          html += '<span class="cc-feed-arrow">\u2192</span>';
+        }
+        if (item.to) {
+          html += '<span class="cc-feed-entity">' +
+            '<span class="cc-dot" style="background:' + (item.toColor || '#26c6da') + '"></span>' +
+            escHtml(item.to) + '</span>';
+        }
+        html += '</div>';
+      }
+      if (item.detail) {
+        html += '<div class="cc-feed-detail">' + escHtml(item.detail) + '</div>';
+      }
+      html += '</div>';
+    });
+    el.innerHTML = html;
+  }
+
+  /** Render batch pipeline panel */
+  function renderBatchPanel() {
+    var el = $('cc-batch-list');
+    var batches = batchCache.slice(0, 6);
+    if (!batches.length) {
+      el.innerHTML = '<div class="cc-empty">No batches yet</div>';
+      return;
+    }
+    var html = '';
+    batches.forEach(function (b) {
+      var status = b.status || b.l1Status || 'pending';
+      var proofs = b.proofCount || b.transitionCount || 0;
+      var maxProofs = 2;
+      var fillPct = Math.min(proofs / Math.max(maxProofs, 1), 1) * 100;
+      if (status === 'settled') fillPct = 100;
+      var idx = b.index !== undefined ? b.index : (b.batchIndex || b.batchNumber || '?');
+
+      html += '<div class="cc-batch-item ' + status + '">' +
+        '<span class="cc-batch-num">#' + idx + '</span>' +
+        '<div class="cc-batch-bar-wrap">' +
+        '<div class="cc-batch-bar-bg"><div class="cc-batch-bar-fill ' + status + '" style="width:' + fillPct + '%"></div></div>' +
+        '<span class="cc-batch-info">' + proofs + ' proof' + (proofs !== 1 ? 's' : '') +
+        (b.timestamp ? ' \u00B7 ' + fmtTime(b.timestamp || b.createdAt) : '') + '</span>' +
+        '</div>' +
+        '<span class="cc-batch-status ' + status + '">' + status + '</span>' +
+        '</div>';
+    });
+    el.innerHTML = html;
+  }
+
+  /** Render network nodes panel */
+  function renderNetworkPanel(status) {
+    var el = $('cc-network-nodes');
+    if (!status) { el.innerHTML = '<div class="cc-empty">Loading...</div>'; return; }
 
     var partitions = status.partitions || [];
     var nodeId = status.nodeId || 'self';
-    var partCount = partitions.length || 1;
 
-    // Calculate leviathan positions (circle layout)
-    var leviathans = [];
-    var levRadius = Math.min(W, H) * 0.28;
-    // Gather unique leviathan node IDs (from partitions + peers)
+    // Gather unique leviathan IDs
     var levIds = new Set();
-    var peerRoles = {};
     levIds.add(nodeId);
     partitions.forEach(function (p) {
       if (p.leader) levIds.add(p.leader);
       if (p.failoverChain) p.failoverChain.forEach(function (f) { levIds.add(f); });
     });
-    // Add connected peers (replicas) to topology
     var peers = status.peers || [];
     peers.forEach(function (p) {
       var pid = p.nodeId || p.id || p.peerId;
-      if (pid && !levIds.has(pid)) levIds.add(pid);
-      if (pid) peerRoles[pid] = p.role || 'replica';
+      if (pid) levIds.add(pid);
     });
-    var levArr = Array.from(levIds);
-    var levAngleStep = (2 * Math.PI) / Math.max(levArr.length, 1);
 
-    levArr.forEach(function (lid, i) {
-      var angle = -Math.PI / 2 + i * levAngleStep;
-      var x = cx + levRadius * Math.cos(angle);
-      var y = cy + levRadius * Math.sin(angle);
-      // Determine which partitions this leviathan leads
+    var html = '';
+    Array.from(levIds).forEach(function (lid) {
       var leadsParts = [];
       partitions.forEach(function (p, pi) {
         if (p.leader === lid) leadsParts.push(pi);
       });
       var isLeader = leadsParts.length > 0;
-      var nodeRole = isLeader || lid === nodeId ? 'S' : 'R';
-      if (peerRoles[lid] === 'replica') nodeRole = 'R';
-      leviathans.push({
-        id: lid, type: 'leviathan', x: x, y: y,
-        role: nodeRole,
-        partitions: leadsParts,
-        isSelf: lid === nodeId
-      });
-      topoNodes.push({ id: lid, type: 'leviathan', x: x, y: y });
-    });
+      var isSelf = lid === nodeId;
+      var role = isLeader || isSelf ? 'sequencer' : 'replica';
 
-    // Draw partition lane bands (vertical stripes behind everything)
-    var laneW = W / Math.max(partCount, 1);
-    var colors = ['#26c6da', '#ffc107', '#ab47bc', '#66bb6a', '#ef5350', '#ec4899'];
-    partitions.forEach(function (p, i) {
-      var lane = svgEl('rect', {
-        x: i * laneW, y: 0, width: laneW, height: H,
-        fill: colors[i % colors.length],
-        class: 'partition-lane'
-      });
-      $('topo-lanes').appendChild(lane);
-      // Partition label
-      var label = svgEl('text', {
-        x: i * laneW + laneW / 2, y: 16,
-        fill: colors[i % colors.length], opacity: 0.3,
-        'font-size': 10, 'text-anchor': 'middle',
-        'font-family': "'JetBrains Mono', monospace", 'font-weight': 600
-      });
-      label.textContent = 'P' + i;
-      $('topo-lanes').appendChild(label);
-    });
+      var totalReceipts = partitions.filter(function (p) { return p.leader === lid; })
+        .reduce(function (a, p) { return a + (p.receiptCount || 0); }, 0);
 
-    // Draw gossip connections between leviathans
-    for (var i = 0; i < leviathans.length; i++) {
-      for (var j = i + 1; j < leviathans.length; j++) {
-        var a = leviathans[i], b = leviathans[j];
-        var line = svgEl('line', {
-          x1: a.x, y1: a.y, x2: b.x, y2: b.y,
-          class: 'gossip-line',
-          'data-from': a.id, 'data-to': b.id
+      html += '<div class="cc-node-item">' +
+        '<div class="cc-node-icon ' + role + '" data-node="' + escHtml(lid) + '">' +
+        (isLeader || isSelf ? 'S' : 'R') +
+        '<div class="cc-heartbeat-ring"></div>' +
+        '</div>' +
+        '<div class="cc-node-info">' +
+        '<div class="cc-node-name">' + escHtml(lid.length > 20 ? lid.slice(0, 18) + '\u2026' : lid) +
+        (isSelf ? ' (self)' : '') + '</div>' +
+        '<div class="cc-node-meta">' + totalReceipts + ' receipts' +
+        (peers.length ? ' \u00B7 ' + peers.length + ' peers' : '') + '</div>' +
+        '</div>';
+
+      if (leadsParts.length) {
+        html += '<div class="cc-node-partitions">';
+        leadsParts.forEach(function (pi) {
+          html += '<span class="cc-part-badge">P' + pi + '</span>';
         });
-        $('topo-connections').appendChild(line);
-        topoLinks.push({ source: a.id, target: b.id, el: line });
+        html += '</div>';
       }
-    }
-
-    // Draw leviathan nodes
-    leviathans.forEach(function (lev, idx) {
-      var g = svgEl('g', {
-        class: 'topo-node',
-        transform: 'translate(' + lev.x + ',' + lev.y + ')',
-        'data-id': lev.id
-      });
-
-      // Core glow
-      g.appendChild(svgEl('circle', {
-        r: 32, fill: 'none', stroke: '#26c6da', 'stroke-width': 2,
-        class: 'lev-core-glow phase-' + (idx % 3),
-        filter: 'url(#glow-teal)'
-      }));
-
-      // Outer dashed ring
-      g.appendChild(svgEl('circle', {
-        r: 28, fill: 'none', stroke: '#26c6da',
-        'stroke-width': lev.role === 'S' ? 2.5 : 1.5,
-        'stroke-dasharray': '4 3',
-        opacity: lev.role === 'S' ? 1 : 0.4,
-        class: 'lev-outer-ring'
-      }));
-
-      // Inner solid ring
-      g.appendChild(svgEl('circle', {
-        r: 20, fill: 'rgba(38,198,218,0.08)',
-        stroke: '#26c6da',
-        'stroke-width': lev.role === 'S' ? 2 : 1.5,
-        opacity: lev.role === 'S' ? 0.9 : 0.4,
-        class: 'lev-inner-ring'
-      }));
-
-      // Core dot
-      g.appendChild(svgEl('circle', {
-        r: 5, fill: lev.role === 'S' ? '#26c6da' : 'rgba(38,198,218,0.4)'
-      }));
-
-      // Role badge
-      var badge = svgEl('text', {
-        y: 1, class: 'node-badge', 'text-anchor': 'middle',
-        'dominant-baseline': 'central',
-        fill: lev.role === 'S' ? '#fff' : 'rgba(255,255,255,0.5)',
-        'font-size': 12, 'font-weight': 700,
-        'font-family': "'JetBrains Mono', monospace"
-      });
-      badge.textContent = lev.role;
-      g.appendChild(badge);
-
-      // Name label below
-      var nameLabel = svgEl('text', {
-        y: 44, class: 'node-label', 'text-anchor': 'middle',
-        fill: lev.isSelf ? '#26c6da' : '#8b949e',
-        'font-size': 10
-      });
-      nameLabel.textContent = lev.id.length > 12 ? lev.id.slice(0, 10) + '…' : lev.id;
-      g.appendChild(nameLabel);
-
-      // Partition badges
-      if (lev.partitions.length > 0) {
-        var partLabel = svgEl('text', {
-          y: -36, 'text-anchor': 'middle',
-          fill: '#26c6da', opacity: 0.7,
-          'font-size': 9, 'font-weight': 600,
-          'font-family': "'JetBrains Mono', monospace"
-        });
-        partLabel.textContent = lev.partitions.map(function (p) { return 'P' + p; }).join(',');
-        g.appendChild(partLabel);
-      }
-
-      $('topo-nodes').appendChild(g);
+      html += '</div>';
     });
 
-    // Draw worker nodes (small octagons near their parent leviathan)
-    var workers = status.workers || (Array.isArray(status.provingPool) ? status.provingPool : []);
-    if (Array.isArray(workers) && workers.length) {
-      var selfLev = leviathans.find(function (l) { return l.isSelf; }) || leviathans[0];
-      if (selfLev) {
-        var wCount = workers.length;
-        var wRadius = 65;
-        var wAngleStep = (Math.PI * 0.6) / Math.max(wCount - 1, 1);
-        var wBaseAngle = Math.PI * 0.2; // spread workers below-right of leviathan
-
-        workers.forEach(function (w, wi) {
-          var angle = wBaseAngle + wi * wAngleStep;
-          var wx = selfLev.x + wRadius * Math.cos(angle);
-          var wy = selfLev.y + wRadius * Math.sin(angle);
-
-          // Connection line from worker to parent
-          var wLine = svgEl('line', {
-            x1: selfLev.x, y1: selfLev.y, x2: wx, y2: wy,
-            stroke: '#ffc107', 'stroke-width': 1,
-            'stroke-dasharray': '3 3', opacity: 0.3
-          });
-          $('topo-connections').appendChild(wLine);
-
-          var wg = svgEl('g', {
-            class: 'topo-node',
-            transform: 'translate(' + wx + ',' + wy + ')',
-            'data-id': 'W' + wi
-          });
-
-          // Octagon path
-          var r = 14;
-          var pts = [];
-          for (var oi = 0; oi < 8; oi++) {
-            var a = (Math.PI / 8) + oi * (Math.PI / 4);
-            pts.push((r * Math.cos(a)).toFixed(1) + ',' + (r * Math.sin(a)).toFixed(1));
-          }
-          var state = (w.state || w.status || 'idle').toLowerCase();
-          wg.appendChild(svgEl('polygon', {
-            points: pts.join(' '),
-            fill: state === 'dead' || state === 'crashed' ? 'rgba(85,85,85,0.2)' : 'rgba(255,193,7,0.1)',
-            stroke: state === 'dead' || state === 'crashed' ? '#555' : '#ffc107',
-            'stroke-width': 1.5,
-            class: 'worker-shape state-' + state,
-            filter: state === 'proving' ? 'url(#glow-amber)' : ''
-          }));
-
-          // Worker badge
-          var wBadge = svgEl('text', {
-            y: 1, 'text-anchor': 'middle',
-            'dominant-baseline': 'central',
-            fill: '#ffc107', 'font-size': 9, 'font-weight': 700,
-            'font-family': "'JetBrains Mono', monospace"
-          });
-          wBadge.textContent = 'W' + wi;
-          wg.appendChild(wBadge);
-
-          $('topo-nodes').appendChild(wg);
-          topoNodes.push({ id: 'W' + wi, type: 'worker', x: wx, y: wy });
-        });
-      }
-    }
+    el.innerHTML = html || '<div class="cc-empty">No nodes</div>';
   }
 
-  function svgEl(tag, attrs) {
-    var el = document.createElementNS('http://www.w3.org/2000/svg', tag);
-    if (attrs) {
-      Object.keys(attrs).forEach(function (k) {
-        if (attrs[k] !== undefined && attrs[k] !== '') el.setAttribute(k, attrs[k]);
-      });
-    }
-    return el;
-  }
+  /** Render entity activity panel */
+  function renderEntityPanel() {
+    var el = $('cc-entity-list');
+    var entities = entityCache;
 
-  // ── Topology Animations ─────────────────────────────────────
-  function topoFlashGossip(fromId, toId) {
-    // Flash the gossip line
-    topoLinks.forEach(function (link) {
-      if ((link.source === fromId && link.target === toId) ||
-          (link.source === toId && link.target === fromId)) {
-        link.el.classList.add('active');
-        setTimeout(function () { link.el.classList.remove('active'); }, 1500);
-      }
+    // Count by type
+    var counts = {};
+    ENTITY_ORDER.forEach(function (t) { counts[t] = 0; });
+    entities.forEach(function (e) {
+      var t = (e.type || 'member').toLowerCase();
+      if (counts[t] !== undefined) counts[t]++;
     });
 
-    // Sonar ripple on sender
-    var senderNode = topoNodes.find(function (n) { return n.id === fromId; });
-    if (senderNode) {
-      var ring = svgEl('circle', {
-        cx: senderNode.x, cy: senderNode.y, r: 28,
-        class: 'sonar-ring animate'
-      });
-      $('topo-animations').appendChild(ring);
-      setTimeout(function () { ring.remove(); }, 1500);
-    }
-  }
+    var html = '';
+    ENTITY_ORDER.forEach(function (type) {
+      var count = counts[type] || 0;
+      var active = entityActivity[type] ? entityActivity[type].size : 0;
+      var color = ENTITY_COLORS[type] || '#8b949e';
 
-  function topoHeartbeat(nodeId) {
-    var nodeG = qs('.topo-node[data-id="' + nodeId + '"]');
-    if (nodeG) {
-      nodeG.classList.add('lev-heartbeat');
-      setTimeout(function () { nodeG.classList.remove('lev-heartbeat'); }, 1300);
-    }
-  }
-
-  function topoProofFlow(fromId, toId, color) {
-    var from = topoNodes.find(function (n) { return n.id === fromId; });
-    var to = topoNodes.find(function (n) { return n.id === toId; });
-    if (!from || !to) return;
-
-    var dot = svgEl('circle', {
-      cx: from.x, cy: from.y, r: 4,
-      fill: color || '#26c6da',
-      class: 'proof-dot animate',
-      filter: 'url(#glow-generic)'
+      html += '<div class="cc-entity-row">' +
+        '<span class="cc-entity-icon ' + type + '"></span>' +
+        '<span class="cc-entity-type">' + type + '</span>' +
+        '<span class="cc-entity-count">' + count + '</span>' +
+        '<span class="cc-entity-active' + (active ? ' has-activity' : '') + '">' +
+        (active ? active + ' active' : 'idle') + '</span>' +
+        '</div>';
     });
-    $('topo-animations').appendChild(dot);
 
-    // Animate along line
-    var dur = 2000;
-    var start = performance.now();
-    function step(ts) {
-      var t = Math.min((ts - start) / dur, 1);
-      var ease = t * (2 - t); // ease-out
-      dot.setAttribute('cx', from.x + (to.x - from.x) * ease);
-      dot.setAttribute('cy', from.y + (to.y - from.y) * ease);
-      if (t < 1) requestAnimationFrame(step);
-      else dot.remove();
+    el.innerHTML = html || '<div class="cc-empty">No entities</div>';
+  }
+
+  /** Track entity activity for the activity panel */
+  function trackEntityActivity(walletId, type) {
+    if (!type) {
+      // Try to resolve type from entity cache
+      var ent = entityCache.find(function (e) { return e.walletId === walletId; });
+      type = ent ? (ent.type || 'member').toLowerCase() : 'member';
     }
-    requestAnimationFrame(step);
+    if (!entityActivity[type]) entityActivity[type] = new Set();
+    entityActivity[type].add(walletId || 'unknown');
+    // Expire after 60s
+    setTimeout(function () {
+      if (entityActivity[type]) {
+        entityActivity[type].delete(walletId || 'unknown');
+      }
+    }, 60000);
+  }
+
+  /** Resolve entity display name from wallet ID */
+  function resolveEntity(walletId) {
+    if (!walletId) return null;
+    var ent = entityCache.find(function (e) { return e.walletId === walletId; });
+    if (ent) return { name: ent.displayName || shortHash(walletId), type: (ent.type || 'member').toLowerCase() };
+    return { name: shortHash(walletId), type: 'member' };
+  }
+
+  /** Trigger heartbeat animation on a network node */
+  function triggerHeartbeat(nodeId) {
+    var ring = qs('.cc-node-icon[data-node="' + nodeId + '"] .cc-heartbeat-ring');
+    if (ring) {
+      ring.classList.remove('beat');
+      void ring.offsetWidth; // force reflow
+      ring.classList.add('beat');
+    }
+  }
+
+  // ── Entity Cache ──
+
+  async function loadEntities() {
+    try {
+      var resp = await fetch(location.origin + '/viz/entities');
+      var text = await resp.text();
+      var data;
+      try { data = JSON.parse(text); } catch (e) {
+        diagLog('viz/entities returned non-JSON: ' + text.slice(0, 100), true);
+        return;
+      }
+      if (Array.isArray(data)) {
+        entityCache = data;
+        entityCacheTime = Date.now();
+        if (data.length > 0) {
+          diagLog('Entity cache loaded: ' + data.length + ' entities (' +
+            data.filter(function (e) { return e.type === 'member'; }).length + ' members, ' +
+            data.filter(function (e) { return e.type === 'prescriber'; }).length + ' prescribers, ' +
+            data.filter(function (e) { return e.type === 'pharmacy'; }).length + ' pharmacies, ' +
+            data.filter(function (e) { return e.type === 'insurer'; }).length + ' insurers)');
+        }
+      } else {
+        diagLog('viz/entities returned non-array: ' + JSON.stringify(data).slice(0, 100), true);
+      }
+    } catch (e) {
+      diagLog('viz/entities FAILED: ' + e.message, true);
+    }
+  }
+
+  // ── Batch Cache ──
+
+  async function loadBatchCache() {
+    try {
+      var batches = await RPC.getBatches(5);
+      if (Array.isArray(batches)) {
+        batchCache = batches;
+        if (batches.length > 0) {
+          diagLog('Batch cache: ' + batches.length + ' batches, latest #' +
+            (batches[0].batchNumber || batches[0].index || '?') + ' (' +
+            (batches[0].status || batches[0].l1Status || '?') + ')');
+        }
+      }
+    } catch (e) {
+      diagLog('getBatches FAILED: ' + e.message, true);
+    }
   }
 
   // ── Overview Tab ────────────────────────────────────────────
   async function loadOverview() {
     try {
+      var t0 = Date.now();
       var status = await RPC.getLeviathanStatus();
+      var rpcMs = Date.now() - t0;
       levStatus = status;
 
       // Header badges
       $('header-node-id').textContent = status.nodeId || '--';
-      $('header-partition').textContent = 'P×' + (status.partitionCount || '?');
+      $('header-partition').textContent = 'P\u00D7' + (status.partitionCount || '?');
       if (status.uptime) $('header-uptime').textContent = fmtAgo(status.uptime);
       setConnDot('connected');
 
-      // Render topology
-      renderTopology(status);
+      // Update queue depth from live status
+      var gt = status.globalTotals || {};
+      metrics.queueDepth = gt.pendingProofs || 0;
+
+      // Log sequencer state to feed on first load or state changes
+      if (!loadOverview._lastLoggedProofs || loadOverview._lastLoggedProofs !== gt.totalProofsAccepted) {
+        diagLog('Sequencer status (' + rpcMs + 'ms): node=' + (status.nodeId || '?') +
+          ' uptime=' + fmtAgo(status.uptime) +
+          ' proofs=' + (gt.totalProofsAccepted || 0) +
+          ' batches=' + (gt.totalBatchesBuilt || 0) + '/' + (gt.totalBatchesSettled || 0) +
+          ' pending=' + (gt.pendingProofs || 0) +
+          ' wallets=' + (status.chain ? status.chain.walletCount : '?'));
+        loadOverview._lastLoggedProofs = gt.totalProofsAccepted;
+      }
+
+      // Render all Command Center panels
+      updateThroughputPanel();
+      renderWorkerPanel(status);
+      renderFeedPanel();
+      renderBatchPanel();
+      renderNetworkPanel(status);
+      renderEntityPanel();
 
       // Partition ownership mini-grid
       renderOverviewPartitions(status);
 
-      // Worker pool
+      // Worker pool summary
       renderOverviewWorkers(status);
     } catch (e) {
       setConnDot('disconnected');
+      diagLog('loadOverview FAILED: ' + e.message + ' — is leviathan running on :3030?', true);
       toast('Failed to load status: ' + e.message, 'error');
     }
   }
@@ -487,12 +743,208 @@
 
   function handleVizEvent(ev) {
     var type = ev.type || ev.event || '';
-    if (type.indexOf('heartbeat') >= 0) {
-      topoHeartbeat(ev.from || ev.nodeId || (levStatus && levStatus.nodeId));
-    } else if (type.indexOf('gossip') >= 0) {
-      topoFlashGossip(ev.from || (levStatus && levStatus.nodeId), ev.to || '');
-    } else if (type.indexOf('proof') >= 0 || type.indexOf('batch') >= 0) {
-      topoProofFlow(ev.from || 'W0', ev.to || (levStatus && levStatus.nodeId), '#66bb6a');
+    var data = ev.data || {};
+    var selfId = levStatus && levStatus.nodeId || 'Leviathan';
+
+    // ── Proof pipeline events ──
+    if (type === 'proof:accepted') {
+      metrics.proofTimestamps.push(Date.now());
+      sparkTotal++;
+      metrics.queueDepth = (levStatus && levStatus.globalTotals)
+        ? (levStatus.globalTotals.pendingProofs || 0)
+        : Math.max(0, metrics.queueDepth + 1);
+
+      var ent = resolveEntity(data.walletId);
+      trackEntityActivity(data.walletId, ent ? ent.type : null);
+      addFeedItem({
+        type: 'proof:accepted',
+        typeClass: 'proof',
+        from: ent ? ent.name : shortHash(data.walletId),
+        fromColor: ent ? ENTITY_COLORS[ent.type] || '#8b949e' : '#3fb950',
+        to: selfId,
+        toColor: '#26c6da',
+        detail: 'queued for proving \u00B7 partition ' + (data.partition !== undefined ? data.partition : '?'),
+        timestamp: ev.timestamp || Date.now()
+      });
+    }
+    else if (type === 'pool:worker:dispatched' || type.indexOf('worker:assigned') >= 0) {
+      var wId = typeof data.workerId === 'number' ? 'W' + data.workerId : (data.workerId || 'W0');
+      workerStartTimes[wId] = Date.now();
+      addFeedItem({
+        type: 'worker:dispatched',
+        typeClass: 'worker',
+        from: selfId,
+        fromColor: '#26c6da',
+        to: wId,
+        toColor: '#ffc107',
+        detail: 'proving job dispatched',
+        timestamp: ev.timestamp || Date.now()
+      });
+    }
+    else if (type === 'pool:worker:completed' || type.indexOf('worker:completed') >= 0) {
+      if (data.proveTimeMs) {
+        metrics.proveTimes.push(data.proveTimeMs);
+        if (metrics.proveTimes.length > 20) metrics.proveTimes.shift();
+      }
+      var wId2 = typeof data.workerId === 'number' ? 'W' + data.workerId : (data.workerId || 'W0');
+      delete workerStartTimes[wId2];
+      addFeedItem({
+        type: 'worker:completed',
+        typeClass: 'proof',
+        from: wId2,
+        fromColor: '#ffc107',
+        to: selfId,
+        toColor: '#26c6da',
+        detail: 'proved in ' + (data.proveTimeMs ? fmtAgo(data.proveTimeMs) : '--'),
+        timestamp: ev.timestamp || Date.now()
+      });
+    }
+    else if (type === 'pool:worker:compiling' || type.indexOf('worker:compiling') >= 0) {
+      var wIdC = typeof data.workerId === 'number' ? 'W' + data.workerId : (data.workerId || 'W0');
+      addFeedItem({
+        type: 'worker:compiling',
+        typeClass: 'worker',
+        from: wIdC, fromColor: '#ffc107',
+        to: null, toColor: null,
+        detail: 'compiling circuits...',
+        timestamp: ev.timestamp || Date.now()
+      });
+    }
+    else if (type === 'pool:worker:crashed' || type.indexOf('worker:crashed') >= 0) {
+      var wIdD = typeof data.workerId === 'number' ? 'W' + data.workerId : (data.workerId || 'W0');
+      delete workerStartTimes[wIdD];
+      addFeedItem({
+        type: 'worker:crashed',
+        typeClass: 'error',
+        from: wIdD, fromColor: '#f85149',
+        to: null, toColor: null,
+        detail: data.error || 'worker process crashed',
+        timestamp: ev.timestamp || Date.now()
+      });
+    }
+    else if (type === 'pool:worker:ready' || type.indexOf('worker:ready') >= 0) {
+      // silent — just update panel on next render
+    }
+    // ── Batch events ──
+    else if (type === 'batch:built' || type.indexOf('batch:built') >= 0) {
+      metrics.queueDepth = 0;
+      loadBatchCache().then(function () { if (currentTab === 'overview') renderBatchPanel(); });
+      addFeedItem({
+        type: 'batch:built',
+        typeClass: 'batch',
+        from: selfId, fromColor: '#26c6da',
+        to: 'Batch #' + (data.batchNumber || data.batchIndex || data.index || '?'), toColor: '#26c6da',
+        detail: (data.proofCount || '?') + ' proofs batched',
+        timestamp: ev.timestamp || Date.now()
+      });
+    }
+    else if (type === 'batch:settled' || type.indexOf('batch:settled') >= 0) {
+      loadBatchCache().then(function () { if (currentTab === 'overview') renderBatchPanel(); });
+      addFeedItem({
+        type: 'batch:settled',
+        typeClass: 'batch',
+        from: 'Batch #' + (data.batchNumber || data.batchIndex || data.index || '?'), fromColor: '#3fb950',
+        to: 'Chain', toColor: '#3fb950',
+        detail: 'settlement finalized',
+        timestamp: ev.timestamp || Date.now()
+      });
+    }
+    else if (type === 'batch:building' || type.indexOf('batch:building') >= 0) {
+      // silent
+    }
+    // ── Gossip/heartbeat events ──
+    else if (type.indexOf('heartbeat') >= 0) {
+      triggerHeartbeat(ev.from || ev.nodeId || selfId);
+    }
+    else if (type.indexOf('gossip') >= 0) {
+      addFeedItem({
+        type: 'gossip',
+        typeClass: 'gossip',
+        from: ev.from || selfId, fromColor: '#26c6da',
+        to: ev.to || 'peers', toColor: '#26c6da',
+        detail: type,
+        timestamp: ev.timestamp || Date.now()
+      });
+    }
+    // ── Messaging events ──
+    else if (type === 'viz:message:sent' || type === 'viz:message:received') {
+      addFeedItem({
+        type: 'message',
+        typeClass: 'message',
+        from: ev.actor || data.senderWalletId || '?',
+        fromColor: '#e040fb',
+        to: ev.target || data.recipientWalletId || '?',
+        toColor: '#e040fb',
+        detail: 'encrypted ' + (data.messageType || 'text') + ' message stored',
+        timestamp: ev.timestamp || Date.now()
+      });
+    }
+    // ── Entity registration events ──
+    else if (type === 'viz:enrollment:started') {
+      var entType = data.type || 'member';
+      addFeedItem({
+        type: 'entity:registered',
+        typeClass: 'enrollment',
+        from: ev.actor || data.displayName || '?',
+        fromColor: ENTITY_COLORS[entType] || '#8b949e',
+        to: 'Entity Registry',
+        toColor: '#26c6da',
+        detail: entType + ' registered' + (data.specialty ? ' (' + data.specialty + ')' : ''),
+        timestamp: ev.timestamp || Date.now()
+      });
+    }
+    // ── Provider credentialing events ──
+    else if (type === 'viz:credential:generated') {
+      addFeedItem({
+        type: 'provider:credentialed',
+        typeClass: 'credential',
+        from: ev.actor || '?',
+        fromColor: ENTITY_COLORS[data.providerType] || '#58a6ff',
+        to: 'Provider Registry',
+        toColor: '#26c6da',
+        detail: (data.providerType || 'provider') + ' credentialed — leaf #' + (data.leafIndex || '?'),
+        timestamp: ev.timestamp || Date.now()
+      });
+    }
+    // ── Provider status change events ──
+    else if (type === 'viz:enrollment:lifecycle') {
+      var stateColor = data.stateName === 'active' ? '#3fb950' : data.stateName === 'suspended' ? '#f85149' : '#ffc107';
+      addFeedItem({
+        type: 'provider:status',
+        typeClass: 'lifecycle',
+        from: ev.actor || '?',
+        fromColor: ENTITY_COLORS[data.providerType] || '#58a6ff',
+        to: data.stateName || '?',
+        toColor: stateColor,
+        detail: (data.providerType || 'provider') + ' status → ' + (data.stateName || 'unknown'),
+        timestamp: ev.timestamp || Date.now()
+      });
+    }
+    // ── Pharmacy dispensing events ──
+    else if (type === 'viz:pharmacy:dispensed') {
+      addFeedItem({
+        type: 'fill:dispensed',
+        typeClass: 'fulfillment',
+        from: ev.actor || '?',
+        fromColor: ENTITY_COLORS.pharmacy || '#bc8cff',
+        to: ev.target || '?',
+        toColor: ENTITY_COLORS.member || '#3fb950',
+        detail: (data.brandName || 'medication') + ' dispensed — leaf #' + (data.leafIndex || '?'),
+        timestamp: ev.timestamp || Date.now()
+      });
+    }
+    // ── Fallback ──
+    else if (type.indexOf('proof') >= 0) {
+      metrics.proofTimestamps.push(Date.now());
+      sparkTotal++;
+    }
+    else if (type.indexOf('batch') >= 0) {
+      loadBatchCache();
+    }
+
+    // Re-render worker panel on any worker event (if on overview)
+    if (type.indexOf('worker') >= 0 || type.indexOf('pool:') >= 0) {
+      if (currentTab === 'overview' && levStatus) renderWorkerPanel(levStatus);
     }
   }
 
@@ -729,10 +1181,10 @@
       $('quorum-status').innerHTML =
         '<div class="detail-grid">' +
         detailRow('Enabled', quorum.enabled !== undefined ? String(quorum.enabled) : '--') +
-        detailRow('Required Votes', quorum.requiredVotes || '--') +
-        detailRow('Total Nodes', quorum.totalNodes || '--') +
+        detailRow('Quorum Threshold', quorum.quorumThreshold || '--') +
+        detailRow('Known Peer Keys', quorum.knownPeerKeys || '--') +
         detailRow('Pending Proposals', quorum.pendingProposals || 0) +
-        detailRow('Timeout', quorum.timeoutMs ? quorum.timeoutMs + 'ms' : '--') +
+        detailRow('Timeout', quorum.quorumTimeoutMs ? quorum.quorumTimeoutMs + 'ms' : '--') +
         '</div>';
     } catch (e) {
       $('quorum-status').innerHTML = '<div class="empty-state">Quorum data unavailable</div>';
@@ -1039,6 +1491,43 @@
     function memReq(m, p, b) { return demoRequest(memUrl, m, p, b); }
 
     try {
+      // ═══ PRE-FLIGHT: Check required nodes ═══
+      L('═══ PRE-FLIGHT: Checking required nodes ═══');
+      await checkAllNodeHealth();
+      var requiredNodes = [
+        { id: 'leviathan', label: 'Leviathan (:3030)', why: 'sequencer — accepts proofs, builds batches' },
+        { id: 'insurer', label: 'Insurer (:4004)', why: 'credentials providers, registers wallets' },
+        { id: 'employer', label: 'Employer (:4005)', why: 'generates enrollment tokens' },
+        { id: 'member', label: 'Member (:4001)', why: 'receives tokens, submits enrollment proof' },
+      ];
+      var prefightFailed = false;
+      requiredNodes.forEach(function (rn) {
+        var s = nodeHealthState[rn.id];
+        if (s && s.alive) {
+          L(rn.label + ' — ALIVE (' + s.latencyMs + 'ms, phase: ' + s.phase + ')', true);
+        } else {
+          L(rn.label + ' — DOWN (' + (s ? s.error : 'not checked') + ') — needed for: ' + rn.why, false);
+          prefightFailed = true;
+        }
+      });
+      // Also check optional nodes
+      ['prescriber', 'pharmacy'].forEach(function (nid) {
+        var s = nodeHealthState[nid];
+        var n = NETWORK_NODES.find(function (x) { return x.id === nid; });
+        if (s && s.alive) {
+          L((n ? n.label : nid) + ' — ALIVE (optional)', true);
+        } else {
+          L((n ? n.label : nid) + ' — DOWN (optional, won\'t block enrollment)', null);
+        }
+      });
+      if (prefightFailed) {
+        L('');
+        L('CANNOT PROCEED — required nodes are down. Restart the leviathan process.', false);
+        throw new Error('Pre-flight failed: required nodes are down');
+      }
+      L('All required nodes alive — proceeding with ceremony');
+      L('');
+
       // ═══ PHASE 1: EMPLOYER — Group + Token ═══
       L('═══ PHASE 1: EMPLOYER SETUP ═══');
 
@@ -1250,6 +1739,7 @@
 
     RPC.onConnectionChange(function (state) {
       setConnDot(state);
+      diagLog('SSE connection: ' + state, state === 'disconnected');
     });
   }
 
@@ -1260,7 +1750,11 @@
         try {
           var status = await RPC.getLeviathanStatus();
           levStatus = status;
-          renderTopology(status);
+          var gt = status.globalTotals || {};
+          metrics.queueDepth = gt.pendingProofs || 0;
+          renderWorkerPanel(status);
+          renderNetworkPanel(status);
+          renderEntityPanel();
           renderOverviewPartitions(status);
           renderOverviewWorkers(status);
           setConnDot('connected');
@@ -1268,7 +1762,11 @@
           setConnDot('disconnected');
         }
       }
-    }, 10000);
+      // Refresh entity cache every 30s
+      if (Date.now() - entityCacheTime > 30000) {
+        loadEntities();
+      }
+    }, 5000);
   }
 
   // ── Refresh Buttons ─────────────────────────────────────────
@@ -1321,9 +1819,28 @@
     // Gossip filter
     $('gossip-filter').addEventListener('change', renderGossipLog);
 
-    // Start SSE + polling
-    startSSE();
-    startPolling();
+    // Run initial health check, then load data
+    diagLog('Dashboard starting — probing all network nodes...');
+    checkAllNodeHealth().then(function () {
+      diagLog('Initial health check complete');
+      loadEntities();
+      loadBatchCache();
+      startSSE();
+      startPolling();
+    });
+
+    // Re-check node health every 15s
+    setInterval(function () {
+      checkAllNodeHealth();
+    }, 15000);
+
+    // Sparkline ticker — 1s interval
+    setInterval(tickSparkline, 1000);
+
+    // Worker elapsed timer — update proving bars every 2s
+    workerTimerInterval = setInterval(function () {
+      if (currentTab === 'overview' && levStatus) renderWorkerPanel(levStatus);
+    }, 2000);
   }
 
   // Boot

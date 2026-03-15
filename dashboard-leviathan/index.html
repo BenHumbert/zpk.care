@@ -45,41 +45,85 @@
     <!--  OVERVIEW — Network Topology + Live Activity            -->
     <!-- ════════════════════════════════════════════════════════ -->
     <section class="page active" id="page-overview">
-      <!-- Topology Canvas -->
-      <div class="topology-container" id="topology-container">
-        <svg id="topology-svg" class="topology-svg">
-          <defs>
-            <filter id="glow-teal" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur"/>
-              <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.15  0 0 0 0 0.78  0 0 0 0 0.85  0 0 0 0.5 0"/>
-              <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
-            </filter>
-            <filter id="glow-amber" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
-              <feColorMatrix in="blur" type="matrix" values="0 0 0 0 1.0  0 0 0 0 0.76  0 0 0 0 0.03  0 0 0 0.4 0"/>
-              <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
-            </filter>
-            <filter id="glow-generic" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
-              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-            </filter>
-          </defs>
-          <!-- Partition lane bands (drawn by JS) -->
-          <g id="topo-lanes"></g>
-          <!-- Gossip connection lines -->
-          <g id="topo-connections"></g>
-          <!-- Animated proof flow dots -->
-          <g id="topo-animations"></g>
-          <!-- Node groups -->
-          <g id="topo-nodes"></g>
-        </svg>
-        <div class="topology-legend" id="topology-legend">
-          <span class="legend-item"><span class="legend-dot" style="background:#26c6da"></span>Leviathan (leader)</span>
-          <span class="legend-item"><span class="legend-dot" style="background:#26c6da;opacity:0.4"></span>Replica</span>
-          <span class="legend-item"><span class="legend-dot" style="background:#ffc107"></span>Worker</span>
-          <span class="legend-item"><span class="legend-line" style="background:#26c6da"></span>Gossip</span>
-          <span class="legend-item"><span class="legend-line" style="background:#ef5350"></span>Failover</span>
+      <!-- Node Health Status Bar -->
+      <div class="node-health-bar" id="node-health-bar">
+        <div class="node-health-title">Network Nodes</div>
+        <div class="node-health-grid" id="node-health-grid"></div>
+      </div>
+
+      <!-- Command Center -->
+      <div class="cc-grid" id="cc-grid">
+
+        <!-- ── Throughput Sparkline ─────────────────────────── -->
+        <div class="cc-panel cc-throughput">
+          <div class="cc-panel-header">
+            <span class="cc-panel-title">Proof Throughput</span>
+            <span class="cc-rate" id="cc-rate">0.0<small>/s</small></span>
+          </div>
+          <div class="cc-sparkline" id="cc-sparkline"></div>
+          <div class="cc-throughput-stats">
+            <span>peak <b id="cc-peak">0.0</b>/s</span>
+            <span>avg <b id="cc-avg">0.0</b>/s</span>
+            <span>total <b id="cc-total">0</b></span>
+          </div>
         </div>
+
+        <!-- ── Worker Pool ─────────────────────────────────── -->
+        <div class="cc-panel cc-workers">
+          <div class="cc-panel-header">
+            <span class="cc-panel-title">Worker Pool</span>
+            <span class="cc-badge" id="cc-worker-badge">--</span>
+          </div>
+          <div class="cc-worker-list" id="cc-worker-list">
+            <div class="cc-empty">No workers</div>
+          </div>
+          <div class="cc-worker-stats">
+            <span>avg prove <b id="cc-avg-prove">--</b></span>
+            <span>queue <b id="cc-queue">0</b></span>
+          </div>
+        </div>
+
+        <!-- ── Live Network Feed (From → To) ──────────────── -->
+        <div class="cc-panel cc-feed">
+          <div class="cc-panel-header">
+            <span class="cc-panel-title">Live Network Activity</span>
+            <span class="cc-badge cc-badge-live">LIVE</span>
+          </div>
+          <div class="cc-feed-list" id="cc-feed-list">
+            <div class="cc-empty">Waiting for events...</div>
+          </div>
+        </div>
+
+        <!-- ── Batch Pipeline ──────────────────────────────── -->
+        <div class="cc-panel cc-batches">
+          <div class="cc-panel-header">
+            <span class="cc-panel-title">Batch Pipeline</span>
+          </div>
+          <div class="cc-batch-list" id="cc-batch-list">
+            <div class="cc-empty">No batches yet</div>
+          </div>
+        </div>
+
+        <!-- ── Network Nodes ───────────────────────────────── -->
+        <div class="cc-panel cc-network">
+          <div class="cc-panel-header">
+            <span class="cc-panel-title">Network</span>
+          </div>
+          <div class="cc-network-nodes" id="cc-network-nodes">
+            <div class="cc-empty">Loading...</div>
+          </div>
+        </div>
+
+        <!-- ── Entity Activity ─────────────────────────────── -->
+        <div class="cc-panel cc-entities">
+          <div class="cc-panel-header">
+            <span class="cc-panel-title">Entity Activity</span>
+          </div>
+          <div class="cc-entity-list" id="cc-entity-list">
+            <div class="cc-empty">Loading...</div>
+          </div>
+        </div>
+
       </div>
 
       <!-- Bottom Panels -->

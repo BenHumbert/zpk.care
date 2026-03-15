@@ -422,7 +422,7 @@ export type {
   SelectiveWitnessResult,
 } from './audit/index.js';
 
-// ── Demo Data ──────────────────────────────────────────────
+// ── Production Data (NPPES + NADAC) ─────────────────────────
 export {
   DEMO_PRESCRIBERS, PRESCRIBER_BY_NPI,
   DEMO_PHARMACIES, PHARMACY_BY_NPI, PHARMACY_BY_NCPDP,
@@ -432,10 +432,10 @@ export {
   buildMedicationLocalData, buildMedicationPricingLocalData,
   DEMO_MEMBERS, MEMBER_BY_CARDHOLDER_ID,
   getMembersByEmployee, getSubscribers, getAcmeMembers, getGlobexMembers,
-} from './demo/index.js';
+} from './data/index.js';
 export type {
   DemoPrescriber,
   DemoPharmacy,
   DemoMedication,
   DemoMember,
-} from './demo/index.js';
+} from './data/index.js';

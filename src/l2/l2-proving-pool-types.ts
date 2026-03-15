@@ -185,6 +185,8 @@ export interface WorkerStatus {
   id: number;
   busy: boolean;
   currentJobId: string | null;
+  /** Human-readable description of the current job (e.g. "Batch #3 — 2 proofs") */
+  currentJobDescription: string | null;
   status: WorkerState;
   jobsProcessed: number;
 }

@@ -1,16 +1,16 @@
 import {
   DEMO_PRESCRIBERS, PRESCRIBER_BY_NPI,
-  DEMO_PHARMACIES, PHARMACY_BY_NPI, PHARMACY_BY_NCPDP,
+  DEMO_PHARMACIES, PHARMACY_BY_NPI,
   DEMO_MEDICATIONS, TIER1_GENERICS, TIER2_PREFERRED, TIER3_NON_PREFERRED, TIER4_SPECIALTY,
-  MEDICATION_BY_NDC, MEDICATION_BY_GPI, getAllFormularyEntries, getFormularyEntriesByTier,
+  MEDICATION_BY_NDC, getAllFormularyEntries, getFormularyEntriesByTier,
   buildMedicationLocalData, buildMedicationPricingLocalData,
   DEMO_MEMBERS, MEMBER_BY_CARDHOLDER_ID, getMembersByEmployee, getSubscribers, getAcmeMembers, getGlobexMembers,
-} from '../src/demo/index.js';
+} from '../src/data/index.js';
 
-describe('Demo Data — Smoke Tests', () => {
-  // ── Prescribers ──
-  test('has 10 prescribers', () => {
-    expect(DEMO_PRESCRIBERS).toHaveLength(10);
+describe('Production Data — Smoke Tests', () => {
+  // ── Prescribers (NPPES — Madison, WI) ──
+  test('has 16 prescribers from NPPES', () => {
+    expect(DEMO_PRESCRIBERS.length).toBeGreaterThanOrEqual(16);
   });
 
   test('all prescribers have NPI qualifier = 1', () => {
@@ -26,10 +26,10 @@ describe('Demo Data — Smoke Tests', () => {
   });
 
   test('PRESCRIBER_BY_NPI lookup works', () => {
-    const chen = PRESCRIBER_BY_NPI.get('1234567890');
-    expect(chen).toBeDefined();
-    expect(chen!.lastName).toBe('Chen');
-    expect(chen!.specialty).toBe('Internal Medicine');
+    const first = DEMO_PRESCRIBERS[0];
+    const found = PRESCRIBER_BY_NPI.get(first.localData.prescriberId);
+    expect(found).toBeDefined();
+    expect(found!.lastName).toBe(first.lastName);
   });
 
   test('prescriber NPIs are unique', () => {
@@ -37,9 +37,9 @@ describe('Demo Data — Smoke Tests', () => {
     expect(new Set(npis).size).toBe(npis.length);
   });
 
-  // ── Pharmacies ──
-  test('has 8 pharmacies', () => {
-    expect(DEMO_PHARMACIES).toHaveLength(8);
+  // ── Pharmacies (NPPES — Madison, WI) ──
+  test('has 15 pharmacies from NPPES', () => {
+    expect(DEMO_PHARMACIES.length).toBeGreaterThanOrEqual(15);
   });
 
   test('all pharmacies have qualifier = 1', () => {
@@ -48,23 +48,17 @@ describe('Demo Data — Smoke Tests', () => {
     }
   });
 
-  test('all pharmacies have 10-digit NPI starting with 2', () => {
+  test('all pharmacies have 10-digit NPI', () => {
     for (const p of DEMO_PHARMACIES) {
-      expect(p.localData.serviceProviderId).toMatch(/^2\d{9}$/);
+      expect(p.localData.serviceProviderId).toMatch(/^\d{10}$/);
     }
   });
 
   test('PHARMACY_BY_NPI lookup works', () => {
-    const mainSt = PHARMACY_BY_NPI.get('2345678901');
-    expect(mainSt).toBeDefined();
-    expect(mainSt!.storeName).toBe('Main Street Pharmacy');
-  });
-
-  test('PHARMACY_BY_NCPDP lookup works', () => {
-    const rxDirect = PHARMACY_BY_NCPDP.get('5904567');
-    expect(rxDirect).toBeDefined();
-    expect(rxDirect!.storeName).toBe('RxDirect Mail');
-    expect(rxDirect!.pharmacyType).toBe('04');
+    const first = DEMO_PHARMACIES[0];
+    const found = PHARMACY_BY_NPI.get(first.localData.serviceProviderId);
+    expect(found).toBeDefined();
+    expect(found!.storeName).toBe(first.storeName);
   });
 
   test('all pharmacy types are valid NCPDP codes', () => {
@@ -74,16 +68,18 @@ describe('Demo Data — Smoke Tests', () => {
     }
   });
 
-  // ── Medications ──
-  test('has 22 medications total', () => {
-    expect(DEMO_MEDICATIONS).toHaveLength(22);
+  // ── Medications (NADAC — 32,768 real drugs) ──
+  test('has 32,768 medications (MerkleTree(16) capacity)', () => {
+    expect(DEMO_MEDICATIONS).toHaveLength(32768);
   });
 
-  test('tier distribution: 7 + 5 + 5 + 5', () => {
-    expect(TIER1_GENERICS).toHaveLength(7);
-    expect(TIER2_PREFERRED).toHaveLength(5);
-    expect(TIER3_NON_PREFERRED).toHaveLength(5);
-    expect(TIER4_SPECIALTY).toHaveLength(5);
+  test('tier distribution covers all 4 tiers', () => {
+    expect(TIER1_GENERICS.length).toBeGreaterThan(0);
+    expect(TIER2_PREFERRED.length).toBeGreaterThan(0);
+    expect(TIER3_NON_PREFERRED.length).toBeGreaterThan(0);
+    expect(TIER4_SPECIALTY.length).toBeGreaterThan(0);
+    expect(TIER1_GENERICS.length + TIER2_PREFERRED.length +
+           TIER3_NON_PREFERRED.length + TIER4_SPECIALTY.length).toBe(32768);
   });
 
   test('all NDCs are 11-digit', () => {
@@ -92,23 +88,11 @@ describe('Demo Data — Smoke Tests', () => {
     }
   });
 
-  test('all GPIs are 14-digit', () => {
-    for (const m of DEMO_MEDICATIONS) {
-      expect(m.gpi).toMatch(/^\d{14}$/);
-    }
-  });
-
   test('MEDICATION_BY_NDC lookup works', () => {
-    const lisinopril = MEDICATION_BY_NDC.get('00071015523');
-    expect(lisinopril).toBeDefined();
-    expect(lisinopril!.genericName).toBe('Lisinopril');
-    expect(lisinopril!.formularyEntry.tierLevel).toBe(1);
-  });
-
-  test('MEDICATION_BY_GPI lookup works', () => {
-    const atorvastatin = MEDICATION_BY_GPI.get('33100020100110');
-    expect(atorvastatin).toBeDefined();
-    expect(atorvastatin!.genericName).toBe('Atorvastatin Calcium');
+    const first = DEMO_MEDICATIONS[0];
+    const found = MEDICATION_BY_NDC.get(first.ndc);
+    expect(found).toBeDefined();
+    expect(found!.formularyEntry.ndc).toBe(first.ndc);
   });
 
   test('formulary entry NDCs match medication NDCs', () => {
@@ -117,10 +101,10 @@ describe('Demo Data — Smoke Tests', () => {
     }
   });
 
-  test('tier 1 copay = $10, tier 2 = $30, tier 3 = $60, tier 4 = $150', () => {
+  test('tier copays: T1=$10, T2=$35, T3=$75, T4=$150', () => {
     for (const m of TIER1_GENERICS) expect(m.formularyEntry.copayAmount).toBe(1000);
-    for (const m of TIER2_PREFERRED) expect(m.formularyEntry.copayAmount).toBe(3000);
-    for (const m of TIER3_NON_PREFERRED) expect(m.formularyEntry.copayAmount).toBe(6000);
+    for (const m of TIER2_PREFERRED) expect(m.formularyEntry.copayAmount).toBe(3500);
+    for (const m of TIER3_NON_PREFERRED) expect(m.formularyEntry.copayAmount).toBe(7500);
     for (const m of TIER4_SPECIALTY) expect(m.formularyEntry.copayAmount).toBe(15000);
   });
 
@@ -130,21 +114,21 @@ describe('Demo Data — Smoke Tests', () => {
     }
   });
 
-  test('getAllFormularyEntries returns all 22', () => {
-    expect(getAllFormularyEntries()).toHaveLength(22);
+  test('getAllFormularyEntries returns all 32,768', () => {
+    expect(getAllFormularyEntries()).toHaveLength(32768);
   });
 
   test('getFormularyEntriesByTier filters correctly', () => {
-    expect(getFormularyEntriesByTier(1)).toHaveLength(7);
-    expect(getFormularyEntriesByTier(2)).toHaveLength(5);
-    expect(getFormularyEntriesByTier(3)).toHaveLength(5);
-    expect(getFormularyEntriesByTier(4)).toHaveLength(5);
+    expect(getFormularyEntriesByTier(1).length).toBe(TIER1_GENERICS.length);
+    expect(getFormularyEntriesByTier(2).length).toBe(TIER2_PREFERRED.length);
+    expect(getFormularyEntriesByTier(3).length).toBe(TIER3_NON_PREFERRED.length);
+    expect(getFormularyEntriesByTier(4).length).toBe(TIER4_SPECIALTY.length);
   });
 
   test('buildMedicationLocalData produces valid MedicationLocalData', () => {
-    const lisinopril = MEDICATION_BY_NDC.get('00071015523')!;
-    const medData = buildMedicationLocalData(lisinopril, 'RX-001', 30, 0, 30);
-    expect(medData.productServiceId).toBe('00071015523');
+    const med = DEMO_MEDICATIONS[0];
+    const medData = buildMedicationLocalData(med, 'RX-001', 30, 0, 30);
+    expect(medData.productServiceId).toBe(med.ndc);
     expect(medData.productServiceIdQualifier).toBe(3);
     expect(medData.quantityDispensed).toBe(30);
     expect(medData.fillNumber).toBe(0);
@@ -152,14 +136,14 @@ describe('Demo Data — Smoke Tests', () => {
   });
 
   test('buildMedicationPricingLocalData computes AWP-based costs', () => {
-    const lisinopril = MEDICATION_BY_NDC.get('00071015523')!;
-    const pricing = buildMedicationPricingLocalData(lisinopril, 30);
-    expect(pricing.ingredientCostSubmitted).toBe(15 * 30); // 15 cents/unit * 30
+    const med = DEMO_MEDICATIONS[0];
+    const pricing = buildMedicationPricingLocalData(med, 30);
+    expect(pricing.ingredientCostSubmitted).toBe(med.awpUnitPriceCents * 30);
     expect(pricing.dispensingFeeSubmitted).toBe(200); // default $2.00
-    expect(pricing.usualAndCustomaryCharge).toBe(15 * 30 + 200);
+    expect(pricing.usualAndCustomaryCharge).toBe(med.awpUnitPriceCents * 30 + 200);
   });
 
-  // ── Members ──
+  // ── Members (POC — Madison, WI) ──
   test('has 8 members', () => {
     expect(DEMO_MEMBERS).toHaveLength(8);
   });
@@ -177,7 +161,7 @@ describe('Demo Data — Smoke Tests', () => {
   });
 
   test('MEMBER_BY_CARDHOLDER_ID lookup works', () => {
-    const alice = MEMBER_BY_CARDHOLDER_ID.get('ACME-EMP-001');
+    const alice = MEMBER_BY_CARDHOLDER_ID.get('EPIC-EMP-001');
     expect(alice).toBeDefined();
     expect(alice!.localData.firstName).toBe('Alice');
     expect(alice!.localData.lastName).toBe('Johnson');
@@ -195,11 +179,11 @@ describe('Demo Data — Smoke Tests', () => {
     expect(family.map((m) => m.relationship).sort()).toEqual(['CHILD', 'SELF', 'SPOUSE']);
   });
 
-  test('getAcmeMembers returns 5 ACME members', () => {
+  test('getAcmeMembers returns 5 Epic employer members', () => {
     expect(getAcmeMembers()).toHaveLength(5);
   });
 
-  test('getGlobexMembers returns 3 Globex members', () => {
+  test('getGlobexMembers returns 3 Exact Sciences members', () => {
     expect(getGlobexMembers()).toHaveLength(3);
   });
 

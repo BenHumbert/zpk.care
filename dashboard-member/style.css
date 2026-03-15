@@ -44,7 +44,7 @@ html, body {
 
 /* ── Screens ───────────────────────────────────────────── */
 .screen { display: none; }
-.screen:not(.hidden) { display: flex; }
+.screen:not(.hidden) { display: flex; flex-direction: column; min-height: 100vh; }
 
 /* ── Landing ───────────────────────────────────────────── */
 .landing {
@@ -123,6 +123,17 @@ html, body {
 .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
 .conn-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
 .conn-dot.disconnected { background: var(--red); }
+
+/* ── Sequencer Status Bar ─────────────────────────────── */
+.seq-status-bar { background: var(--bg-card); border-bottom: 1px solid var(--border); padding: 6px 24px; font-size: 11px; color: var(--text-secondary); transition: all 0.3s ease; }
+.seq-status-inner { max-width: 1400px; margin: 0 auto; display: flex; align-items: center; gap: 8px; }
+.seq-status-icon { display: inline-block; }
+.seq-status-icon.proving { color: var(--orange); }
+.seq-status-icon.idle { color: var(--green); }
+.seq-status-icon.error { color: var(--red); }
+@keyframes pulse-glow { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+.seq-status-bar.active { border-bottom-color: var(--orange); }
+.seq-status-bar.active .seq-status-icon { animation: pulse-glow 1.5s infinite; }
 
 /* ── Main ──────────────────────────────────────────────── */
 .main { max-width: 1400px; margin: 0 auto; padding: 20px 24px 40px; }
@@ -206,6 +217,9 @@ html, body {
 .claim-amounts { text-align: right; font-family: var(--font-mono); font-size: 12px; white-space: nowrap; }
 .claim-patient-pay { color: var(--text-primary); font-weight: 600; }
 .claim-plan-pay { color: var(--text-muted); font-size: 11px; }
+.claim-nadac { font-size: 10px; color: var(--text-secondary); margin-top: 3px; font-family: var(--font-mono); }
+.nadac-label { color: var(--text-muted); }
+.nadac-detail { color: var(--text-muted); opacity: 0.7; }
 
 /* ── Provider Card ─────────────────────────────────────── */
 .provider-card {

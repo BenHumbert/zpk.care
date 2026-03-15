@@ -100,6 +100,14 @@
       </div>
     </header>
 
+    <!-- Sequencer Status Bar -->
+    <div class="seq-status-bar hidden" id="seq-status-bar">
+      <div class="seq-status-inner">
+        <span class="seq-status-icon" id="seq-status-icon"></span>
+        <span class="seq-status-text" id="seq-status-text"></span>
+      </div>
+    </div>
+
     <!-- Pages -->
     <main class="main" id="main" role="main">
 
@@ -273,6 +281,7 @@
             </p>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <button class="btn btn-primary" id="attestation-btn">Request Attestation</button>
+              <button class="btn" id="credential-copy-btn" disabled title="Request attestation first">Copy Attestation</button>
               <button class="btn" id="nfc-write-btn" disabled title="Request attestation first">Write to NFC</button>
               <button class="btn" id="credential-download-btn" disabled title="Request attestation first">Download Credential</button>
             </div>

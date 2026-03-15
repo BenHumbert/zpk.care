@@ -241,7 +241,9 @@ export function buildPrescriberRoutes(
             body: JSON.stringify({ walletId: data.walletId, tokenId: data.onboarding.tokenId, role: 'prescriber' }),
           });
           insurerNotified = resp.ok;
-        } catch { /* insurer unreachable — continue */ }
+        } catch (insErr: unknown) {
+          console.warn('[prescriber-enroll] Insurer notification failed:', insErr instanceof Error ? insErr.message : String(insErr));
+        }
       }
 
       data.onboarding.phase = 'enrolled';
@@ -733,7 +735,12 @@ export function buildPrescriberRoutes(
       if (!b?.message || !b?.payload) {
         return server.sendResponse(res, 400, false, undefined, 'Missing message or payload');
       }
-      const entry = await node.storeMessage(b.message as any, b.payload as any);
+      // Ensure senderWalletId is set server-side (dashboard may not have it yet)
+      const msg = b.message;
+      if (!msg.senderWalletId || msg.senderWalletId === '') {
+        msg.senderWalletId = node.getWalletId();
+      }
+      const entry = await node.storeMessage(msg as any, b.payload as any);
       server.sendResponse(res, 200, true, entry);
     },
   });
@@ -822,10 +829,12 @@ export function buildPrescriberRoutes(
           data: { skipped: true, reason: 'Standalone mode — ZK proof not required for demo' },
         });
 
-        // Step 5: badge:verify — check provider registry on sequencer
+        // Step 5: badge:verify — check provider registry on sequencer; register if first time
         let credentialState = 'ACTIVE';
+        let isNewWallet = false;
         try {
           const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+          const adminToken = server.getConfig().adminToken ?? 'admin123';
           const resp = await fetch(seqUrl + '/rpc', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -835,17 +844,47 @@ export function buildPrescriberRoutes(
           if (json.result) {
             const states = ['PENDING', 'SUSPENDED', 'ACTIVE', 'TERMINATED'];
             credentialState = states[json.result.credentialState] ?? 'UNKNOWN';
+          } else {
+            // First time alias — register this prescriber's wallet on the sequencer
+            isNewWallet = true;
+            console.log(`[badge:tap] First alias for ${displayName} — registering wallet ${walletId.slice(0, 16)}… on sequencer`);
+            const regResp = await fetch(seqUrl + '/rpc', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${adminToken}`,
+              },
+              body: JSON.stringify({
+                jsonrpc: '2.0', id: 2, method: 'l2_registerEntity',
+                params: {
+                  walletId,
+                  displayName,
+                  type: 'prescriber',
+                  npi: String(prescriber.localData.prescriberId),
+                  specialty: prescriber.specialty,
+                },
+              }),
+            });
+            const regJson = await regResp.json() as any;
+            if (regJson.error) {
+              console.warn(`[badge:tap] Entity registration failed: ${regJson.error.message}`);
+            } else {
+              console.log(`[badge:tap] Prescriber ${displayName} registered on sequencer`);
+              credentialState = 'ACTIVE';
+            }
           }
-        } catch { /* sequencer offline — proceed anyway */ }
+        } catch (regErr: any) {
+          console.warn(`[badge:tap] Sequencer check/register failed: ${regErr?.message ?? regErr}`);
+        }
         events.push({
           type: 'badge:verify', providerIndex, providerType, displayName, timestamp: Date.now(),
-          data: { credentialState, walletId },
+          data: { credentialState, walletId, isNewWallet },
         });
 
         // Step 6: badge:session — issue session
         events.push({
           type: 'badge:session', providerIndex, providerType, displayName, timestamp: Date.now(),
-          data: { sessionDuration: '8h', walletId },
+          data: { sessionDuration: '8h', walletId, isNewWallet },
         });
 
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });

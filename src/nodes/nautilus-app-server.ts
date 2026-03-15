@@ -347,7 +347,7 @@ export class NautilusAppServer {
             '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml',
             '.ico': 'image/x-icon',
           };
-          res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
+          res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
           res.end(content);
           return;
         } catch { /* file not found, fall through to 404 */ }
@@ -378,7 +378,7 @@ export class NautilusAppServer {
     this.sendResponse(res, 200, true, {
       phase: this.onboardingPhase,
       onboarding: state?.onboarding ?? { phase: this.onboardingPhase },
-      walletId: state?.walletId,
+      walletId: state?.walletId ?? this.entityNode?.getWalletId(),
       role: this.config.role,
       displayName: this.config.displayName ?? this.entityNode?.getDisplayName(),
     });

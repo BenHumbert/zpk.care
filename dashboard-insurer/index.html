@@ -226,6 +226,24 @@
         </div>
       </div>
 
+      <!-- Template Plans -->
+      <div class="panel">
+        <div class="panel-header panel-toggle" id="plan-templates-toggle">
+          <h3>Transparent PBM Plan Templates</h3>
+          <span class="toggle-arrow">&#9660;</span>
+        </div>
+        <div class="panel-body hidden" id="plan-templates-body">
+          <p class="form-desc" style="margin:0 0 12px 0;">Pre-configured direct-to-employer pharmacy benefit plans with 100% rebate passthrough and transparent pricing. Select templates to create.</p>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px" id="plan-template-cards"></div>
+          <div class="form-actions">
+            <button class="btn btn-sm" id="plan-template-select-all">Select All</button>
+            <button class="btn btn-sm" id="plan-template-clear">Clear</button>
+            <button class="btn btn-primary" id="plan-template-create-btn">Create Selected Plans</button>
+          </div>
+          <div id="plan-template-result"></div>
+        </div>
+      </div>
+
       <!-- Plan List -->
       <div class="panel">
         <div class="panel-header">
@@ -234,6 +252,72 @@
         </div>
         <div class="panel-body" id="plan-list-container">
           <div class="loading">Loading...</div>
+        </div>
+      </div>
+
+      <!-- Plan Detail — Formulary + Network Selection (shown when editing a plan) -->
+      <div class="panel hidden" id="plan-detail-panel">
+        <div class="panel-header">
+          <h3>Plan Configuration: <span id="plan-detail-name">--</span></h3>
+          <button class="btn btn-sm" id="plan-detail-close">Close</button>
+        </div>
+        <div class="panel-body">
+          <!-- Formulary Selection -->
+          <div style="margin-bottom: 16px;">
+            <h4 style="margin: 0 0 8px 0;">Formulary NDC Selection</h4>
+            <p class="form-desc" style="margin: 0 0 8px 0;">Select which medications to include in this plan's formulary. Empty = all medications from the master formulary.</p>
+            <div class="form-row">
+              <div class="form-group" style="flex:1">
+                <input type="text" class="form-input" id="plan-formulary-search" placeholder="Search medications by name or NDC...">
+              </div>
+              <div class="form-group" style="flex:0 0 auto">
+                <select class="form-input form-select" id="plan-formulary-tier-filter" style="width:160px">
+                  <option value="">All Tiers</option>
+                  <option value="1">Tier 1 — Generic</option>
+                  <option value="2">Tier 2 — Preferred</option>
+                  <option value="3">Tier 3 — Non-Preferred</option>
+                  <option value="4">Tier 4 — Specialty</option>
+                </select>
+              </div>
+            </div>
+            <div id="plan-formulary-stats" style="font-size:12px;color:var(--text-secondary);margin-bottom:8px"></div>
+            <div id="plan-formulary-list" style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:4px"></div>
+            <div class="form-actions" style="margin-top:8px">
+              <button class="btn btn-sm" id="plan-formulary-select-all">Select All Visible</button>
+              <button class="btn btn-sm" id="plan-formulary-clear">Clear Selection</button>
+            </div>
+          </div>
+
+          <!-- Network Provider Selection -->
+          <div style="margin-bottom: 16px;">
+            <h4 style="margin: 0 0 8px 0;">In-Network Providers</h4>
+            <p class="form-desc" style="margin: 0 0 8px 0;">Select which providers are in-network for this plan. Empty = all credentialed providers accepted.</p>
+            <div class="form-row">
+              <div class="form-group" style="flex:1">
+                <input type="text" class="form-input" id="plan-network-search" placeholder="Search providers by name or NPI...">
+              </div>
+              <div class="form-group" style="flex:0 0 auto">
+                <select class="form-input form-select" id="plan-network-type-filter" style="width:160px">
+                  <option value="">All Types</option>
+                  <option value="prescriber">Prescribers</option>
+                  <option value="pharmacy">Pharmacies</option>
+                </select>
+              </div>
+            </div>
+            <div id="plan-network-stats" style="font-size:12px;color:var(--text-secondary);margin-bottom:8px"></div>
+            <div id="plan-network-list" style="max-height:250px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:4px"></div>
+            <div class="form-actions" style="margin-top:8px">
+              <button class="btn btn-sm" id="plan-network-select-all">Select All Visible</button>
+              <button class="btn btn-sm" id="plan-network-clear">Clear Selection</button>
+            </div>
+          </div>
+
+          <!-- Save + Publish -->
+          <div class="form-actions">
+            <button class="btn btn-primary" id="plan-detail-save">Save Plan Configuration</button>
+            <button class="btn btn-primary" id="plan-detail-publish" style="background:var(--accent-green)">Save &amp; Publish</button>
+          </div>
+          <div id="plan-detail-result"></div>
         </div>
       </div>
     </section>

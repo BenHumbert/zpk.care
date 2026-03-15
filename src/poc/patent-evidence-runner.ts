@@ -36,7 +36,7 @@ import {
   derivePrescriberWalletId,
   derivePharmacyWalletId,
 } from '../wallets/wallet-derivation.js';
-import { DEMO_MEMBERS, DEMO_PRESCRIBERS, DEMO_PHARMACIES, DEMO_MEDICATIONS } from '../demo/index.js';
+import { DEMO_MEMBERS, DEMO_PRESCRIBERS, DEMO_PHARMACIES, DEMO_MEDICATIONS } from '../data/index.js';
 import { MerkleForest, ForestDomain, TREE_HEIGHT } from '../zkp/merkle-forest.js';
 import { buildMemberData } from '../zkp/index.js';
 import { WALLET_TREE_HEIGHT } from '../wallets/wallet-state.js';

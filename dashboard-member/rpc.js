@@ -148,7 +148,7 @@ const RPC = (() => {
 
   function getCurrentPcp() {
     return fetch(location.origin + '/pcp/current', { headers: headers() })
-      .then(function(r) { return r.json(); }).then(function(j) { return j.data || j; });
+      .then(function(r) { return r.json(); }).then(function(j) { return j.data != null ? j.data : null; });
   }
 
   // ── Proof Submission ─────────────────────────────────

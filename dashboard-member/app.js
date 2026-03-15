@@ -428,31 +428,35 @@
       }).then(function (r) { return r.json(); });
       if (!enrollRes.ok) throw new Error(enrollRes.error || 'Enrollment failed');
 
-      // Step 2: Delegate proof generation (optional — may not be available)
-      onboardState.statusMessage = 'Generating zero-knowledge proof...';
+      // Step 2: Compile programs (transitions phase: enrolled → ready)
+      // Must happen before proof generation since /proof/registration requires phase=ready
+      onboardState.statusMessage = 'Compiling ZK programs...';
       if ($('ob-enroll-msg')) $('ob-enroll-msg').textContent = onboardState.statusMessage;
-      try {
-        var proofResult = await RPC.delegateProof('proveRegistration', {
-          walletId: onboardState.walletId,
-        });
-        if (proofResult && proofResult.proofJson) {
-          await RPC.submitProof(proofResult.proofJson, { walletId: onboardState.walletId, isRegistration: true });
-        }
-      } catch (e) {
-        console.warn('Proof delegation skipped:', e.message);
+      var compileRes = await fetch(location.origin + '/onboarding/compile', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      }).then(function (r) { return r.json(); });
+      if (!compileRes.ok) {
+        console.error('Compile failed:', compileRes.error);
+        throw new Error('Program compilation failed: ' + (compileRes.error || 'unknown error'));
       }
 
-      // Step 3: Compile programs (transitions to ready)
-      onboardState.statusMessage = 'Finalizing enrollment...';
+      // Step 3: Generate + submit registration proof via member node
+      // The /proof/registration endpoint fetches witnesses from sequencer,
+      // generates a real ZK proof, and submits it — all server-side.
+      onboardState.statusMessage = 'Generating zero-knowledge registration proof (this may take 30-120s)...';
       if ($('ob-enroll-msg')) $('ob-enroll-msg').textContent = onboardState.statusMessage;
-      try {
-        await fetch(location.origin + '/onboarding/compile', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        }).then(function (r) { return r.json(); });
-      } catch (e) {
-        console.warn('Compile skipped:', e.message);
+      var proofRes = await fetch(location.origin + '/proof/registration', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      }).then(function (r) { return r.json(); });
+      if (!proofRes.ok) {
+        // Proof generation is critical — if it fails, enrollment is incomplete
+        console.error('Registration proof failed:', proofRes.error);
+        throw new Error('Registration proof failed: ' + (proofRes.error || 'unknown error'));
       }
+      console.log('Registration proof submitted, receipt:', proofRes.data?.receiptId);
+      onProofSubmitted('Registration proof');
 
       // Success
       onboardStep = 6;
@@ -540,7 +544,7 @@
     // Fetch PCP from server
     try { pcpData = await RPC.getCurrentPcp(); } catch (_) { /* server unavailable */ }
     var nudge = $('pcp-nudge');
-    if (pcpData && pcpData.walletId) {
+    if (pcpData && (pcpData.pcpWalletId || pcpData.walletId)) {
       nudge.classList.add('hidden');
     } else {
       nudge.classList.remove('hidden');
@@ -646,12 +650,28 @@
       if (meta.tierLevel) details.push('Tier ' + meta.tierLevel);
       if (meta.deaSchedule && meta.deaSchedule !== '0') details.push('C-' + meta.deaSchedule);
 
+      // NADAC transparent pricing breakdown
+      var hasNadac = meta.ingredientCostCents != null || meta.totalDrugCostCents != null;
+      var nadacHtml = '';
+      if (hasNadac) {
+        var totalDrug = meta.totalDrugCostCents || (
+          (meta.ingredientCostCents || 0) + (meta.dispensingFeeCents || 0)
+        );
+        nadacHtml =
+          '<div class="claim-nadac">' +
+            '<span class="nadac-label">Drug Cost:</span> ' + fmtCents(totalDrug) +
+            ' <span class="nadac-detail">(NADAC ' + fmtCents(meta.ingredientCostCents) +
+            ' + Fee ' + fmtCents(meta.dispensingFeeCents) + ')</span>' +
+          '</div>';
+      }
+
       html += '<div class="claim-card">' +
         '<div class="claim-icon' + (isReversal ? ' reversal' : '') + '">' + (isReversal ? 'REV' : 'Rx') + '</div>' +
         '<div class="claim-info">' +
           '<div class="claim-drug">' + esc(drug) + '</div>' +
           '<div class="claim-meta">' + esc(pharmacy) + ' &middot; ' + esc(date) +
           (details.length ? ' &middot; ' + esc(details.join(', ')) : '') + '</div>' +
+          nadacHtml +
         '</div>' +
         '<div class="claim-amounts">' +
           '<div class="claim-patient-pay">' + fmtCents(leaf.patientPayCents) + '</div>' +
@@ -673,7 +693,7 @@
       claimsCache = claims;
 
       // Stats
-      var fills = 0, reversals = 0, controlled = 0, totalPat = 0;
+      var fills = 0, reversals = 0, controlled = 0, totalPat = 0, totalPlan = 0, totalDrug = 0;
       claims.forEach(function (c) {
         var leaf = c.leaf || c.claimLeaf || c;
         var meta = c.metadata || {};
@@ -681,12 +701,15 @@
         else fills++;
         if (meta.deaSchedule && meta.deaSchedule !== '0') controlled++;
         totalPat += Number(leaf.patientPayCents || 0);
+        totalPlan += Number(leaf.planPayCents || 0);
+        if (meta.totalDrugCostCents) totalDrug += Number(meta.totalDrugCostCents);
+        else if (meta.ingredientCostCents != null) totalDrug += Number(meta.ingredientCostCents || 0) + Number(meta.dispensingFeeCents || 0);
       });
       $('claims-stats').innerHTML =
         statCard('Fills', fills) +
         statCard('Reversals', reversals) +
-        statCard('Controlled', controlled) +
-        statCard('You Paid', fmtCents(totalPat));
+        statCard('You Paid', fmtCents(totalPat)) +
+        statCard('Plan Saved You', fmtCents(totalPlan));
 
       container.innerHTML = claims.length ? renderClaimCards(claims) : '<div class="empty-state">No claims found</div>';
     } catch (e) {
@@ -867,14 +890,15 @@
 
   function renderPcp(pcp) {
     var body = $('pcp-body');
-    if (!pcp || !pcp.walletId) {
+    var pcpWid = pcp ? (pcp.pcpWalletId || pcp.walletId) : null;
+    if (!pcpWid) {
       body.innerHTML = '<div class="empty-state">No PCP assigned. Select a prescriber below to assign as PCP.</div>';
       return;
     }
     // Find provider name
-    var name = shortHash(pcp.walletId);
+    var name = shortHash(pcpWid);
     providersCache.forEach(function (p) {
-      if (p.walletId === pcp.walletId) name = p.displayName || name;
+      if (p.walletId === pcpWid) name = p.displayName || name;
     });
     body.innerHTML = '<div class="provider-card">' +
       '<div class="provider-avatar">' + name.slice(0, 2).toUpperCase() + '</div>' +
@@ -926,16 +950,39 @@
     $('provider-list').innerHTML = html;
   }
 
-  window._assignPcp = function (wid) {
+  window._assignPcp = async function (wid) {
     var pcp = { walletId: wid, effectiveDate: new Date().toISOString(), timestamp: Date.now() };
     pcpData = pcp;
-    // Persist to backend (single source of truth)
-    RPC.assignPcp(wid).catch(function(e) { console.warn('PCP backend persist failed:', e.message); });
+    // Step 1: Persist PCP assignment to backend (saves locally + registers on sequencer)
+    try {
+      await RPC.assignPcp(wid);
+    } catch (e) {
+      console.warn('PCP backend persist failed:', e.message);
+    }
     logSystem('pcp_assign', 'PCP assigned', shortHash(wid));
-    toast('PCP assigned', 'success');
+    toast('PCP assigned — generating ZK proof...', 'success');
     renderPcp(pcp);
     var nudge = $('pcp-nudge');
     if (nudge) nudge.classList.add('hidden');
+
+    // Step 2: Generate wallet update proof (commits PCP to MEMBER tree on-chain)
+    try {
+      var proofRes = await fetch(location.origin + '/proof/pcp-assignment', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      }).then(function (r) { return r.json(); });
+      if (proofRes.ok) {
+        toast('PCP proof submitted to sequencer', 'success');
+        logSystem('pcp_assign', 'PCP proof submitted, receipt: ' + (proofRes.data?.receiptId || 'ok'), shortHash(wid));
+        console.log('[PCP] Wallet update proof submitted:', proofRes.data);
+      } else {
+        toast('PCP saved but proof failed: ' + (proofRes.error || 'unknown'), 'error');
+        console.error('[PCP] Proof failed:', proofRes.error);
+      }
+    } catch (proofErr) {
+      toast('PCP saved but proof failed: ' + proofErr.message, 'error');
+      console.error('[PCP] Proof generation error:', proofErr);
+    }
   };
 
   window._msgProvider = function (wid) {
@@ -1241,6 +1288,7 @@
       result.innerHTML = '<div class="loading">Requesting attestation...</div>';
       $('nfc-write-btn').disabled = true;
       $('credential-download-btn').disabled = true;
+      $('credential-copy-btn').disabled = true;
       try {
         var att = await RPC.requestAttestation(walletId, 86400);
         if (att) {
@@ -1252,9 +1300,10 @@
               '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Signature: ' + shortHash(att.signature) + '</div>' +
               '<div style="font-size:11px;color:var(--text-muted)">Nonce: ' + (att.nonce || '--') + '</div>' +
             '</div>';
-          // Enable NFC write and download buttons
+          // Enable NFC write, copy, and download buttons
           $('nfc-write-btn').disabled = false;
           $('credential-download-btn').disabled = false;
+          $('credential-copy-btn').disabled = false;
           logSystem('attestation', 'NFC attestation received', 'Expires ' + fmtDate(att.expiry || att.expiresAt));
         } else {
           result.innerHTML = '<div class="empty-state">No attestation returned</div>';
@@ -1317,6 +1366,40 @@
       toast('Credential downloaded!', 'success');
       logSystem('credential_export', 'Credential exported', 'File downloaded');
     });
+
+    // Copy attestation JSON to clipboard (for pasting into pharmacy dashboard)
+    $('credential-copy-btn').addEventListener('click', function () {
+      if (!lastAttestation) return;
+      var credential = {
+        type: 'credential-attestation',
+        version: 2,
+        walletId: walletId,
+        attestation: lastAttestation,
+        exportedAt: Date.now(),
+      };
+      var json = JSON.stringify(credential, null, 2);
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(json).then(function () {
+          toast('Attestation copied to clipboard!', 'success');
+          logSystem('credential_export', 'Attestation copied to clipboard', 'Ready to paste in pharmacy');
+        }).catch(function () {
+          fallbackCopy(json);
+        });
+      } else {
+        fallbackCopy(json);
+      }
+    });
+
+    function fallbackCopy(text) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;left:-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+      toast('Attestation copied!', 'success');
+    }
   }
 
   // ══════════════════════════════════════════════════════
@@ -1336,7 +1419,7 @@
         '<div style="margin-bottom:8px"><span class="stat-label">Enrollment Key</span><br>' +
           '<span class="mono" style="font-size:11px;color:var(--text-muted)">' + esc(enrollmentKey.slice(0, 16) + '...(hidden)') + '</span></div>' +
         '<div><span class="stat-label">PCP</span><br>' +
-          '<span style="font-size:12px">' + (pcpData && pcpData.walletId ? shortHash(pcpData.walletId) : 'Not assigned') + '</span></div>' +
+          '<span style="font-size:12px">' + (pcpData && (pcpData.pcpWalletId || pcpData.walletId) ? shortHash(pcpData.pcpWalletId || pcpData.walletId) : 'Not assigned') + '</span></div>' +
       '</div>';
   }
 
@@ -1374,14 +1457,92 @@
     // If a batch settles or proof accepted involving our wallet, refresh
     if (type.indexOf('proof:accepted') >= 0 || type.indexOf('batch:settled') >= 0) {
       var data = ev.data || ev;
-      if (data && (data.walletId === walletId || !data.walletId)) {
+      var isOurs = data && (data.walletId === walletId || !data.walletId);
+
+      if (isOurs) {
         if (currentTab === 'dashboard') {
           loadDashboard();
         } else if (currentTab === 'claims') {
           loadClaims();
         }
       }
+
+      // Update member-specific status bar
+      if (type.indexOf('proof:accepted') >= 0 && isOurs) {
+        showSeqStatus('Your proof was accepted — awaiting batch settlement', true);
+        refreshMyStatus();
+      }
+      if (type.indexOf('batch:settled') >= 0) {
+        refreshMyStatus();
+        if (isOurs) {
+          showSeqStatus('Batch settled — your proof is finalized', false);
+          setTimeout(hideSeqStatus, 10000);
+        }
+      }
     }
+  }
+
+  // ── Sequencer Status Bar (member-specific) ──────────
+  var myProofStatus = { submitted: 0, accepted: 0, settled: 0, lastEvent: '' };
+
+  function showSeqStatus(msg, active) {
+    var bar = $('seq-status-bar');
+    var icon = $('seq-status-icon');
+    var text = $('seq-status-text');
+    if (!bar || !icon || !text) return;
+    bar.classList.remove('hidden');
+    bar.classList.toggle('active', !!active);
+    icon.className = 'seq-status-icon ' + (active ? 'proving' : 'idle');
+    icon.textContent = '\u25CF';
+    text.textContent = msg;
+  }
+
+  function hideSeqStatus() {
+    var bar = $('seq-status-bar');
+    if (bar) bar.classList.add('hidden');
+  }
+
+  /** Called when member submits a proof (enrollment, claim, etc.) */
+  function onProofSubmitted(label) {
+    myProofStatus.submitted++;
+    myProofStatus.lastEvent = label || 'Proof submitted';
+    showSeqStatus(myProofStatus.lastEvent + ' — waiting for sequencer to accept...', true);
+  }
+
+  function refreshMyStatus() {
+    // Check receipts for our wallet to see what's been accepted/settled
+    RPC.getReceiptsByWallet(walletId).then(function (receipts) {
+      if (!Array.isArray(receipts)) receipts = [];
+      var accepted = 0;
+      var settled = 0;
+      receipts.forEach(function (r) {
+        if (r.l1Status === 'settled' || r.status === 'settled') settled++;
+        else accepted++;
+      });
+
+      if (myProofStatus.submitted > 0 && accepted + settled > myProofStatus.accepted + myProofStatus.settled) {
+        // A new receipt appeared for us
+        myProofStatus.accepted = accepted;
+        myProofStatus.settled = settled;
+        if (settled > 0) {
+          showSeqStatus(settled + ' proof(s) settled  \u00b7  ' + accepted + ' pending batch', false);
+        } else if (accepted > 0) {
+          showSeqStatus(accepted + ' proof(s) accepted — awaiting batch settlement', true);
+        }
+        // Auto-hide after 15s if nothing pending
+        if (accepted === 0) {
+          setTimeout(function () {
+            if (myProofStatus.accepted === 0 || myProofStatus.settled >= myProofStatus.submitted) {
+              hideSeqStatus();
+            }
+          }, 15000);
+        }
+      } else if (myProofStatus.submitted === 0 && receipts.length > 0) {
+        // Show existing receipt count briefly on load then hide
+        myProofStatus.accepted = accepted;
+        myProofStatus.settled = settled;
+      }
+    }).catch(function () { /* sequencer unavailable */ });
   }
 
   function startPolling() {
@@ -1390,7 +1551,11 @@
       RPC.checkConnection().then(function (ok) {
         setConnDot(ok ? 'connected' : 'disconnected');
       });
-    }, 30000);
+      // Poll for our proof status if we have pending submissions
+      if (myProofStatus.submitted > 0) {
+        refreshMyStatus();
+      }
+    }, 10000);
   }
 
   // ══════════════════════════════════════════════════════

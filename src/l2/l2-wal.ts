@@ -28,7 +28,9 @@ export type WalEntryType =
   | 'batch_commit'   // Batch build completed — all mutations applied
   | 'batch_abort'    // Batch build failed — pending pool restored
   | 'settle'         // Batch settlement confirmed
-  | 'fail';          // Batch settlement failed
+  | 'fail'           // Batch settlement failed
+  | 'plan_store'     // Plan created or updated
+  | 'plan_delete';   // Plan deleted
 
 /**
  * WalEntry — one line in the append-only proof log.
@@ -55,6 +57,8 @@ export interface WalEntry {
   auditEventData?: Record<string, unknown>;
   /** Optional claim leaf data (proof entries with ClaimSubmissionMetadata) */
   claimEntryData?: Record<string, unknown>;
+  /** Plan config data (plan_store/plan_delete entries only) */
+  planData?: Record<string, unknown>;
   /** Batch metadata (batch entries only) */
   batchData?: Record<string, unknown>;
   /** State roots at time of entry */

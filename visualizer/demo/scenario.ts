@@ -15,10 +15,10 @@ import {
   TIER2_PREFERRED,
   TIER3_NON_PREFERRED,
   TIER4_SPECIALTY,
-} from '../../src/demo/index.js';
-import type { DemoPrescriber } from '../../src/demo/prescribers.js';
-import type { DemoPharmacy } from '../../src/demo/pharmacies.js';
-import type { DemoMedication } from '../../src/demo/medications.js';
+} from '../../src/data/index.js';
+import type { DemoPrescriber } from '../../src/data/index.js';
+import type { DemoPharmacy } from '../../src/data/index.js';
+import type { DemoMedication } from '../../src/data/index.js';
 import type { VizEvent, VizEntity, VizActorType, VizLane } from '../../src/l2/l2-rpc-server.js';
 
 // ─── Configuration ───────────────────────────────────

@@ -35,8 +35,12 @@ import type {
   BatchSettledPayload,
   BatchFailedPayload,
   MessageStoredPayload,
+  PlanUpdatedPayload,
+  PlanDeletedPayload,
+  FormularyUpdatedPayload,
 } from './l2-peer-types.js';
 import type { StoredMessage, MessagePayload, MessageStoreEntry } from './message-store-types.js';
+import type { BenefitPlanConfig } from './l2-types.js';
 import { getPartition, PartitionRouter } from './l2-partition.js';
 import type { PartitionConfig } from './l2-partition.js';
 import type { L2ChainEvent, L2EventHandler, L2NodeOptions } from './l2-node.js';
@@ -777,6 +781,69 @@ export class L2Leviathan {
     return entry;
   }
 
+  /**
+   * Store a benefit plan on the primary partition's sequencer.
+   * Plans are global (not partitioned) — all leviathans store all plans.
+   * Broadcasts plan:updated gossip so all replicas replicate the entry.
+   */
+  async storePlan(plan: BenefitPlanConfig): Promise<void> {
+    const seq = this.getSequencer();
+    await seq.storePlanWithWal(plan);
+
+    if (this.peerNetwork) {
+      const gossipMsg: GossipMessage = {
+        messageId: generateMessageId('plan:updated', this.nodeId, Date.now(), plan.planId),
+        type: 'plan:updated',
+        senderId: this.nodeId,
+        timestamp: Date.now(),
+        payload: { plan, partitionIndex: this.config.primaryPartition } as PlanUpdatedPayload,
+      };
+      this.peerNetwork.broadcast(gossipMsg).catch(() => {});
+    }
+  }
+
+  /**
+   * Delete a benefit plan from the primary partition's sequencer.
+   * Broadcasts plan:deleted gossip so all replicas remove the entry.
+   */
+  async deletePlan(planId: string): Promise<boolean> {
+    const seq = this.getSequencer();
+    const deleted = await seq.deletePlanWithWal(planId);
+    if (!deleted) return false;
+
+    if (this.peerNetwork) {
+      const gossipMsg: GossipMessage = {
+        messageId: generateMessageId('plan:deleted', this.nodeId, Date.now(), planId),
+        type: 'plan:deleted',
+        senderId: this.nodeId,
+        timestamp: Date.now(),
+        payload: { planId, partitionIndex: this.config.primaryPartition } as PlanDeletedPayload,
+      };
+      this.peerNetwork.broadcast(gossipMsg).catch(() => {});
+    }
+    return true;
+  }
+
+  /**
+   * Store a formulary with gossip replication.
+   * Wraps sequencer.storeFormulary() with gossip broadcast.
+   */
+  storeFormularyWithGossip(planIdHash: string, formularyRoot: string, entriesJson: string): void {
+    const seq = this.getSequencer();
+    seq.storeFormulary(planIdHash, formularyRoot, entriesJson);
+
+    if (this.peerNetwork) {
+      const gossipMsg: GossipMessage = {
+        messageId: generateMessageId('formulary:updated', this.nodeId, Date.now(), planIdHash),
+        type: 'formulary:updated',
+        senderId: this.nodeId,
+        timestamp: Date.now(),
+        payload: { planIdHash, formularyRoot, entriesJson, partitionIndex: this.config.primaryPartition } as FormularyUpdatedPayload,
+      };
+      this.peerNetwork.broadcast(gossipMsg).catch(() => {});
+    }
+  }
+
   /** Get partition config for the primary partition */
   getPartitionConfig(): PartitionConfig | null {
     return {
@@ -914,7 +981,9 @@ export class L2Leviathan {
           batch = emptyBatch;
         } else {
           try {
-            const result = await this.provingPool.prove(job);
+            const proofCount = job.transitionProofJsons.length;
+            const desc = `P${partitionIndex} Batch — ${proofCount} proof${proofCount !== 1 ? 's' : ''}${job.adminState ? ' + chain' : ''}`;
+            const result = await this.provingPool.prove(job, desc);
             batch = await seq.finalizeBatch(result);
           } catch (err) {
             seq.restoreDrainedTransitions();
@@ -1195,6 +1264,28 @@ export class L2Leviathan {
         const payload = msg.payload as MessageStoredPayload;
         const seq = this.getSequencer(); // primary partition
         seq.applyReplicatedMessage(payload.leafIndex, payload.message, payload.payload);
+        break;
+      }
+
+      case 'plan:updated': {
+        // Skip own broadcasts — only apply gossip from other leviathans
+        if (msg.senderId === this.nodeId) break;
+        const planPayload = msg.payload as PlanUpdatedPayload;
+        this.getSequencer().applyReplicatedPlan(planPayload.plan);
+        break;
+      }
+
+      case 'plan:deleted': {
+        if (msg.senderId === this.nodeId) break;
+        const delPayload = msg.payload as PlanDeletedPayload;
+        this.getSequencer().applyReplicatedPlanDeletion(delPayload.planId);
+        break;
+      }
+
+      case 'formulary:updated': {
+        if (msg.senderId === this.nodeId) break;
+        const formPayload = msg.payload as FormularyUpdatedPayload;
+        this.getSequencer().storeFormulary(formPayload.planIdHash, formPayload.formularyRoot, formPayload.entriesJson);
         break;
       }
 
@@ -1610,6 +1701,7 @@ export class L2Leviathan {
     pendingProposals?: number;
     knownPeerKeys: number;
     stateCertificates?: number;
+    quorumTimeoutMs?: number;
   } {
     if (!this.quorumService) {
       return { enabled: false, knownPeerKeys: this.peerPublicKeys.size };
@@ -1622,6 +1714,7 @@ export class L2Leviathan {
       pendingProposals: status.pendingProposals,
       knownPeerKeys: status.knownPeers,
       stateCertificates: status.stateCertificateCount,
+      quorumTimeoutMs: status.quorumTimeoutMs,
     };
   }
 
