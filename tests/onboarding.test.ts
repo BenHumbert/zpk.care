@@ -700,7 +700,7 @@ describe('Onboarding — EnrollmentService', () => {
     );
 
     // Step B: Member computes wallet ID on device (simulated)
-    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY);
+    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0));
 
     // Step C: Insurer processes enrollment with (walletId, tokenId)
     const result = ctx.service.processEnrollment(
@@ -758,7 +758,7 @@ describe('Onboarding — EnrollmentService', () => {
       'TOKEN-002',
     );
 
-    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY);
+    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0));
     const result = ctx.service.processEnrollment(
       walletId,
       'TOKEN-002',
@@ -812,7 +812,7 @@ describe('Onboarding — EnrollmentService', () => {
 
   test('processEnrollment: rejects duplicate wallet', () => {
     const ctx = setupService();
-    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY);
+    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0));
 
     ctx.tokenAuthority.generateToken(
       'ACME-CORP-001',
@@ -958,7 +958,7 @@ describe('Onboarding — EnrollmentService', () => {
       'TOKEN-TERM',
     );
 
-    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY);
+    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0));
     ctx.service.processEnrollment(walletId, 'TOKEN-TERM', '20260115');
 
     // Verify enrolled
@@ -1106,7 +1106,7 @@ describe('Onboarding — EnrollmentService', () => {
       'TOKEN-OPAQUE',
     );
 
-    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY);
+    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0));
     const result = ctx.service.processEnrollment(
       walletId,
       'TOKEN-OPAQUE',

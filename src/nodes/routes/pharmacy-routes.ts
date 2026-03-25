@@ -149,6 +149,7 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
         walletId: data.walletId,
         sequencerUrl: server.getConfig().sequencerUrl,
         displayName: server.getConfig().displayName,
+        clientOptions: server.getConfig().adminToken ? { adminToken: server.getConfig().adminToken } : undefined,
       });
       server.setEntityNode(node);
 
@@ -156,9 +157,12 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       let insurerNotified = false;
       if (b?.insurerUrl) {
         try {
+          const enrollHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+          const adminToken = server.getConfig().adminToken;
+          if (adminToken) enrollHeaders['Authorization'] = `Bearer ${adminToken}`;
           const resp = await fetch(`${b.insurerUrl}/enrollment/process`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: enrollHeaders,
             body: JSON.stringify({ walletId: data.walletId, tokenId: data.onboarding.tokenId, role: 'pharmacy' }),
           });
           insurerNotified = resp.ok;
@@ -224,10 +228,10 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       try {
         const witnesses = await node.getClient().getRegistrationWitnesses();
 
-        // Reconstruct transition preimage: [domainTag, ...walletFields padded to 5]
+        // Reconstruct transition preimage: [domainTag, ...walletFields padded to 6]
         const walletFields = data.preimageFields.map((s: string) => Field(BigInt(s)));
         const padded = [...walletFields];
-        while (padded.length < 5) padded.push(Field(0));
+        while (padded.length < 6) padded.push(Field(0));
         const preimage = [Field(data.domainTag ?? 2), ...padded];
 
         const regWitness = WalletRegistryWitness.fromJSON(JSON.parse(witnesses.registryWitnessJson));
@@ -385,9 +389,176 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
   });
 
   // ══════════════════════════════════════════════════════════
-  //  DISPENSING — Record a Fill on the Claim Accumulator
+  //  DISPENSING — Fill with ZK Proof (async proof pipeline)
   // ══════════════════════════════════════════════════════════
 
+  // In-memory job maps for async proof tracking
+  interface ProofJob {
+    status: 'pending' | 'complete' | 'error';
+    result?: unknown;
+    error?: string;
+    createdAt: number;
+    completedAt?: number;
+  }
+  const JOB_TTL_MS = 5 * 60 * 1000; // Keep completed jobs for 5 minutes
+
+  const dispensingJobs = new Map<string, ProofJob>();
+  const reversalJobs = new Map<string, ProofJob>();
+
+  function completeJob(job: ProofJob, result: unknown): void {
+    job.status = 'complete';
+    job.result = result;
+    job.completedAt = Date.now();
+  }
+  function failJob(job: ProofJob, error: string): void {
+    job.status = 'error';
+    job.error = error;
+    job.completedAt = Date.now();
+  }
+  function pruneStaleJobs(jobs: Map<string, ProofJob>): void {
+    const now = Date.now();
+    for (const [k, j] of jobs) {
+      if (j.status !== 'pending' && j.completedAt && now - j.completedAt > JOB_TTL_MS) {
+        jobs.delete(k);
+      }
+    }
+  }
+
+  // Get all prescriptions for this pharmacy from the sequencer (server-side state)
+  routes.push({
+    method: 'GET',
+    path: '/prescriptions/list',
+    handler: async (_req, res, _params, query) => {
+      const node = server.getEntityNode() as PharmacyNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const pharmacyIndex = parseInt(query?.get('pharmacyIndex') ?? '0', 10) || 0;
+
+        const resp = await fetch(`${seqUrl}/interactive/prescriptions-by-pharmacy?pharmacyIndex=${pharmacyIndex}`);
+        const result = await resp.json();
+        server.sendResponse(res, 200, true, result);
+      } catch (err: any) {
+        server.sendResponse(res, 502, false, undefined, err.message);
+      }
+    },
+  });
+
+  // Mark a prescription as physically filled (no ZK proof — lightweight status update)
+  routes.push({
+    method: 'POST',
+    path: '/dispensing/mark-filled',
+    handler: async (_req, res, _params, _query, body) => {
+      const node = server.getEntityNode() as PharmacyNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+
+      const b = body as { prescriptionId?: string } | undefined;
+      if (!b?.prescriptionId) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing prescriptionId');
+      }
+
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const resp = await fetch(`${seqUrl}/interactive/mark-filled`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prescriptionId: b.prescriptionId }),
+        });
+        const result = await resp.json();
+        server.sendResponse(res, resp.ok ? 200 : 400, resp.ok, result);
+      } catch (err: any) {
+        server.sendResponse(res, 502, false, undefined, err.message);
+      }
+    },
+  });
+
+  // Dispense an existing FILLED prescription (3 ZK proofs via sequencer's /interactive/fill)
+  routes.push({
+    method: 'POST',
+    path: '/dispensing/dispense',
+    handler: async (_req, res, _params, _query, body) => {
+      const node = server.getEntityNode() as PharmacyNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+
+      const b = body as {
+        prescriptionId?: string;
+        quantityDispensed?: number;
+        ingredientCostCents?: number;
+        dispensingFeeCents?: number;
+      } | undefined;
+
+      if (!b?.prescriptionId) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing prescriptionId');
+      }
+
+      const jobKey = `dispense-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      dispensingJobs.set(jobKey, { status: 'pending', createdAt: Date.now() });
+
+      const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+
+      // Fire-and-forget: call sequencer's /interactive/fill (which calls dispensePrescription)
+      (async () => {
+        try {
+          const resp = await fetch(`${seqUrl}/interactive/fill`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prescriptionId: b!.prescriptionId,
+              quantityDispensed: b!.quantityDispensed ?? 30,
+              ingredientCostCents: b!.ingredientCostCents,
+              dispensingFeeCents: b!.dispensingFeeCents,
+            }),
+          });
+
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` })) as Record<string, unknown>;
+            const job = dispensingJobs.get(jobKey);
+            if (job) failJob(job, (err.error as string) || `HTTP ${resp.status}`);
+            return;
+          }
+
+          // /interactive/fill returns 202 with { status, prescriptionId } — poll fill-status for result
+          const result = await resp.json() as Record<string, unknown>;
+          const seqJobKey = (result.prescriptionId || result.jobKey) as string;
+          if (!seqJobKey) {
+            const job = dispensingJobs.get(jobKey);
+            if (job) completeJob(job, result);
+            return;
+          }
+
+          // Poll sequencer fill-status until complete
+          const maxAttempts = 120;
+          for (let i = 0; i < maxAttempts; i++) {
+            await new Promise(r => setTimeout(r, 5000));
+            const statusResp = await fetch(`${seqUrl}/interactive/fill-status?prescriptionId=${encodeURIComponent(seqJobKey)}`);
+            const statusResult = await statusResp.json() as Record<string, unknown>;
+            if (statusResult.status === 'complete') {
+              const job = dispensingJobs.get(jobKey);
+              // Unwrap: sequencer returns { status, result: { ...dispensePrescription output } }
+              if (job) completeJob(job, (statusResult.result as Record<string, unknown>) || statusResult);
+              return;
+            }
+            if (statusResult.status === 'error') {
+              const job = dispensingJobs.get(jobKey);
+              if (job) failJob(job, (statusResult.error as string) || 'Proof failed');
+              return;
+            }
+          }
+          const job = dispensingJobs.get(jobKey);
+          if (job) failJob(job, 'Proof generation timed out');
+        } catch (err: any) {
+          const job = dispensingJobs.get(jobKey);
+          if (job) failJob(job, err.message || 'Dispense failed');
+        }
+      })();
+
+      // Return immediately with job key for polling
+      server.sendResponse(res, 202, true, { jobKey, status: 'pending' });
+    },
+  });
+
+  // Legacy: prescribe-and-fill (creates Rx + adjudicates + dispenses in one step)
   routes.push({
     method: 'POST',
     path: '/dispensing/fill',
@@ -405,8 +576,6 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
         quantity?: number;
         daysSupply?: number;
         ndc?: string;
-        patientPayCents?: string;
-        planPayCents?: string;
         fillNumber?: number;
         ingredientCostCents?: number;
         dispensingFeeCents?: number;
@@ -417,32 +586,112 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
         return server.sendResponse(res, 400, false, undefined, 'Missing memberWalletId or ndcHash');
       }
 
-      try {
-        const client = node.getClient();
-        const result = await client.recordFill({
-          memberWalletId: b.memberWalletId,
-          ndcHash: b.ndcHash,
-          pharmacyWalletId,
-          prescriberWalletId: b.prescriberWalletId ?? '0',
-          patientPayCents: b.patientPayCents ?? '0',
-          planPayCents: b.planPayCents ?? '0',
-          brandName: b.brandName,
-          ndc: b.ndc,
-          daysSupply: b.daysSupply,
-          fillNumber: b.fillNumber,
-          ingredientCostCents: b.ingredientCostCents,
-          dispensingFeeCents: b.dispensingFeeCents,
-          quantityDispensed: b.quantityDispensed,
-        });
-        server.sendResponse(res, 200, true, result);
-      } catch (err) {
-        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Fill recording failed');
-      }
+      const jobKey = `fill-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      dispensingJobs.set(jobKey, { status: 'pending', createdAt: Date.now() });
+
+      const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+
+      // Fire-and-forget: resolve indices then call sequencer proof pipeline
+      (async () => {
+        try {
+          // Resolve wallet IDs to seed data indices
+          const resolveResp = await fetch(`${seqUrl}/interactive/resolve-indices`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prescriberWalletId: b!.prescriberWalletId ?? '0',
+              pharmacyWalletId: pharmacyWalletId,
+              ndcHash: b!.ndcHash,
+            }),
+          });
+
+          let pharmacyIndex = 0;
+          if (resolveResp.ok) {
+            const indices = await resolveResp.json() as { prescriberIndex: number; pharmacyIndex: number };
+            pharmacyIndex = indices.pharmacyIndex >= 0 ? indices.pharmacyIndex : 0;
+          }
+
+          // Call prescribe-and-fill on sequencer (creates prescription + fills with 5+ ZK proofs)
+          const proveResp = await fetch(`${seqUrl}/interactive/prescribe-and-fill`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              memberWalletId: b!.memberWalletId,
+              ndcHash: b!.ndcHash,
+              prescriberWalletId: b!.prescriberWalletId ?? '0',
+              pharmacyIndex,
+              quantity: b!.quantity ?? b!.quantityDispensed ?? 30,
+              ingredientCostCents: b!.ingredientCostCents,
+              dispensingFeeCents: b!.dispensingFeeCents,
+            }),
+          });
+
+          const proveResult = await proveResp.json() as Record<string, unknown>;
+
+          if (!proveResp.ok) {
+            const job = dispensingJobs.get(jobKey);
+            if (job) failJob(job, (proveResult.error as string) || `HTTP ${proveResp.status}`);
+            return;
+          }
+
+          // prescribe-and-fill returns { status: 'pending', prescriptionId } — poll sequencer for completion
+          const prescriptionId = (proveResult.prescriptionId as string) || jobKey;
+          const pollStart = Date.now();
+          const POLL_INTERVAL = 3000;
+          const POLL_TIMEOUT = 600000; // 10 min
+
+          while (Date.now() - pollStart < POLL_TIMEOUT) {
+            await new Promise(r => setTimeout(r, POLL_INTERVAL));
+            const statusResp = await fetch(`${seqUrl}/interactive/fill-status?prescriptionId=${encodeURIComponent(prescriptionId)}`);
+            const statusResult = await statusResp.json() as Record<string, unknown>;
+
+            if (statusResult.status === 'complete') {
+              const job = dispensingJobs.get(jobKey);
+              if (job) completeJob(job, statusResult);
+              return;
+            }
+            if (statusResult.status === 'error') {
+              const job = dispensingJobs.get(jobKey);
+              if (job) failJob(job, (statusResult.error as string) || 'Proof failed');
+              return;
+            }
+          }
+          const timeoutJob = dispensingJobs.get(jobKey);
+          if (timeoutJob) failJob(timeoutJob, 'Proof generation timed out');
+        } catch (err) {
+          const job = dispensingJobs.get(jobKey);
+          if (job) failJob(job, err instanceof Error ? err.message : String(err));
+        }
+      })();
+
+      // Return 202 immediately — dashboard polls for status
+      server.sendResponse(res, 202, true, { jobKey, status: 'pending' });
+    },
+  });
+
+  // Poll fill proof status
+  routes.push({
+    method: 'GET',
+    path: '/dispensing/fill-status',
+    handler: async (_req, res, _params, query) => {
+      const jobKey = query?.get('jobKey') ?? undefined;
+      if (!jobKey) return server.sendResponse(res, 400, false, undefined, 'Missing jobKey');
+
+      pruneStaleJobs(dispensingJobs);
+      const job = dispensingJobs.get(jobKey);
+      if (!job) return server.sendResponse(res, 404, false, undefined, 'Job not found');
+
+      server.sendResponse(res, 200, true, {
+        status: job.status,
+        ...(job.status === 'complete' ? { result: job.result } : {}),
+        ...(job.status === 'error' ? { error: job.error } : {}),
+        elapsedMs: Date.now() - job.createdAt,
+      });
     },
   });
 
   // ══════════════════════════════════════════════════════════
-  //  DISPENSING — Record a Reversal on the Claim Accumulator
+  //  DISPENSING — Reverse with ZK Proof (async proof pipeline)
   // ══════════════════════════════════════════════════════════
 
   routes.push({
@@ -451,36 +700,70 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
     handler: async (_req, res, _params, _query, body) => {
       const node = server.getEntityNode() as PharmacyNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      const pharmacyWalletId = node.getWalletId();
-      if (!pharmacyWalletId) return server.sendResponse(res, 409, false, undefined, 'Pharmacy wallet not set');
 
       const b = body as {
-        memberWalletId?: string;
-        ndcHash?: string;
-        prescriberWalletId?: string;
-        patientPayCents?: string;
-        planPayCents?: string;
+        prescriptionId?: string;
+        reason?: string;
       } | undefined;
 
-      if (!b?.memberWalletId || !b?.ndcHash) {
-        return server.sendResponse(res, 400, false, undefined, 'Missing memberWalletId or ndcHash');
+      if (!b?.prescriptionId) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing prescriptionId');
       }
 
-      try {
-        const client = node.getClient();
-        const result = await client.recordFill({
-          memberWalletId: b.memberWalletId,
-          ndcHash: b.ndcHash,
-          pharmacyWalletId,
-          prescriberWalletId: b.prescriberWalletId ?? '0',
-          patientPayCents: b.patientPayCents ?? '0',
-          planPayCents: b.planPayCents ?? '0',
-          operationType: '2', // reversal
-        });
-        server.sendResponse(res, 200, true, result);
-      } catch (err) {
-        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Reversal recording failed');
-      }
+      const jobKey = `rev-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      reversalJobs.set(jobKey, { status: 'pending', createdAt: Date.now() });
+
+      const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+
+      // Fire-and-forget: call sequencer reversal proof
+      (async () => {
+        try {
+          const reverseResp = await fetch(`${seqUrl}/interactive/reverse`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prescriptionId: b!.prescriptionId,
+              reason: b!.reason ?? 'Pharmacy reversal',
+            }),
+          });
+
+          const reverseResult = await reverseResp.json() as Record<string, unknown>;
+
+          if (!reverseResp.ok) {
+            const job = reversalJobs.get(jobKey);
+            if (job) failJob(job, (reverseResult.error as string) || `HTTP ${reverseResp.status}`);
+          } else {
+            const job = reversalJobs.get(jobKey);
+            if (job) completeJob(job, reverseResult);
+          }
+        } catch (err) {
+          const job = reversalJobs.get(jobKey);
+          if (job) failJob(job, err instanceof Error ? err.message : String(err));
+        }
+      })();
+
+      server.sendResponse(res, 202, true, { jobKey, status: 'pending' });
+    },
+  });
+
+  // Poll reversal proof status
+  routes.push({
+    method: 'GET',
+    path: '/dispensing/reverse-status',
+    handler: async (_req, res, _params, query) => {
+      const jobKey = query?.get('jobKey') ?? undefined;
+      if (!jobKey) return server.sendResponse(res, 400, false, undefined, 'Missing jobKey');
+
+      pruneStaleJobs(reversalJobs);
+      const job = reversalJobs.get(jobKey);
+      if (!job) return server.sendResponse(res, 404, false, undefined, 'Job not found');
+
+      server.sendResponse(res, 200, true, {
+        status: job.status,
+        ...(job.status === 'complete' ? { result: job.result } : {}),
+        ...(job.status === 'error' ? { error: job.error } : {}),
+        elapsedMs: Date.now() - job.createdAt,
+      });
     },
   });
 
@@ -746,14 +1029,14 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       const start = Date.now();
 
       try {
-        const { DEMO_PHARMACIES } = await import('../../demo/pharmacies.js');
+        const { PHARMACIES } = await import('../../data/index.js');
         const { derivePharmacyWalletId } = await import('../../wallets/wallet-derivation.js');
 
-        if (providerIndex < 0 || providerIndex >= DEMO_PHARMACIES.length) {
-          return server.sendResponse(res, 400, false, undefined, `Invalid providerIndex: ${providerIndex} (max ${DEMO_PHARMACIES.length - 1})`);
+        if (providerIndex < 0 || providerIndex >= PHARMACIES.length) {
+          return server.sendResponse(res, 400, false, undefined, `Invalid providerIndex: ${providerIndex} (max ${PHARMACIES.length - 1})`);
         }
 
-        const pharmacy = DEMO_PHARMACIES[providerIndex];
+        const pharmacy = PHARMACIES[providerIndex];
         const displayName = pharmacy.storeName;
 
         events.push({ type: 'badge:tap', providerIndex, providerType, displayName, timestamp: Date.now() });
@@ -771,7 +1054,7 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
 
         events.push({
           type: 'badge:proof', providerIndex, providerType, displayName, timestamp: Date.now(),
-          data: { skipped: true, reason: 'Standalone mode — ZK proof not required for demo' },
+          data: { skipped: true, reason: 'Standalone mode — ZK proof not required in standalone mode' },
         });
 
         let credentialState = 'ACTIVE';
@@ -808,6 +1091,40 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify({ authenticated: false, events, error: err?.message ?? String(err) }));
       }
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  PHARMACY LIST — real NPPES data for dashboard dropdown
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'GET',
+    path: '/pharmacies/list',
+    handler: async (_req, res) => {
+      const { PHARMACIES } = await import('../../data/index.js');
+      const fs = await import('fs');
+      const path = await import('path');
+      let rawData: any[] = [];
+      try {
+        const dataDir = process.env.ZKP_DATA_DIR || path.join(process.cwd(), 'src', 'data');
+        rawData = JSON.parse(fs.readFileSync(path.join(dataDir, 'pharmacies.json'), 'utf-8'));
+      } catch { /* fall back to PHARMACIES fields */ }
+
+      const list = PHARMACIES.map((p, i) => ({
+        index: i,
+        npi: p.localData.serviceProviderId,
+        ncpdp: p.ncpdpProviderId || '',
+        name: p.storeName,
+        chain: p.chain,
+        type: p.pharmacyTypeDesc,
+        address: rawData[i]?.address ?? '',
+        city: rawData[i]?.city ?? '',
+        state: rawData[i]?.state ?? '',
+        zip: rawData[i]?.zip ?? '',
+        phone: rawData[i]?.phone ?? '',
+      }));
+      server.sendResponse(res, 200, true, list);
     },
   });
 

@@ -2,7 +2,7 @@
 /**
  * start-prover.ts — Proof Delegate Server Entry Point
  *
- * Starts a dedicated proof generation server for the zkTrident Network.
+ * Starts a dedicated proof generation server for the Adjuda-GATOR Network.
  * Compiles ZkPrograms at startup, then accepts proof requests from
  * Nautilus entity nodes (Member, Prescriber, Pharmacy) over HTTP.
  *
@@ -37,7 +37,7 @@ const proverApiKey = env.ZKTRIDENT_PROVER_API_KEY;
 async function main(): Promise<void> {
   console.log('');
   console.log('  ╔══════════════════════════════════════════════╗');
-  console.log('  ║     ⚡  PROOF DELEGATE — zkTrident          ║');
+  console.log('  ║     🐊  PROOF DELEGATE — Adjuda-GATOR       ║');
   console.log('  ╚══════════════════════════════════════════════╝');
   console.log('');
 

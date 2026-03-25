@@ -122,15 +122,15 @@ async function generateRegistration(
   regTree: MerkleTree,
   lcTree: MerkleTree,
 ): Promise<{ proof: any; walletId: Field }> {
-  const walletId = deriveMemberWalletId(member, enrollmentKey);
-  const preimage = memberWalletPreimage(member, enrollmentKey);
+  const walletId = deriveMemberWalletId(member, enrollmentKey, Field(0));
+  const preimage = memberWalletPreimage(member, enrollmentKey, Field(0));
 
   const regWitness = new WalletRegistryWitness(regTree.getWitness(slot));
   const lcWitness = new LifecycleWitness(lcTree.getWitness(slot));
 
   const result = await StateTransitionProgram.proveRegistration(
     DOMAIN_TAG_MEMBER,
-    preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!,
+    preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
     regWitness,
     lcWitness,
     regTree.getRoot(),
@@ -312,14 +312,14 @@ describe('L2 Settlement — End-to-End on LocalBlockchain', () => {
     const reg5 = await generateRegistration(member5, ENROLLMENT_KEY_5, 4n, regTree, lcTree);
 
     // Wallet update for member1 (already registered at slot 0)
-    const preimage1 = memberWalletPreimage(member1, ENROLLMENT_KEY_1);
+    const preimage1 = memberWalletPreimage(member1, ENROLLMENT_KEY_1, Field(0));
     const newCredentialRoot = Poseidon.hash([Field(42)]);
     const regWitness1 = new WalletRegistryWitness(regTree.getWitness(0n));
     const lcWitness1 = new LifecycleWitness(lcTree.getWitness(0n));
 
     const stUpdate = await StateTransitionProgram.proveWalletUpdate(
       DOMAIN_TAG_MEMBER,
-      preimage1[0]!, preimage1[1]!, preimage1[2]!, preimage1[3]!, preimage1[4]!,
+      preimage1[0]!, preimage1[1]!, preimage1[2]!, preimage1[3]!, preimage1[4]!, preimage1[5]!,
       EMPTY_CREDENTIAL_ROOT,   // oldCredentialRoot
       Field(0),                // oldNonce
       newCredentialRoot,       // newCredentialRoot

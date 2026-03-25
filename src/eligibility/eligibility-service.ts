@@ -251,7 +251,7 @@ export class EligibilityService {
       case 'member':
         pgResult = await ProofGateProgram.verifyMember(
           walletId,
-          preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!,
+          preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
         );
         break;
       case 'prescriber':

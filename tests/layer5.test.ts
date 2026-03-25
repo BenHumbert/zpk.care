@@ -86,7 +86,7 @@ const testPharmacy: PharmacyLocalData = {
 const TEST_ENROLLMENT_KEY = 'xK9#mP2$vL5nQ8wR3jF7';
 
 // Wallet IDs
-const memberWalletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
+const memberWalletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
 const prescriberWalletId = derivePrescriberWalletId(testPrescriber, TEST_ENROLLMENT_KEY);
 const pharmacyWalletId = derivePharmacyWalletId(testPharmacy, TEST_ENROLLMENT_KEY);
 
@@ -771,11 +771,11 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
 
       const inventory = new CredentialInventory();
       inventory.mint(credentialData);
-      const memberPreimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
+      const memberPreimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
         memberPreimage[0]!, memberPreimage[1]!, memberPreimage[2]!,
-        memberPreimage[3]!, memberPreimage[4]!,
+        memberPreimage[3]!, memberPreimage[4]!, memberPreimage[5]!,
       );
       const invWitness = inventory.getWitness(0n);
       const holdingResult = await CredentialProgram.proveHolding(

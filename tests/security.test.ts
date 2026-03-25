@@ -108,15 +108,15 @@ describe('Security — PHI/PII Scrubbing', () => {
   describe('secureMemberDerivation — PHI/PII + enrollment key wipe', () => {
     test('returns valid wallet ID', () => {
       const memberData = freshMember();
-      const expectedId = deriveMemberWalletId(freshMember(), TEST_ENROLLMENT_KEY);
+      const expectedId = deriveMemberWalletId(freshMember(), TEST_ENROLLMENT_KEY, Field(0));
 
-      const result = secureMemberDerivation(memberData, TEST_ENROLLMENT_KEY);
+      const result = secureMemberDerivation(memberData, TEST_ENROLLMENT_KEY, Field(0));
       expect(result.walletId.toString()).toBe(expectedId.toString());
     });
 
     test('input object is scrubbed after derivation', () => {
       const memberData = freshMember();
-      secureMemberDerivation(memberData, TEST_ENROLLMENT_KEY);
+      secureMemberDerivation(memberData, TEST_ENROLLMENT_KEY, Field(0));
 
       expect(memberData.cardholderId).toBe('');
       expect(memberData.firstName).toBe('');
@@ -126,11 +126,11 @@ describe('Security — PHI/PII Scrubbing', () => {
       expect(isScrubbed(memberData as unknown as Record<string, unknown>)).toBe(true);
     });
 
-    test('preimage Fields include enrollment key hash (5 Fields for member)', () => {
+    test('preimage Fields include enrollment key hash (6 Fields for member)', () => {
       const memberData = freshMember();
-      const result = secureMemberDerivation(memberData, TEST_ENROLLMENT_KEY);
+      const result = secureMemberDerivation(memberData, TEST_ENROLLMENT_KEY, Field(12345));
 
-      expect(result.preimage).toHaveLength(5);
+      expect(result.preimage).toHaveLength(6);
       for (const f of result.preimage) {
         expect(f.toString()).not.toBe('0');
       }
@@ -138,7 +138,7 @@ describe('Security — PHI/PII Scrubbing', () => {
 
     test('dispose() clears preimage Fields', () => {
       const memberData = freshMember();
-      const result = secureMemberDerivation(memberData, TEST_ENROLLMENT_KEY);
+      const result = secureMemberDerivation(memberData, TEST_ENROLLMENT_KEY, Field(0));
 
       expect(result.preimage.length).toBeGreaterThan(0);
       result.dispose();
@@ -147,7 +147,7 @@ describe('Security — PHI/PII Scrubbing', () => {
 
     test('wallet ID survives scrubbing (it is the permanent identity)', () => {
       const memberData = freshMember();
-      const result = secureMemberDerivation(memberData, TEST_ENROLLMENT_KEY);
+      const result = secureMemberDerivation(memberData, TEST_ENROLLMENT_KEY, Field(0));
 
       expect(result.walletId.toString().length).toBeGreaterThan(0);
       expect(result.walletId.toString()).not.toBe('0');
@@ -195,7 +195,7 @@ describe('Security — PHI/PII Scrubbing', () => {
     test('store contains only wallet ID and entity type — no raw data', async () => {
       const store = new InMemoryStore();
       const memberData = freshMember();
-      const result = secureMemberDerivation(memberData, TEST_ENROLLMENT_KEY);
+      const result = secureMemberDerivation(memberData, TEST_ENROLLMENT_KEY, Field(0));
 
       await store.saveWallet({
         walletId: result.walletId.toString(),
@@ -223,7 +223,7 @@ describe('Security — PHI/PII Scrubbing', () => {
       let rawInput: MemberLocalData | null = freshMember();
       let enrollmentKey: string | null = TEST_ENROLLMENT_KEY;
 
-      const result = secureMemberDerivation(rawInput, enrollmentKey);
+      const result = secureMemberDerivation(rawInput, enrollmentKey, Field(0));
 
       // Null out caller's references
       rawInput = null;

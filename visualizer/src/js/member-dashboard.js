@@ -1,4 +1,4 @@
-// member-dashboard.js -- zkpCare Member Node Dashboard
+// member-dashboard.js -- Adjuda-GATOR Member Node Dashboard
 // ES module that renders all member dashboard sections.
 
 import {

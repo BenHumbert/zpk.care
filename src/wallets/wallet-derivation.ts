@@ -12,7 +12,11 @@ import type { PharmacyLocalData } from '../models/pharmacy.js';
  * wallet identity derived from their identifying data PLUS a
  * user-generated enrollment key (2FA salt).
  *
- * Wallet identity = Poseidon.hash([domainTag, ...identityFields, enrollmentKeyHash])
+ * Wallet identity = Poseidon.hash([domainTag, ...identityFields, enrollmentKeyHash, groupIdHash])
+ *
+ * For members, groupIdHash binds the wallet to an employer group.
+ * Changing jobs = changing group = new wallet = new enrollment.
+ * Non-member entities (prescriber, pharmacy, representative) pass Field(0) for groupIdHash.
  *
  * The enrollment key is a user-generated secret created on the user's
  * device during enrollment. It NEVER leaves the device and is NEVER
@@ -84,15 +88,18 @@ export const DOMAIN_TAG_PHARMACY       = Field(2);
 export const DOMAIN_TAG_REPRESENTATIVE = Field(3);
 
 /**
- * Derive a member's wallet identity from their local data + enrollment key.
+ * Derive a member's wallet identity from their local data + enrollment key + groupIdHash.
  *
- * Preimage: [0, hash(cardholderId), hashDate(dob), hash(firstName), hash(lastName), hash(enrollmentKey)]
+ * Preimage: [0, hash(cardholderId), hashDate(dob), hash(firstName), hash(lastName), hash(enrollmentKey), groupIdHash]
+ *
+ * groupIdHash cryptographically binds the wallet to the employer group.
+ * Changing jobs = changing groupIdHash = different wallet ID = new enrollment ceremony.
  *
  * H4 fix: DOB is now hashed through Poseidon (hashDate) instead of stored as a
  * plain integer. This prevents brute-force recovery of the date of birth from
  * the on-chain wallet ID (~36,500 possible DOB values).
  */
-export function deriveMemberWalletId(local: MemberLocalData, enrollmentKey: string): Field {
+export function deriveMemberWalletId(local: MemberLocalData, enrollmentKey: string, groupIdHash: Field): Field {
   validateEnrollmentKey(enrollmentKey);
   return Poseidon.hash([
     DOMAIN_TAG_MEMBER,
@@ -101,6 +108,7 @@ export function deriveMemberWalletId(local: MemberLocalData, enrollmentKey: stri
     hashString(local.firstName),
     hashString(local.lastName),
     hashString(enrollmentKey),
+    groupIdHash,
   ]);
 }
 
@@ -108,14 +116,16 @@ export function deriveMemberWalletId(local: MemberLocalData, enrollmentKey: stri
  * Compute the member wallet identity preimage Fields.
  * These are the private inputs to the proof-gate circuit.
  * Computed off-circuit from raw local data, then used inside the ZK proof.
+ * Returns 6 Fields: [cardholderIdHash, dobHash, firstNameHash, lastNameHash, enrollmentKeyHash, groupIdHash]
  */
-export function memberWalletPreimage(local: MemberLocalData, enrollmentKey: string): Field[] {
+export function memberWalletPreimage(local: MemberLocalData, enrollmentKey: string, groupIdHash: Field): Field[] {
   return [
     hashString(local.cardholderId),
     hashDate(local.dateOfBirth),
     hashString(local.firstName),
     hashString(local.lastName),
     hashString(enrollmentKey),
+    groupIdHash,
   ];
 }
 
@@ -222,25 +232,25 @@ export function representativeWalletPreimage(
 // ─── Padded Preimage Helpers (for StateTransitionProgram) ─────
 
 /**
- * Pad an entity's preimage to 5 Fields for use with StateTransitionProgram.
+ * Pad an entity's preimage to 6 Fields for use with StateTransitionProgram.
  *
- * StateTransitionProgram accepts a uniform 6-Field input:
- *   [domainTag, f0, f1, f2, f3, f4]
+ * StateTransitionProgram accepts a uniform 7-Field input:
+ *   [domainTag, f0, f1, f2, f3, f4, f5]
  * where non-member entities have unused trailing fields set to Field(0).
  *
- * Member: 5 preimage fields → no padding needed
- * Prescriber: 3 preimage fields → 2 trailing zeros
- * Pharmacy: 3 preimage fields → 2 trailing zeros
+ * Member: 6 preimage fields (incl groupIdHash) → no padding needed
+ * Prescriber: 3 preimage fields → 3 trailing zeros
+ * Pharmacy: 3 preimage fields → 3 trailing zeros
  */
 export function paddedPreimage(domainTag: Field, preimage: Field[]): Field[] {
   const padded = [...preimage];
-  while (padded.length < 5) padded.push(Field(0));
+  while (padded.length < 6) padded.push(Field(0));
   return [domainTag, ...padded];
 }
 
 /** Build padded StateTransitionProgram input for a member */
-export function memberTransitionPreimage(local: MemberLocalData, enrollmentKey: string): Field[] {
-  return paddedPreimage(DOMAIN_TAG_MEMBER, memberWalletPreimage(local, enrollmentKey));
+export function memberTransitionPreimage(local: MemberLocalData, enrollmentKey: string, groupIdHash: Field): Field[] {
+  return paddedPreimage(DOMAIN_TAG_MEMBER, memberWalletPreimage(local, enrollmentKey, groupIdHash));
 }
 
 /** Build padded StateTransitionProgram input for a prescriber */

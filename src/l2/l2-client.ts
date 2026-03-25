@@ -267,7 +267,7 @@ export class L2Client {
     return this.rpcCall('l2_getPcpAssignments', { prescriberWalletId });
   }
 
-  // ─── Claim Recording (Admin/Demo) ──────────────────────
+  // ─── Claim Recording (Admin) ──────────────────────
 
   /** Record a fill directly on the claim accumulator (admin-gated) */
   async recordFill(params: {

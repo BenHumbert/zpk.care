@@ -3,7 +3,7 @@
  *
  * Tests:
  *   1. FamilyAccumulatorService — stateless family accumulator pooling
- *   2. Demo data — familyId field, getMembersByFamily helper
+ *   2. Seed data — familyId field, getMembersByFamily helper
  *   3. Enrollment token/roster — familyIdHash threading
  *   4. OpaqueRoster — getEntriesByFamily
  *
@@ -23,7 +23,7 @@ import type {
 } from '../src/onboarding/family-accumulator-service.js';
 
 import {
-  DEMO_MEMBERS,
+  MEMBERS,
   getMembersByFamily,
   getMembersByEmployee,
   getSubscribers,
@@ -182,9 +182,9 @@ describe('FamilyAccumulatorService — computeFamilyAdjustedPay', () => {
   });
 });
 
-describe('Demo Data — familyId', () => {
+describe('Seed Data — familyId', () => {
   test('all members have a familyId', () => {
-    for (const m of DEMO_MEMBERS) {
+    for (const m of MEMBERS) {
       expect(m.familyId).toBeDefined();
       expect(m.familyId.length).toBeGreaterThan(0);
     }
@@ -192,17 +192,17 @@ describe('Demo Data — familyId', () => {
 
   test('familyId is consistent within families', () => {
     // Carol, Daniel, Emma Williams share FAM-ACME-10003
-    const carol = DEMO_MEMBERS.find(m => m.localData.firstName === 'Carol')!;
-    const daniel = DEMO_MEMBERS.find(m => m.localData.firstName === 'Daniel')!;
-    const emma = DEMO_MEMBERS.find(m => m.localData.firstName === 'Emma')!;
+    const carol = MEMBERS.find(m => m.localData.firstName === 'Carol')!;
+    const daniel = MEMBERS.find(m => m.localData.firstName === 'Daniel')!;
+    const emma = MEMBERS.find(m => m.localData.firstName === 'Emma')!;
     expect(carol.familyId).toBe('FAM-ACME-10003');
     expect(daniel.familyId).toBe('FAM-ACME-10003');
     expect(emma.familyId).toBe('FAM-ACME-10003');
   });
 
   test('single members have unique familyIds', () => {
-    const alice = DEMO_MEMBERS.find(m => m.localData.firstName === 'Alice')!;
-    const bob = DEMO_MEMBERS.find(m => m.localData.firstName === 'Bob')!;
+    const alice = MEMBERS.find(m => m.localData.firstName === 'Alice')!;
+    const bob = MEMBERS.find(m => m.localData.firstName === 'Bob')!;
     expect(alice.familyId).not.toBe(bob.familyId);
     expect(alice.familyId).toBe('FAM-ACME-10001');
     expect(bob.familyId).toBe('FAM-ACME-10002');

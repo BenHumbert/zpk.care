@@ -1,5 +1,5 @@
 /**
- * App — Entry point for the zkpCare Visualizer.
+ * App — Entry point for the Adjuda-GATOR Visualizer.
  *
  * Initializes SSE connections, creates all modules, and dispatches events.
  */

@@ -78,7 +78,7 @@ cd z:/zpk_care
 ZKTRIDENT_PORT=4004 \
   ZKTRIDENT_ADMIN_TOKEN=dev-admin \
   ZKTRIDENT_SEQUENCER_URL=http://localhost:3030 \
-  ZKTRIDENT_INSURER_ID=BlueCross-Demo \
+  ZKTRIDENT_INSURER_ID=BlueCross \
   npx tsx src/nodes/start-insurer-nautilus.ts
 ```
 
@@ -162,7 +162,7 @@ Enter the token ID from Step 4 into the app and complete enrollment.
 
 ---
 
-## Scenario B: Multi-Device (Investor Demo)
+## Scenario B: Multi-Device (Investor Presentation)
 
 ### Device Assignment
 
@@ -242,7 +242,7 @@ export LEVIATHAN_URL=https://xxxxx-leviathan.trycloudflare.com
 ZKTRIDENT_PORT=4004 \
   ZKTRIDENT_ADMIN_TOKEN=prod-admin-secret \
   ZKTRIDENT_SEQUENCER_URL=$LEVIATHAN_URL \
-  ZKTRIDENT_INSURER_ID=BlueCross-Demo \
+  ZKTRIDENT_INSURER_ID=BlueCross \
   npx tsx src/nodes/start-insurer-nautilus.ts
 
 # Terminal B: Employer
@@ -269,7 +269,7 @@ buildConfigField("String", "DEFAULT_PROVER_API_KEY", "\"your-secret-key\"")
 
 Rebuild and install APK on phone.
 
-### Step 3: Demo flow
+### Step 3: Walkthrough
 
 1. **Employer dashboard** (Desktop browser, :4005) — Create group, generate enrollment token
 2. **Phone app** — Enter token, fill PHI, generate wallet, complete enrollment

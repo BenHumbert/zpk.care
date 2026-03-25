@@ -64,6 +64,10 @@ export interface NautilusAppConfig {
   proverApiKey?: string;
   /** Allowed CORS origins */
   allowedOrigins: string[];
+  /** Insurer Nautilus URL for enrollment notification (optional) */
+  insurerUrl?: string;
+  /** Employer Nautilus URL for enrollment confirmation (optional) */
+  employerUrl?: string;
   /** Admin token for insurer-specific admin methods */
   adminToken?: string;
   /** Display name for logging */
@@ -114,4 +118,5 @@ export interface NautilusHealthResponse {
   displayName?: string;
   uptime: number;
   tls: boolean;
+  sequencerUrl?: string;
 }

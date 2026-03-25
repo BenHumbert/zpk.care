@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>zkpCare Node Network</title>
+  <title>Node Network</title>
   <style>
     :root {
       --bg-primary: #1a1a2e;
@@ -204,7 +204,7 @@
       color: #fff;
     }
 
-    .demo-card {
+    .scenario-card {
       background: var(--bg-card);
       border-radius: 12px;
       border-top: 4px solid var(--color-member);
@@ -213,18 +213,18 @@
       transition: transform 0.2s, box-shadow 0.2s;
     }
 
-    .demo-card:hover {
+    .scenario-card:hover {
       transform: translateY(-4px);
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
     }
 
-    .demo-title {
+    .scenario-title {
       font-size: 24px;
       font-weight: 600;
       margin-bottom: 12px;
     }
 
-    .demo-description {
+    .scenario-description {
       font-size: 15px;
       color: var(--text-secondary);
       margin-bottom: 24px;
@@ -233,7 +233,7 @@
       margin-right: auto;
     }
 
-    .demo-link {
+    .scenario-link {
       display: inline-block;
       padding: 12px 32px;
       background: linear-gradient(135deg, var(--color-member), var(--color-insurer));
@@ -245,7 +245,7 @@
       transition: opacity 0.2s;
     }
 
-    .demo-link:hover {
+    .scenario-link:hover {
       opacity: 0.9;
     }
 
@@ -428,7 +428,8 @@
 <body>
   <div class="container">
     <div class="header">
-      <h1 class="title">zkpCare Node Network</h1>
+      <img src="logo.png" alt="Adjuda-GATOR" style="height: 64px; width: auto; object-fit: contain;">
+      <h1 class="title">Node Network</h1>
       <p class="subtitle">Zero Knowledge Proof Claim Adjudication on MINA Protocol</p>
     </div>
 
@@ -530,14 +531,14 @@
       <div class="setup-log" id="setup-log"></div>
     </div>
 
-    <!-- Interactive Demo -->
-    <div class="demo-card">
-      <h2 class="demo-title">Interactive Demo</h2>
-      <p class="demo-description">
+    <!-- Adjudication Engine -->
+    <div class="scenario-card">
+      <h2 class="scenario-title">Adjudication Engine</h2>
+      <p class="scenario-description">
         Full-stack demonstration with enrollment, prescription fill, prior auth, family pooling,
         PCP verification, and L2 batch settlement with real zero-knowledge proofs.
       </p>
-      <a href="interactive.html" target="_blank" class="demo-link">Launch Interactive Demo</a>
+      <a href="interactive.html" target="_blank" class="scenario-link">Launch Adjudication Engine</a>
     </div>
 
     <div class="footer">

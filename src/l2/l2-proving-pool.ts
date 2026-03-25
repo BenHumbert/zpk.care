@@ -16,6 +16,7 @@
  * back to the single-process proving lock (backward compatible).
  */
 import { fork } from 'child_process';
+import { cpus } from 'os';
 import type { ChildProcess } from 'child_process';
 import type {
   ProvingJobRequest,
@@ -92,6 +93,7 @@ export class ProvingPool {
   private maxWorkerRestarts: number;
   private shutdownGraceMs: number;
   private recycleAfterJobs: number;
+  private compileConcurrency: number;
 
   private workers: Map<number, WorkerHandle> = new Map();
   private nextWorkerId = 0;
@@ -106,6 +108,8 @@ export class ProvingPool {
   private totalJobsCompleted = 0;
   private totalJobsFailed = 0;
   private totalProveTimeMs = 0;
+  private totalRecycles = 0;
+  private lastRecycleMs = 0;
 
   // Worker script path (resolved lazily on first start, or set explicitly)
   private workerScriptPath: string | null = null;
@@ -126,6 +130,17 @@ export class ProvingPool {
     this.maxWorkerRestarts = options?.maxWorkerRestarts ?? DEFAULT_MAX_WORKER_RESTARTS;
     this.shutdownGraceMs = options?.shutdownGraceMs ?? DEFAULT_SHUTDOWN_GRACE_MS;
     this.recycleAfterJobs = options?.recycleAfterJobs ?? 0;
+
+    // Compile concurrency: auto-detect from CPU cores or use explicit value
+    const cc = options?.compileConcurrency ?? 'auto';
+    if (cc === 'auto') {
+      // Each o1js compilation saturates ~4 logical threads (V8 WASM JIT + Pickles + GC).
+      // Safe to run floor(cores / 4) compilations in parallel, minimum 2 on multi-core.
+      const coreCount = cpus().length;
+      this.compileConcurrency = Math.max(coreCount >= 4 ? 2 : 1, Math.min(poolSize, Math.floor(coreCount / 4)));
+    } else {
+      this.compileConcurrency = Math.max(1, Math.min(poolSize, cc));
+    }
   }
 
   /**
@@ -163,9 +178,10 @@ export class ProvingPool {
 
   /**
    * Start the pool: fork workers and compile ZkPrograms in each.
-   * Workers are compiled sequentially (one at a time) to avoid CPU
-   * contention — o1js Pickles/Kimchi compilation is extremely CPU-intensive
-   * and concurrent compilations thrash the CPU on most machines.
+   * Workers compile in parallel batches (compileConcurrency at a time)
+   * to balance CPU utilization vs. contention. On an 8-core machine
+   * with compileConcurrency=2, two workers compile simultaneously
+   * (~50s total for 6 workers instead of ~150s sequential).
    * Resolves when all workers report 'ready' (or have failed).
    */
   async start(): Promise<void> {
@@ -182,32 +198,47 @@ export class ProvingPool {
       handles.push(this.spawnWorker());
     }
 
-    // Compile workers sequentially — each one gets full CPU.
-    // Concurrent compilation thrashes CPU and causes timeouts.
+    // Compile in parallel batches of compileConcurrency workers at a time.
+    // Each o1js compilation saturates ~4 threads, so we avoid launching
+    // more concurrent compilations than the CPU can handle.
     let succeeded = 0;
     let firstError: Error | null = null;
+    const cc = this.compileConcurrency;
 
-    for (const handle of handles) {
-      this.sendToWorker(handle, { type: 'compile' });
-      this.emitPoolEvent({
-        type: 'worker:compiling',
-        timestamp: Date.now(),
-        workerId: handle.id,
-        data: {},
-      });
+    for (let batchStart = 0; batchStart < handles.length; batchStart += cc) {
+      const batch = handles.slice(batchStart, batchStart + cc);
 
-      try {
-        await this.waitForReady(handle);
-        succeeded++;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`  [ProvingPool] Worker ${handle.id} failed to start: ${msg}`);
-        if (!firstError) {
-          firstError = err instanceof Error ? err : new Error(msg);
-        }
-        // Clean up dead worker handle
-        if (handle.process.exitCode !== null || handle.process.signalCode !== null) {
-          this.workers.delete(handle.id);
+      // Send compile messages to all workers in this batch
+      for (const handle of batch) {
+        this.sendToWorker(handle, { type: 'compile' });
+        this.emitPoolEvent({
+          type: 'worker:compiling',
+          timestamp: Date.now(),
+          workerId: handle.id,
+          data: { concurrency: cc },
+        });
+      }
+
+      // Await all workers in this batch concurrently
+      const results = await Promise.allSettled(
+        batch.map((handle) => this.waitForReady(handle)),
+      );
+
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i];
+        if (result.status === 'fulfilled') {
+          succeeded++;
+        } else {
+          const msg = result.reason instanceof Error ? result.reason.message : String(result.reason);
+          console.warn(`  [ProvingPool] Worker ${batch[i].id} failed to start: ${msg}`);
+          if (!firstError) {
+            firstError = result.reason instanceof Error ? result.reason : new Error(msg);
+          }
+          // Clean up dead worker handle
+          const handle = batch[i];
+          if (handle.process.exitCode !== null || handle.process.signalCode !== null) {
+            this.workers.delete(handle.id);
+          }
         }
       }
     }
@@ -338,6 +369,8 @@ export class ProvingPool {
         this.totalJobsCompleted > 0
           ? Math.round(this.totalProveTimeMs / this.totalJobsCompleted)
           : 0,
+      totalRecycles: this.totalRecycles,
+      lastRecycleMs: this.lastRecycleMs,
     };
   }
 
@@ -468,7 +501,12 @@ export class ProvingPool {
 
   private getIdleWorker(): WorkerHandle | null {
     for (const [, handle] of this.workers) {
-      if (!handle.busy && handle.process.exitCode === null && handle.process.signalCode === null) {
+      if (
+        !handle.busy &&
+        handle.status === 'idle' &&
+        handle.process.exitCode === null &&
+        handle.process.signalCode === null
+      ) {
         return handle;
       }
     }
@@ -492,15 +530,12 @@ export class ProvingPool {
     // Set prove timeout
     job.timer = setTimeout(() => {
       this.pendingJobs.delete(job.jobId);
-      worker.busy = false;
-      worker.currentJobId = null;
-      worker.currentJobDescription = null;
-      worker.status = 'idle';
       this.totalJobsFailed++;
-      job.reject(new Error(
-        `ProvingPool: prove timeout after ${this.proveTimeoutMs}ms`,
-      ));
-      this.drainQueue();
+      job.reject(new Error(`ProvingPool: prove timeout after ${this.proveTimeoutMs}ms`));
+      // Kill the zombie worker — crash handler will restart it
+      if (worker.process && !worker.process.killed) {
+        worker.process.kill('SIGKILL');
+      }
     }, this.proveTimeoutMs);
 
     this.sendToWorker(worker, {
@@ -640,6 +675,9 @@ export class ProvingPool {
     const oldId = handle.id;
     const { jobsProcessed } = handle;
 
+    this.totalRecycles++;
+    this.lastRecycleMs = Date.now();
+
     this.emitPoolEvent({
       type: 'worker:recycled' as PoolEventType,
       timestamp: Date.now(),
@@ -681,10 +719,15 @@ export class ProvingPool {
 
   private sendToWorker(handle: WorkerHandle, msg: CoordinatorMessage): boolean {
     if (!handle.process.connected) return false;
-    const sent = handle.process.send(msg);
-    if (!sent) {
-      console.warn(`[ProvingPool] IPC send failed for worker ${handle.id} (msg type: ${msg.type})`);
+    try {
+      const sent = handle.process.send(msg);
+      if (!sent) {
+        console.warn(`[ProvingPool] IPC send failed for worker ${handle.id} (msg type: ${msg.type})`);
+      }
+      return sent;
+    } catch {
+      // EPIPE: worker process already exited — safe to ignore during shutdown
+      return false;
     }
-    return sent;
   }
 }

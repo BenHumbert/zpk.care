@@ -1,5 +1,5 @@
 /**
- * zkp.Care Leviathan Dashboard — JSON-RPC 2.0 Client
+ * Adjuda-GATOR Leviathan Dashboard — JSON-RPC 2.0 Client
  * Talks to the L2RpcServer via POST /rpc and GET /health, /events, /viz/events.
  */
 const RPC = (() => {

@@ -46,6 +46,8 @@ export interface EpochAccumulatorServiceState {
   activeEpochId: string;
   /** Active epoch's full state */
   activeEpochState: ClaimAccumulatorState;
+  /** Timestamp when the active epoch started (preserved across restores) */
+  activeStartTimestamp?: number;
   /** Archived epochs with full state */
   archivedEpochs: {
     epochId: string;
@@ -241,6 +243,7 @@ export class EpochAccumulatorService {
     return {
       activeEpochId: this.activeEpochId,
       activeEpochState: this.activeEpoch.exportState(),
+      activeStartTimestamp: this.activeStartTimestamp,
       archivedEpochs,
     };
   }
@@ -263,7 +266,7 @@ export class EpochAccumulatorService {
     this.activeEpochId = state.activeEpochId;
     this.activeEpoch = new ClaimAccumulatorService();
     this.activeEpoch.restoreState(state.activeEpochState);
-    this.activeStartTimestamp = Date.now();
+    this.activeStartTimestamp = state.activeStartTimestamp ?? Date.now();
 
     this.epochs.set(this.activeEpochId, {
       epochId: this.activeEpochId,

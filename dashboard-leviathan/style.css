@@ -1,4 +1,4 @@
-/* zkp.Care Leviathan Dashboard — Dark Theme (Teal Accent) */
+/* Adjuda-GATOR Leviathan Dashboard — Dark Theme (Teal Accent) */
 
 :root {
   --bg-primary: #0d1117;
@@ -64,6 +64,8 @@ html, body {
   color: var(--accent);
   letter-spacing: -0.3px;
 }
+
+.header-brand .brand-logo-img { height: 36px; width: auto; object-fit: contain; }
 
 .header-brand .brand-icon {
   width: 28px;
@@ -1290,3 +1292,65 @@ html, body {
   .header-brand span { display: none; }
   .stats-grid { grid-template-columns: 1fr 1fr; }
 }
+
+/* ── Batch Detail Modal (Etherscan-style) ──────────────── */
+.batch-modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+  display: flex; align-items: center; justify-content: center; z-index: 9999;
+}
+.batch-modal {
+  background: var(--bg-secondary); border: 1px solid var(--border);
+  border-radius: 12px; width: 90%; max-width: 720px; max-height: 85vh;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.batch-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+}
+.batch-modal-header h2 { margin: 0; font-size: 16px; color: var(--text-primary); }
+.batch-modal-body { padding: 20px; overflow-y: auto; }
+
+/* Detail rows */
+.bm-section { margin-bottom: 16px; }
+.bm-section-title {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--text-secondary); margin-bottom: 8px; padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.bm-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 4px 0; font-size: 13px;
+}
+.bm-label { color: var(--text-secondary); min-width: 160px; flex-shrink: 0; }
+.bm-value { color: var(--text-primary); word-break: break-all; text-align: right; }
+.bm-hash { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; color: var(--accent); }
+.bm-badge {
+  display: inline-block; padding: 2px 8px; border-radius: 4px;
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+}
+.bm-badge.settled { background: rgba(63,185,80,0.15); color: #3fb950; }
+.bm-badge.pending { background: rgba(210,153,34,0.15); color: #d29922; }
+.bm-badge.failed { background: rgba(248,81,73,0.15); color: #f85149; }
+.bm-badge.batched { background: rgba(56,139,253,0.15); color: #388bfd; }
+
+/* Receipt rows inside batch detail */
+.bm-receipt {
+  background: var(--bg-primary); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
+}
+.bm-receipt-header {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;
+}
+.bm-receipt-id { font-family: 'SF Mono', monospace; font-size: 12px; color: var(--accent); }
+.bm-receipt-badge { font-size: 10px; }
+.bm-receipt-row { display: flex; gap: 16px; font-size: 12px; color: var(--text-secondary); }
+.bm-receipt-row span b { color: var(--text-primary); }
+
+/* Arrow for root transitions */
+.bm-arrow { color: var(--accent); margin: 0 6px; }
+
+/* Clickable batch rows */
+.cc-batch-item { cursor: pointer; transition: background 0.15s; }
+.cc-batch-item:hover { background: rgba(255,255,255,0.04); }
+.data-table tbody tr { cursor: pointer; transition: background 0.15s; }
+.data-table tbody tr:hover { background: rgba(255,255,255,0.04); }

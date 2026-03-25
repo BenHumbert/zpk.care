@@ -116,7 +116,7 @@ export interface ProviderMetadata {
   /** State of license */
   stateOfLicense?: string;
   /** How the provider was verified */
-  verificationMethod?: 'nppes' | 'ncpdp' | 'manual' | 'demo';
+  verificationMethod?: 'nppes' | 'ncpdp' | 'manual';
   /** Application ID for tracking the credentialing workflow */
   applicationId?: string;
   /** Timestamp when last status change occurred */

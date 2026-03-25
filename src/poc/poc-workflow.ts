@@ -10,7 +10,8 @@
 import { Field, Poseidon } from 'o1js';
 import type { L2Leviathan } from '../l2/l2-leviathan.js';
 import { getPartition } from '../l2/l2-partition.js';
-import { DEMO_MEDICATIONS } from '../data/index.js';
+import { MEDICATIONS } from '../data/index.js';
+import { hashString } from '../zkp/hash-utils.js';
 import {
   ReceiptFactory,
   getMedicationPricing,
@@ -242,7 +243,7 @@ export class PocWorkflow {
 
   private async runPrescribing(): Promise<void> {
     let rxId = 0;
-    const meds = DEMO_MEDICATIONS;
+    const meds = MEDICATIONS;
 
     for (let mi = 0; mi < MEMBERS_COUNT; mi++) {
       const member = this.wallets.members[mi];
@@ -260,7 +261,7 @@ export class PocWorkflow {
           memberWalletId: member.walletIdStr,
           prescriberWalletId: this.wallets.prescribers[prescriberIdx].walletIdStr,
           pharmacyWalletId: this.wallets.pharmacies[pharmacyIdx].walletIdStr,
-          medicationIndex: medIdx,
+          ndcHash: hashString(MEDICATIONS[medIdx].ndc).toString(),
           filled: false,
         };
         this.prescriptions.set(prescriptionId, info);
@@ -281,12 +282,12 @@ export class PocWorkflow {
 
   private async runFilling(): Promise<void> {
     this.counters.claims.total = TOTAL_CLAIMS;
-    const meds = DEMO_MEDICATIONS;
+    const meds = MEDICATIONS;
     let filled = 0;
 
     for (const [, rx] of this.prescriptions) {
       try {
-        const medication = meds[rx.medicationIndex];
+        const medication = meds.find(m => hashString(m.ndc).toString() === rx.ndcHash)!;
         const memberWalletId = this.wallets.members.find(
           (m) => m.walletIdStr === rx.memberWalletId,
         )!.walletId;

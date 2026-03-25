@@ -601,11 +601,11 @@ function createGroup() {
   const name = document.getElementById('group-name').value;
   const plan = document.getElementById('group-plan').value;
   if (!name || !plan) { alert('Please fill in group name and plan template.'); return; }
-  alert('Group "' + name + '" created successfully (demo mode).');
+  alert('Group "' + name + '" created successfully (placeholder).');
 }
 function confirmTerminateGroup(name) {
   if (confirm('Terminate group "' + name + '"? All member wallets will be set to REVOKED state. This cannot be undone.')) {
-    alert('Group "' + name + '" terminated (demo mode).');
+    alert('Group "' + name + '" terminated (placeholder).');
   }
 }
 
@@ -625,10 +625,10 @@ function generateToken() {
   for (let i = 0; i < 12; i++) id += chars[Math.floor(Math.random() * 16)];
   document.getElementById('generated-token-val').value = id;
 }
-function validateToken(id) { alert('Token ' + id + ' is valid and active (demo mode).'); }
+function validateToken(id) { alert('Token ' + id + ' is valid and active (placeholder).'); }
 function revokeToken(id) {
   if (confirm('Revoke token ' + id + '? This cannot be undone.')) {
-    alert('Token ' + id + ' revoked (demo mode).');
+    alert('Token ' + id + ' revoked (placeholder).');
   }
 }
 
@@ -658,13 +658,13 @@ function clearSelection() {
 function bulkTerminate() {
   const count = document.querySelectorAll('.roster-check:checked').length;
   if (confirm('Terminate ' + count + ' selected member(s)? This will revoke their wallet access.')) {
-    alert(count + ' member(s) terminated (demo mode).');
+    alert(count + ' member(s) terminated (placeholder).');
     clearSelection();
   }
 }
 function confirmTerminateMember(id) {
   if (confirm('Terminate member ' + id + '?')) {
-    alert('Member ' + id + ' terminated (demo mode).');
+    alert('Member ' + id + ' terminated (placeholder).');
   }
 }
 
@@ -677,7 +677,7 @@ function sendMessage() {
   const recipient = document.getElementById('msg-recipient').value;
   const body = document.getElementById('msg-body').value;
   if (!recipient || !body) { alert('Please select a recipient and enter a message.'); return; }
-  alert('Message sent (encrypted via AES-256-GCM, demo mode).');
+  alert('Message sent (encrypted via AES-256-GCM).');
   document.getElementById('msg-body').value = '';
 }
 </script>

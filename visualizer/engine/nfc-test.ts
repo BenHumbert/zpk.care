@@ -8,7 +8,7 @@
  * Also tests: sending commands with DATA (not just minimal packets),
  * since GPIO commands need parameters like [value] for pin high/low.
  *
- * Usage: npx tsx demo/nfc-test.ts
+ * Usage: npx tsx engine/nfc-test.ts
  */
 import HID from 'node-hid';
 

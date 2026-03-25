@@ -1,4 +1,4 @@
-/* zkpCare Node Dashboard Styles */
+/* Adjuda-GATOR Node Dashboard Styles */
 
 :root {
   --bg-primary: #1a1a2e;
@@ -66,6 +66,12 @@ body {
 
 .node-header.theme-insurer {
   border-left-color: var(--color-insurer);
+}
+
+.node-header .brand-logo-img {
+  height: 44px;
+  width: auto;
+  object-fit: contain;
 }
 
 .node-header h1 {

@@ -22,8 +22,8 @@ import {
   derivePharmacyWalletId,
 } from '../wallets/wallet-derivation.js';
 import { hashString } from '../zkp/hash-utils.js';
-import { DEMO_MEMBERS, DEMO_PRESCRIBERS, DEMO_PHARMACIES, DEMO_MEDICATIONS } from '../data/index.js';
-import type { DemoMedication } from '../data/index.js';
+import { MEMBERS, PRESCRIBERS, PHARMACIES, MEDICATIONS } from '../data/index.js';
+import type { SeedMedication } from '../data/index.js';
 
 // ─── Wallet ID Derivation ────────────────────────────────
 
@@ -38,8 +38,8 @@ export interface DerivedWallets {
  * Uses the same derivation functions as production.
  */
 export function deriveAllWalletIds(): DerivedWallets {
-  const members = DEMO_MEMBERS.slice(0, 5).map((m) => {
-    const walletId = deriveMemberWalletId(m.localData, m.enrollmentKey);
+  const members = MEMBERS.slice(0, 5).map((m) => {
+    const walletId = deriveMemberWalletId(m.localData, m.enrollmentKey, Field(0));
     return {
       walletId,
       walletIdStr: walletId.toString(),
@@ -47,7 +47,7 @@ export function deriveAllWalletIds(): DerivedWallets {
     };
   });
 
-  const prescribers = DEMO_PRESCRIBERS.slice(0, 2).map((p) => {
+  const prescribers = PRESCRIBERS.slice(0, 2).map((p) => {
     const walletId = derivePrescriberWalletId(p.localData, p.enrollmentKey);
     return {
       walletId,
@@ -56,7 +56,7 @@ export function deriveAllWalletIds(): DerivedWallets {
     };
   });
 
-  const pharmacies = DEMO_PHARMACIES.slice(0, 2).map((p) => {
+  const pharmacies = PHARMACIES.slice(0, 2).map((p) => {
     const walletId = derivePharmacyWalletId(p.localData, p.enrollmentKey);
     return {
       walletId,
@@ -167,7 +167,7 @@ export class ReceiptFactory {
     memberWalletId: Field,
     prescriberWalletId: Field,
     pharmacyWalletId: Field,
-    medication: DemoMedication,
+    medication: SeedMedication,
     partition: number,
     patientPayCents: number,
     planPayCents: number,
@@ -295,7 +295,7 @@ export class ReceiptFactory {
  * Get medication pricing based on tier level.
  * Returns { patientPayCents, planPayCents } for a 30-day fill.
  */
-export function getMedicationPricing(med: DemoMedication): { patientPayCents: number; planPayCents: number } {
+export function getMedicationPricing(med: SeedMedication): { patientPayCents: number; planPayCents: number } {
   // Copays follow the tier structure from medications.ts
   const copayByTier: Record<number, number> = {
     1: 1000,   // Tier 1 Generic: $10

@@ -2,7 +2,7 @@
 /**
  * start-nautilus.ts — Nautilus Replica Entry Point
  *
- * Starts a read-only replica node for the zkTrident Network.
+ * Starts a read-only replica node for the Adjuda-GATOR Network.
  * Receives state via gossip from Leviathan sequencers, serves RPC queries
  * across all partitions, and maintains its own checkpoint for crash recovery.
  *
@@ -86,7 +86,7 @@ const rpcOptions: Partial<L2RpcServerOptions> = {
 async function main(): Promise<void> {
   console.log('');
   console.log('  ╔══════════════════════════════════════════════╗');
-  console.log('  ║     🐚  NAUTILUS REPLICA — zkTrident        ║');
+  console.log('  ║     🐊  NAUTILUS REPLICA — Adjuda-GATOR     ║');
   console.log('  ╚══════════════════════════════════════════════╝');
   console.log('');
 

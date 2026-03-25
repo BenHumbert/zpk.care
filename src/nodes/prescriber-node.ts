@@ -76,7 +76,7 @@ export class PrescriberNode extends EntityNodeBase {
     const start = Date.now();
     const result = await StateTransitionProgram.proveRegistration(
       preimage[0], preimage[1], preimage[2],
-      preimage[3], preimage[4], preimage[5],
+      preimage[3], preimage[4], preimage[5], preimage[6],
       registryWitness,
       lifecycleWitness,
       currentRegistryRoot,
@@ -103,7 +103,7 @@ export class PrescriberNode extends EntityNodeBase {
     const start = Date.now();
     const result = await StateTransitionProgram.proveWalletUpdate(
       preimage[0], preimage[1], preimage[2],
-      preimage[3], preimage[4], preimage[5],
+      preimage[3], preimage[4], preimage[5], preimage[6],
       oldCredentialRoot, oldNonce, newCredentialRoot,
       registryWitness,
       lifecycleWitness,

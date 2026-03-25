@@ -1,4 +1,4 @@
-// prescriber-dashboard.js -- Prescriber Node Dashboard for zkpCare
+// prescriber-dashboard.js -- Prescriber Node Dashboard for Adjuda-GATOR
 // ES module importing shared utilities from node-common.js
 
 import {
@@ -44,7 +44,7 @@ async function init() {
     loadPrescriberData();
   } else {
     document.querySelector('.dashboard-grid').innerHTML =
-      '<div style="text-align: center; color: var(--text-secondary); padding: 40px;">No prescribers available in demo data.</div>';
+      '<div style="text-align: center; color: var(--text-secondary); padding: 40px;">No prescribers available in seed data.</div>';
   }
 
   // Auto-refresh every 8 seconds

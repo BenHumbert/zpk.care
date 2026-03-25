@@ -1,4 +1,4 @@
-// zkp.Care Insurer Dashboard — SPA Application Logic
+// Adjuda-GATOR Insurer Dashboard — SPA Application Logic
 // Overview, Formulary, Plans, Employers & Groups, Eligibility, Pricing, Claims, Audit, Admin.
 
 (function () {
@@ -80,6 +80,7 @@
   function toast(msg, type) {
     type = type || 'info';
     var c = $('toast-container');
+    if (!c) return;
     var el = document.createElement('div');
     el.className = 'toast toast-' + type;
     el.textContent = msg;
@@ -147,8 +148,8 @@
       case 'eligibility': loadEligibilityPage(); break;
       case 'credentialing': loadCredentialingPage(); break;
       case 'reports': loadReportsPage(); break;
-      case 'pricing': break;
-      case 'claims': break;
+      case 'pricing': initPricing(); break;
+      case 'claims': initClaims(); break;
       case 'audit': loadAuditPage(); break;
       case 'admin': loadAdminPage(); break;
     }
@@ -900,7 +901,7 @@
         '<input type="checkbox" class="plan-form-ndc-cb" data-ndc="' + esc(e.ndc) + '"' + checked + '>' +
         '<span style="font-family:var(--font-mono);min-width:90px">' + esc(e.ndc) + '</span>' +
         '<span style="flex:1">' + esc(e.brandName || e.genericName || e.description || 'Unknown') + '</span>' +
-        '<span class="badge badge-' + (e.tierLevel === 1 ? 'active' : e.tierLevel === 2 ? 'info' : e.tierLevel === 3 ? 'pending' : 'error') + '" style="font-size:10px">' + tier + '</span>' +
+        '<span class="badge badge-' + (e.tierLevel === 1 ? 'active' : e.tierLevel === 2 ? 'info' : e.tierLevel === 3 ? 'pending' : 'specialty') + '" style="font-size:10px">' + tier + '</span>' +
       '</label>';
     }).join('') + (filtered.length > 200 ? '<div style="padding:8px;text-align:center;color:var(--text-secondary);font-size:11px">Showing 200 of ' + filtered.length + ' — use search to narrow</div>' : '');
 
@@ -956,10 +957,7 @@
     });
   }
 
-  var planDetailEventsInitialized = false;
   function initPlanDetailEvents() {
-    if (planDetailEventsInitialized) return;
-    planDetailEventsInitialized = true;
 
     var closeBtn = $('plan-detail-close');
     if (closeBtn) closeBtn.onclick = function () {
@@ -1998,6 +1996,11 @@
   // ═══════════════════════════════════════════════════════════
 
   async function init() {
+    // Admin token is restored from localStorage by rpc.js on load.
+    // If not set, prompt user to enter it in the Admin tab.
+    if (!API.getAdminToken()) {
+      console.info('[insurer] No admin token — set one in the Admin tab for plan/enrollment operations');
+    }
     await loadPlans();
     await loadFormularyFromSequencer();
     checkConnection();

@@ -1,4 +1,4 @@
-// pharmacy-dashboard.js -- zkpCare Pharmacy Node Dashboard
+// pharmacy-dashboard.js -- Adjuda-GATOR Pharmacy Node Dashboard
 // ES module: renders pharmacy identity, DUR panel, dispensing history, and breakdowns
 
 import {
@@ -72,7 +72,7 @@ async function init() {
   if (pharmacies.length === 0) {
     document.querySelector('.dashboard-grid').innerHTML =
       `<div style="color: var(--text-secondary); text-align: center; padding: 48px;">
-        No pharmacies enrolled yet. Run the demo scenario first.
+        No pharmacies enrolled yet. Run a scenario first.
       </div>`;
     return;
   }

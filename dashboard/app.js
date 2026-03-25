@@ -1,5 +1,5 @@
 /**
- * zkTrident Explorer — Main Application
+ * Adjuda-GATOR Explorer — Main Application
  */
 const App = (() => {
   let currentPage = 'overview';
@@ -540,6 +540,41 @@ const App = (() => {
       }
 
       lastPoolState = pool;
+
+      // Entity proof pool (prescription/fill/enrollment proofs)
+      var epPool = health.entityProofPool;
+      var epWorkers = health.entityWorkers || [];
+      if (epPool) {
+        $('ep-jobs-done').textContent = (epPool.totalJobsCompleted || 0) + ' jobs';
+        $('ep-avg-time').textContent = 'avg: ' + formatMs(epPool.avgProveTimeMs);
+        $('ep-queue').textContent = 'queue: ' + (epPool.queueDepth || 0);
+
+        if (epWorkers.length > 0) {
+          $('epPoolDetail').innerHTML = '<div class="pool-workers">' + epWorkers.map(function (w) {
+            var cls = w.busy ? 'busy' : (w.status === 'dead' ? 'dead' : 'idle');
+            return '<div class="pool-worker-card ' + cls + '">' +
+              '<div class="pool-worker-header">' +
+              '<span class="pool-worker-id">Worker ' + w.id + '</span>' +
+              '<span class="pool-worker-status ' + cls + '">' + (w.busy ? 'proving' : (w.status || 'idle')) + '</span>' +
+              '</div>' +
+              '<div class="pool-worker-meta">' +
+              '<span>Jobs: ' + (w.jobsProcessed || 0) + '</span>' +
+              (w.currentJobId ? '<span>Job: ' + w.currentJobId + '</span>' : '') +
+              '</div></div>';
+          }).join('') + '</div>';
+        } else {
+          $('epPoolDetail').innerHTML = '<div class="pool-workers"><div class="pool-worker-card idle">' +
+            '<div class="pool-worker-header"><span class="pool-worker-id">Pool</span>' +
+            '<span class="pool-worker-status idle">active</span></div>' +
+            '<div class="pool-worker-meta"><span>Size: ' + (epPool.poolSize || 0) + '</span>' +
+            '<span>Alive: ' + (epPool.workersAlive || 0) + '</span></div></div></div>';
+        }
+      } else {
+        $('ep-jobs-done').textContent = '0 jobs';
+        $('ep-avg-time').textContent = 'avg: --';
+        $('ep-queue').textContent = 'queue: 0';
+        $('epPoolDetail').innerHTML = '<div class="no-data">No entity proof pool</div>';
+      }
     } catch {
       // Silently ignore health poll failures
     }

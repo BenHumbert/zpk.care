@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>&#x1F41A;</text></svg>">
+  <link rel="icon" href="logo.png">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>zkp.Care Leviathan</title>
+  <title>Leviathan Sequencer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -15,8 +15,8 @@
   <!-- ── Header ─────────────────────────────────────────────── -->
   <header class="header">
     <div class="header-brand">
-      <div class="brand-icon">LEV</div>
-      <span>zkp.Care Leviathan</span>
+      <img src="logo.png" alt="Adjuda-GATOR" class="brand-logo-img">
+      <span>Leviathan Sequencer</span>
     </div>
     <div class="header-meta">
       <span class="header-badge" id="header-node-id">--</span>
@@ -54,17 +54,19 @@
       <!-- Command Center -->
       <div class="cc-grid" id="cc-grid">
 
-        <!-- ── Throughput Sparkline ─────────────────────────── -->
-        <div class="cc-panel cc-throughput">
+        <!-- ── Entity Proof Pool ─────────────────────────────── -->
+        <div class="cc-panel cc-workers">
           <div class="cc-panel-header">
-            <span class="cc-panel-title">Proof Throughput</span>
-            <span class="cc-rate" id="cc-rate">0.0<small>/s</small></span>
+            <span class="cc-panel-title">Entity Proof Pool</span>
+            <span class="cc-badge" id="cc-ep-badge">--</span>
           </div>
-          <div class="cc-sparkline" id="cc-sparkline"></div>
-          <div class="cc-throughput-stats">
-            <span>peak <b id="cc-peak">0.0</b>/s</span>
-            <span>avg <b id="cc-avg">0.0</b>/s</span>
-            <span>total <b id="cc-total">0</b></span>
+          <div class="cc-worker-list" id="cc-ep-worker-list">
+            <div class="cc-empty">No workers</div>
+          </div>
+          <div class="cc-worker-stats">
+            <span>jobs <b id="cc-ep-jobs">0</b></span>
+            <span>avg prove <b id="cc-ep-avg">--</b></span>
+            <span>queue <b id="cc-ep-queue">0</b></span>
           </div>
         </div>
 
@@ -83,6 +85,31 @@
           </div>
         </div>
 
+        <!-- ── Batch Pipeline ──────────────────────────────── -->
+        <div class="cc-panel cc-batches">
+          <div class="cc-panel-header">
+            <span class="cc-panel-title">Batch Pipeline</span>
+          </div>
+          <div class="cc-batch-list" id="cc-batch-list">
+            <div class="cc-empty">No batches yet</div>
+          </div>
+        </div>
+
+        <!-- ── Proof Queue (pending batch settlement) ────────── -->
+        <div class="cc-panel cc-workers">
+          <div class="cc-panel-header">
+            <span class="cc-panel-title">Proof Queue</span>
+            <span class="cc-badge" id="cc-queue-badge">0</span>
+          </div>
+          <div class="cc-worker-list" id="cc-queue-list">
+            <div class="cc-empty">No pending proofs</div>
+          </div>
+          <div class="cc-worker-stats">
+            <span>next batch in <b id="cc-next-batch">--</b></span>
+            <span>total batched <b id="cc-total-batched">0</b></span>
+          </div>
+        </div>
+
         <!-- ── Live Network Feed (From → To) ──────────────── -->
         <div class="cc-panel cc-feed">
           <div class="cc-panel-header">
@@ -91,16 +118,6 @@
           </div>
           <div class="cc-feed-list" id="cc-feed-list">
             <div class="cc-empty">Waiting for events...</div>
-          </div>
-        </div>
-
-        <!-- ── Batch Pipeline ──────────────────────────────── -->
-        <div class="cc-panel cc-batches">
-          <div class="cc-panel-header">
-            <span class="cc-panel-title">Batch Pipeline</span>
-          </div>
-          <div class="cc-batch-list" id="cc-batch-list">
-            <div class="cc-empty">No batches yet</div>
           </div>
         </div>
 
@@ -203,6 +220,17 @@
           <button class="btn btn-sm" id="worker-refresh-btn">Refresh</button>
         </div>
         <div class="panel-body" id="worker-cards">
+          <div class="loading">Loading...</div>
+        </div>
+      </div>
+
+      <!-- Entity Proof Pool Worker Cards -->
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Entity Proof Workers</h3>
+          <button class="btn btn-sm" id="ep-worker-refresh-btn">Refresh</button>
+        </div>
+        <div class="panel-body" id="ep-worker-cards">
           <div class="loading">Loading...</div>
         </div>
       </div>
@@ -424,10 +452,10 @@
         </div>
       </div>
 
-      <!-- Demo Setup -->
+      <!-- Quick Setup -->
       <div class="panel" style="border:1px solid var(--accent);border-radius:8px">
         <div class="panel-header">
-          <h3 style="color:var(--accent)">Demo Setup — One-Click Ceremony</h3>
+          <h3 style="color:var(--accent)">Quick Setup — One-Click Ceremony</h3>
         </div>
         <div class="panel-body">
           <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">
@@ -435,20 +463,20 @@
             Prescribers and pharmacies are pre-seeded (10 prescribers, 8 pharmacies already in-network).
           </p>
           <div class="search-row" style="gap:8px;flex-wrap:wrap">
-            <input type="text" class="form-input" id="demo-employer-url" placeholder="Employer URL" value="http://localhost:4005" style="width:200px">
-            <input type="text" class="form-input" id="demo-member-url" placeholder="Member URL" value="http://localhost:4001" style="width:200px">
-            <input type="text" class="form-input" id="demo-admin-token" placeholder="Admin token" value="admin123" style="width:120px">
-            <input type="text" class="form-input" id="demo-group-id" placeholder="Group ID" value="GRP-001" style="width:100px">
-            <input type="text" class="form-input" id="demo-employee-id" placeholder="Employee ID" value="EMP-001" style="width:100px">
+            <input type="text" class="form-input" id="setup-employer-url" placeholder="Employer URL" value="http://localhost:4005" style="width:200px">
+            <input type="text" class="form-input" id="setup-member-url" placeholder="Member URL" value="http://localhost:4001" style="width:200px">
+            <input type="text" class="form-input" id="setup-admin-token" placeholder="Admin token" value="admin123" style="width:120px">
+            <input type="text" class="form-input" id="setup-group-id" placeholder="Group ID" value="GRP-001" style="width:100px">
+            <input type="text" class="form-input" id="setup-employee-id" placeholder="Employee ID" value="EMP-001" style="width:100px">
           </div>
           <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-primary" id="demo-setup-btn" style="white-space:nowrap">Run Full Ceremony</button>
-            <button class="btn btn-sm" id="demo-token-only-btn" style="white-space:nowrap">Token Only (for phone)</button>
+            <button class="btn btn-primary" id="setup-setup-btn" style="white-space:nowrap">Run Full Ceremony</button>
+            <button class="btn btn-sm" id="setup-token-only-btn" style="white-space:nowrap">Token Only (for phone)</button>
           </div>
-          <div id="demo-setup-log" style="margin-top:12px;font-family:'JetBrains Mono',monospace;font-size:12px;max-height:300px;overflow-y:auto"></div>
-          <div id="demo-token-display" style="display:none;margin-top:16px;padding:16px;background:rgba(38,198,218,0.08);border:1px solid var(--accent);border-radius:8px;text-align:center">
+          <div id="setup-setup-log" style="margin-top:12px;font-family:'JetBrains Mono',monospace;font-size:12px;max-height:300px;overflow-y:auto"></div>
+          <div id="setup-token-display" style="display:none;margin-top:16px;padding:16px;background:rgba(38,198,218,0.08);border:1px solid var(--accent);border-radius:8px;text-align:center">
             <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">MEMBER ENROLLMENT TOKEN</div>
-            <div id="demo-token-value" style="font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;color:var(--accent);word-break:break-all;cursor:pointer" title="Click to copy"></div>
+            <div id="setup-token-value" style="font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;color:var(--accent);word-break:break-all;cursor:pointer" title="Click to copy"></div>
             <div style="font-size:11px;color:var(--text-secondary);margin-top:8px">Enter this token in the Member app to begin enrollment</div>
           </div>
         </div>
@@ -467,6 +495,19 @@
     </section>
 
   </main>
+
+  <!-- ── Batch Detail Modal (Etherscan-style) ──────────────── -->
+  <div class="batch-modal-overlay" id="batch-modal" style="display:none">
+    <div class="batch-modal">
+      <div class="batch-modal-header">
+        <h2 id="bm-title">Batch #0</h2>
+        <button class="btn btn-sm" onclick="document.getElementById('batch-modal').style.display='none'">&times;</button>
+      </div>
+      <div class="batch-modal-body" id="bm-body">
+        <div class="loading">Loading...</div>
+      </div>
+    </div>
+  </div>
 
   <!-- ── Toast Container ────────────────────────────────────── -->
   <div class="toast-container" id="toast-container"></div>

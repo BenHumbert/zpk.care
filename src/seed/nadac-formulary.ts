@@ -7,9 +7,9 @@
  * Source: CMS NADAC (data.medicaid.gov) — public domain, no API key required.
  * Generated: 2026-03-06T18:06:46.111Z
  */
-import type { DemoMedication } from './medications.js';
+import type { SeedMedication } from '../data/index.js';
 
-export const NADAC_MEDICATIONS: DemoMedication[] = [
+export const NADAC_MEDICATIONS: SeedMedication[] = [
   {
     ndc: '24385005452',
     ndcFormatted: '24385-0054-52',
@@ -12512,12 +12512,12 @@ export const NADAC_MEDICATIONS: DemoMedication[] = [
   }
 ];
 
-/** NDC → DemoMedication lookup */
-export const NADAC_MEDICATION_BY_NDC = new Map<string, DemoMedication>(
+/** NDC → SeedMedication lookup */
+export const NADAC_MEDICATION_BY_NDC = new Map<string, SeedMedication>(
   NADAC_MEDICATIONS.map((m) => [m.ndc, m]),
 );
 
-/** GPI → DemoMedication lookup */
-export const NADAC_MEDICATION_BY_GPI = new Map<string, DemoMedication>(
+/** GPI → SeedMedication lookup */
+export const NADAC_MEDICATION_BY_GPI = new Map<string, SeedMedication>(
   NADAC_MEDICATIONS.map((m) => [m.gpi, m]),
 );

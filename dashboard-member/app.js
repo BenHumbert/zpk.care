@@ -1,6 +1,6 @@
 /**
- * zkp.Care Member Portal — Application Logic
- * Landing → Onboarding (6-step) → Restore → Main App (8 tabs)
+ * Adjuda-GATOR Member Portal — Application Logic
+ * Landing → Onboarding (7-step) → Restore → Main App (8 tabs)
  */
 (function () {
   'use strict';
@@ -60,6 +60,22 @@
   function esc(s) {
     if (!s) return '';
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // VULNERABILITY: Messages use base64 (prescriber) or AES-GCM with ephemeral keys
+  // (member compose). No shared key exchange exists — true E2E decryption is NOT
+  // implemented. This helper decodes what it can. See project memory for tracking.
+  function decodePayload(ciphertext, iv) {
+    if (!ciphertext) return '(no content)';
+    // Prescriber sends btoa(plaintext) with iv='0'
+    if (iv === '0' || iv === '') {
+      try { return atob(ciphertext); } catch (_) { return '(decode error)'; }
+    }
+    // Hex-encoded AES-GCM — no shared key available yet
+    if (/^[0-9a-f]+$/i.test(ciphertext)) {
+      return '(encrypted \u2014 ' + Math.floor(ciphertext.length / 2) + ' bytes)';
+    }
+    try { return atob(ciphertext); } catch (_) { return '(encrypted)'; }
   }
 
   function toast(msg, type) {
@@ -360,7 +376,7 @@
       case 6: // Complete
         body.innerHTML =
           '<div class="onboard-title">Enrollment Complete!</div>' +
-          '<div class="onboard-desc">Your wallet has been registered on the zkp.Care network.</div>' +
+          '<div class="onboard-desc">Your wallet has been registered on the Adjuda-GATOR network.</div>' +
           '<div style="margin:16px 0;padding:12px;background:var(--accent-dim);border-radius:var(--radius-sm);font-size:12px">' +
           '<div style="color:var(--text-secondary);margin-bottom:4px">Your Wallet ID</div>' +
           '<div class="mono" style="word-break:break-all;color:var(--accent)">' + esc(onboardState.walletId) + '</div></div>' +
@@ -489,7 +505,10 @@
       try {
         var card = JSON.parse(jsonText);
         if (!card.walletId || !card.encryptedKey || !card.salt || !card.iv) {
-          throw new Error('Invalid recovery card format');
+          throw new Error('Invalid recovery card format — missing required fields');
+        }
+        if (card.version && card.version > 2) {
+          throw new Error('Recovery card version ' + card.version + ' is not supported by this app. Please update.');
         }
 
         // Derive key from PIN using PBKDF2
@@ -599,8 +618,9 @@
 
   async function loadDashStats() {
     try {
-      var claims = await RPC.getClaimsByMember(walletId);
-      if (!Array.isArray(claims)) claims = [];
+      var rawClaims = await RPC.getClaimsByMember(walletId);
+      if (!Array.isArray(rawClaims)) rawClaims = [];
+      var claims = deduplicateClaims(rawClaims);
       claimsCache = claims;
 
       var fills = 0, reversals = 0, totalPat = 0;
@@ -625,9 +645,9 @@
     var container = $('dash-recent-claims');
     try {
       if (!claimsCache.length) {
-        var claims = await RPC.getClaimsByMember(walletId);
-        if (!Array.isArray(claims)) claims = [];
-        claimsCache = claims;
+        var rawClaims = await RPC.getClaimsByMember(walletId);
+        if (!Array.isArray(rawClaims)) rawClaims = [];
+        claimsCache = deduplicateClaims(rawClaims);
       }
       var recent = claimsCache.slice(0, 5);
       container.innerHTML = recent.length ? renderClaimCards(recent) : '<div class="empty-state">No claims yet</div>';
@@ -684,12 +704,42 @@
   // ══════════════════════════════════════════════════════
   //  DRUG HISTORY
   // ══════════════════════════════════════════════════════
+  // Deduplicate claims: same leafIndex = same accumulator entry (true duplicate from RPC).
+  // Different leafIndex = different fills, even if same drug/pharmacy/date (legitimate refills).
+  // Reversals (opType '2') are never deduped.
+  function deduplicateClaims(claims) {
+    var seen = {};
+    return claims.filter(function (c) {
+      var leaf = c.leaf || c.claimLeaf || c;
+      if (String(leaf.operationType) === '2') return true; // never dedup reversals
+      // Use leafIndex as the canonical dedup key — each accumulator entry is unique
+      var leafIdx = c.leafIndex ?? leaf.leafIndex;
+      if (leafIdx != null) {
+        var key = String(leafIdx);
+        if (seen[key]) return false;
+        seen[key] = true;
+        return true;
+      }
+      // Fallback for claims without leafIndex: use composite key
+      var compositeKey = (leaf.memberWalletId || '') + ':' + (leaf.ndcHash || '') + ':' +
+                (leaf.pharmacyWalletId || '') + ':' + (leaf.dateOfService || '');
+      if (seen[compositeKey]) return false;
+      seen[compositeKey] = true;
+      return true;
+    });
+  }
+
   async function loadClaims() {
     var container = $('claims-list');
     container.innerHTML = '<div class="loading">Loading...</div>';
+    if (!walletId) {
+      container.innerHTML = '<div class="empty-state">Complete onboarding to view your drug history</div>';
+      return;
+    }
     try {
-      var claims = await RPC.getClaimsByMember(walletId);
-      if (!Array.isArray(claims)) claims = [];
+      var rawClaims = await RPC.getClaimsByMember(walletId);
+      if (!Array.isArray(rawClaims)) rawClaims = [];
+      var claims = deduplicateClaims(rawClaims);
       claimsCache = claims;
 
       // Stats
@@ -735,65 +785,94 @@
   // ══════════════════════════════════════════════════════
   //  FORMULARY
   // ══════════════════════════════════════════════════════
+  var formularyOffset = 0;
+  var formularyPageSize = 100;
+  var formularyFilter = {};
+
   async function loadFormulary() {
     var container = $('formulary-table');
     container.innerHTML = '<div class="loading">Loading formulary...</div>';
     try {
-      var result = await RPC.getFormulary(planIdHash || 'default');
-      var entries = [];
-      if (result && result.entriesJson) {
-        try { entries = JSON.parse(result.entriesJson); } catch { entries = []; }
-      } else if (Array.isArray(result)) {
-        entries = result;
-      } else if (result && result.entries) {
-        entries = result.entries;
-      }
-      formularyCache = entries;
+      // Get drug count
+      var countData = await RPC.getFormularyDrugCount();
+      var totalCount = countData && countData.count ? countData.count : 0;
 
       $('formulary-stats').innerHTML =
-        statCard('Medications', entries.length) +
-        statCard('Generic Available', entries.filter(function (e) { return e.genericName; }).length) +
-        statCard('Prior Auth Required', entries.filter(function (e) { return e.requiresPriorAuth; }).length) +
-        statCard('Controlled', entries.filter(function (e) { return e.deaSchedule && e.deaSchedule !== '0'; }).length);
+        statCard('Total Medications', totalCount.toLocaleString()) +
+        statCard('Source', 'CMS NADAC') +
+        statCard('Query', 'Paginated (100/page)');
 
-      renderFormularyTable(entries);
+      formularyOffset = 0;
+      formularyFilter = {};
+      await loadFormularyPage();
     } catch (e) {
       container.innerHTML = '<div class="empty-state">Formulary unavailable: ' + esc(e.message) + '</div>';
     }
   }
 
-  function renderFormularyTable(entries) {
-    if (!entries.length) {
+  async function loadFormularyPage() {
+    var container = $('formulary-table');
+    container.innerHTML = '<div class="loading">Loading...</div>';
+    try {
+      var page = await RPC.getFormularyPage(formularyFilter, formularyOffset, formularyPageSize);
+      if (!page || !page.drugs || !page.drugs.length) {
+        container.innerHTML = '<div class="empty-state">No matching medications</div>';
+        return;
+      }
+      formularyCache = page.drugs;
+      renderFormularyTable(page.drugs, page.total, page.offset, page.hasMore);
+    } catch (e) {
+      container.innerHTML = '<div class="empty-state">Error: ' + esc(e.message) + '</div>';
+    }
+  }
+
+  function renderFormularyTable(drugs, total, offset, hasMore) {
+    if (!drugs.length) {
       $('formulary-table').innerHTML = '<div class="empty-state">No formulary entries</div>';
       return;
     }
-    var html = '<table class="data-table"><thead><tr>' +
-      '<th>Drug</th><th>Generic</th><th>Tier</th><th>Copay</th><th>Form</th><th>Supply</th><th>PA</th><th>DEA</th></tr></thead><tbody>';
-    entries.forEach(function (e) {
+    var from = (offset || 0) + 1;
+    var to = (offset || 0) + drugs.length;
+    var paginationHtml = '<div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0;font-size:12px;color:var(--text-muted)">' +
+      '<span>Showing ' + from + '–' + to + ' of ' + (total || '?').toLocaleString() + '</span>' +
+      '<span>' +
+      (offset > 0 ? '<button onclick="window._formPrev()" style="margin-right:8px;cursor:pointer">&laquo; Prev</button>' : '') +
+      (hasMore ? '<button onclick="window._formNext()" style="cursor:pointer">Next &raquo;</button>' : '') +
+      '</span></div>';
+
+    var html = paginationHtml +
+      '<table class="data-table"><thead><tr>' +
+      '<th>Drug</th><th>Generic</th><th>Strength</th><th>Tier</th><th>Copay</th><th>Form</th><th>Route</th><th>Supply</th><th>PA</th></tr></thead><tbody>';
+    drugs.forEach(function (d) {
       html += '<tr>' +
-        '<td><strong>' + esc(e.brandName || '--') + '</strong></td>' +
-        '<td>' + esc(e.genericName || '--') + '</td>' +
-        '<td>' + tierBadge(e.tierLevel) + '</td>' +
-        '<td class="mono">' + fmtCents(e.copayAmountCents) + '</td>' +
-        '<td>' + esc(e.dosageForm || '--') + '</td>' +
-        '<td class="mono">' + (e.maxDaySupply || '--') + 'd</td>' +
-        '<td>' + (e.requiresPriorAuth ? '<span class="badge badge-warning">PA</span>' : '--') + '</td>' +
-        '<td>' + (e.deaSchedule && e.deaSchedule !== '0' ? '<span class="badge badge-error">C-' + e.deaSchedule + '</span>' : '--') + '</td></tr>';
+        '<td><strong>' + esc(d.brandName || d.genericName || '--') + '</strong></td>' +
+        '<td>' + esc(d.genericName || '--') + '</td>' +
+        '<td>' + esc(d.strength || '--') + '</td>' +
+        '<td>' + tierBadge(d.tierLevel) + '</td>' +
+        '<td class="mono">$' + (d.copayAmount != null ? (d.copayAmount / 100).toFixed(2) : '--') + '</td>' +
+        '<td>' + esc(d.dosageForm || '--') + '</td>' +
+        '<td>' + esc(d.route || '--') + '</td>' +
+        '<td class="mono">' + (d.maxDaySupply || '--') + 'd</td>' +
+        '<td>' + (d.requiresPriorAuth ? '<span class="badge badge-warning">PA</span>' : '--') + '</td></tr>';
     });
-    html += '</tbody></table>';
+    html += '</tbody></table>' + paginationHtml;
     $('formulary-table').innerHTML = html;
   }
 
+  window._formNext = function () {
+    formularyOffset += formularyPageSize;
+    loadFormularyPage();
+  };
+  window._formPrev = function () {
+    formularyOffset = Math.max(0, formularyOffset - formularyPageSize);
+    loadFormularyPage();
+  };
+
   function filterFormulary() {
-    var q = ($('formulary-search').value || '').toLowerCase().trim();
-    if (!q) { renderFormularyTable(formularyCache); return; }
-    var filtered = formularyCache.filter(function (e) {
-      return (e.brandName || '').toLowerCase().indexOf(q) >= 0 ||
-             (e.genericName || '').toLowerCase().indexOf(q) >= 0 ||
-             (e.ndc || '').indexOf(q) >= 0 ||
-             (e.therapeuticClass || '').toLowerCase().indexOf(q) >= 0;
-    });
-    renderFormularyTable(filtered);
+    var q = ($('formulary-search').value || '').trim();
+    formularyFilter.namePrefix = q;
+    formularyOffset = 0;
+    loadFormularyPage();
   }
 
   // ══════════════════════════════════════════════════════
@@ -825,38 +904,32 @@
       accEl.innerHTML = '<div class="empty-state">Accumulator data unavailable</div>';
     }
 
-    // Tiers from formulary
+    // Tiers from formulary (Option C — use paginated data if cached, else load a sample page)
     var tierEl = $('plan-tiers');
     tierEl.innerHTML = '<div class="loading">Loading...</div>';
     try {
       if (!formularyCache.length) {
-        var result = await RPC.getFormulary(planIdHash || 'default');
-        if (result && result.entriesJson) {
-          try { formularyCache = JSON.parse(result.entriesJson); } catch {}
-        } else if (Array.isArray(result)) {
-          formularyCache = result;
-        } else if (result && result.entries) {
-          formularyCache = result.entries;
-        }
+        var page = await RPC.getFormularyPage({}, 0, 200);
+        if (page && page.drugs) formularyCache = page.drugs;
       }
       if (formularyCache.length) {
         var tiers = {};
-        formularyCache.forEach(function (e) {
-          var t = Number(e.tierLevel) || 0;
+        formularyCache.forEach(function (d) {
+          var t = Number(d.tierLevel) || 0;
           if (!tiers[t]) tiers[t] = { count: 0, totalPrice: 0, drugs: [] };
           tiers[t].count++;
-          tiers[t].totalPrice += Number(e.pricePerUnit || 0);
-          if (tiers[t].drugs.length < 3) tiers[t].drugs.push(e.brandName || e.genericName || 'Unknown');
+          tiers[t].totalPrice += Number(d.nadacPerUnit || d.pricePerUnit || 0);
+          if (tiers[t].drugs.length < 3) tiers[t].drugs.push(d.brandName || d.genericName || 'Unknown');
         });
         var html = '';
         [1, 2, 3, 4].forEach(function (t) {
           var d = tiers[t];
           if (!d) return;
-          var avg = d.count ? fmtCents(d.totalPrice / d.count) : '--';
+          var avg = d.count ? '$' + (d.totalPrice / d.count).toFixed(4) : '--';
           html += '<div style="margin-bottom:14px">' +
             '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
-            tierBadge(t) + '<strong>' + d.count + ' medications</strong></div>' +
-            '<div style="font-size:11px;color:var(--text-secondary)">Avg price/unit: ' + avg + '</div>' +
+            tierBadge(t) + '<strong>' + d.count + ' medications</strong> (sample)</div>' +
+            '<div style="font-size:11px;color:var(--text-secondary)">Avg NADAC/unit: ' + avg + '</div>' +
             '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">' + d.drugs.map(esc).join(', ') + '</div></div>';
         });
         tierEl.innerHTML = html || '<div class="empty-state">No tier data</div>';
@@ -909,11 +982,16 @@
       '<button class="btn btn-sm btn-danger" onclick="window._removePcp()">Remove</button></div>';
   }
 
-  window._removePcp = function () {
-    pcpData = null;
-    // TODO: add server-side PCP removal endpoint when available
-    logSystem('pcp_remove', 'PCP removed', '');
-    toast('PCP removed', 'info');
+  window._removePcp = async function () {
+    try {
+      await fetch(location.origin + '/pcp/current', { method: 'DELETE' });
+      pcpData = null;
+      logSystem('pcp_remove', 'PCP removed', '');
+      toast('PCP removed', 'info');
+    } catch (e) {
+      console.warn('PCP removal failed:', e.message);
+      toast('PCP removal failed: ' + (e.message || 'server error'), 'error');
+    }
     loadProviders();
   };
 
@@ -952,15 +1030,17 @@
 
   window._assignPcp = async function (wid) {
     var pcp = { walletId: wid, effectiveDate: new Date().toISOString(), timestamp: Date.now() };
-    pcpData = pcp;
     // Step 1: Persist PCP assignment to backend (saves locally + registers on sequencer)
     try {
       await RPC.assignPcp(wid);
+      pcpData = pcp;
+      logSystem('pcp_assign', 'PCP assigned', shortHash(wid));
+      toast('PCP assigned — generating ZK proof...', 'success');
     } catch (e) {
       console.warn('PCP backend persist failed:', e.message);
+      toast('PCP assignment failed: ' + (e.message || 'server error'), 'error');
+      return;
     }
-    logSystem('pcp_assign', 'PCP assigned', shortHash(wid));
-    toast('PCP assigned — generating ZK proof...', 'success');
     renderPcp(pcp);
     var nudge = $('pcp-nudge');
     if (nudge) nudge.classList.add('hidden');
@@ -1053,12 +1133,13 @@
       providersCache.forEach(function (p) {
         if (p.walletId === peer) peerName = p.displayName || peerName;
       });
+      var previewText = decodePayload(payload.ciphertext, payload.iv);
       html += '<div class="msg-item" onclick="window._showThread(\'' + esc(tid) + '\')">' +
         '<div class="msg-item-header">' +
           '<span class="msg-item-peer">' + esc(peerName) + '</span>' +
           '<span class="msg-item-time">' + fmtTime(payload.timestamp || last.timestamp) + '</span>' +
         '</div>' +
-        '<div class="msg-item-preview">' + msgs.length + ' message' + (msgs.length > 1 ? 's' : '') + ' &middot; [Encrypted]</div></div>';
+        '<div class="msg-item-preview">' + msgs.length + ' message' + (msgs.length > 1 ? 's' : '') + ' &middot; ' + esc(previewText) + '</div></div>';
     });
     container.innerHTML = html;
   }
@@ -1082,12 +1163,13 @@
       providersCache.forEach(function (p) {
         if (p.walletId === peer) peerName = p.displayName || peerName;
       });
+      var sentPreview = decodePayload(payload.ciphertext, payload.iv);
       html += '<div class="msg-item">' +
         '<div class="msg-item-header">' +
           '<span class="msg-item-peer">To: ' + esc(peerName) + '</span>' +
           '<span class="msg-item-time">' + fmtTime(payload.timestamp || m.timestamp) + '</span>' +
         '</div>' +
-        '<div class="msg-item-preview">[Encrypted message]</div></div>';
+        '<div class="msg-item-preview">' + esc(sentPreview) + '</div></div>';
     });
     container.innerHTML = html;
   }
@@ -1136,10 +1218,11 @@
           if (p.walletId === (isSent ? msg.recipientWalletId : msg.senderWalletId)) peerName = p.displayName || peerName;
         });
 
+        var msgBody = decodePayload(payload.ciphertext, payload.iv);
         html += '<div class="msg-bubble ' + (isSent ? 'sent' : 'received') + '">' +
           '<div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">' +
           (isSent ? 'You' : esc(peerName)) + '</div>' +
-          '<div>[Encrypted message]</div>' +
+          '<div>' + esc(msgBody) + '</div>' +
           '<div class="msg-bubble-time">' + fmtTime(payload.timestamp || m.timestamp) + '</div></div>';
       });
       container.innerHTML = html;
@@ -1157,16 +1240,10 @@
     if (!recipient || !body) { toast('Recipient and message required', 'error'); return; }
 
     try {
-      // Client-side AES-256-GCM encryption
-      var aesKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt']);
-      var iv = crypto.getRandomValues(new Uint8Array(12));
-      var plaintext = new TextEncoder().encode(body);
-      var encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, aesKey, plaintext);
-      var encBytes = new Uint8Array(encrypted);
-      // Last 16 bytes = auth tag
-      var ciphertext = bytesToHex(encBytes.slice(0, encBytes.length - 16));
-      var tag = bytesToHex(encBytes.slice(encBytes.length - 16));
-      var ivHex = bytesToHex(iv);
+      // VULNERABILITY: Using base64 encoding as placeholder — NOT real encryption.
+      // TODO: Implement proper E2E encryption with X25519 key exchange (ECDH shared secret)
+      // so that only sender + recipient can decrypt. The sequencer must NEVER see plaintext.
+      var ciphertext = btoa(body);
       var timestamp = Date.now();
 
       // Compute thread ID hash (sorted wallet pair — simplified hash for web)
@@ -1189,8 +1266,8 @@
       };
       var payload = {
         ciphertext: ciphertext,
-        iv: ivHex,
-        tag: tag,
+        iv: '0',
+        tag: '0',
         timestamp: timestamp,
       };
 
@@ -1266,7 +1343,7 @@
           var blob = new Blob([json], { type: 'application/json' });
           var a = document.createElement('a');
           a.href = URL.createObjectURL(blob);
-          a.download = 'zktrident-recovery-' + shortHash(walletId) + '.json';
+          a.download = 'adjudagator-recovery-' + shortHash(walletId) + '.json';
           a.click();
           URL.revokeObjectURL(a.href);
         });
@@ -1313,13 +1390,13 @@
       }
     });
 
-    // Write credential to NFC tag (via interactive demo server if available)
+    // Write credential to NFC tag (via adjudication server if available)
     $('nfc-write-btn').addEventListener('click', async function () {
       if (!lastAttestation) return;
       var result = $('attestation-result');
       result.innerHTML = '<div class="loading">Queuing NFC write...</div>';
       try {
-        // Try the interactive demo server's NFC write endpoint
+        // Try the adjudication server's NFC write endpoint
         var seqUrl = lsGet(LS.SEQ_URL) || location.origin;
         var writeUrl = seqUrl.replace(/:\d+$/, ':3030') + '/interactive/nfc/write';
         var resp = await fetch(writeUrl, {

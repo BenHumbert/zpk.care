@@ -28,7 +28,7 @@ import type { ClaimAccumulatorEntry } from '../src/l2/claim-accumulator-types.js
 const MOCK_SEQUENCER_URL = 'http://localhost:9999';
 
 function makeMemberWalletId(): string {
-  return Poseidon.hash([Field(0), Field(100), Field(200), Field(300), Field(400), Field(500)]).toString();
+  return Poseidon.hash([Field(0), Field(100), Field(200), Field(300), Field(400), Field(500), Field(0)]).toString();
 }
 
 function makePrescriberWalletId(): string {
@@ -316,14 +316,14 @@ describe('MemberNode', () => {
 
     await expect(
       node.proveRegistration(
-        [Field(0), Field(0), Field(0), Field(0), Field(0), Field(0)],
+        [Field(0), Field(0), Field(0), Field(0), Field(0), Field(0), Field(0)],
         {} as any, {} as any, Field(0), Field(0),
       ),
     ).rejects.toThrow('Programs not compiled');
 
     await expect(
       node.proveWalletUpdate(
-        [Field(0), Field(0), Field(0), Field(0), Field(0), Field(0)],
+        [Field(0), Field(0), Field(0), Field(0), Field(0), Field(0), Field(0)],
         Field(0), Field(0), Field(0),
         {} as any, {} as any, Field(0), Field(0), Field(0),
       ),
@@ -339,7 +339,7 @@ describe('MemberNode', () => {
     expect(node.getProofTimings()).toHaveLength(0);
   });
 
-  test('buildPreimage returns 6-element array', () => {
+  test('buildPreimage returns 7-element array', () => {
     const preimage = MemberNode.buildPreimage(
       {
         cardholderId: 'CH001',
@@ -349,7 +349,7 @@ describe('MemberNode', () => {
       },
       'SuperSecretKey123456!@#$',
     );
-    expect(preimage).toHaveLength(6);
+    expect(preimage).toHaveLength(7);
     // First element is domain tag (0 for member)
     expect(preimage[0].toString()).toBe(Field(0).toString());
   });
@@ -390,13 +390,13 @@ describe('PrescriberNode', () => {
 
     await expect(
       node.proveRegistration(
-        [Field(0), Field(0), Field(0), Field(0), Field(0), Field(0)],
+        [Field(0), Field(0), Field(0), Field(0), Field(0), Field(0), Field(0)],
         {} as any, {} as any, Field(0), Field(0),
       ),
     ).rejects.toThrow('Programs not compiled');
   });
 
-  test('buildPreimage returns 6-element array with prescriber domain tag', () => {
+  test('buildPreimage returns 7-element array with prescriber domain tag', () => {
     const preimage = PrescriberNode.buildPreimage(
       {
         prescriberIdQualifier: 1,
@@ -404,12 +404,13 @@ describe('PrescriberNode', () => {
       },
       'SuperSecretKey123456!@#$',
     );
-    expect(preimage).toHaveLength(6);
+    expect(preimage).toHaveLength(7);
     // First element is domain tag (1 for prescriber)
     expect(preimage[0].toString()).toBe(Field(1).toString());
-    // Prescriber has 3 preimage fields + 2 zero padding
+    // Prescriber has 3 preimage fields + 3 zero padding
     expect(preimage[4].toString()).toBe(Field(0).toString());
     expect(preimage[5].toString()).toBe(Field(0).toString());
+    expect(preimage[6].toString()).toBe(Field(0).toString());
   });
 });
 
@@ -448,13 +449,13 @@ describe('PharmacyNode', () => {
 
     await expect(
       node.proveRegistration(
-        [Field(0), Field(0), Field(0), Field(0), Field(0), Field(0)],
+        [Field(0), Field(0), Field(0), Field(0), Field(0), Field(0), Field(0)],
         {} as any, {} as any, Field(0), Field(0),
       ),
     ).rejects.toThrow('Programs not compiled');
   });
 
-  test('buildPreimage returns 6-element array with pharmacy domain tag', () => {
+  test('buildPreimage returns 7-element array with pharmacy domain tag', () => {
     const preimage = PharmacyNode.buildPreimage(
       {
         serviceProviderIdQualifier: 1,
@@ -462,12 +463,13 @@ describe('PharmacyNode', () => {
       },
       'SuperSecretKey123456!@#$',
     );
-    expect(preimage).toHaveLength(6);
+    expect(preimage).toHaveLength(7);
     // First element is domain tag (2 for pharmacy)
     expect(preimage[0].toString()).toBe(Field(2).toString());
-    // Pharmacy has 3 preimage fields + 2 zero padding
+    // Pharmacy has 3 preimage fields + 3 zero padding
     expect(preimage[4].toString()).toBe(Field(0).toString());
     expect(preimage[5].toString()).toBe(Field(0).toString());
+    expect(preimage[6].toString()).toBe(Field(0).toString());
   });
 });
 

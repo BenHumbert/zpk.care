@@ -92,7 +92,7 @@ export interface BadgeAuthResult {
 export interface BadgeTapEvent {
   /** Event type */
   type: 'badge:tap' | 'badge:decrypt' | 'badge:derive' | 'badge:proof' | 'badge:verify' | 'badge:session' | 'badge:error';
-  /** Provider index (into DEMO_PRESCRIBERS or DEMO_PHARMACIES) */
+  /** Provider index (into PRESCRIBERS or PHARMACIES) */
   providerIndex: number;
   /** Provider type */
   providerType: ProviderType;

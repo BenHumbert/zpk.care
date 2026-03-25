@@ -118,6 +118,11 @@ export interface L2SequencerState {
   /** Serialized provider registry state for crash recovery */
   providerRegistryState?: import('./provider-registry-types.js').ProviderRegistryState;
 
+  // ── Formulary Service state (Option C overlays) ──
+
+  /** Serialized formulary service overlay state for crash recovery */
+  formularyServiceState?: import('./formulary-service.js').FormularyServiceState;
+
   // ── Last-settled roots (crash recovery safe point) ──
 
   /** Registry root at last settled batch (decimal string). Optional for backward compat. */
@@ -154,6 +159,9 @@ export interface L2SequencerState {
 
   /** Ordered list of registered walletId strings for rebuilding WalletRegistry + lifecycle tree */
   registeredWallets?: string[];
+
+  /** Lifecycle state per walletId (decimal string) for accurate witness tree reconstruction */
+  walletLifecycleStates?: Record<string, string>;
 
   // ── Known wallets (entity registry persistence) ──
 
@@ -271,7 +279,7 @@ export class L2CheckpointStore {
 
     // Atomic write: write to temp file + fsync + rename
     const tmpPath = filepath + '.tmp';
-    const fh = await fs.open(tmpPath, 'w');
+    const fh = await fs.open(tmpPath, 'w', 0o600);
     try {
       await fh.writeFile(content, 'utf-8');
       await fh.sync(); // fsync guarantees data is on disk
@@ -292,8 +300,16 @@ export class L2CheckpointStore {
     const files = await this.list();
     if (files.length === 0) return null;
 
-    // Files are sorted ascending by timestamp; latest is last
-    return this.load(files[files.length - 1]);
+    // Try checkpoints from newest to oldest
+    for (let i = files.length - 1; i >= 0; i--) {
+      try {
+        return await this.load(files[i]);
+      } catch (err) {
+        console.error(`[Checkpoint] ${files[i]} corrupt, trying previous: ${(err as Error).message}`);
+      }
+    }
+    console.error('[Checkpoint] All checkpoint files corrupt — starting from genesis');
+    return null;
   }
 
   /**
@@ -304,7 +320,11 @@ export class L2CheckpointStore {
   async load(filename: string): Promise<L2Checkpoint> {
     const filepath = path.join(this.dataDir, filename);
     const content = await fs.readFile(filepath, 'utf-8');
-    return l2Parse<L2Checkpoint>(content);
+    try {
+      return l2Parse<L2Checkpoint>(content);
+    } catch (err) {
+      throw new Error(`Corrupt checkpoint ${filename}: ${(err as Error).message}`);
+    }
   }
 
   /**

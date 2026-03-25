@@ -1,5 +1,5 @@
 /**
- * zkp.Care — Shared Dashboard Utilities
+ * Adjuda-GATOR — Shared Dashboard Utilities
  * Common helpers used across all 6 node dashboards.
  */
 (function (root) {

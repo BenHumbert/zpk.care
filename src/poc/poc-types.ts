@@ -96,7 +96,7 @@ export interface PrescriptionInfo {
   memberWalletId: string;
   prescriberWalletId: string;
   pharmacyWalletId: string;
-  medicationIndex: number;
+  ndcHash: string;
   filled: boolean;
 }
 

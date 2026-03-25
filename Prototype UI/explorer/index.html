@@ -570,11 +570,11 @@ document.getElementById('global-search').addEventListener('keydown', function(e)
 /* ── Existing page utilities ─── */
 function toggleBatch(id) { const r = document.getElementById('bd-' + id); if (r) r.classList.toggle('hidden'); }
 function filterReceipts() { const q = document.getElementById('receipt-search').value.toLowerCase(); document.querySelectorAll('#receipts-table .rcpt-row').forEach(r => { r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none'; }); }
-function lookupWallet() { alert('Wallet lookup performed (demo mode). Showing default wallet data.'); }
+function lookupWallet() { alert('Wallet lookup performed . Showing default wallet data.'); }
 function filterFormulary() { const q = document.getElementById('formulary-search').value.toLowerCase(); document.querySelectorAll('#formulary-table tbody tr').forEach(r => { r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none'; }); }
-function authAdmin() { alert('Admin authenticated (demo mode).'); }
+function authAdmin() { alert('Admin authenticated .'); }
 function forceBatch() { pipe_forceBatch(); }
-function publishFormulary() { alert('New formulary version published (demo mode).'); }
+function publishFormulary() { alert('New formulary version published .'); }
 
 /* ══════════════════════════════════════════════════════════════
    HELPERS

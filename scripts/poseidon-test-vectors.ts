@@ -5,9 +5,9 @@ import { hashString, hashDate } from '../src/zkp/hash-utils.js';
 // Generate test vectors for Kotlin Poseidon port validation
 const testMember = { cardholderId: 'TEST001', dateOfBirth: '19900115', genderCode: 1, firstName: 'John', lastName: 'Doe' };
 const testKey = 'TestEnrollmentKey1234567890ABCDEF';
-const wid = deriveMemberWalletId(testMember, testKey);
+const wid = deriveMemberWalletId(testMember, testKey, Field(0));
 console.log('memberWalletId:', wid.toString());
-const preimage = memberWalletPreimage(testMember, testKey);
+const preimage = memberWalletPreimage(testMember, testKey, Field(0));
 console.log('memberPreimage:', preimage.map(x => x.toString()));
 
 // Individual hash steps

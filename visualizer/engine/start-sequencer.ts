@@ -2,9 +2,9 @@
  * Start Sequencer — Boots the L2Node + L2RpcServer.
  *
  * This is step 1 in the startup sequence. Run this first,
- * then start the visualizer (Parcel), then run a demo.
+ * then start the visualizer (Parcel), then run a scenario.
  *
- * Usage: npx tsx demo/start-sequencer.ts
+ * Usage: npx tsx engine/start-sequencer.ts
  */
 import { Field, MerkleTree } from 'o1js';
 import { InMemoryStore } from '../../src/storage/local-store.js';
@@ -17,7 +17,7 @@ const BATCH_INTERVAL = parseInt(process.env.BATCH_INTERVAL || '90000', 10);
 
 async function main() {
   console.log('╔═══════════════════════════════════════════════╗');
-  console.log('║       zkpCare L2 Sequencer — Starting         ║');
+  console.log('║     Adjuda-GATOR L2 Sequencer — Starting       ║');
   console.log('╚═══════════════════════════════════════════════╝\n');
 
   // 1. Initialize trees

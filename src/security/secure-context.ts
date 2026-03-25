@@ -44,17 +44,19 @@ export interface SecureWalletResult {
 /**
  * Securely derive a member wallet ID.
  *
- * Takes a MUTABLE copy of the raw member data and the enrollment key.
+ * Takes a MUTABLE copy of the raw member data, the enrollment key, and
+ * the groupIdHash (already a Field — no raw data to scrub).
  * After derivation, the input object is scrubbed and the enrollment
  * key reference is cleared. The caller MUST NOT reuse the inputs.
  */
 export function secureMemberDerivation(
   localData: MemberLocalData,
   enrollmentKey: string,
+  groupIdHash: Field,
 ): SecureWalletResult {
   // Step 1: Compute cryptographic values while data is live
-  const walletId = deriveMemberWalletId(localData, enrollmentKey);
-  const preimage = memberWalletPreimage(localData, enrollmentKey);
+  const walletId = deriveMemberWalletId(localData, enrollmentKey, groupIdHash);
+  const preimage = memberWalletPreimage(localData, enrollmentKey, groupIdHash);
 
   // Step 2: Immediately scrub the raw data
   scrubObject(localData as unknown as Record<string, unknown>);

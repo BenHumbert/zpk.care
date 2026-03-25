@@ -1,5 +1,5 @@
 /**
- * zkTrident Employer Nautilus — REST API Client
+ * Adjuda-GATOR Employer Nautilus — REST API Client
  * Talks to the local Nautilus server at the same origin.
  */
 const API = (() => {
@@ -17,11 +17,14 @@ const API = (() => {
 
   function setAdminToken(token) {
     adminToken = token || '';
+    try { localStorage.setItem('zkt_employer_admin_token', adminToken); } catch {}
   }
 
   function getAdminToken() {
     return adminToken;
   }
+  // Restore admin token from localStorage, fall back to bootstrap default
+  try { adminToken = localStorage.getItem('zkt_employer_admin_token') || 'admin123'; } catch { adminToken = 'admin123'; }
 
   // Strip __bigint__:NNN prefixes from serialized BigInt values
   function stripBigints(obj) {

@@ -56,8 +56,8 @@ const testMember2: MemberLocalData = {
   lastName: 'Jones',
 };
 
-const member1WalletId = deriveMemberWalletId(testMember1, TEST_ENROLLMENT_KEY);
-const member2WalletId = deriveMemberWalletId(testMember2, TEST_ENROLLMENT_KEY);
+const member1WalletId = deriveMemberWalletId(testMember1, TEST_ENROLLMENT_KEY, Field(0));
+const member2WalletId = deriveMemberWalletId(testMember2, TEST_ENROLLMENT_KEY, Field(0));
 
 const adminWalletId = Poseidon.hash([Field(999)]);
 

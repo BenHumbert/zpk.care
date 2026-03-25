@@ -120,8 +120,8 @@ describe('L2 — BatchProgram Recursive Proofs (Uniform Pair)', () => {
     lcTree = new MerkleTree(WALLET_TREE_HEIGHT);
 
     // ── Registration 1: member1 at slot 0 ──
-    walletId1 = deriveMemberWalletId(member1, ENROLLMENT_KEY_1);
-    const preimage1 = memberWalletPreimage(member1, ENROLLMENT_KEY_1);
+    walletId1 = deriveMemberWalletId(member1, ENROLLMENT_KEY_1, Field(0));
+    const preimage1 = memberWalletPreimage(member1, ENROLLMENT_KEY_1, Field(0));
 
     console.log(`[test1] Generating StateTransitionProof #1 (register member1)...`);
     let s = Date.now();
@@ -130,7 +130,7 @@ describe('L2 — BatchProgram Recursive Proofs (Uniform Pair)', () => {
 
     const stResult1 = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
-      preimage1[0]!, preimage1[1]!, preimage1[2]!, preimage1[3]!, preimage1[4]!,
+      preimage1[0]!, preimage1[1]!, preimage1[2]!, preimage1[3]!, preimage1[4]!, preimage1[5]!,
       regWitness1,
       lcWitness1,
       regTree.getRoot(),
@@ -145,8 +145,8 @@ describe('L2 — BatchProgram Recursive Proofs (Uniform Pair)', () => {
     lcTree.setLeaf(0n, lcLeaf1);
 
     // ── Registration 2: member2 at slot 1 ──
-    const walletId2 = deriveMemberWalletId(member2, ENROLLMENT_KEY_2);
-    const preimage2 = memberWalletPreimage(member2, ENROLLMENT_KEY_2);
+    const walletId2 = deriveMemberWalletId(member2, ENROLLMENT_KEY_2, Field(0));
+    const preimage2 = memberWalletPreimage(member2, ENROLLMENT_KEY_2, Field(0));
 
     console.log(`[test1] Generating StateTransitionProof #2 (register member2)...`);
     s = Date.now();
@@ -155,7 +155,7 @@ describe('L2 — BatchProgram Recursive Proofs (Uniform Pair)', () => {
 
     const stResult2 = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
-      preimage2[0]!, preimage2[1]!, preimage2[2]!, preimage2[3]!, preimage2[4]!,
+      preimage2[0]!, preimage2[1]!, preimage2[2]!, preimage2[3]!, preimage2[4]!, preimage2[5]!,
       regWitness2,
       lcWitness2,
       regTree.getRoot(),
@@ -193,8 +193,8 @@ describe('L2 — BatchProgram Recursive Proofs (Uniform Pair)', () => {
     console.log(`\n── Test 2/5: wrapPair (registration + wallet update) (${mem()}) ──`);
 
     // ── Registration 3: member3 at slot 2 ──
-    const walletId3 = deriveMemberWalletId(member3, ENROLLMENT_KEY_3);
-    const preimage3 = memberWalletPreimage(member3, ENROLLMENT_KEY_3);
+    const walletId3 = deriveMemberWalletId(member3, ENROLLMENT_KEY_3, Field(0));
+    const preimage3 = memberWalletPreimage(member3, ENROLLMENT_KEY_3, Field(0));
 
     console.log(`[test2] Generating StateTransitionProof #3 (register member3)...`);
     let s = Date.now();
@@ -203,7 +203,7 @@ describe('L2 — BatchProgram Recursive Proofs (Uniform Pair)', () => {
 
     const stResult3 = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
-      preimage3[0]!, preimage3[1]!, preimage3[2]!, preimage3[3]!, preimage3[4]!,
+      preimage3[0]!, preimage3[1]!, preimage3[2]!, preimage3[3]!, preimage3[4]!, preimage3[5]!,
       regWitness3,
       lcWitness3,
       regTree.getRoot(),
@@ -218,7 +218,7 @@ describe('L2 — BatchProgram Recursive Proofs (Uniform Pair)', () => {
     lcTree.setLeaf(2n, lcLeaf3);
 
     // ── Wallet update: member1 at slot 0 (already registered in test 1) ──
-    const preimage1 = memberWalletPreimage(member1, ENROLLMENT_KEY_1);
+    const preimage1 = memberWalletPreimage(member1, ENROLLMENT_KEY_1, Field(0));
 
     console.log(`[test2] Generating StateTransitionProof #4 (wallet update member1)...`);
     s = Date.now();
@@ -229,7 +229,7 @@ describe('L2 — BatchProgram Recursive Proofs (Uniform Pair)', () => {
 
     const stResult4 = await StateTransitionProgram.proveWalletUpdate(
       DOMAIN_TAG_MEMBER,
-      preimage1[0]!, preimage1[1]!, preimage1[2]!, preimage1[3]!, preimage1[4]!,
+      preimage1[0]!, preimage1[1]!, preimage1[2]!, preimage1[3]!, preimage1[4]!, preimage1[5]!,
       EMPTY_CREDENTIAL_ROOT,   // oldCredentialRoot
       Field(0),                // oldNonce
       newCredentialRoot,       // newCredentialRoot

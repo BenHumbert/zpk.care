@@ -1,12 +1,12 @@
 /**
- * Scenario Runner — Standalone demo client.
+ * Scenario Runner — Standalone scenario client.
  *
  * Connects to an already-running sequencer (start-sequencer.ts)
  * and runs the dynamic simulation against it.
  *
  * Usage:
- *   npx tsx demo/scenario-runner.ts
- *   PORT=3030 MEMBERS=20 SCRIPTS=100 npx tsx demo/scenario-runner.ts
+ *   npx tsx engine/scenario-runner.ts
+ *   PORT=3030 MEMBERS=20 SCRIPTS=100 npx tsx engine/scenario-runner.ts
  */
 import http from 'http';
 import { runScenario } from './scenario.js';
@@ -34,7 +34,7 @@ async function waitForSequencer(port: number, maxRetries = 30): Promise<void> {
       return;
     } catch {
       if (i < maxRetries - 1) {
-        process.stdout.write(`[Demo] Waiting for sequencer on port ${port}... (${i + 1}/${maxRetries})\r`);
+        process.stdout.write(`[Runner] Waiting for sequencer on port ${port}... (${i + 1}/${maxRetries})\r`);
         await new Promise(r => setTimeout(r, 1000));
       }
     }
@@ -44,13 +44,13 @@ async function waitForSequencer(port: number, maxRetries = 30): Promise<void> {
 
 async function main() {
   console.log('╔═══════════════════════════════════════════════╗');
-  console.log('║       zkpCare Demo — Scenario Runner          ║');
+  console.log('║     Adjuda-GATOR — Scenario Runner       ║');
   console.log('╚═══════════════════════════════════════════════╝\n');
 
   // 1. Wait for the sequencer to be healthy
-  console.log(`[Demo] Connecting to sequencer at http://127.0.0.1:${PORT}...`);
+  console.log(`[Runner] Connecting to sequencer at http://127.0.0.1:${PORT}...`);
   await waitForSequencer(PORT);
-  console.log(`[Demo] Sequencer is healthy.`);
+  console.log(`[Runner] Sequencer is healthy.`);
 
   // 2. Clear any previous event buffer so browsers see fresh events
   await new Promise<void>((resolve) => {
@@ -61,7 +61,7 @@ async function main() {
     req.on('error', () => resolve());
     req.end();
   });
-  console.log(`[Demo] Event buffer cleared — fresh start.\n`);
+  console.log(`[Runner] Event buffer cleared — fresh start.\n`);
 
   // 3. Run the simulation
   await runScenario({
@@ -74,12 +74,12 @@ async function main() {
     memberIntervalMs: MEMBER_INTERVAL,
   });
 
-  console.log('\n[Demo] Scenario complete.');
-  console.log('[Demo] Open http://localhost:1234 for the visualizer.');
-  console.log('[Demo] The sequencer keeps running — rerun this script for another simulation.\n');
+  console.log('\n[Runner] Scenario complete.');
+  console.log('[Runner] Open http://localhost:1234 for the visualizer.');
+  console.log('[Runner] The sequencer keeps running — rerun this script for another simulation.\n');
 }
 
 main().catch((err) => {
-  console.error('[Demo] Fatal error:', err);
+  console.error('[Runner] Fatal error:', err);
   process.exit(1);
 });

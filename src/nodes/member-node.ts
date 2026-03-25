@@ -72,7 +72,7 @@ export class MemberNode extends EntityNodeBase {
   /**
    * Generate a registration proof for this member.
    *
-   * @param preimage — 6-element array from memberTransitionPreimage()
+   * @param preimage — 7-element array from memberTransitionPreimage()
    * @param registryWitness — Merkle witness for the empty registry slot
    * @param lifecycleWitness — Merkle witness for the empty lifecycle slot
    * @param currentRegistryRoot — current on-chain registry root
@@ -95,7 +95,8 @@ export class MemberNode extends EntityNodeBase {
       preimage[2], // f1
       preimage[3], // f2
       preimage[4], // f3
-      preimage[5], // f4
+      preimage[5], // f4 (enrollmentKeyHash)
+      preimage[6], // f5 (groupIdHash)
       registryWitness,
       lifecycleWitness,
       currentRegistryRoot,
@@ -129,7 +130,8 @@ export class MemberNode extends EntityNodeBase {
       preimage[2], // f1
       preimage[3], // f2
       preimage[4], // f3
-      preimage[5], // f4
+      preimage[5], // f4 (enrollmentKeyHash)
+      preimage[6], // f5 (groupIdHash)
       oldCredentialRoot,
       oldNonce,
       newCredentialRoot,
@@ -236,12 +238,14 @@ export class MemberNode extends EntityNodeBase {
 
   /**
    * Build the padded preimage array for this member.
-   * Returns a 6-element Field array: [domainTag, f0, f1, f2, f3, f4]
+   * Returns a 7-element Field array: [domainTag, f0, f1, f2, f3, f4, f5]
+   * f5 = groupIdHash (binds wallet to employer group).
    */
   static buildPreimage(
     local: MemberLocalData,
     enrollmentKey: string,
+    groupIdHash: Field = Field(0),
   ): Field[] {
-    return memberTransitionPreimage(local, enrollmentKey);
+    return memberTransitionPreimage(local, enrollmentKey, groupIdHash);
   }
 }

@@ -1,5 +1,5 @@
 /**
- * zkTrident Insurer Nautilus — REST API Client
+ * Adjuda-GATOR Insurer Nautilus — REST API Client
  * Talks to the local Nautilus server at the same origin.
  */
 const API = (() => {
@@ -12,8 +12,13 @@ const API = (() => {
   let lastOnEvent = null;
 
   function setBaseUrl(url) { baseUrl = url.replace(/\/+$/, ''); }
-  function setAdminToken(token) { adminToken = token || ''; }
+  function setAdminToken(token) {
+    adminToken = token || '';
+    try { localStorage.setItem('zkt_insurer_admin_token', adminToken); } catch {}
+  }
   function getAdminToken() { return adminToken; }
+  // Restore admin token from localStorage, fall back to bootstrap default
+  try { adminToken = localStorage.getItem('zkt_insurer_admin_token') || 'admin123'; } catch { adminToken = 'admin123'; }
 
   // Strip __bigint__:NNN prefixes from serialized BigInt values
   function stripBigints(obj) {

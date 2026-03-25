@@ -24,7 +24,7 @@ import { L2RpcServer } from '../src/l2/l2-rpc-server.js';
 import { L2Client } from '../src/l2/l2-client.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
 import { WALLET_TREE_HEIGHT, WalletRegistryWitness } from '../src/wallets/wallet-state.js';
-import { LifecycleWitness, LIFECYCLE_REGISTERED } from '../src/engine/lifecycle.js';
+import { LifecycleWitness } from '../src/engine/lifecycle.js';
 import { EMPTY_CREDENTIAL_ROOT, StateTransitionProgram } from '../src/engine/state-transition.js';
 import { NautilusAppServer } from '../src/nodes/nautilus-app-server.js';
 import { NautilusLocalState } from '../src/nodes/nautilus-local-state.js';
@@ -46,14 +46,14 @@ import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY, CREDENTIAL_TYPE_PRESCRIPTI
 import { EligibilityData } from '../src/eligibility/eligibility-data.js';
 import { ForestRoots } from '../src/eligibility/forest-roots.js';
 import { MerkleForest, ForestDomain } from '../src/zkp/merkle-forest.js';
-import { PrescriptionData, PrescriptionStatusData, RX_STATUS_ACTIVE, RX_STATUS_FILLED } from '../src/prescription/prescription-data.js';
+import { PrescriptionData, PrescriptionStatusData, RX_STATUS_ADJUDICATED, RX_STATUS_FILLED } from '../src/prescription/prescription-data.js';
 import { FulfillmentData } from '../src/fulfillment/fulfillment-data.js';
 import { FormularyEntry, buildFormularyEntry } from '../src/access-control/formulary-entry.js';
 import { FormularyRegistry } from '../src/access-control/formulary-registry.js';
 import { AccumulatorData, ACCUMULATOR_LEAF_INDEX } from '../src/access-control/accumulator-data.js';
 import { hashString, dateToField, centsToField, quantityToField, codeToField } from '../src/zkp/hash-utils.js';
 import { PlanTemplate } from '../src/onboarding/plan-template.js';
-import { DEMO_MEMBERS, DEMO_PRESCRIBERS, DEMO_PHARMACIES, DEMO_MEDICATIONS, getAllFormularyEntries } from '../src/data/index.js';
+import { MEMBERS, PRESCRIBERS, PHARMACIES, MEDICATIONS, getAllFormularyEntries } from '../src/data/index.js';
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -63,11 +63,11 @@ const TEST_ADMIN_TOKEN = 'showcase-admin';
 const emptyTree = new MerkleTree(WALLET_TREE_HEIGHT);
 const INITIAL_ROOT = emptyTree.getRoot();
 
-// Demo data
-const alice = DEMO_MEMBERS[0];       // Alice Johnson (ACME-EMP-001)
-const drChen = DEMO_PRESCRIBERS[0];  // Dr. Sarah Chen (NPI: 1234567890)
-const mainSt = DEMO_PHARMACIES[0];   // Main Street Pharmacy (NPI: 2345678901)
-const amoxicillin = DEMO_MEDICATIONS[4]; // Amoxicillin 500mg (NDC: 00185001001)
+// Seed data
+const alice = MEMBERS[0];       // Alice Johnson (ACME-EMP-001)
+const drChen = PRESCRIBERS[0];  // Dr. Sarah Chen (NPI: 1234567890)
+const mainSt = PHARMACIES[0];   // Main Street Pharmacy (NPI: 2345678901)
+const amoxicillin = MEDICATIONS[4]; // Amoxicillin 500mg (NDC: 00185001001)
 
 // ─── HTTP Helpers ───────────────────────────────────────────
 
@@ -269,7 +269,7 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
     });
     expect(r.status).toBe(200);
 
-    // Import known demo enrollment key (deterministic for proof generation later)
+    // Import known seed enrollment key (deterministic for proof generation later)
     r = await post(memberPort, '/onboarding/generate-key', {
       enrollmentKey: alice.enrollmentKey,
     });
@@ -504,8 +504,8 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
   }, 300_000);
 
   test('P15 — build prescription + fulfillment data and generate claim proof', async () => {
-    // ─── Derive wallet IDs from demo data ──────────────────
-    const memberWid = deriveMemberWalletId(alice.localData, alice.enrollmentKey);
+    // ─── Derive wallet IDs from seed data ──────────────────
+    const memberWid = deriveMemberWalletId(alice.localData, alice.enrollmentKey, Field(0));
     const prescriberWid = derivePrescriberWalletId(drChen.localData, drChen.enrollmentKey);
     const pharmacyWid = derivePharmacyWalletId(mainSt.localData, mainSt.enrollmentKey);
 
@@ -576,7 +576,7 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
     // ─── Prescription Status: ACTIVE → FILLED ──────────────
     const activeStatus = new PrescriptionStatusData({
       prescriptionHash: prescriptionData.commitment(),
-      status: RX_STATUS_ACTIVE,
+      status: RX_STATUS_ADJUDICATED,
       updatedByWalletId: prescriberWid,
       updatedAt: dateToField('20260215'),
       pharmacyWalletId: pharmacyWid,
@@ -636,7 +636,7 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
     // New fulfillment settlement slot at TRANSACTION tree index 2
     const fulfNewSlotWitness = rxForest.getWitness(ForestDomain.TRANSACTION, 2n);
     // Formulary witness
-    // Amoxicillin = DEMO_MEDICATIONS[4] → formulary index 4n (sequential addEntry)
+    // Amoxicillin = MEDICATIONS[4] → formulary index 4n (sequential addEntry)
     const formEntryIndex = 4n;
     const fulfFormWitness = formularyRegistry.getEntryWitness(formEntryIndex);
     // Eligibility credential witnesses
@@ -715,11 +715,11 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
 
     // Generate wallet update proof using already-compiled StateTransitionProgram
     // Member preimage: need domainTag (0) + 5 wallet fields
-    const memberWid = deriveMemberWalletId(alice.localData, alice.enrollmentKey);
+    const memberWid = deriveMemberWalletId(alice.localData, alice.enrollmentKey, Field(0));
     const { memberWalletPreimage } = await import('../src/wallets/wallet-derivation.js');
-    const walletFields = memberWalletPreimage(alice.localData, alice.enrollmentKey);
+    const walletFields = memberWalletPreimage(alice.localData, alice.enrollmentKey, Field(0));
     const padded = [...walletFields];
-    while (padded.length < 5) padded.push(Field(0));
+    while (padded.length < 6) padded.push(Field(0));
 
     const result = await StateTransitionProgram.proveWalletUpdate(
       Field(0),        // domainTag = MEMBER
@@ -728,6 +728,7 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
       padded[2],       // f2 = hash(firstName)
       padded[3],       // f3 = hash(lastName)
       padded[4],       // f4 = hash(enrollmentKey)
+      padded[5],       // f5 = groupIdHash
       EMPTY_CREDENTIAL_ROOT,  // old credential root (initial after registration)
       Field(0),               // old nonce (0 after registration)
       newCredentialRoot,      // new credential root (after fulfillment)
@@ -735,7 +736,7 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
       lcWitness,
       regRoot,
       lcRoot,
-      LIFECYCLE_REGISTERED,   // current lifecycle state
+      Field(BigInt(witnesses.currentLifecycleState)),   // actual lifecycle state from sequencer
     );
 
     // Verify it's a wallet update (not registration)

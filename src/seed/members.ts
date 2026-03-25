@@ -1,5 +1,5 @@
 /**
- * Demo Member Data — Sample Beneficiaries
+ * Seed Member Data — Sample Beneficiaries
  *
  * Fictional members with realistic demographic fields.
  * All personal data is FICTIONAL — not real individuals.
@@ -11,16 +11,16 @@
  *   - firstName: 310-CA
  *   - lastName: 311-CB
  *
- * Extended fields (display-only, for demo UI):
+ * Extended fields (display-only, for UI):
  *   - employeeId, relationship, address, phone, email
  */
 import type { MemberLocalData } from '../models/member.js';
 
 /**
  * Extended member record with display-friendly fields.
- * The ZK system only uses MemberLocalData + enrollmentKey; the rest is for demo UI.
+ * The ZK system only uses MemberLocalData + enrollmentKey; the rest is for UI.
  */
-export interface DemoMember {
+export interface SeedMember {
   /** ZK-compatible local data (goes into wallet derivation) */
   localData: MemberLocalData;
   /** Enrollment key (user-generated 2FA secret, stays on device) */
@@ -52,7 +52,7 @@ export interface DemoMember {
  * Enrollment keys are 256-bit cryptographically random secrets (base64url).
  * Generated via crypto.randomBytes(32) — same format as production.
  */
-export const DEMO_MEMBERS: DemoMember[] = [
+export const MEMBERS: SeedMember[] = [
   {
     localData: {
       cardholderId: 'ACME-EMP-001',
@@ -207,32 +207,32 @@ export const DEMO_MEMBERS: DemoMember[] = [
   },
 ];
 
-/** Quick lookup: cardholderId → DemoMember */
-export const MEMBER_BY_CARDHOLDER_ID = new Map<string, DemoMember>(
-  DEMO_MEMBERS.map((m) => [m.localData.cardholderId, m]),
+/** Quick lookup: cardholderId → SeedMember */
+export const MEMBER_BY_CARDHOLDER_ID = new Map<string, SeedMember>(
+  MEMBERS.map((m) => [m.localData.cardholderId, m]),
 );
 
-/** Quick lookup: employeeId → DemoMember[] (employee + dependents) */
-export function getMembersByEmployee(employeeId: string): DemoMember[] {
-  return DEMO_MEMBERS.filter((m) => m.employeeId === employeeId);
+/** Quick lookup: employeeId → SeedMember[] (employee + dependents) */
+export function getMembersByEmployee(employeeId: string): SeedMember[] {
+  return MEMBERS.filter((m) => m.employeeId === employeeId);
 }
 
-/** Quick lookup: familyId → DemoMember[] (subscriber + all dependents) */
-export function getMembersByFamily(familyId: string): DemoMember[] {
-  return DEMO_MEMBERS.filter((m) => m.familyId === familyId);
+/** Quick lookup: familyId → SeedMember[] (subscriber + all dependents) */
+export function getMembersByFamily(familyId: string): SeedMember[] {
+  return MEMBERS.filter((m) => m.familyId === familyId);
 }
 
 /** Get only subscribers (relationship=SELF) */
-export function getSubscribers(): DemoMember[] {
-  return DEMO_MEMBERS.filter((m) => m.relationship === 'SELF');
+export function getSubscribers(): SeedMember[] {
+  return MEMBERS.filter((m) => m.relationship === 'SELF');
 }
 
 /** Get ACME Corp members */
-export function getAcmeMembers(): DemoMember[] {
-  return DEMO_MEMBERS.filter((m) => m.localData.cardholderId.startsWith('ACME'));
+export function getAcmeMembers(): SeedMember[] {
+  return MEMBERS.filter((m) => m.localData.cardholderId.startsWith('ACME'));
 }
 
 /** Get Globex Corp members */
-export function getGlobexMembers(): DemoMember[] {
-  return DEMO_MEMBERS.filter((m) => m.localData.cardholderId.startsWith('GLOBEX'));
+export function getGlobexMembers(): SeedMember[] {
+  return MEMBERS.filter((m) => m.localData.cardholderId.startsWith('GLOBEX'));
 }

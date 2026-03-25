@@ -70,7 +70,7 @@ const pin = env.ZKTRIDENT_PIN;
 async function main(): Promise<void> {
   console.log('');
   console.log('  ╔══════════════════════════════════════════════╗');
-  console.log('  ║     🐚  PHARMACY NAUTILUS — zkTrident        ║');
+  console.log('  ║     🐊  PHARMACY NAUTILUS — Adjuda-GATOR     ║');
   console.log('  ╚══════════════════════════════════════════════╝');
   console.log('');
 
@@ -80,33 +80,33 @@ async function main(): Promise<void> {
   // Register pharmacy routes
   server.registerRoutes(buildPharmacyRoutes(server));
 
-  // ── Demo Pharmacy (skip onboarding — seed identity from demo data) ──
+  // ── Seed Pharmacy (skip onboarding — seed identity from seed data) ──
 
-  const demoPharmacyId = env.ZKTRIDENT_DEMO_PHARMACY;
-  if (demoPharmacyId) {
-    const { DEMO_PHARMACIES } = await import('../demo/pharmacies.js');
+  const seedPharmacyId = env.ZKTRIDENT_SEED_PHARMACY;
+  if (seedPharmacyId) {
+    const { PHARMACIES } = await import('../data/index.js');
     const { derivePharmacyWalletId } = await import('../wallets/wallet-derivation.js');
 
-    const idx = parseInt(demoPharmacyId, 10);
-    const pharmacy = !isNaN(idx) && idx >= 0 && idx < DEMO_PHARMACIES.length
-      ? DEMO_PHARMACIES[idx]
-      : DEMO_PHARMACIES.find((p) =>
-          p.storeName.toLowerCase().includes(demoPharmacyId.toLowerCase()) ||
-          p.ncpdpProviderId === demoPharmacyId
+    const idx = parseInt(seedPharmacyId, 10);
+    const pharmacy = !isNaN(idx) && idx >= 0 && idx < PHARMACIES.length
+      ? PHARMACIES[idx]
+      : PHARMACIES.find((p) =>
+          p.storeName.toLowerCase().includes(seedPharmacyId.toLowerCase()) ||
+          p.ncpdpProviderId === seedPharmacyId
         );
 
     if (!pharmacy) {
-      console.error('  [FATAL] Demo pharmacy not found: %s', demoPharmacyId);
-      console.error('  Available: %s', DEMO_PHARMACIES.map((p, i) =>
+      console.error('  [FATAL] Seed pharmacy not found: %s', seedPharmacyId);
+      console.error('  Available: %s', PHARMACIES.map((p, i) =>
         `${i}=${p.storeName}`).join(', '));
       process.exit(1);
     }
 
     const walletId = derivePharmacyWalletId(pharmacy.localData, pharmacy.enrollmentKey).toString();
 
-    console.log('  [demo] Pharmacy:  %s', pharmacy.storeName);
-    console.log('  [demo] Type:      %s', pharmacy.pharmacyTypeDesc);
-    console.log('  [demo] Wallet:    %s...', walletId.slice(0, 20));
+    console.log('  [seed] Pharmacy:  %s', pharmacy.storeName);
+    console.log('  [seed] Type:      %s', pharmacy.pharmacyTypeDesc);
+    console.log('  [seed] Wallet:    %s...', walletId.slice(0, 20));
 
     const node = new PharmacyNode({
       role: 'pharmacy',
@@ -119,7 +119,7 @@ async function main(): Promise<void> {
     // Start server BEFORE credentialing poll so dashboard is accessible during the wait
     server.setOnboardingPhase('awaiting_credentialing' as any);
     await server.start();
-    console.log('  [demo] Server started — waiting for credentialing on sequencer...');
+    console.log('  [seed] Server started — waiting for credentialing on sequencer...');
 
     const seqUrl = config.sequencerUrl.replace(/\/+$/, '');
     let credentialed = false;
@@ -140,15 +140,15 @@ async function main(): Promise<void> {
     }
 
     if (credentialed) {
-      console.log('  [demo] Credentialed on sequencer — transitioning to ready');
+      console.log('  [seed] Credentialed on sequencer — transitioning to ready');
       server.setOnboardingPhase('ready');
     } else {
-      console.log('  [demo] Credentialing timeout — starting in ready mode (insurer may not be running)');
+      console.log('  [seed] Credentialing timeout — starting in ready mode (insurer may not be running)');
       server.setOnboardingPhase('ready');
     }
   }
 
-  // ── State Recovery (non-demo mode) ──
+  // ── State Recovery (recovery mode) ──
 
   else {
   const stateExists = await localState.exists();
@@ -181,9 +181,9 @@ async function main(): Promise<void> {
     console.log('  [state] No PIN provided (set ZKTRIDENT_PIN for auto-unlock)');
     console.log('  [state] Starting in fresh onboarding mode');
   }
-  } // end else (non-demo mode)
+  } // end else (recovery mode)
 
-  // ── Start Server (if not already started by demo credentialing path) ──
+  // ── Start Server (if not already started by seed credentialing path) ──
 
   if (!server.isRunning()) {
     await server.start();

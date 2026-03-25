@@ -10,7 +10,7 @@ import type { L2ClientOptions } from '../l2/l2-client.js';
 
 // ─── Entity Roles ─────────────────────────────────────────
 
-/** The five entity types in the zkpCare system */
+/** The five entity types in the Adjuda-GATOR system */
 export type EntityRole = 'member' | 'prescriber' | 'pharmacy' | 'insurer' | 'employer';
 
 // ─── Node Configuration ──────────────────────────────────

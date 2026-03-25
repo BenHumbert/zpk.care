@@ -52,7 +52,7 @@ export function buildPrescriberRoutes(
         if (ownWid) walletsToCheck.push(ownWid);
       }
 
-      // Always check seeded demo prescriber wallets from entity registry
+      // Always check seeded prescriber wallets from entity registry
       try {
         const res = await fetch(seqUrl + '/rpc', {
           method: 'POST',
@@ -228,6 +228,7 @@ export function buildPrescriberRoutes(
         walletId: data.walletId,
         sequencerUrl: server.getConfig().sequencerUrl,
         displayName: server.getConfig().displayName,
+        clientOptions: server.getConfig().adminToken ? { adminToken: server.getConfig().adminToken } : undefined,
       });
       server.setEntityNode(node);
 
@@ -235,9 +236,12 @@ export function buildPrescriberRoutes(
       let insurerNotified = false;
       if (b?.insurerUrl) {
         try {
+          const enrollHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+          const adminToken = server.getConfig().adminToken;
+          if (adminToken) enrollHeaders['Authorization'] = `Bearer ${adminToken}`;
           const resp = await fetch(`${b.insurerUrl}/enrollment/process`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: enrollHeaders,
             body: JSON.stringify({ walletId: data.walletId, tokenId: data.onboarding.tokenId, role: 'prescriber' }),
           });
           insurerNotified = resp.ok;
@@ -305,10 +309,10 @@ export function buildPrescriberRoutes(
       try {
         const witnesses = await node.getClient().getRegistrationWitnesses();
 
-        // Reconstruct transition preimage: [domainTag, ...walletFields padded to 5]
+        // Reconstruct transition preimage: [domainTag, ...walletFields padded to 6]
         const walletFields = data.preimageFields.map((s: string) => Field(BigInt(s)));
         const padded = [...walletFields];
-        while (padded.length < 5) padded.push(Field(0));
+        while (padded.length < 6) padded.push(Field(0));
         const preimage = [Field(data.domainTag ?? 1), ...padded];
 
         const regWitness = WalletRegistryWitness.fromJSON(JSON.parse(witnesses.registryWitnessJson));
@@ -481,6 +485,178 @@ export function buildPrescriberRoutes(
         });
       } catch (err) {
         server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Failed to send prescription');
+      }
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  PRESCRIBE WITH ZK PROOF (async — polls for result)
+  // ══════════════════════════════════════════════════════════
+
+  // In-memory job map for async prescription proof tracking
+  const prescribeJobs = new Map<string, {
+    status: 'pending' | 'complete' | 'error';
+    result?: unknown;
+    error?: string;
+    rxId?: string;
+    createdAt: number;
+  }>();
+
+  routes.push({
+    method: 'POST',
+    path: '/prescriptions/prescribe',
+    handler: async (_req, res, _params, _query, body) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      const walletId = node.getWalletId();
+      if (!walletId) return server.sendResponse(res, 409, false, undefined, 'No wallet ID');
+
+      const b = body as {
+        memberWalletId?: string;
+        pharmacyWalletId?: string;
+        ndcHash?: string;
+        brandName?: string;
+        quantity?: number;
+        daysSupply?: number;
+        refills?: number;
+        directions?: string;
+        diagnosis?: string;
+      } | undefined;
+
+      if (!b?.memberWalletId) return server.sendResponse(res, 400, false, undefined, 'Missing memberWalletId');
+      if (!b?.pharmacyWalletId) return server.sendResponse(res, 400, false, undefined, 'Missing pharmacyWalletId');
+      if (!b?.ndcHash) return server.sendResponse(res, 400, false, undefined, 'Missing ndcHash');
+
+      const rxId = `RX-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const jobKey = `prescribe-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      // 1. Store eScript messages (pharmacy + member) — immediate delivery
+      const prescription = {
+        rxId,
+        prescriberWalletId: walletId,
+        memberWalletId: b.memberWalletId,
+        pharmacyWalletId: b.pharmacyWalletId,
+        ndcHash: b.ndcHash,
+        brandName: b.brandName ?? '',
+        quantity: b.quantity ?? 30,
+        daysSupply: b.daysSupply ?? 30,
+        refills: b.refills ?? 0,
+        directions: b.directions ?? '',
+        diagnosis: b.diagnosis ?? '',
+        dateWritten: new Date().toISOString().replace(/[-:T]/g, '').slice(0, 8),
+        status: 'pending',
+      };
+
+      const rxJson = JSON.stringify(prescription);
+      const rxHex = Buffer.from(rxJson, 'utf8').toString('hex');
+      const threadIdHash = hashString(`rx-${rxId}`).toString();
+      const messageCommitment = Poseidon.hash([Field(BigInt(walletId)), Field(Date.now())]).toString();
+
+      try {
+        await node.storeMessage(
+          { messageCommitment, senderWalletId: walletId, recipientWalletId: b.pharmacyWalletId!, messageType: '3', threadIdHash },
+          { ciphertext: rxHex, iv: '00', tag: '00', timestamp: Date.now() },
+        );
+        await node.storeMessage(
+          { messageCommitment, senderWalletId: walletId, recipientWalletId: b.memberWalletId!, messageType: '3', threadIdHash },
+          { ciphertext: rxHex, iv: '00', tag: '00', timestamp: Date.now() },
+        );
+      } catch (err) {
+        return server.sendResponse(res, 500, false, undefined,
+          'Failed to send eScript: ' + (err instanceof Error ? err.message : String(err)));
+      }
+
+      // 2. Fire-and-forget: call sequencer /interactive/prescribe for ZK proofs
+      prescribeJobs.set(jobKey, { status: 'pending', rxId, createdAt: Date.now() });
+
+      const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+      (async () => {
+        try {
+          // Resolve prescriberIndex from wallet ID via sequencer seed data
+          const resolveResp = await fetch(`${seqUrl}/interactive/resolve-indices`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prescriberWalletId: walletId,
+              pharmacyWalletId: b!.pharmacyWalletId,
+              ndcHash: b!.ndcHash,
+            }),
+          });
+
+          let prescriberIndex: number;
+          let pharmacyIndex: number;
+
+          if (resolveResp.ok) {
+            const indices = await resolveResp.json() as { prescriberIndex: number; pharmacyIndex: number };
+            prescriberIndex = indices.prescriberIndex;
+            pharmacyIndex = indices.pharmacyIndex;
+          } else {
+            // Fallback: use index 0 for all (first seed entity)
+            prescriberIndex = 0;
+            pharmacyIndex = 0;
+          }
+
+          const proveResp = await fetch(`${seqUrl}/interactive/prescribe`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prescriberIndex,
+              memberWalletId: b!.memberWalletId,
+              ndcHash: b!.ndcHash,
+              pharmacyIndex,
+              quantity: b!.quantity ?? 30,
+              refills: b!.refills ?? 0,
+              rxId,  // pass prescriber-generated ID so both sides use the same prescription ID
+            }),
+          });
+
+          const proveResult = await proveResp.json() as Record<string, unknown>;
+          if (!proveResp.ok) {
+            const job = prescribeJobs.get(jobKey);
+            if (job) { job.status = 'error'; job.error = (proveResult.error as string) || `HTTP ${proveResp.status}`; }
+          } else {
+            const job = prescribeJobs.get(jobKey);
+            if (job) { job.status = 'complete'; job.result = proveResult; }
+          }
+        } catch (err) {
+          const job = prescribeJobs.get(jobKey);
+          if (job) { job.status = 'error'; job.error = err instanceof Error ? err.message : String(err); }
+        }
+      })();
+
+      // 3. Return 202 immediately — dashboard polls for status
+      server.sendResponse(res, 202, true, {
+        jobKey,
+        rxId,
+        prescription,
+        eScriptDelivered: true,
+        proofStatus: 'pending',
+      });
+    },
+  });
+
+  // Poll prescription proof status
+  routes.push({
+    method: 'GET',
+    path: '/prescriptions/prescribe-status',
+    handler: async (_req, res, _params, query) => {
+      const jobKey = query?.get('jobKey') ?? undefined;
+      if (!jobKey) return server.sendResponse(res, 400, false, undefined, 'Missing jobKey');
+
+      const job = prescribeJobs.get(jobKey);
+      if (!job) return server.sendResponse(res, 404, false, undefined, 'Job not found');
+
+      server.sendResponse(res, 200, true, {
+        status: job.status,
+        rxId: job.rxId,
+        ...(job.status === 'complete' ? { result: job.result } : {}),
+        ...(job.status === 'error' ? { error: job.error } : {}),
+        elapsedMs: Date.now() - job.createdAt,
+      });
+
+      // Clean up completed/failed jobs after read
+      if (job.status !== 'pending') {
+        prescribeJobs.delete(jobKey);
       }
     },
   });
@@ -663,6 +839,156 @@ export function buildPrescriberRoutes(
     },
   });
 
+  // ── Option C: Paginated Formulary Queries (proxy to sequencer RPC) ──
+
+  routes.push({
+    method: 'GET',
+    path: '/formulary-categories',
+    handler: async (_req, res) => {
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const resp = await fetch(`${seqUrl}/rpc`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getFormularyCategories', params: {} }),
+        });
+        const json = await resp.json() as any;
+        if (json.error) throw new Error(json.error.message);
+        server.sendResponse(res, 200, true, json.result);
+      } catch (err: any) {
+        server.sendResponse(res, 502, false, undefined, err.message);
+      }
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/formulary-page',
+    handler: async (_req, res, _params, query) => {
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const filter: any = {};
+        if (query.get('namePrefix')) filter.namePrefix = query.get('namePrefix');
+        if (query.get('classification')) filter.classification = query.get('classification');
+        if (query.get('tierLevel')) filter.tierLevel = parseInt(query.get('tierLevel')!, 10);
+        if (query.get('route')) filter.route = query.get('route');
+        if (query.get('planIdHash')) filter.planIdHash = query.get('planIdHash');
+        const offset = parseInt(query.get('offset') ?? '0', 10);
+        const limit = parseInt(query.get('limit') ?? '100', 10);
+        const resp = await fetch(`${seqUrl}/rpc`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getFormularyPage', params: { filter, offset, limit } }),
+        });
+        const json = await resp.json() as any;
+        if (json.error) throw new Error(json.error.message);
+        server.sendResponse(res, 200, true, json.result);
+      } catch (err: any) {
+        server.sendResponse(res, 502, false, undefined, err.message);
+      }
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/formulary-drug/:ndcHash',
+    handler: async (_req, res, params) => {
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const resp = await fetch(`${seqUrl}/rpc`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getDrugDetail', params: { ndcHash: params.ndcHash } }),
+        });
+        const json = await resp.json() as any;
+        if (json.error) throw new Error(json.error.message);
+        server.sendResponse(res, 200, true, json.result);
+      } catch (err: any) {
+        server.sendResponse(res, 502, false, undefined, err.message);
+      }
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/formulary-routes',
+    handler: async (_req, res) => {
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const resp = await fetch(`${seqUrl}/rpc`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getFormularyRoutes', params: {} }),
+        });
+        const json = await resp.json() as any;
+        if (json.error) throw new Error(json.error.message);
+        server.sendResponse(res, 200, true, json.result);
+      } catch (err: any) {
+        server.sendResponse(res, 502, false, undefined, err.message);
+      }
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/formulary-drug-count',
+    handler: async (_req, res) => {
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const resp = await fetch(`${seqUrl}/rpc`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getFormularyDrugCount', params: {} }),
+        });
+        const json = await resp.json() as any;
+        if (json.error) throw new Error(json.error.message);
+        server.sendResponse(res, 200, true, json.result);
+      } catch (err: any) {
+        server.sendResponse(res, 502, false, undefined, err.message);
+      }
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/formulary-root',
+    handler: async (_req, res) => {
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const resp = await fetch(`${seqUrl}/rpc`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getFormularyRoot', params: {} }),
+        });
+        const json = await resp.json() as any;
+        if (json.error) throw new Error(json.error.message);
+        server.sendResponse(res, 200, true, json.result);
+      } catch (err: any) {
+        server.sendResponse(res, 502, false, undefined, err.message);
+      }
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/formulary-witness/:ndcHash',
+    handler: async (_req, res, params) => {
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const resp = await fetch(`${seqUrl}/rpc`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getFormularyWitness', params: { ndcHash: params.ndcHash } }),
+        });
+        const json = await resp.json() as any;
+        if (json.error) throw new Error(json.error.message);
+        server.sendResponse(res, 200, true, json.result);
+      } catch (err: any) {
+        server.sendResponse(res, 502, false, undefined, err.message);
+      }
+    },
+  });
+
   // ══════════════════════════════════════════════════════════
   //  NETWORK PROVIDERS (query sequencer entity registry)
   // ══════════════════════════════════════════════════════════
@@ -776,6 +1102,41 @@ export function buildPrescriberRoutes(
   });
 
   // ══════════════════════════════════════════════════════════
+  //  PRESCRIBER LIST (for dashboard dropdown)
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'GET',
+    path: '/prescribers/list',
+    handler: async (_req, res) => {
+      const { PRESCRIBERS } = await import('../../data/index.js');
+      // Also load raw JSON for extra fields (city, address) not on SeedPrescriber type
+      const fs = await import('fs');
+      const path = await import('path');
+      let rawData: Array<{ city?: string; address?: string }> = [];
+      try {
+        const dataDir = process.env.ZKP_DATA_DIR || path.join(process.cwd(), 'src', 'data');
+        rawData = JSON.parse(fs.readFileSync(path.join(dataDir, 'prescribers.json'), 'utf-8'));
+      } catch { /* fall back to empty */ }
+
+      const list = PRESCRIBERS.map((p, i) => ({
+        index: i,
+        npi: p.localData.prescriberId,
+        name: (p.credential === 'NP' || p.credential === 'PA')
+          ? `${p.firstName} ${p.lastName}`
+          : `Dr. ${p.firstName} ${p.lastName}`,
+        firstName: p.firstName,
+        lastName: p.lastName,
+        credential: p.credential,
+        specialty: p.specialty,
+        state: p.state,
+        city: rawData[i]?.city ?? '',
+      }));
+      server.sendResponse(res, 200, true, list);
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
   //  BADGE TAP (inline — replaces interactive-server dependency)
   // ══════════════════════════════════════════════════════════
 
@@ -795,15 +1156,15 @@ export function buildPrescriberRoutes(
       const start = Date.now();
 
       try {
-        // Load demo prescriber data
-        const { DEMO_PRESCRIBERS } = await import('../../demo/prescribers.js');
+        // Load seed prescriber data
+        const { PRESCRIBERS } = await import('../../data/index.js');
         const { derivePrescriberWalletId } = await import('../../wallets/wallet-derivation.js');
 
-        if (providerIndex < 0 || providerIndex >= DEMO_PRESCRIBERS.length) {
-          return server.sendResponse(res, 400, false, undefined, `Invalid providerIndex: ${providerIndex} (max ${DEMO_PRESCRIBERS.length - 1})`);
+        if (providerIndex < 0 || providerIndex >= PRESCRIBERS.length) {
+          return server.sendResponse(res, 400, false, undefined, `Invalid providerIndex: ${providerIndex} (max ${PRESCRIBERS.length - 1})`);
         }
 
-        const prescriber = DEMO_PRESCRIBERS[providerIndex];
+        const prescriber = PRESCRIBERS[providerIndex];
         const displayName = `Dr. ${prescriber.firstName} ${prescriber.lastName}, ${prescriber.credential}`;
 
         // Step 1: badge:tap
@@ -826,7 +1187,7 @@ export function buildPrescriberRoutes(
         // Step 4: badge:proof — skip ZK proof in standalone mode (programs not compiled)
         events.push({
           type: 'badge:proof', providerIndex, providerType, displayName, timestamp: Date.now(),
-          data: { skipped: true, reason: 'Standalone mode — ZK proof not required for demo' },
+          data: { skipped: true, reason: 'Standalone mode — ZK proof not required in standalone mode' },
         });
 
         // Step 5: badge:verify — check provider registry on sequencer; register if first time

@@ -95,7 +95,7 @@ export class UserWalletService {
       case 'member':
         return ProofGateProgram.verifyMember(
           this.walletId,
-          preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!,
+          preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
         );
       case 'prescriber':
         return ProofGateProgram.verifyPrescriber(
@@ -187,9 +187,10 @@ export class UserWalletService {
     const p2 = preimage[2] ?? Field(0);
     const p3 = preimage[3] ?? Field(0);
     const p4 = preimage[4] ?? Field(0);
+    const p5 = preimage[5] ?? Field(0);
 
     const stResult = await StateTransitionProgram.proveWalletUpdate(
-      domainTag, p0, p1, p2, p3, p4,
+      domainTag, p0, p1, p2, p3, p4, p5,
       oldInventoryRoot,
       oldNonce,
       newInventoryRoot,

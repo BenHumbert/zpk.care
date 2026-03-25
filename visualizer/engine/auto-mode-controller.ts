@@ -32,8 +32,10 @@
  * Start/stop via the dashboard "Auto Mode" toggle button.
  * Mutually exclusive with the smoke test.
  */
-import type { InteractiveDemoService } from './interactive-service.js';
+import type { AdjudicationService } from './interactive-service.js';
 import type { L2Node } from '../../src/l2/l2-node.js';
+import { MEDICATIONS } from '../../src/data/index.js';
+import { hashString } from '../../src/zkp/hash-utils.js';
 
 // ─── Types ─────────────────────────────────────────
 
@@ -229,7 +231,7 @@ export class AutoModeController {
   private delegationPairs = new Set<string>();
 
   constructor(
-    private service: InteractiveDemoService,
+    private service: AdjudicationService,
     private l2Node: L2Node,
   ) {}
 
@@ -927,7 +929,7 @@ export class AutoModeController {
       this.service.createPrescription({
         prescriberIndex: pcpIndex,
         memberWalletId: walletId,
-        medicationIndex: medIndex,
+        ndcHash: hashString(MEDICATIONS[medIndex].ndc).toString(),
         pharmacyIndex,
         quantity,
         refills: randInt(0, 3),
@@ -948,7 +950,7 @@ export class AutoModeController {
       this.service.requestPriorAuth({
         memberWalletId: walletId,
         prescriberIndex: pcpIndex,
-        medicationIndex: medIndex,
+        ndcHash: hashString(MEDICATIONS[medIndex].ndc).toString(),
       });
     } catch (err) {
       console.log(`  [AutoMode] PA request skipped: ${(err as Error).message}`);
@@ -1029,7 +1031,7 @@ export class AutoModeController {
     console.log(`  [AutoMode] Pharmacy ${pharmacyIndex} filling ${prescriptionId}...`);
 
     await this.l2Node.withProvingLock(() =>
-      this.service.fillPrescription({ prescriptionId, credentialJson })
+      this.service.dispensePrescription({ prescriptionId, credentialJson })
     );
   }
 
@@ -1124,7 +1126,7 @@ export class AutoModeController {
     console.log(`  [AutoMode] Insurer updating formulary: med ${medIndex} → ${action}...`);
 
     try {
-      const payload: Record<string, unknown> = { medicationIndex: medIndex, action };
+      const payload: Record<string, unknown> = { ndcHash: hashString(MEDICATIONS[medIndex].ndc).toString(), action };
       if (action === 'MODIFY') {
         payload.newTierLevel = randInt(1, 3);
         payload.newRequiresPriorAuth = Math.random() < 0.3;
@@ -1134,7 +1136,7 @@ export class AutoModeController {
       // generating a StateTransitionProof per member. Must hold the proving lock.
       await this.l2Node.withProvingLock(() =>
         this.service.updateFormularyEntry(payload as {
-          medicationIndex: number;
+          ndcHash: string;
           action: 'MODIFY' | 'REMOVE' | 'ADD';
           newTierLevel?: number;
           newRequiresPriorAuth?: boolean;

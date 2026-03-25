@@ -77,7 +77,7 @@ if (insurerUrl && !/^https?:\/\//.test(insurerUrl)) {
 async function main(): Promise<void> {
   console.log('');
   console.log('  ╔══════════════════════════════════════════════╗');
-  console.log('  ║     🏢  EMPLOYER NAUTILUS — zkTrident        ║');
+  console.log('  ║     🐊  EMPLOYER NAUTILUS — Adjuda-GATOR     ║');
   console.log('  ╚══════════════════════════════════════════════╝');
   console.log('');
 

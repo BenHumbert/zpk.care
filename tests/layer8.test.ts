@@ -4,7 +4,7 @@ import {
   PrescriptionStatusData,
   buildPrescriptionData,
   buildPrescriptionStatusData,
-  RX_STATUS_ACTIVE,
+  RX_STATUS_ADJUDICATED,
   RX_STATUS_PARTIALLY_FILLED,
   RX_STATUS_FILLED,
   RX_STATUS_CANCELLED,
@@ -199,7 +199,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       const rxHash = createTestPrescriptionData().commitment();
       const s1 = new PrescriptionStatusData({
         prescriptionHash: rxHash,
-        status: RX_STATUS_ACTIVE,
+        status: RX_STATUS_ADJUDICATED,
         updatedByWalletId: pharmacyWalletId,
         updatedAt: Field(20260201120000n),
         pharmacyWalletId,
@@ -208,7 +208,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       });
       const s2 = new PrescriptionStatusData({
         prescriptionHash: rxHash,
-        status: RX_STATUS_ACTIVE,
+        status: RX_STATUS_ADJUDICATED,
         updatedByWalletId: pharmacyWalletId,
         updatedAt: Field(20260201120000n),
         pharmacyWalletId,
@@ -222,7 +222,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       const rxHash = createTestPrescriptionData().commitment();
       const s1 = new PrescriptionStatusData({
         prescriptionHash: rxHash,
-        status: RX_STATUS_ACTIVE,
+        status: RX_STATUS_ADJUDICATED,
         updatedByWalletId: pharmacyWalletId,
         updatedAt: Field(20260201120000n),
         pharmacyWalletId,
@@ -250,7 +250,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
     });
 
     it('status constants have correct values', () => {
-      expect(RX_STATUS_ACTIVE.toString()).toBe('1');
+      expect(RX_STATUS_ADJUDICATED.toString()).toBe('1');
       expect(RX_STATUS_PARTIALLY_FILLED.toString()).toBe('2');
       expect(RX_STATUS_FILLED.toString()).toBe('3');
       expect(RX_STATUS_CANCELLED.toString()).toBe('4');
@@ -308,14 +308,14 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
     });
 
     it('assertValidStatusTransition accepts DISPENSED transitions in circuit', () => {
-      expect(() => assertValidStatusTransition(RX_STATUS_ACTIVE, RX_STATUS_DISPENSED)).not.toThrow();
+      expect(() => assertValidStatusTransition(RX_STATUS_ADJUDICATED, RX_STATUS_DISPENSED)).not.toThrow();
       expect(() => assertValidStatusTransition(RX_STATUS_DISPENSED, RX_STATUS_FILLED)).not.toThrow();
       expect(() => assertValidStatusTransition(RX_STATUS_DISPENSED, RX_STATUS_CANCELLED)).not.toThrow();
       expect(() => assertValidStatusTransition(RX_STATUS_DISPENSED, RX_STATUS_REJECTED)).not.toThrow();
     });
 
     it('assertValidStatusTransition rejects invalid DISPENSED transitions in circuit', () => {
-      expect(() => assertValidStatusTransition(RX_STATUS_DISPENSED, RX_STATUS_ACTIVE)).toThrow();
+      expect(() => assertValidStatusTransition(RX_STATUS_DISPENSED, RX_STATUS_ADJUDICATED)).toThrow();
       expect(() => assertValidStatusTransition(RX_STATUS_DISPENSED, RX_STATUS_REVERSED)).toThrow();
       expect(() => assertValidStatusTransition(RX_STATUS_DISPENSED, RX_STATUS_DISPENSED)).toThrow();
       expect(() => assertValidStatusTransition(RX_STATUS_PARTIALLY_FILLED, RX_STATUS_DISPENSED)).toThrow();
@@ -358,7 +358,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       expect(credentialData.issuerWalletId.toString()).toBe(prescriberWalletId.toString());
       expect(credentialData.subjectWalletId.toString()).toBe(pharmacyWalletId.toString());
       expect(credentialData.revoked.toString()).toBe('0');
-      expect(initialStatus.status.toString()).toBe(RX_STATUS_ACTIVE.toString());
+      expect(initialStatus.status.toString()).toBe(RX_STATUS_ADJUDICATED.toString());
     });
 
     it('buildPrescriptionCredential inserts prescription + initial status into forest', () => {
@@ -429,7 +429,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       expect(result.credentialData.credentialType.toString()).toBe(CREDENTIAL_TYPE_PRESCRIPTION.toString());
       expect(result.credentialIndex).toBe(0n);
       expect(result.prescriptionData.commitment().toString()).toBe(rxData.commitment().toString());
-      expect(result.initialStatus.status.toString()).toBe(RX_STATUS_ACTIVE.toString());
+      expect(result.initialStatus.status.toString()).toBe(RX_STATUS_ADJUDICATED.toString());
     });
 
     it('cross-wallet: subjectWalletId = pharmacyWalletId', () => {
@@ -534,7 +534,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       // Add dest ACTIVE entry
       const destActive = new PrescriptionStatusData({
         prescriptionHash: rxData.commitment(),
-        status: RX_STATUS_ACTIVE,
+        status: RX_STATUS_ADJUDICATED,
         updatedByWalletId: pharmacy2WalletId,
         updatedAt: Field(20260301120000n),
         pharmacyWalletId: pharmacy2WalletId,
@@ -635,7 +635,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
       const entry0 = new PrescriptionStatusData({
         prescriptionHash: rxData.commitment(),
-        status: RX_STATUS_ACTIVE,
+        status: RX_STATUS_ADJUDICATED,
         updatedByWalletId: pharmacyWalletId,
         updatedAt: Field(20260201120000n),
         pharmacyWalletId,
@@ -657,7 +657,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
       const history = verifier.extractStatusHistory(forest, 2, [entry0, entry1]);
       expect(history.length).toBe(2);
-      expect(history[0]!.status).toBe(RX_STATUS_ACTIVE.toString());
+      expect(history[0]!.status).toBe(RX_STATUS_ADJUDICATED.toString());
       expect(history[1]!.status).toBe(RX_STATUS_FILLED.toString());
     });
 
@@ -723,7 +723,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         // Insert initial ACTIVE status at index 0
         const oldStatus = new PrescriptionStatusData({
           prescriptionHash: rxData.commitment(),
-          status: RX_STATUS_ACTIVE,
+          status: RX_STATUS_ADJUDICATED,
           updatedByWalletId: prescriberWalletId,
           updatedAt: Field(20260201120000n),
           pharmacyWalletId,
@@ -787,7 +787,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
         const oldStatus = new PrescriptionStatusData({
           prescriptionHash: rxData.commitment(),
-          status: RX_STATUS_ACTIVE,
+          status: RX_STATUS_ADJUDICATED,
           updatedByWalletId: prescriberWalletId,
           updatedAt: Field(20260201120000n),
           pharmacyWalletId,
@@ -861,7 +861,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         // Try FILLED → ACTIVE (invalid)
         const newStatus = new PrescriptionStatusData({
           prescriptionHash: rxData.commitment(),
-          status: RX_STATUS_ACTIVE,
+          status: RX_STATUS_ADJUDICATED,
           updatedByWalletId: pharmacyWalletId,
           updatedAt: Field(20260301120000n),
           pharmacyWalletId,
@@ -888,7 +888,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
         const oldStatus = new PrescriptionStatusData({
           prescriptionHash: rxData.commitment(),
-          status: RX_STATUS_ACTIVE,
+          status: RX_STATUS_ADJUDICATED,
           updatedByWalletId: prescriberWalletId,
           updatedAt: Field(20260201120000n),
           pharmacyWalletId,
@@ -937,7 +937,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
         const oldStatus = new PrescriptionStatusData({
           prescriptionHash: rxData.commitment(),
-          status: RX_STATUS_ACTIVE,
+          status: RX_STATUS_ADJUDICATED,
           updatedByWalletId: prescriberWalletId,
           updatedAt: Field(20260201120000n),
           pharmacyWalletId,
@@ -992,7 +992,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
         const oldStatus = new PrescriptionStatusData({
           prescriptionHash: rxData.commitment(),
-          status: RX_STATUS_ACTIVE,
+          status: RX_STATUS_ADJUDICATED,
           updatedByWalletId: prescriberWalletId,
           updatedAt: Field(20260201120000n),
           pharmacyWalletId,
@@ -1096,7 +1096,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
         const oldStatus = new PrescriptionStatusData({
           prescriptionHash: rxData.commitment(),
-          status: RX_STATUS_ACTIVE,
+          status: RX_STATUS_ADJUDICATED,
           updatedByWalletId: prescriberWalletId,
           updatedAt: Field(20260201120000n),
           pharmacyWalletId,
@@ -1167,7 +1167,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       forest.setLeaf(ForestDomain.MEDICATION, 0n, rxData.commitment());
       const initStatus = new PrescriptionStatusData({
         prescriptionHash: rxData.commitment(),
-        status: RX_STATUS_ACTIVE,
+        status: RX_STATUS_ADJUDICATED,
         updatedByWalletId: prescriberWalletId,
         updatedAt: Field(20260201120000n),
         pharmacyWalletId: pharmacyId,
@@ -1226,7 +1226,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       forest.setLeaf(ForestDomain.MEDICATION, 0n, rxData.commitment());
       const initStatus = new PrescriptionStatusData({
         prescriptionHash: rxData.commitment(),
-        status: RX_STATUS_ACTIVE,
+        status: RX_STATUS_ADJUDICATED,
         updatedByWalletId: prescriberWalletId,
         updatedAt: Field(20260201120000n),
         pharmacyWalletId: pharmacyId,
@@ -1282,7 +1282,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       forest.setLeaf(ForestDomain.MEDICATION, 0n, rxData.commitment());
       const initStatus = new PrescriptionStatusData({
         prescriptionHash: rxData.commitment(),
-        status: RX_STATUS_ACTIVE,
+        status: RX_STATUS_ADJUDICATED,
         updatedByWalletId: prescriberWalletId,
         updatedAt: Field(20260201120000n),
         pharmacyWalletId: pharmacyId,

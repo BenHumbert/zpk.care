@@ -61,7 +61,7 @@ import { KeyRegistry } from '../src/messaging/message-registry.js';
 import {
   PrescriptionData,
   PrescriptionStatusData,
-  RX_STATUS_ACTIVE,
+  RX_STATUS_ADJUDICATED,
   RX_STATUS_FILLED,
 } from '../src/prescription/prescription-data.js';
 import { PrescriptionProgram } from '../src/prescription/prescription-program.js';
@@ -78,7 +78,7 @@ import { PlanTemplate } from '../src/onboarding/plan-template.js';
 import { EnrollmentService } from '../src/onboarding/enrollment-service.js';
 
 // Production data
-import { DEMO_PRESCRIBERS, DEMO_PHARMACIES, DEMO_MEMBERS, getAllFormularyEntries } from '../src/data/index.js';
+import { PRESCRIBERS, PHARMACIES, MEMBERS, getAllFormularyEntries } from '../src/data/index.js';
 
 // ─── Timing Infrastructure ──────────────────────────────────
 
@@ -114,9 +114,9 @@ async function timed<T>(
 // ─── Shared State ───────────────────────────────────────────
 
 // Actors
-const member = DEMO_MEMBERS[0];        // Alice Johnson, ACME
-const prescriber = DEMO_PRESCRIBERS[0]; // Dr. Chen, Internal Medicine
-const pharmacy = DEMO_PHARMACIES[0];    // Main Street Pharmacy
+const member = MEMBERS[0];        // Alice Johnson, ACME
+const prescriber = PRESCRIBERS[0]; // Dr. Chen, Internal Medicine
+const pharmacy = PHARMACIES[0];    // Main Street Pharmacy
 
 // Wallet IDs & preimages
 let memberWalletId: Field;
@@ -185,8 +185,8 @@ describe('Full Claim Lifecycle Benchmark', () => {
 
     // 1a. Wallet derivation
     await timed('P1', 'Derive member wallet ID', 'offchain', false, () => {
-      memberWalletId = deriveMemberWalletId(member.localData, member.enrollmentKey);
-      memberPreimageFields = memberWalletPreimage(member.localData, member.enrollmentKey);
+      memberWalletId = deriveMemberWalletId(member.localData, member.enrollmentKey, Field(0));
+      memberPreimageFields = memberWalletPreimage(member.localData, member.enrollmentKey, Field(0));
     });
 
     await timed('P1', 'Derive prescriber wallet ID', 'offchain', false, () => {
@@ -329,7 +329,7 @@ describe('Full Claim Lifecycle Benchmark', () => {
 
       activeStatus = new PrescriptionStatusData({
         prescriptionHash: prescriptionData.commitment(),
-        status: RX_STATUS_ACTIVE,
+        status: RX_STATUS_ADJUDICATED,
         updatedByWalletId: prescriberWalletId,
         updatedAt: dateToField('20260201'),
         pharmacyWalletId,
@@ -423,7 +423,7 @@ describe('Full Claim Lifecycle Benchmark', () => {
     await timed('P3', 'ProofGate.verifyMember', 'prove', true, () =>
       ProofGateProgram.verifyMember(
         memberWalletId,
-        ...memberPreimageFields as [Field, Field, Field, Field, Field],
+        ...memberPreimageFields as [Field, Field, Field, Field, Field, Field],
       ));
   }, 120_000);
 

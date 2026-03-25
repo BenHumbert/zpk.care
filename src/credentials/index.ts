@@ -50,7 +50,7 @@ export {
   authenticateFromBadge,
   badgePreimage,
   estimateBadgeSize,
-  DEMO_BADGE_PIN,
+  DEV_BADGE_PIN,
   validateBadgePin,
 } from './provider-badge-service.js';
 export type {

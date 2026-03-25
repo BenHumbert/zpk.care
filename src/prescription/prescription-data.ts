@@ -3,22 +3,25 @@ import { hashString, dateToField, quantityToField } from '../zkp/hash-utils.js';
 
 // ─── Status Constants ───────────────────────────────────────────
 
-/** Newly written, awaiting fill */
-export const RX_STATUS_ACTIVE = Field(1);
+/** Prescriber adjudicated: eligibility + formulary proven, eScript sent */
+export const RX_STATUS_ADJUDICATED = Field(1);
 /** Partial dispense completed */
 export const RX_STATUS_PARTIALLY_FILLED = Field(2);
-/** Fully dispensed */
+/** Pharmacist physically prepared medication, awaiting member pickup */
 export const RX_STATUS_FILLED = Field(3);
-/** Cancelled by prescriber */
+/** Cancelled before dispense */
 export const RX_STATUS_CANCELLED = Field(4);
-/** Rejected by pharmacy */
+/** Rejected (not eligible, not on formulary, etc.) */
 export const RX_STATUS_REJECTED = Field(5);
-/** Reversed (undo a fill) */
+/** Reversed (undo a dispense — late reversal with ZK proof) */
 export const RX_STATUS_REVERSED = Field(6);
 /** Transferred to another pharmacy */
 export const RX_STATUS_TRANSFERRED = Field(7);
-/** Dispensed by pharmacy, awaiting member pickup */
+/** Terminal: dispensed to patient, payment collected, settlement finalized */
 export const RX_STATUS_DISPENSED = Field(8);
+
+/** @deprecated Use RX_STATUS_ADJUDICATED. Alias kept for backward compatibility. */
+export const RX_STATUS_ACTIVE = RX_STATUS_ADJUDICATED;
 
 // ─── PrescriptionData ───────────────────────────────────────────
 
@@ -104,9 +107,9 @@ export function buildPrescriptionData(local: PrescriptionLocalData): Prescriptio
  *
  * Stored as a leaf in the MerkleForest TRANSACTION tree.
  * Append-only: each status change adds a new leaf at the next index.
- * Leaf 0 is always the initial ACTIVE status created at prescription time.
+ * Leaf 0 is always the initial ADJUDICATED status created at prescription time.
  *
- * Emergency flag: initial ACTIVE entry's notesHash = hashString("EMERGENCY_FILL")
+ * Emergency flag: initial ADJUDICATED entry's notesHash = hashString("EMERGENCY_FILL")
  * for emergency prescriptions, Field(0) for standard.
  */
 export class PrescriptionStatusData extends Struct({
@@ -178,37 +181,36 @@ export function buildPrescriptionStatusData(
 // ─── Status Transition Validation ───────────────────────────────
 
 /**
- * Valid prescription status transitions (off-chain lookup).
+ * Valid prescription status transitions.
  *
- * ACTIVE → PARTIALLY_FILLED, FILLED, CANCELLED, REJECTED, TRANSFERRED, DISPENSED
- * PARTIALLY_FILLED → PARTIALLY_FILLED, FILLED, CANCELLED, REVERSED, TRANSFERRED
- * FILLED → REVERSED
- * REVERSED → ACTIVE
- * DISPENSED → FILLED, CANCELLED, REJECTED
+ * Claim lifecycle: ADJUDICATED → FILLED → DISPENSED → (REVERSED)
+ *
+ * ADJUDICATED(1) → FILLED(3), CANCELLED(4), REJECTED(5), TRANSFERRED(7)
+ * PARTIALLY_FILLED(2) → PARTIALLY_FILLED(2), FILLED(3), CANCELLED(4), REVERSED(6), TRANSFERRED(7)
+ * FILLED(3) → DISPENSED(8), CANCELLED(4)
+ * DISPENSED(8) → REVERSED(6)  (late reversal only — meds already given)
+ * REVERSED(6) → ADJUDICATED(1)  (can restart)
  * CANCELLED, REJECTED, TRANSFERRED → terminal (no further transitions)
  */
 const VALID_TRANSITIONS: [bigint, bigint][] = [
-  // From ACTIVE
-  [1n, 2n], // ACTIVE → PARTIALLY_FILLED
-  [1n, 3n], // ACTIVE → FILLED
-  [1n, 4n], // ACTIVE → CANCELLED
-  [1n, 5n], // ACTIVE → REJECTED
-  [1n, 7n], // ACTIVE → TRANSFERRED
-  [1n, 8n], // ACTIVE → DISPENSED
-  // From PARTIALLY_FILLED
-  [2n, 2n], // PARTIALLY_FILLED → PARTIALLY_FILLED
-  [2n, 3n], // PARTIALLY_FILLED → FILLED
+  // From ADJUDICATED (prescriber proved eligibility + formulary)
+  [1n, 3n], // ADJUDICATED → FILLED (pharmacist prepared medication)
+  [1n, 4n], // ADJUDICATED → CANCELLED (cancelled before fill)
+  [1n, 5n], // ADJUDICATED → REJECTED (rejected before fill)
+  [1n, 7n], // ADJUDICATED → TRANSFERRED (sent to another pharmacy)
+  // From PARTIALLY_FILLED (partial dispense — multi-fill Rx)
+  [2n, 2n], // PARTIALLY_FILLED → PARTIALLY_FILLED (another partial)
+  [2n, 3n], // PARTIALLY_FILLED → FILLED (all fills prepared)
   [2n, 4n], // PARTIALLY_FILLED → CANCELLED
   [2n, 6n], // PARTIALLY_FILLED → REVERSED
   [2n, 7n], // PARTIALLY_FILLED → TRANSFERRED
-  // From FILLED
-  [3n, 6n], // FILLED → REVERSED
-  // From REVERSED
-  [6n, 1n], // REVERSED → ACTIVE (can restart)
-  // From DISPENSED
-  [8n, 3n], // DISPENSED → FILLED (member pickup with credential)
-  [8n, 4n], // DISPENSED → CANCELLED
-  [8n, 5n], // DISPENSED → REJECTED
+  // From FILLED (physically prepared, awaiting member pickup + payment)
+  [3n, 8n], // FILLED → DISPENSED (member paid, meds handed over, settlement proof)
+  [3n, 4n], // FILLED → CANCELLED (meds returned to stock before dispense)
+  // From DISPENSED (terminal successful state — settlement finalized)
+  [8n, 6n], // DISPENSED → REVERSED (late reversal with ZK proof)
+  // From REVERSED (can restart the lifecycle)
+  [6n, 1n], // REVERSED → ADJUDICATED (re-open)
 ];
 
 /**
@@ -224,36 +226,33 @@ export function isValidStatusTransition(from: bigint, to: bigint): boolean {
  * Uses only circuit-compatible operations (.equals, .and, .or, .assertTrue).
  */
 export function assertValidStatusTransition(from: Field, to: Field): void {
-  // ACTIVE(1) → PARTIALLY_FILLED(2), FILLED(3), CANCELLED(4), REJECTED(5), TRANSFERRED(7), DISPENSED(8)
-  const t1 = from.equals(RX_STATUS_ACTIVE).and(to.equals(RX_STATUS_PARTIALLY_FILLED));
-  const t2 = from.equals(RX_STATUS_ACTIVE).and(to.equals(RX_STATUS_FILLED));
-  const t3 = from.equals(RX_STATUS_ACTIVE).and(to.equals(RX_STATUS_CANCELLED));
-  const t4 = from.equals(RX_STATUS_ACTIVE).and(to.equals(RX_STATUS_REJECTED));
-  const t5 = from.equals(RX_STATUS_ACTIVE).and(to.equals(RX_STATUS_TRANSFERRED));
-  const t6 = from.equals(RX_STATUS_ACTIVE).and(to.equals(RX_STATUS_DISPENSED));
+  // ADJUDICATED(1) → FILLED(3), CANCELLED(4), REJECTED(5), TRANSFERRED(7)
+  const t1 = from.equals(RX_STATUS_ADJUDICATED).and(to.equals(RX_STATUS_FILLED));
+  const t2 = from.equals(RX_STATUS_ADJUDICATED).and(to.equals(RX_STATUS_CANCELLED));
+  const t3 = from.equals(RX_STATUS_ADJUDICATED).and(to.equals(RX_STATUS_REJECTED));
+  const t4 = from.equals(RX_STATUS_ADJUDICATED).and(to.equals(RX_STATUS_TRANSFERRED));
 
   // PARTIALLY_FILLED(2) → PARTIALLY_FILLED(2), FILLED(3), CANCELLED(4), REVERSED(6), TRANSFERRED(7)
-  const t7 = from.equals(RX_STATUS_PARTIALLY_FILLED).and(to.equals(RX_STATUS_PARTIALLY_FILLED));
-  const t8 = from.equals(RX_STATUS_PARTIALLY_FILLED).and(to.equals(RX_STATUS_FILLED));
-  const t9 = from.equals(RX_STATUS_PARTIALLY_FILLED).and(to.equals(RX_STATUS_CANCELLED));
-  const t10 = from.equals(RX_STATUS_PARTIALLY_FILLED).and(to.equals(RX_STATUS_REVERSED));
-  const t11 = from.equals(RX_STATUS_PARTIALLY_FILLED).and(to.equals(RX_STATUS_TRANSFERRED));
+  const t5 = from.equals(RX_STATUS_PARTIALLY_FILLED).and(to.equals(RX_STATUS_PARTIALLY_FILLED));
+  const t6 = from.equals(RX_STATUS_PARTIALLY_FILLED).and(to.equals(RX_STATUS_FILLED));
+  const t7 = from.equals(RX_STATUS_PARTIALLY_FILLED).and(to.equals(RX_STATUS_CANCELLED));
+  const t8 = from.equals(RX_STATUS_PARTIALLY_FILLED).and(to.equals(RX_STATUS_REVERSED));
+  const t9 = from.equals(RX_STATUS_PARTIALLY_FILLED).and(to.equals(RX_STATUS_TRANSFERRED));
 
-  // FILLED(3) → REVERSED(6)
-  const t12 = from.equals(RX_STATUS_FILLED).and(to.equals(RX_STATUS_REVERSED));
+  // FILLED(3) → DISPENSED(8), CANCELLED(4)
+  const t10 = from.equals(RX_STATUS_FILLED).and(to.equals(RX_STATUS_DISPENSED));
+  const t11 = from.equals(RX_STATUS_FILLED).and(to.equals(RX_STATUS_CANCELLED));
 
-  // REVERSED(6) → ACTIVE(1)
-  const t13 = from.equals(RX_STATUS_REVERSED).and(to.equals(RX_STATUS_ACTIVE));
+  // DISPENSED(8) → REVERSED(6)
+  const t12 = from.equals(RX_STATUS_DISPENSED).and(to.equals(RX_STATUS_REVERSED));
 
-  // DISPENSED(8) → FILLED(3), CANCELLED(4), REJECTED(5)
-  const t14 = from.equals(RX_STATUS_DISPENSED).and(to.equals(RX_STATUS_FILLED));
-  const t15 = from.equals(RX_STATUS_DISPENSED).and(to.equals(RX_STATUS_CANCELLED));
-  const t16 = from.equals(RX_STATUS_DISPENSED).and(to.equals(RX_STATUS_REJECTED));
+  // REVERSED(6) → ADJUDICATED(1)
+  const t13 = from.equals(RX_STATUS_REVERSED).and(to.equals(RX_STATUS_ADJUDICATED));
 
-  const isValid = t1.or(t2).or(t3).or(t4).or(t5).or(t6)
-    .or(t7).or(t8).or(t9).or(t10).or(t11)
-    .or(t12).or(t13)
-    .or(t14).or(t15).or(t16);
+  const isValid = t1.or(t2).or(t3).or(t4)
+    .or(t5).or(t6).or(t7).or(t8).or(t9)
+    .or(t10).or(t11)
+    .or(t12).or(t13);
   isValid.assertTrue('Invalid prescription status transition');
 }
 

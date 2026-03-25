@@ -131,7 +131,7 @@ export class NodeView {
       <div class="nv-batch-title">
         <span class="nv-batch-icon">\u{1F4E6}</span>
         <span>L2 Batch Settlement</span>
-        <span class="nv-batch-actor">zkpCare PBM</span>
+        <span class="nv-batch-actor">Adjuda-GATOR PBM</span>
       </div>
       <div class="nv-batch-proof" id="nv-batch-proof">Waiting for batches...</div>
     `;

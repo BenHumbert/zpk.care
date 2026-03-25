@@ -35,6 +35,7 @@ class MemberOnboardingViewModel(application: Application) : AndroidViewModel(app
     data class OnboardingState(
         val step: Int = 0,
         val tokenId: String = "",
+        val groupId: String = "",
         val cardholderId: String = "",
         val firstName: String = "",
         val lastName: String = "",
@@ -57,8 +58,8 @@ class MemberOnboardingViewModel(application: Application) : AndroidViewModel(app
         }
     }
 
-    fun setTokenId(tokenId: String) {
-        _state.update { it.copy(tokenId = tokenId, step = 1) }
+    fun setTokenId(tokenId: String, groupId: String = "") {
+        _state.update { it.copy(tokenId = tokenId, groupId = groupId, step = 1) }
     }
 
     fun setPhi(cardholderId: String, firstName: String, lastName: String, dob: String) {
@@ -83,6 +84,7 @@ class MemberOnboardingViewModel(application: Application) : AndroidViewModel(app
                     firstName = s.firstName,
                     lastName = s.lastName,
                     enrollmentKey = enrollmentKey,
+                    groupId = s.groupId,
                 ).toString()
 
                 val preimage = WalletDerivation.memberPreimageFields(
@@ -91,6 +93,7 @@ class MemberOnboardingViewModel(application: Application) : AndroidViewModel(app
                     firstName = s.firstName,
                     lastName = s.lastName,
                     enrollmentKey = enrollmentKey,
+                    groupId = s.groupId,
                 )
 
                 // Wipe PHI from state immediately

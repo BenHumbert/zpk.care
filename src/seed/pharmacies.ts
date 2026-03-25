@@ -1,5 +1,5 @@
 /**
- * Demo Pharmacy Data — NCPDP-based
+ * Seed Pharmacy Data — NCPDP-based
  *
  * Fictional pharmacies with realistic NCPDP-style identifiers.
  * All NPI and NCPDP Provider IDs are FICTIONAL — not real pharmacies.
@@ -23,9 +23,9 @@ import type { PharmacyLocalData } from '../models/pharmacy.js';
 
 /**
  * Extended pharmacy record with NCPDP display fields.
- * The ZK system only uses PharmacyLocalData; the rest is for demo UI/reporting.
+ * The ZK system only uses PharmacyLocalData; the rest is for UI/reporting.
  */
-export interface DemoPharmacy {
+export interface SeedPharmacy {
   /** ZK-compatible local data (goes into wallet derivation) */
   localData: PharmacyLocalData;
   /** Enrollment key (pharmacy-generated secret) */
@@ -60,7 +60,7 @@ export interface DemoPharmacy {
  * NPI format: 2XXXXXXXXX (organizational providers)
  * NCPDP Provider ID: 7-digit unique identifier
  */
-export const DEMO_PHARMACIES: DemoPharmacy[] = [
+export const PHARMACIES: SeedPharmacy[] = [
   {
     localData: { serviceProviderIdQualifier: 1, serviceProviderId: '2345678901' },
     enrollmentKey: 'ksmHyIHcdsHWalWhdIq2SHTSIDdDYQQohZZ7zYqHE8w',
@@ -183,12 +183,12 @@ export const DEMO_PHARMACIES: DemoPharmacy[] = [
   },
 ];
 
-/** Quick lookup: NPI → DemoPharmacy */
-export const PHARMACY_BY_NPI = new Map<string, DemoPharmacy>(
-  DEMO_PHARMACIES.map((p) => [p.localData.serviceProviderId, p]),
+/** Quick lookup: NPI → SeedPharmacy */
+export const PHARMACY_BY_NPI = new Map<string, SeedPharmacy>(
+  PHARMACIES.map((p) => [p.localData.serviceProviderId, p]),
 );
 
-/** Quick lookup: NCPDP Provider ID → DemoPharmacy */
-export const PHARMACY_BY_NCPDP = new Map<string, DemoPharmacy>(
-  DEMO_PHARMACIES.map((p) => [p.ncpdpProviderId, p]),
+/** Quick lookup: NCPDP Provider ID → SeedPharmacy */
+export const PHARMACY_BY_NCPDP = new Map<string, SeedPharmacy>(
+  PHARMACIES.map((p) => [p.ncpdpProviderId, p]),
 );

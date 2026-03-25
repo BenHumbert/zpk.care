@@ -712,7 +712,7 @@ export class EnrollmentService {
   /**
    * Bulk update formulary for all active members on a given plan.
    *
-   * This is a demo/admin convenience method. In production, each member
+   * This is an admin convenience method. In production, each member
    * would rebuild their forest and submit a wallet update proof individually.
    *
    * Steps for each active member on this plan:

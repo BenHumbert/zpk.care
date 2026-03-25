@@ -11,7 +11,7 @@
  *   Each proof:  ~35s
  *   Total:       ~2-3 min for all 3 tests
  */
-import { MerkleTree } from 'o1js';
+import { Field, MerkleTree } from 'o1js';
 import { StateTransitionProgram, TransitionOutput } from '../src/engine/state-transition.js';
 import { WalletRegistryWitness, WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
 import { LifecycleWitness } from '../src/engine/lifecycle.js';
@@ -67,8 +67,8 @@ describe('L3 — StateTransitionProgram Recursive Proofs', () => {
     const regTree = new MerkleTree(WALLET_TREE_HEIGHT);
     const lcTree = new MerkleTree(WALLET_TREE_HEIGHT);
 
-    const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
-    const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
+    const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
+    const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
 
     // StateTransitionProof (wallet verification inlined — no ProofGateProof needed)
     console.log(`[test1] Generating StateTransitionProof...`);
@@ -78,7 +78,7 @@ describe('L3 — StateTransitionProgram Recursive Proofs', () => {
 
     const stResult = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
-      preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!,
+      preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
       regWitness,
       lcWitness,
       regTree.getRoot(),
@@ -103,7 +103,7 @@ describe('L3 — StateTransitionProgram Recursive Proofs', () => {
     const regTree = new MerkleTree(WALLET_TREE_HEIGHT);
     const lcTree = new MerkleTree(WALLET_TREE_HEIGHT);
 
-    const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
+    const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
 
     console.log(`[test2] Generating StateTransitionProof...`);
     let s = Date.now();
@@ -112,7 +112,7 @@ describe('L3 — StateTransitionProgram Recursive Proofs', () => {
 
     const stResult = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
-      preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!,
+      preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
       regWitness,
       lcWitness,
       regTree.getRoot(),
@@ -137,10 +137,10 @@ describe('L3 — StateTransitionProgram Recursive Proofs', () => {
     const regTree = new MerkleTree(WALLET_TREE_HEIGHT);
     const lcTree = new MerkleTree(WALLET_TREE_HEIGHT);
 
-    const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
+    const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
     const wrongMember = { ...testMember, firstName: 'Jane' };
-    const wrongPreimage = memberWalletPreimage(wrongMember, TEST_ENROLLMENT_KEY);
-    const wrongWalletId = deriveMemberWalletId(wrongMember, TEST_ENROLLMENT_KEY);
+    const wrongPreimage = memberWalletPreimage(wrongMember, TEST_ENROLLMENT_KEY, Field(0));
+    const wrongWalletId = deriveMemberWalletId(wrongMember, TEST_ENROLLMENT_KEY, Field(0));
 
     console.log(`[test3] Generating StateTransitionProof with different identity...`);
     const s = Date.now();
@@ -150,7 +150,7 @@ describe('L3 — StateTransitionProgram Recursive Proofs', () => {
     const stResult = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
       wrongPreimage[0]!, wrongPreimage[1]!, wrongPreimage[2]!,
-      wrongPreimage[3]!, wrongPreimage[4]!,
+      wrongPreimage[3]!, wrongPreimage[4]!, wrongPreimage[5]!,
       regWitness,
       lcWitness,
       regTree.getRoot(),

@@ -1,5 +1,5 @@
 /**
- * zkTrident Leviathan Explorer — Application Logic
+ * Adjuda-GATOR Leviathan Explorer — Application Logic
  * 8 tabs: Overview, Batches, Receipts, Wallets, Claims, Messages, Audit, Network
  */
 (function () {

@@ -1,22 +1,11 @@
-// zkp.Care Prescriber Dashboard — SPA Application Logic
+// Adjuda-GATOR Prescriber Dashboard — SPA Application Logic
 // Overview, Write Rx, Patients, Formulary, Providers, Messaging, Onboarding, Proofs.
 
 (function () {
   'use strict';
 
-  // ── Demo Prescribers ─────────────────────────────────────────
-  var PRESCRIBERS = [
-    { npi: '1234567890', name: 'Dr. Sarah Chen', credential: 'MD', specialty: 'Internal Medicine', state: 'CA' },
-    { npi: '1345678901', name: 'Dr. Raj Patel', credential: 'MD', specialty: 'Cardiology', state: 'NY' },
-    { npi: '1456789012', name: 'Dr. Michael Jones', credential: 'DO', specialty: 'Family Medicine', state: 'TX' },
-    { npi: '1567890123', name: 'Dr. Jennifer Kim', credential: 'MD', specialty: 'Endocrinology', state: 'IL' },
-    { npi: '1678901234', name: 'Maria Garcia', credential: 'NP', specialty: 'Nurse Practitioner', state: 'FL' },
-    { npi: '1789012345', name: 'Dr. David Thompson', credential: 'MD', specialty: 'Psychiatry', state: 'PA' },
-    { npi: '1890123456', name: 'Emily Wilson', credential: 'PA', specialty: 'Physician Assistant', state: 'OH' },
-    { npi: '1901234567', name: 'Dr. Thanh Nguyen', credential: 'MD', specialty: 'Pulmonology', state: 'WA' },
-    { npi: '1012345678', name: 'Dr. Robert Smith', credential: 'MD', specialty: 'Oncology', state: 'MA' },
-    { npi: '1123456789', name: 'Dr. Lisa Brown', credential: 'PharmD', specialty: 'Clinical Pharmacist', state: 'AZ' },
-  ];
+  // ── Prescribers (loaded from server at init) ────────────────
+  var PRESCRIBERS = [];
 
   var PRESCRIBER_KEY = 'zkp_prescriber_selected';
 
@@ -73,6 +62,25 @@
     var d = document.createElement('div');
     d.textContent = String(s);
     return d.innerHTML;
+  }
+
+  // VULNERABILITY: Messages are currently base64-encoded (prescriber) or AES-GCM with
+  // ephemeral keys (member). Neither side shares keys, so true E2E decryption is not
+  // implemented. This helper decodes what it can — base64 plaintext or hex ciphertext —
+  // but does NOT provide real encryption. See project memory for tracking.
+  function decodePayload(ciphertext, iv) {
+    if (!ciphertext) return '(no content)';
+    // Prescriber sends btoa(plaintext) with iv='0' — decode as base64
+    if (iv === '0' || iv === '') {
+      try { return atob(ciphertext); } catch (_) { return '(decode error)'; }
+    }
+    // Member sends hex-encoded AES-GCM — we lack the key, show hex length hint
+    // When real E2E encryption is implemented, decrypt here with shared secret
+    if (/^[0-9a-f]+$/i.test(ciphertext)) {
+      return '(encrypted \u2014 ' + Math.floor(ciphertext.length / 2) + ' bytes)';
+    }
+    // Fallback: try base64
+    try { return atob(ciphertext); } catch (_) { return '(encrypted)'; }
   }
 
   function formatCents(cents) {
@@ -316,6 +324,7 @@
   async function loadPrescriptions() {
     loadPrescriptionStats();
     loadPrescriptionHistory();
+    populateRxDropdowns();
 
     // Enable write button if ready
     var btn = $('#rx-write-btn');
@@ -354,26 +363,44 @@
       });
       cachedPharmacies = Array.isArray(results[1]) ? results[1] : [];
     } catch (_) { }
+    // Load medications from paginated formulary service (Option C)
     if (cachedMedications.length === 0) {
       try {
-        var meds = await API.getMedicationBreakdown();
-        cachedMedications = Array.isArray(meds) ? meds : [];
-      } catch (_) { }
-    }
-    // Fallback: load from formulary if no claims history yet
-    if (cachedMedications.length === 0) {
-      try {
-        var formData = await API.getFormulary('default');
-        if (formData && formData.entriesJson) {
-          var entries = JSON.parse(formData.entriesJson);
-          if (Array.isArray(entries)) {
-            cachedMedications = entries.filter(function (e) { return e.ndcHash && e.tierLevel > 0; }).map(function (e) {
-              return { ndcHash: e.ndcHash, brandName: e.brandName || e.drugName || '', claimCount: 0 };
-            });
-          }
+        // Load first 500 drugs sorted by name for the Rx dropdown
+        var page = await API.getFormularyPage({ limit: 500, offset: 0 });
+        if (page && Array.isArray(page.drugs)) {
+          cachedMedications = page.drugs.map(function (d) {
+            return { ndcHash: d.ndcHash, brandName: d.brandName || '', genericName: d.genericName || '', ndc: d.ndc || '', strength: d.strength || '', dosageForm: d.dosageForm || '', tierLevel: d.tierLevel, copay: d.copayAmount != null ? d.copayAmount / 100 : 0, claimCount: 0 };
+          });
+          // Store total count for UI
+          window._formularyTotalCount = page.total || cachedMedications.length;
         }
-      } catch (_) { }
+      } catch (formErr) {
+        console.warn('[rx] Formulary page load failed, trying legacy:', formErr);
+        try {
+          var formData = await API.getFormulary('default');
+          if (formData && formData.entriesJson) {
+            var entries = JSON.parse(formData.entriesJson);
+            if (Array.isArray(entries)) {
+              cachedMedications = entries.filter(function (e) { return e.ndcHash; }).map(function (e) {
+                return { ndcHash: e.ndcHash, brandName: e.brandName || e.genericName || '', genericName: e.genericName || '', ndc: e.ndc || '', strength: e.strength || '', dosageForm: e.dosageForm || '', tierLevel: e.tierLevel, copay: e.copayAmountCents != null ? e.copayAmountCents / 100 : e.copay, claimCount: 0 };
+              });
+            }
+          }
+        } catch (legacyErr) {
+          console.warn('[rx] Legacy formulary also failed:', legacyErr);
+        }
+      }
     }
+    // Overlay claim counts from prescribing history
+    try {
+      var meds = await API.getMedicationBreakdown();
+      if (Array.isArray(meds) && meds.length > 0) {
+        var countMap = {};
+        meds.forEach(function (m) { if (m.ndcHash) countMap[m.ndcHash] = m.claimCount || 0; });
+        cachedMedications.forEach(function (m) { if (countMap[m.ndcHash]) m.claimCount = countMap[m.ndcHash]; });
+      }
+    } catch (_) { }
 
     var patientSel = $('#rx-patient-select');
     var pharmSel = $('#rx-pharmacy-select');
@@ -388,8 +415,16 @@
         cachedPharmacies.map(function (p) { return '<option value="' + esc(p.walletId) + '">' + esc(p.displayName || truncHash(p.walletId)) + '</option>'; }).join('');
     }
     if (medSel && cachedMedications.length > 0) {
-      medSel.innerHTML = '<option value="">-- Select Medication --</option>' +
-        cachedMedications.map(function (m) { return '<option value="' + esc(m.ndcHash) + '" data-name="' + esc(m.brandName || m.drugName || '') + '">' + esc(m.brandName || m.drugName || truncHash(m.ndcHash)) + ' (' + (m.claimCount || 0) + ')</option>'; }).join('');
+      medSel.innerHTML = '<option value="">-- Select Medication (' + cachedMedications.length + ' available) --</option>' +
+        cachedMedications.map(function (m) {
+          var label = m.brandName || m.genericName || truncHash(m.ndcHash);
+          if (m.strength) label += ' ' + m.strength;
+          if (m.dosageForm) label += ' ' + m.dosageForm;
+          if (m.claimCount > 0) label += ' (' + m.claimCount + ' Rx)';
+          return '<option value="' + esc(m.ndcHash) + '" data-name="' + esc(m.brandName || m.genericName || '') + '">' + esc(label) + '</option>';
+        }).join('');
+    } else if (medSel) {
+      medSel.innerHTML = '<option value="">-- No medications loaded (check formulary tab) --</option>';
     }
   }
 
@@ -404,12 +439,12 @@
 
     var btn = $('#rx-write-btn');
     btn.disabled = true;
-    btn.textContent = 'Sending...';
+    btn.textContent = 'Submitting...';
 
     try {
       var medSelect = $('#rx-med-select');
       var brandName = medSelect.selectedOptions[0] ? medSelect.selectedOptions[0].dataset.name || '' : '';
-      var res = await API.writePrescription({
+      var res = await API.prescribeWithProof({
         memberWalletId: memberWalletId,
         pharmacyWalletId: pharmacyWalletId,
         ndcHash: ndcHash,
@@ -421,17 +456,85 @@
         diagnosis: $('#rx-diagnosis').value.trim(),
       });
 
-      setHTML('#rx-write-result', '<div class="form-result success">Prescription sent! Rx ID: ' + esc(res.rxId) +
-        (res.sentToPharmacy ? ' | Pharmacy notified' : '') +
-        (res.sentToMember ? ' | Patient notified' : '') + '</div>');
-      toast('Prescription sent to pharmacy', 'success');
-      loadPrescriptionHistory();
+      // eScript delivered immediately, proof generating in background
+      setHTML('#rx-write-result',
+        '<div class="form-result info">' +
+          '<div><strong>eScript delivered</strong> — Rx ID: ' + esc(res.rxId) + '</div>' +
+          '<div style="margin-top:8px">' +
+            '<span class="badge badge-pending" id="rx-proof-badge">ZK Proof: Generating...</span>' +
+          '</div>' +
+          '<div id="rx-proof-detail" style="margin-top:8px;font-size:0.85em;color:var(--text-secondary)"></div>' +
+        '</div>');
+      toast('eScript sent — ZK proof generating', 'info');
+
+      // Poll for proof completion
+      pollPrescribeStatus(res.jobKey, res.rxId, 0);
     } catch (err) {
       setHTML('#rx-write-result', '<div class="form-result error">' + esc(err.message) + '</div>');
+      btn.disabled = false;
+      btn.textContent = 'Send Prescription';
+    }
+  }
+
+  function pollPrescribeStatus(jobKey, rxId, attempt) {
+    if (attempt > 120) { // 120 × 5s = 10 min timeout
+      var badge = document.getElementById('rx-proof-badge');
+      if (badge) { badge.className = 'badge badge-error'; badge.textContent = 'ZK Proof: Timeout'; }
+      var btn = $('#rx-write-btn');
+      if (btn) { btn.disabled = false; btn.textContent = 'Send Prescription'; }
+      return;
     }
 
-    btn.disabled = false;
-    btn.textContent = 'Send Prescription';
+    setTimeout(async function() {
+      try {
+        var status = await API.prescribeStatus(jobKey);
+
+        if (status.status === 'complete') {
+          var badge = document.getElementById('rx-proof-badge');
+          if (badge) { badge.className = 'badge badge-settled'; badge.textContent = 'ZK Proof: Verified'; }
+          var detail = document.getElementById('rx-proof-detail');
+          if (detail) {
+            var elapsed = status.elapsedMs ? (status.elapsedMs / 1000).toFixed(1) + 's' : '';
+            var proofInfo = '';
+            if (status.result) {
+              var r = status.result;
+              if (r.proofTimesMs) {
+                proofInfo = Object.entries(r.proofTimesMs)
+                  .map(function(e) { return esc(e[0]) + ': ' + (e[1] / 1000).toFixed(2) + 's'; })
+                  .join(' | ');
+              }
+            }
+            detail.innerHTML =
+              '<div>Proved in ' + esc(elapsed) + '</div>' +
+              (proofInfo ? '<div style="margin-top:4px">' + proofInfo + '</div>' : '') +
+              '<div style="margin-top:4px;color:var(--accent)">4 ZK proofs: FormularyAccess + Eligibility + Messaging + PrescriptionStatus</div>';
+          }
+          toast('Prescription ZK proof verified', 'success');
+          loadPrescriptionHistory();
+          var btn = $('#rx-write-btn');
+          if (btn) { btn.disabled = false; btn.textContent = 'Send Prescription'; }
+        } else if (status.status === 'error') {
+          var badge = document.getElementById('rx-proof-badge');
+          if (badge) { badge.className = 'badge badge-failed'; badge.textContent = 'ZK Proof: Failed'; }
+          var detail = document.getElementById('rx-proof-detail');
+          if (detail) { detail.innerHTML = '<div style="color:#ef4444">' + esc(status.error || 'Unknown error') + '</div>'; }
+          toast('Prescription proof failed: ' + (status.error || 'Unknown'), 'error');
+          var btn = $('#rx-write-btn');
+          if (btn) { btn.disabled = false; btn.textContent = 'Send Prescription'; }
+        } else {
+          // Still pending — poll again
+          var detail = document.getElementById('rx-proof-detail');
+          if (detail) {
+            var elapsed = status.elapsedMs ? (status.elapsedMs / 1000).toFixed(0) : '0';
+            detail.innerHTML = '<div>Proving... ' + esc(elapsed) + 's elapsed</div>';
+          }
+          pollPrescribeStatus(jobKey, rxId, attempt + 1);
+        }
+      } catch (err) {
+        // Network error — retry
+        pollPrescribeStatus(jobKey, rxId, attempt + 1);
+      }
+    }, 5000);
   }
 
   async function loadPrescriptionHistory() {
@@ -586,52 +689,172 @@
   // ══════════════════════════════════════════════════════════════
 
   var formularyAutoLoaded = false;
+  var formularyCurrentOffset = 0;
+  var formularyCurrentFilter = {};
+  var formularyTotalDrugs = 0;
+  var formularyPageSize = 100;
+  var formularyAvailableRoutes = [];
+
   async function autoLoadFormulary() {
     if (formularyAutoLoaded) return;
     formularyAutoLoaded = true;
-    var planInput = $('#form-plan-id');
-    if (planInput && !planInput.value.trim()) {
-      planInput.value = 'default';
-    }
-    formularyLookup();
+    // Load route filter options and categories
+    try {
+      var routes = await API.getFormularyRoutes();
+      if (Array.isArray(routes)) {
+        formularyAvailableRoutes = routes;
+        var routeSel = $('#form-route-filter');
+        if (routeSel) {
+          routeSel.innerHTML = '<option value="">All Routes</option>' +
+            routes.map(function (r) { return '<option value="' + esc(r.route) + '">' + esc(r.route) + ' (' + r.count + ')</option>'; }).join('');
+        }
+      }
+    } catch (_) { }
+    try {
+      var rootData = await API.getFormularyRoot();
+      if (rootData) {
+        formularyTotalDrugs = rootData.drugCount || 0;
+        var countEl = $('#form-drug-count');
+        if (countEl) countEl.textContent = formularyTotalDrugs.toLocaleString() + ' drugs in formulary';
+        var rootEl = $('#form-merkle-root');
+        if (rootEl && rootData.formularyRoot) {
+          rootEl.innerHTML = '<span class="hash" title="' + esc(rootData.formularyRoot) + '">Merkle Root: ' + esc(rootData.formularyRoot.slice(0, 16)) + '...</span>';
+        }
+      }
+    } catch (_) { }
+    formularySearch();
   }
 
-  async function formularyLookup() {
-    var planId = $('#form-plan-id') ? $('#form-plan-id').value.trim() : '';
-    if (!planId) { toast('Enter a plan ID hash', 'error'); return; }
+  // Paginated search — called by UI controls
+  window._filterFormulary = function (query) {
+    formularyCurrentFilter.namePrefix = query || '';
+    formularyCurrentOffset = 0;
+    formularySearch();
+  };
 
+  window._formularySetRoute = function (route) {
+    formularyCurrentFilter.route = route || '';
+    formularyCurrentOffset = 0;
+    formularySearch();
+  };
+
+  window._formularySetTier = function (tier) {
+    formularyCurrentFilter.tierLevel = tier ? parseInt(tier, 10) : 0;
+    formularyCurrentOffset = 0;
+    formularySearch();
+  };
+
+  window._formularySetClassification = function (cls) {
+    formularyCurrentFilter.classification = cls || '';
+    formularyCurrentOffset = 0;
+    formularySearch();
+  };
+
+  window._formularyNextPage = function () {
+    formularyCurrentOffset += formularyPageSize;
+    formularySearch();
+  };
+
+  window._formularyPrevPage = function () {
+    formularyCurrentOffset = Math.max(0, formularyCurrentOffset - formularyPageSize);
+    formularySearch();
+  };
+
+  async function formularySearch() {
     var resultEl = $('#form-result');
+    if (!resultEl) return;
     resultEl.innerHTML = '<div class="loading">Loading...</div>';
 
     try {
-      var data = await API.getFormulary(planId);
-      if (data.entriesJson) {
-        try {
-          var entries = JSON.parse(data.entriesJson);
-          if (Array.isArray(entries) && entries.length > 0) {
-            resultEl.innerHTML =
-              '<table class="data-table"><thead><tr><th>NDC Hash</th><th>Tier</th><th>Copay</th></tr></thead><tbody>' +
-              entries.map(function (e) {
-                return '<tr><td><span class="hash" title="' + esc(e.ndcHash) + '">' + truncHash(e.ndcHash) + '</span></td>' +
-                  '<td>' + esc(e.tierLevel || '--') + '</td>' +
-                  '<td>' + (e.copay != null ? '$' + Number(e.copay).toFixed(2) : '--') + '</td></tr>';
-              }).join('') +
-              '</tbody></table>';
-          } else {
-            resultEl.innerHTML = '<div class="empty-state">Formulary is empty</div>';
-          }
-        } catch (_) {
-          resultEl.innerHTML = '<div class="detail-grid"><div class="detail-key">Raw Data</div><div class="detail-val">' + esc(data.entriesJson) + '</div></div>';
-        }
-      } else {
-        var keys = Object.keys(data);
-        resultEl.innerHTML = '<div class="detail-grid">' +
-          keys.map(function (k) { return '<div class="detail-key">' + esc(k) + '</div><div class="detail-val">' + esc(typeof data[k] === 'object' ? JSON.stringify(data[k]) : data[k]) + '</div>'; }).join('') +
-          '</div>';
+      var params = { offset: formularyCurrentOffset, limit: formularyPageSize };
+      if (formularyCurrentFilter.namePrefix) params.namePrefix = formularyCurrentFilter.namePrefix;
+      if (formularyCurrentFilter.route) params.route = formularyCurrentFilter.route;
+      if (formularyCurrentFilter.tierLevel) params.tierLevel = formularyCurrentFilter.tierLevel;
+      if (formularyCurrentFilter.classification) params.classification = formularyCurrentFilter.classification;
+
+      var page = await API.getFormularyPage(params);
+      if (!page || !page.drugs) {
+        resultEl.innerHTML = '<div class="empty-state">No drugs returned from sequencer</div>';
+        return;
       }
+      formularyTotalDrugs = page.total || 0;
+      renderFormularyTable(page.drugs, page.total, page.offset, page.hasMore);
     } catch (err) {
       resultEl.innerHTML = '<div class="empty-state">' + esc(err.message) + '</div>';
     }
+  }
+
+  function renderFormularyTable(drugs, total, offset, hasMore) {
+    var resultEl = $('#form-result');
+    if (!resultEl) return;
+    if (!drugs.length) {
+      resultEl.innerHTML = '<div class="empty-state">No matching medications</div>';
+      return;
+    }
+    var from = offset + 1;
+    var to = offset + drugs.length;
+    var paginationHtml = '<div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0;font-size:12px;color:var(--text-muted)">' +
+      '<span>Showing ' + from + '–' + to + ' of ' + (total || '?').toLocaleString() + ' medications</span>' +
+      '<span>' +
+      (offset > 0 ? '<button onclick="window._formularyPrevPage()" style="margin-right:8px;cursor:pointer">&laquo; Prev</button>' : '') +
+      (hasMore ? '<button onclick="window._formularyNextPage()" style="cursor:pointer">Next &raquo;</button>' : '') +
+      '</span></div>';
+
+    resultEl.innerHTML = paginationHtml +
+      '<table class="data-table"><thead><tr><th>Drug Name</th><th>NDC</th><th>Strength</th><th>Form</th><th>Route</th><th>Tier</th><th>Copay</th><th>NADAC/Unit</th><th>Proof</th></tr></thead><tbody>' +
+      drugs.map(function (d) {
+        var name = d.brandName || d.genericName || d.ndc;
+        var tierNames = { 1: 'T1 Generic', 2: 'T2 Preferred', 3: 'T3 Non-Pref', 4: 'T4 Specialty' };
+        var tierLabel = tierNames[d.tierLevel] || ('T' + d.tierLevel);
+        return '<tr>' +
+          '<td><strong>' + esc(name) + '</strong>' +
+          (d.genericName && d.brandName && d.genericName !== d.brandName ? '<br><small style="color:var(--text-muted)">' + esc(d.genericName) + '</small>' : '') +
+          (d.requiresPriorAuth ? '<br><span style="color:var(--warning);font-size:11px">Prior Auth Required</span>' : '') +
+          '</td>' +
+          '<td><span class="hash" title="' + esc(d.ndc) + '">' + esc(d.ndcFormatted || d.ndc) + '</span></td>' +
+          '<td>' + esc(d.strength || '--') + '</td>' +
+          '<td>' + esc(d.dosageForm || '--') + '</td>' +
+          '<td>' + esc(d.route || '--') + '</td>' +
+          '<td><span class="badge tier-' + d.tierLevel + '">' + esc(tierLabel) + '</span></td>' +
+          '<td>$' + (d.copayAmount / 100).toFixed(2) + '</td>' +
+          '<td>$' + (d.nadacPerUnit != null ? d.nadacPerUnit.toFixed(4) : '--') + '</td>' +
+          '<td><button class="btn btn-sm" onclick="window._showWitness(\'' + esc(d.ndcHash) + '\')" title="Show Merkle inclusion proof">Verify</button></td>' +
+          '</tr>';
+      }).join('') +
+      '</tbody></table>' + paginationHtml;
+  }
+
+  // Show Merkle witness for a drug (proves it exists in the formulary tree)
+  window._showWitness = async function (ndcHash) {
+    try {
+      var data = await API.getFormularyWitness(ndcHash);
+      var modal = document.createElement('div');
+      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999';
+      modal.onclick = function (e) { if (e.target === modal) modal.remove(); };
+      var pathHtml = data.witnessPath.map(function (h, i) {
+        var dir = data.witnessIsLeft[i] ? 'L' : 'R';
+        return '<div style="font-size:11px;font-family:monospace;margin:2px 0"><span style="color:var(--text-muted)">[' + i + '] ' + dir + '</span> ' + h.slice(0, 24) + '...</div>';
+      }).join('');
+      modal.innerHTML = '<div style="background:var(--bg-secondary);border-radius:12px;padding:24px;max-width:520px;width:90%;max-height:80vh;overflow-y:auto">' +
+        '<h3 style="margin:0 0 12px">Merkle Inclusion Proof</h3>' +
+        '<div style="margin-bottom:8px"><strong>Drug:</strong> ' + esc(data.drug ? data.drug.genericName : ndcHash) + '</div>' +
+        '<div style="margin-bottom:8px"><strong>Leaf Index:</strong> ' + esc(data.leafIndex) + '</div>' +
+        '<div style="margin-bottom:8px"><strong>Formulary Root:</strong></div>' +
+        '<div class="hash" style="font-size:11px;word-break:break-all;margin-bottom:12px">' + esc(data.formularyRoot) + '</div>' +
+        '<div style="margin-bottom:4px"><strong>Witness Path (' + data.witnessPath.length + ' nodes):</strong></div>' +
+        pathHtml +
+        '<div style="margin-top:16px;font-size:11px;color:var(--text-muted)">This 16-hash path proves this drug is committed in the formulary MerkleTree(16). ' +
+        'A ZK circuit can verify this witness against the root without revealing the full formulary.</div>' +
+        '<button class="btn btn-primary" onclick="this.closest(\'div[style*=fixed]\').remove()" style="margin-top:12px;width:100%">Close</button></div>';
+      document.body.appendChild(modal);
+    } catch (err) {
+      toast('Witness error: ' + err.message, 'error');
+    }
+  };
+
+  // Legacy lookup kept for backward compat
+  async function formularyLookup() {
+    formularySearch();
   }
 
   async function checkDrugCoverage() {
@@ -724,19 +947,24 @@
       var sent = Array.isArray(results[1]) ? results[1] : (results[1].messages || []);
 
       // Build contacts from unique threads/wallets
+      // MessageStoreEntry shape: { message: { senderWalletId, recipientWalletId, threadIdHash, ... }, payload: { ciphertext, iv, tag, timestamp }, leafIndex, leafHash }
       var contactMap = {};
-      inbox.forEach(function (m) {
+      inbox.forEach(function (entry) {
+        var m = entry.message || entry;
+        var p = entry.payload || {};
         var key = m.threadIdHash || m.senderWalletId || m.from;
         if (!contactMap[key]) contactMap[key] = { wallet: m.senderWalletId || m.from, threadId: m.threadIdHash, messages: [], lastTime: 0, name: m.senderName || truncHash(m.senderWalletId || m.from, 14) };
-        contactMap[key].messages.push(m);
-        var t = m.timestamp || 0;
+        contactMap[key].messages.push(entry);
+        var t = p.timestamp || entry.timestamp || 0;
         if (t > contactMap[key].lastTime) contactMap[key].lastTime = t;
       });
-      sent.forEach(function (m) {
+      sent.forEach(function (entry) {
+        var m = entry.message || entry;
+        var p = entry.payload || {};
         var key = m.threadIdHash || m.recipientWalletId || m.to;
         if (!contactMap[key]) contactMap[key] = { wallet: m.recipientWalletId || m.to, threadId: m.threadIdHash, messages: [], lastTime: 0, name: m.recipientName || truncHash(m.recipientWalletId || m.to, 14) };
-        contactMap[key].messages.push(m);
-        var t = m.timestamp || 0;
+        contactMap[key].messages.push(entry);
+        var t = p.timestamp || entry.timestamp || 0;
         if (t > contactMap[key].lastTime) contactMap[key].lastTime = t;
       });
 
@@ -748,7 +976,12 @@
       }
 
       listEl.innerHTML = msgContacts.map(function (c, i) {
-        var preview = c.messages.length > 0 ? (c.messages[0].subject || c.messages[0].body || '(encrypted)') : '';
+        var preview = '';
+        if (c.messages.length > 0) {
+          var lastEntry = c.messages[c.messages.length - 1];
+          var lp = lastEntry.payload || {};
+          preview = decodePayload(lp.ciphertext, lp.iv);
+        }
         return '<div class="msg-contact-item" data-idx="' + i + '">' +
           '<div class="msg-contact-avatar">' + initials(c.name) + '</div>' +
           '<div class="msg-contact-info">' +
@@ -800,11 +1033,14 @@
         return;
       }
 
-      messagesEl.innerHTML = messages.map(function (m) {
+      messagesEl.innerHTML = messages.map(function (entry) {
+        var m = entry.message || entry;
+        var p = entry.payload || {};
         var isOutgoing = (m.senderWalletId || m.from) === walletId;
+        var body = decodePayload(p.ciphertext, p.iv);
         return '<div class="msg-bubble ' + (isOutgoing ? 'outgoing' : 'incoming') + '">' +
-          '<div>' + esc(m.body || m.content || m.subject || '(encrypted)') + '</div>' +
-          '<div class="msg-bubble-time">' + fmtTime(m.timestamp) + '</div>' +
+          '<div>' + esc(body) + '</div>' +
+          '<div class="msg-bubble-time">' + fmtTime(p.timestamp || entry.timestamp) + '</div>' +
           '</div>';
       }).join('');
 
@@ -1057,8 +1293,9 @@
     if (!sel) return;
     var current = getSelectedPrescriber();
     sel.innerHTML = PRESCRIBERS.map(function (p) {
+      var loc = p.city ? (p.city + ', ' + p.state) : p.state;
       return '<option value="' + p.npi + '"' + (p.npi === current.npi ? ' selected' : '') + '>' +
-        esc(p.name) + ' — ' + esc(p.specialty) + ', ' + esc(p.state) +
+        esc(p.name) + ', ' + esc(p.credential) + ' — ' + esc(p.specialty) + ' (' + esc(loc) + ')' +
         '</option>';
     }).join('');
     sel.addEventListener('change', function () {
@@ -1392,7 +1629,18 @@
 
   // ── Init ─────────────────────────────────────────────────────
 
+  async function loadPrescriberList() {
+    try {
+      var res = await fetch(location.origin + '/prescribers/list');
+      var json = await res.json();
+      if (json.ok && Array.isArray(json.data)) {
+        PRESCRIBERS = json.data;
+      }
+    } catch (_) { /* server not ready — PRESCRIBERS stays empty */ }
+  }
+
   async function init() {
+    await loadPrescriberList();
     initPrescriberSelector();
     initBadgeTap();
     bindEvents();

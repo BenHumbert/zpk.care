@@ -7,7 +7,7 @@
  *   3. AUTH:  Verify walletId against ProviderRegistry → issue session
  *
  * Also provides the auto-tap simulation that generates real ZK ProofGate
- * proofs for each demo provider, demonstrating the full authentication flow.
+ * proofs for each seed provider, demonstrating the full authentication flow.
  *
  * Encryption: AES-256-GCM with scrypt KDF (same parameters as RecoveryCard).
  */
@@ -35,8 +35,8 @@ const SCRYPT_P = 1;
 const SCRYPT_KEY_LENGTH = 32;
 const SCRYPT_MAXMEM = 64 * 1024 * 1024;
 
-/** Default PIN for demo badges — NEVER use in production */
-export const DEMO_BADGE_PIN = '000000';
+/** Default PIN for dev badges — NEVER use in production */
+export const DEV_BADGE_PIN = '000000';
 
 /**
  * Validate PIN strength for badge creation.
@@ -45,7 +45,7 @@ export const DEMO_BADGE_PIN = '000000';
  *   - Minimum 8 characters
  *   - At least one letter and one digit (not all-same-char)
  *
- * In demo/dev mode, allows any PIN >= 6 characters (including DEMO_BADGE_PIN).
+ * In dev mode, allows any PIN >= 6 characters (including DEV_BADGE_PIN).
  */
 export function validateBadgePin(pin: string): void {
   if (!pin || pin.length < 6) {
@@ -60,8 +60,8 @@ export function validateBadgePin(pin: string): void {
     if (!hasLetter || !hasDigit) {
       throw new Error('Production PIN must contain both letters and digits');
     }
-    if (pin === DEMO_BADGE_PIN) {
-      throw new Error('Demo PIN cannot be used in production');
+    if (pin === DEV_BADGE_PIN) {
+      throw new Error('Dev PIN cannot be used in production');
     }
   }
 }
@@ -72,7 +72,7 @@ export function validateBadgePin(pin: string): void {
  * Create a ProviderBadge payload ready for NFC write.
  *
  * Called by the insurer during credentialing approval. The enrollment key
- * is encrypted with the provider's chosen PIN (or demo PIN for simulation).
+ * is encrypted with the provider's chosen PIN (or dev PIN for simulation).
  *
  * @param enrollmentKey — the provider's secret enrollment key
  * @param pin — PIN to encrypt with (minimum 6 characters)

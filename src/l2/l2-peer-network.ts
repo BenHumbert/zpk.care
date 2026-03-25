@@ -78,14 +78,14 @@ export class L2PeerNetwork {
    * @throws If connection fails or peer is unreachable
    */
   async connectToPeer(url: string): Promise<PeerInfo> {
-    // Don't connect to self
-    if (this.isPeerAlreadyConnected(url)) {
-      const existing = this.findPeerByUrl(url);
-      if (existing) return existing;
+    // Check if we already know this peer (connected or disconnected)
+    const existing = this.findPeerByUrl(url);
+    if (existing && existing.status === 'connected') {
+      return existing;
     }
 
-    // Check max peers
-    if (this.getConnectedPeers().length >= this.config.maxPeers) {
+    // Check max peers (only count currently connected peers)
+    if (!existing && this.getConnectedPeers().length >= this.config.maxPeers) {
       throw new Error(`Max peers reached (${this.config.maxPeers})`);
     }
 
@@ -94,6 +94,15 @@ export class L2PeerNetwork {
       timeoutMs: 10_000,
       ...(this.config.adminToken ? { adminToken: this.config.adminToken } : {}),
     });
+
+    // If we have a disconnected peer for this URL, reuse its entry
+    if (existing) {
+      existing.status = 'connected';
+      existing.lastSeen = Date.now();
+      // Replace the stale client with a fresh one
+      this.clients.set(existing.peerId, client);
+      return existing;
+    }
 
     // Try to get peer identity
     let peerInfo: PeerInfo;
@@ -211,6 +220,9 @@ export class L2PeerNetwork {
     message: GossipMessage,
     exceptPeerId: string,
   ): Promise<void> {
+    // Sign outgoing message if gossipSecret is configured
+    message.signature = this.signGossip(message);
+
     // Mark as seen
     this.markSeen(message.messageId);
 
@@ -461,10 +473,10 @@ export class L2PeerNetwork {
     return this.findPeerByUrl(url) !== undefined;
   }
 
-  /** Find a peer by URL */
+  /** Find a peer by URL (regardless of connection status) */
   private findPeerByUrl(url: string): PeerInfo | undefined {
     for (const peer of this.peers.values()) {
-      if (peer.url === url && peer.status === 'connected') {
+      if (peer.url === url) {
         return peer;
       }
     }

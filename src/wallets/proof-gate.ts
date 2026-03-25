@@ -26,7 +26,7 @@ import {
  * Private inputs: the preimage Fields (including enrollment key hash)
  *
  * Three methods — one per entity type:
- *   Member:     5 Fields (cardholderIdHash, dob, firstNameHash, lastNameHash, enrollmentKeyHash)
+ *   Member:     6 Fields (cardholderIdHash, dob, firstNameHash, lastNameHash, enrollmentKeyHash, groupIdHash)
  *   Prescriber: 3 Fields (qualifierCode, prescriberIdHash, enrollmentKeyHash)
  *   Pharmacy:   3 Fields (qualifierCode, serviceProviderIdHash, enrollmentKeyHash)
  */
@@ -37,10 +37,11 @@ export const ProofGateProgram = ZkProgram({
   methods: {
     /**
      * Prove ownership of a member wallet.
-     * Private inputs are the 5 preimage Fields from memberWalletPreimage().
+     * Private inputs are the 6 preimage Fields from memberWalletPreimage().
+     * Includes groupIdHash — binds wallet ownership to employer group.
      */
     verifyMember: {
-      privateInputs: [Field, Field, Field, Field, Field],
+      privateInputs: [Field, Field, Field, Field, Field, Field],
       async method(
         walletIdentity: Field,
         cardholderIdHash: Field,
@@ -48,6 +49,7 @@ export const ProofGateProgram = ZkProgram({
         firstNameHash: Field,
         lastNameHash: Field,
         enrollmentKeyHash: Field,
+        groupIdHash: Field,
       ) {
         const computed = Poseidon.hash([
           DOMAIN_TAG_MEMBER,
@@ -56,6 +58,7 @@ export const ProofGateProgram = ZkProgram({
           firstNameHash,
           lastNameHash,
           enrollmentKeyHash,
+          groupIdHash,
         ]);
         computed.assertEquals(walletIdentity);
       },

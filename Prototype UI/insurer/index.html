@@ -814,22 +814,22 @@ function setClaimTab(tab, el) {
   const placeholders = { member: 'Enter member wallet ID...', prescriber: 'Enter prescriber wallet ID...', pharmacy: 'Enter pharmacy wallet ID...', drug: 'Enter NDC code (e.g. 00069-1085-01)...' };
   input.placeholder = placeholders[tab] || '';
 }
-function lookupClaims() { /* demo: no-op */ }
+function lookupClaims() { /* no-op */ }
 
 /* ── Messaging Tab Switcher ──────────────────────────────── */
 function setMsgTab(tab, el) {
   document.querySelectorAll('.msg-tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
 }
-function queryMessages() { /* demo: no-op */ }
+function queryMessages() { /* no-op */ }
 
 /* ── Admin Actions ───────────────────────────────────────── */
 function authenticateAdmin() {
   const token = document.getElementById('admin-token').value;
-  if (token) alert('Admin authenticated (demo mode)');
+  if (token) alert('Admin authenticated (placeholder)');
 }
 function runFullAudit() { alert('Full audit completed: All 4 checks passing. 156 events verified.'); }
-function forceBatch() { alert('Batch #13 build triggered (demo mode)'); }
+function forceBatch() { alert('Batch #13 build triggered (placeholder)'); }
 </script>
 </body>
 </html>

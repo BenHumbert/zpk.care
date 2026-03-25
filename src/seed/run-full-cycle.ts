@@ -1,11 +1,11 @@
 /**
- * zkpCare — Full Claim Lifecycle Demo
+ * Adjuda-GATOR — Full Claim Lifecycle
  *
  * Runs the complete lifecycle in the terminal with real ZK proof generation:
  *   Enrollment → eScript → Fill → Accumulator Update → Credential Change
  *
  * Run:
- *   $env:NODE_OPTIONS="--max-old-space-size=12288"; npx tsx src/demo/run-full-cycle.ts
+ *   $env:NODE_OPTIONS="--max-old-space-size=12288"; npx tsx src/seed/run-full-cycle.ts
  *
  * Duration: ~10-15 min (6 ZkProgram compilations + 8 proof generations)
  */
@@ -55,7 +55,7 @@ import { MessageRegistry, DelegationRegistry, KeyRegistry } from '../messaging/m
 import {
   PrescriptionData,
   PrescriptionStatusData,
-  RX_STATUS_ACTIVE,
+  RX_STATUS_ADJUDICATED,
   RX_STATUS_FILLED,
 } from '../prescription/prescription-data.js';
 import { PrescriptionProgram } from '../prescription/prescription-program.js';
@@ -71,8 +71,9 @@ import { OpaqueRoster } from '../onboarding/opaque-roster.js';
 import { PlanTemplate } from '../onboarding/plan-template.js';
 import { EnrollmentService } from '../onboarding/enrollment-service.js';
 
-// Demo data
-import { DEMO_PRESCRIBERS, DEMO_PHARMACIES, DEMO_MEMBERS, getAllFormularyEntries } from './index.js';
+// Seed data
+import { PRESCRIBERS, PHARMACIES, MEMBERS } from './index.js';
+import { getAllFormularyEntries } from '../data/index.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -136,7 +137,7 @@ async function main() {
 
   console.log('');
   console.log('+==========================================================+');
-  console.log('|         zkpCare -- FULL CLAIM LIFECYCLE DEMO              |');
+  console.log('|       Adjuda-GATOR -- FULL CLAIM LIFECYCLE                 |');
   console.log('|                                                          |');
   console.log('|  Enrollment -> eScript -> Fill -> Accumulator Update     |');
   console.log('|  Real ZK proofs on MINA Protocol (o1js)                  |');
@@ -159,9 +160,9 @@ async function main() {
   // Phase 2: Wallet Derivation
   // ═══════════════════════════════════════════════════════════
 
-  const member = DEMO_MEMBERS[0];        // Alice Johnson
-  const prescriber = DEMO_PRESCRIBERS[0]; // Dr. Sarah Chen
-  const pharmacy = DEMO_PHARMACIES[0];    // Main Street Pharmacy
+  const member = MEMBERS[0];        // Alice Johnson
+  const prescriber = PRESCRIBERS[0]; // Dr. Sarah Chen
+  const pharmacy = PHARMACIES[0];    // Main Street Pharmacy
 
   console.log('-- Phase 2: Wallet Derivation (off-chain, ~10ms each) --');
   console.log('');
@@ -170,8 +171,8 @@ async function main() {
   console.log('');
 
   const memberWalletId = await timed('P2', 'Derive member wallet', 'offchain', false, () =>
-    deriveMemberWalletId(member.localData, member.enrollmentKey));
-  const memberPreimageFields = memberWalletPreimage(member.localData, member.enrollmentKey);
+    deriveMemberWalletId(member.localData, member.enrollmentKey, Field(0)));
+  const memberPreimageFields = memberWalletPreimage(member.localData, member.enrollmentKey, Field(0));
 
   console.log(`    -> ${member.localData.firstName} ${member.localData.lastName} (${member.localData.cardholderId})`);
   console.log(`       Wallet ID: ${truncField(memberWalletId)}`);
@@ -327,7 +328,7 @@ async function main() {
 
   const activeStatus = new PrescriptionStatusData({
     prescriptionHash: prescriptionData.commitment(),
-    status: RX_STATUS_ACTIVE,
+    status: RX_STATUS_ADJUDICATED,
     updatedByWalletId: prescriberWalletId,
     updatedAt: dateToField('20260201'),
     pharmacyWalletId,
@@ -449,7 +450,7 @@ async function main() {
   await timed('P6', '1/8 ProofGate.verifyMember (Alice proves identity)', 'prove', true, () =>
     ProofGateProgram.verifyMember(
       memberWalletId,
-      ...memberPreimageFields as [Field, Field, Field, Field, Field],
+      ...memberPreimageFields as [Field, Field, Field, Field, Field, Field],
     ));
   console.log('       Alice proves she knows her 5 PHI fields + enrollment key');
   console.log('');
@@ -723,6 +724,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('DEMO FAILED:', err);
+  console.error('FAILED:', err);
   process.exit(1);
 });

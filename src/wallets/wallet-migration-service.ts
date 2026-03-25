@@ -97,7 +97,16 @@ export class WalletMigrationService {
 
     let oldWalletId: Field;
     if (card.domainTag === 0) {
-      oldWalletId = deriveMemberWalletId(local as MemberLocalData, oldEnrollmentKey);
+      let groupIdHash: Field;
+      try {
+        groupIdHash = card.groupIdHash ? Field(BigInt(card.groupIdHash)) : Field(0);
+      } catch {
+        throw new Error(
+          `Invalid groupIdHash on recovery card: "${card.groupIdHash}". ` +
+          'Expected a decimal numeric string. The card data may be corrupted.',
+        );
+      }
+      oldWalletId = deriveMemberWalletId(local as MemberLocalData, oldEnrollmentKey, groupIdHash);
     } else if (card.domainTag === 1) {
       oldWalletId = derivePrescriberWalletId(local as PrescriberLocalData, oldEnrollmentKey);
     } else if (card.domainTag === 2) {
@@ -134,12 +143,13 @@ export class WalletMigrationService {
   static prepareNewWallet(
     local: EntityLocalData,
     domainTag: number,
+    groupIdHash?: Field,
   ): NewWalletResult {
     const newEnrollmentKey = generateEnrollmentKey();
 
     let newWalletId: Field;
     if (domainTag === 0) {
-      newWalletId = deriveMemberWalletId(local as MemberLocalData, newEnrollmentKey);
+      newWalletId = deriveMemberWalletId(local as MemberLocalData, newEnrollmentKey, groupIdHash ?? Field(0));
     } else if (domainTag === 1) {
       newWalletId = derivePrescriberWalletId(local as PrescriberLocalData, newEnrollmentKey);
     } else if (domainTag === 2) {
@@ -171,13 +181,14 @@ export class WalletMigrationService {
     oldEnrollmentKey: string,
     newEnrollmentKey: string,
     domainTag: number,
+    groupIdHash?: Field,
   ): Promise<WalletMigrationProof> {
     let oldPreimage: Field[];
     let newPreimage: Field[];
 
     if (domainTag === 0) {
-      oldPreimage = memberTransitionPreimage(local as MemberLocalData, oldEnrollmentKey);
-      newPreimage = memberTransitionPreimage(local as MemberLocalData, newEnrollmentKey);
+      oldPreimage = memberTransitionPreimage(local as MemberLocalData, oldEnrollmentKey, groupIdHash ?? Field(0));
+      newPreimage = memberTransitionPreimage(local as MemberLocalData, newEnrollmentKey, groupIdHash ?? Field(0));
     } else if (domainTag === 1) {
       oldPreimage = prescriberTransitionPreimage(local as PrescriberLocalData, oldEnrollmentKey);
       newPreimage = prescriberTransitionPreimage(local as PrescriberLocalData, newEnrollmentKey);
@@ -188,10 +199,10 @@ export class WalletMigrationService {
       throw new Error(`Unsupported domain tag: ${domainTag}`);
     }
 
-    // Both preimages should be 6 Fields: [domainTag, f0, f1, f2, f3, f4]
+    // Both preimages should be 7 Fields: [domainTag, f0, f1, f2, f3, f4, f5]
     const result = await WalletMigrationProgram.proveIdentityContinuity(
-      oldPreimage[0], oldPreimage[1], oldPreimage[2], oldPreimage[3], oldPreimage[4], oldPreimage[5],
-      newPreimage[0], newPreimage[1], newPreimage[2], newPreimage[3], newPreimage[4], newPreimage[5],
+      oldPreimage[0], oldPreimage[1], oldPreimage[2], oldPreimage[3], oldPreimage[4], oldPreimage[5], oldPreimage[6],
+      newPreimage[0], newPreimage[1], newPreimage[2], newPreimage[3], newPreimage[4], newPreimage[5], newPreimage[6],
     );
 
     return result.proof as WalletMigrationProof;

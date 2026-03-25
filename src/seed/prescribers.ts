@@ -1,5 +1,5 @@
 /**
- * Demo Prescriber Data — NPPES-based
+ * Seed Prescriber Data — NPPES-based
  *
  * Fictional prescribers with realistic NPPES-style identifiers.
  * NPI numbers are 10-digit, starting with 1 (individual) or 2 (organization).
@@ -16,9 +16,9 @@ import type { PrescriberLocalData } from '../models/prescriber.js';
 
 /**
  * Extended prescriber record with NPPES display fields.
- * The ZK system only uses PrescriberLocalData; the rest is for demo UI/reporting.
+ * The ZK system only uses PrescriberLocalData; the rest is for UI/reporting.
  */
-export interface DemoPrescriber {
+export interface SeedPrescriber {
   /** ZK-compatible local data (goes into wallet derivation) */
   localData: PrescriberLocalData;
   /** Enrollment key (user-generated secret, stays on device) */
@@ -47,7 +47,7 @@ export interface DemoPrescriber {
  * NPI format: 1XXXXXXXXX (individual providers)
  * Taxonomy codes from NUCC Health Care Provider Taxonomy Code Set.
  */
-export const DEMO_PRESCRIBERS: DemoPrescriber[] = [
+export const PRESCRIBERS: SeedPrescriber[] = [
   {
     localData: { prescriberIdQualifier: 1, prescriberId: '1234567890' },
     enrollmentKey: 'gpRL1IB9NWulKfKjrjWK0QM7ahqIrOkodzEQn1NJb1M',
@@ -170,7 +170,7 @@ export const DEMO_PRESCRIBERS: DemoPrescriber[] = [
   },
 ];
 
-/** Quick lookup: NPI → DemoPrescriber */
-export const PRESCRIBER_BY_NPI = new Map<string, DemoPrescriber>(
-  DEMO_PRESCRIBERS.map((p) => [p.localData.prescriberId, p]),
+/** Quick lookup: NPI → SeedPrescriber */
+export const PRESCRIBER_BY_NPI = new Map<string, SeedPrescriber>(
+  PRESCRIBERS.map((p) => [p.localData.prescriberId, p]),
 );

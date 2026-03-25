@@ -191,7 +191,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(port, '0.0.0.0', () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════════════╗');
-  console.log('  ║     🔍  LEVIATHAN EXPLORER — zkTrident       ║');
+  console.log('  ║     🐊  LEVIATHAN EXPLORER — Adjuda-GATOR    ║');
   console.log('  ╚══════════════════════════════════════════════╝');
   console.log('');
   console.log('  Explorer:      http://localhost:%d', port);

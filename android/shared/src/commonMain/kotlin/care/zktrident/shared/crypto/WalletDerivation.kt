@@ -7,7 +7,7 @@ import java.nio.charset.Charset
  * Wallet ID derivation matching the TypeScript implementation.
  *
  * walletId = Poseidon.hash([domainTag, hashString(cardholderId), hashDate(dob),
- *   hashString(firstName), hashString(lastName), hashString(enrollmentKey)])
+ *   hashString(firstName), hashString(lastName), hashString(enrollmentKey), groupIdHash])
  */
 object WalletDerivation {
     /** Domain tag for member wallets (matches TypeScript DOMAIN_TAG_MEMBER = Field(0)) */
@@ -18,15 +18,17 @@ object WalletDerivation {
     val DOMAIN_TAG_PHARMACY = BigInteger.TWO
 
     /**
-     * Derive a member wallet ID from local PHI data.
+     * Derive a member wallet ID from local PHI data + group binding.
      * PHI is hashed immediately and never stored.
+     * groupId cryptographically binds the wallet to the employer group.
      */
     fun deriveMemberWalletId(
         cardholderId: String,
         dateOfBirth: String,  // YYYYMMDD format as numeric string
         firstName: String,
         lastName: String,
-        enrollmentKey: String
+        enrollmentKey: String,
+        groupId: String
     ): BigInteger {
         require(enrollmentKey.length >= 16) { "Enrollment key must be at least 16 characters" }
         return PoseidonHasher.hash(listOf(
@@ -35,14 +37,16 @@ object WalletDerivation {
             hashDate(dateOfBirth),
             hashString(firstName),
             hashString(lastName),
-            hashString(enrollmentKey)
+            hashString(enrollmentKey),
+            hashString(groupId)
         ))
     }
 
     /**
-     * Return the 6 preimage fields as decimal strings (for ProofDelegateServer).
+     * Return the 7 preimage fields as decimal strings (for ProofDelegateServer).
      * These are the hashed fields that were used to derive the walletId.
      * The prover needs them to generate the registration proof.
+     * Layout: [domainTag, cardholderIdHash, dobHash, firstNameHash, lastNameHash, enrollmentKeyHash, groupIdHash]
      */
     fun memberPreimageFields(
         cardholderId: String,
@@ -50,6 +54,7 @@ object WalletDerivation {
         firstName: String,
         lastName: String,
         enrollmentKey: String,
+        groupId: String,
     ): List<String> = listOf(
         DOMAIN_TAG_MEMBER.toString(),
         hashString(cardholderId).toString(),
@@ -57,6 +62,7 @@ object WalletDerivation {
         hashString(firstName).toString(),
         hashString(lastName).toString(),
         hashString(enrollmentKey).toString(),
+        hashString(groupId).toString(),
     )
 
     /**

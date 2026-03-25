@@ -50,24 +50,26 @@ export class TransitionOutput extends Struct({
  * Compute walletId from domain tag and preimage fields using Provable.switch.
  *
  * Supports three entity types:
- *   - Member (tag=0): Poseidon.hash([0, f0, f1, f2, f3, f4]) — 6 fields
+ *   - Member (tag=0): Poseidon.hash([0, f0, f1, f2, f3, f4, f5]) — 7 fields
  *   - Prescriber (tag=1): Poseidon.hash([1, f0, f1, f2]) — 4 fields
  *   - Pharmacy (tag=2): Poseidon.hash([2, f0, f1, f2]) — 4 fields
  *
  * All three hash variants are computed inside the circuit; Provable.switch
  * selects the correct one based on domainTag. Non-member entities pass
- * Field(0) for unused f3/f4 — these zeros are included in the member hash
+ * Field(0) for unused f3/f4/f5 — these zeros are included in the member hash
  * but the switch ensures the correct (shorter) hash is selected.
  *
+ * f5 is groupIdHash for members (binds wallet to employer group).
+ *
  * @param domainTag — Field(0)=member, Field(1)=prescriber, Field(2)=pharmacy
- * @param f0..f4 — preimage fields (padded with Field(0) for non-members)
+ * @param f0..f5 — preimage fields (padded with Field(0) for non-members)
  */
 function computeWalletId(
   domainTag: Field,
-  f0: Field, f1: Field, f2: Field, f3: Field, f4: Field,
+  f0: Field, f1: Field, f2: Field, f3: Field, f4: Field, f5: Field,
 ): Field {
   // Compute all three hash variants
-  const memberHash = Poseidon.hash([DOMAIN_TAG_MEMBER, f0, f1, f2, f3, f4]);
+  const memberHash = Poseidon.hash([DOMAIN_TAG_MEMBER, f0, f1, f2, f3, f4, f5]);
   const prescriberHash = Poseidon.hash([DOMAIN_TAG_PRESCRIBER, f0, f1, f2]);
   const pharmacyHash = Poseidon.hash([DOMAIN_TAG_PHARMACY, f0, f1, f2]);
 
@@ -124,7 +126,7 @@ export const StateTransitionProgram = ZkProgram({
      * After: registry has new WalletState, lifecycle is REGISTERED.
      *
      * @param domainTag — Field(0)=member, Field(1)=prescriber, Field(2)=pharmacy
-     * @param f0..f4 — preimage fields (non-members pad unused fields with Field(0))
+     * @param f0..f5 — preimage fields (non-members pad unused fields with Field(0))
      */
     proveRegistration: {
       privateInputs: [
@@ -134,6 +136,7 @@ export const StateTransitionProgram = ZkProgram({
         Field, // f2 (firstNameHash / enrollmentKeyHash)
         Field, // f3 (lastNameHash / Field(0) for non-member)
         Field, // f4 (enrollmentKeyHash / Field(0) for non-member)
+        Field, // f5 (groupIdHash for member / Field(0) for non-member)
         WalletRegistryWitness,
         LifecycleWitness,
         Field, // currentRegistryRoot
@@ -146,13 +149,14 @@ export const StateTransitionProgram = ZkProgram({
         f2: Field,
         f3: Field,
         f4: Field,
+        f5: Field,
         registryWitness: WalletRegistryWitness,
         lifecycleWitness: LifecycleWitness,
         currentRegistryRoot: Field,
         currentLifecycleRoot: Field,
       ) {
         // 1. Compute wallet identity inline via domain-tag switch
-        const walletId = computeWalletId(domainTag, f0, f1, f2, f3, f4);
+        const walletId = computeWalletId(domainTag, f0, f1, f2, f3, f4, f5);
 
         // 2. Verify the registry slot is empty
         const emptyRegistryRoot = registryWitness.calculateRoot(Field(0));
@@ -216,6 +220,7 @@ export const StateTransitionProgram = ZkProgram({
         Field, // f2
         Field, // f3
         Field, // f4
+        Field, // f5 (groupIdHash for member / Field(0) for non-member)
         Field, // oldCredentialRoot
         Field, // oldNonce
         Field, // newCredentialRoot
@@ -232,6 +237,7 @@ export const StateTransitionProgram = ZkProgram({
         f2: Field,
         f3: Field,
         f4: Field,
+        f5: Field,
         oldCredentialRoot: Field,
         oldNonce: Field,
         newCredentialRoot: Field,
@@ -242,7 +248,7 @@ export const StateTransitionProgram = ZkProgram({
         currentLifecycle: Field,
       ) {
         // 1. Compute wallet identity inline via domain-tag switch
-        const walletId = computeWalletId(domainTag, f0, f1, f2, f3, f4);
+        const walletId = computeWalletId(domainTag, f0, f1, f2, f3, f4, f5);
 
         // 2. Verify wallet is not revoked
         const lifecycleLeaf = lifecycleLeafCommitment(

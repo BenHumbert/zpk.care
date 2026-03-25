@@ -50,27 +50,27 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
 
   describe('Wallet Derivation', () => {
     test('member wallet ID is deterministic', () => {
-      const id1 = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
-      const id2 = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
+      const id1 = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const id2 = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
       expect(id1.toString()).toBe(id2.toString());
     });
 
     test('member wallet ID changes when data changes', () => {
-      const id1 = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
-      const id2 = deriveMemberWalletId({ ...testMember, cardholderId: 'DIFFERENT' }, TEST_ENROLLMENT_KEY);
+      const id1 = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const id2 = deriveMemberWalletId({ ...testMember, cardholderId: 'DIFFERENT' }, TEST_ENROLLMENT_KEY, Field(0));
       expect(id1.toString()).not.toBe(id2.toString());
     });
 
     test('member wallet ID changes when enrollment key changes', () => {
-      const id1 = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
-      const id2 = deriveMemberWalletId(testMember, ALT_ENROLLMENT_KEY);
+      const id1 = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const id2 = deriveMemberWalletId(testMember, ALT_ENROLLMENT_KEY, Field(0));
       expect(id1.toString()).not.toBe(id2.toString());
     });
 
     test('same PHI without enrollment key produces different wallet', () => {
       // This is the key security property: knowing PHI alone is not enough
-      const id1 = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
-      const id2 = deriveMemberWalletId(testMember, ALT_ENROLLMENT_KEY);
+      const id1 = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const id2 = deriveMemberWalletId(testMember, ALT_ENROLLMENT_KEY, Field(0));
       expect(id1.toString()).not.toBe(id2.toString());
     });
 
@@ -87,7 +87,7 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
     });
 
     test('domain tags prevent cross-type collisions', () => {
-      const memberId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
+      const memberId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
       const prescriberId = derivePrescriberWalletId(testPrescriber, TEST_ENROLLMENT_KEY);
       const pharmacyId = derivePharmacyWalletId(testPharmacy, TEST_ENROLLMENT_KEY);
 
@@ -97,11 +97,11 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
     });
 
     test('memberWalletPreimage produces correct Fields', () => {
-      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
-      expect(preimage).toHaveLength(5);
+      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      expect(preimage).toHaveLength(6);
 
       const reconstructed = Poseidon.hash([DOMAIN_TAG_MEMBER, ...preimage]);
-      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
+      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
       expect(reconstructed.toString()).toBe(walletId.toString());
     });
 
@@ -130,12 +130,12 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
     });
 
     test('verifyMember: valid preimage produces valid proof', async () => {
-      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
-      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
+      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
 
       const proof = await ProofGateProgram.verifyMember(
         walletId,
-        preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!,
+        preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
       );
 
       expect(proof).toBeDefined();
@@ -169,30 +169,31 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
     });
 
     test('verifyMember: wrong enrollment key fails', async () => {
-      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
-      const wrongPreimage = memberWalletPreimage(testMember, 'wrong-key');
+      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const wrongPreimage = memberWalletPreimage(testMember, 'wrong-key', Field(0));
 
       await expect(
         ProofGateProgram.verifyMember(
           walletId,
           wrongPreimage[0]!, wrongPreimage[1]!, wrongPreimage[2]!,
-          wrongPreimage[3]!, wrongPreimage[4]!,
+          wrongPreimage[3]!, wrongPreimage[4]!, wrongPreimage[5]!,
         ),
       ).rejects.toThrow();
     });
 
     test('verifyMember: wrong PHI fails', async () => {
-      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
+      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
       const wrongPreimage = memberWalletPreimage(
         { ...testMember, firstName: 'Jane' },
         TEST_ENROLLMENT_KEY,
+        Field(0),
       );
 
       await expect(
         ProofGateProgram.verifyMember(
           walletId,
           wrongPreimage[0]!, wrongPreimage[1]!, wrongPreimage[2]!,
-          wrongPreimage[3]!, wrongPreimage[4]!,
+          wrongPreimage[3]!, wrongPreimage[4]!, wrongPreimage[5]!,
         ),
       ).rejects.toThrow();
     });
@@ -210,12 +211,12 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
     });
 
     test('proof verification succeeds with verification key', async () => {
-      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
-      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY);
+      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
 
       const result = await ProofGateProgram.verifyMember(
         walletId,
-        preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!,
+        preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
       );
 
       const isValid = await ProofGateProgram.verify(result.proof);
@@ -225,7 +226,7 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
 
   describe('WalletState', () => {
     test('init creates wallet with correct ID and zero nonce', () => {
-      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
+      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
       const state = WalletState.init(walletId);
 
       expect(state.walletId.toString()).toBe(walletId.toString());
@@ -233,14 +234,14 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
     });
 
     test('commitment is deterministic', () => {
-      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
+      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
       const s1 = WalletState.init(walletId);
       const s2 = WalletState.init(walletId);
       expect(s1.commitment().toString()).toBe(s2.commitment().toString());
     });
 
     test('commitment changes when nonce changes', () => {
-      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
+      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
       const s1 = WalletState.init(walletId);
       const s2 = new WalletState({
         walletId,
@@ -254,7 +255,7 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
   describe('WalletRegistry', () => {
     test('register a wallet and verify it exists', () => {
       const registry = new WalletRegistry();
-      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
+      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
 
       registry.register(walletId);
 
@@ -264,7 +265,7 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
 
     test('registering the same wallet twice throws', () => {
       const registry = new WalletRegistry();
-      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
+      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
 
       registry.register(walletId);
       expect(() => registry.register(walletId)).toThrow('already registered');
@@ -273,7 +274,7 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
     test('multiple wallet types coexist in registry', () => {
       const registry = new WalletRegistry();
 
-      const memberId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
+      const memberId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
       const prescriberId = derivePrescriberWalletId(testPrescriber, TEST_ENROLLMENT_KEY);
       const pharmacyId = derivePharmacyWalletId(testPharmacy, TEST_ENROLLMENT_KEY);
 
@@ -289,7 +290,7 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
 
     test('getState returns initial wallet state', () => {
       const registry = new WalletRegistry();
-      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
+      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
       registry.register(walletId);
 
       const state = registry.getState(walletId);
@@ -299,7 +300,7 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
 
     test('updateState changes the registry root', () => {
       const registry = new WalletRegistry();
-      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
+      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
       registry.register(walletId);
 
       const rootBefore = registry.getRoot().toString();
@@ -318,7 +319,7 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
 
     test('Merkle witness validates wallet inclusion in registry', () => {
       const registry = new WalletRegistry();
-      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
+      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
       registry.register(walletId);
 
       const state = registry.getState(walletId);
@@ -330,7 +331,7 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
 
     test('Merkle witness still validates after state update', () => {
       const registry = new WalletRegistry();
-      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY);
+      const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
       registry.register(walletId);
 
       const currentState = registry.getState(walletId);
@@ -391,7 +392,7 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
     });
 
     test('deriveMemberWalletId rejects weak key', () => {
-      expect(() => deriveMemberWalletId(testMember, 'weak'))
+      expect(() => deriveMemberWalletId(testMember, 'weak', Field(0)))
         .toThrow('at least');
     });
 
@@ -407,8 +408,8 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
 
     test('generated key works with derivation', () => {
       const key = generateEnrollmentKey();
-      const id1 = deriveMemberWalletId(testMember, key);
-      const id2 = deriveMemberWalletId(testMember, key);
+      const id1 = deriveMemberWalletId(testMember, key, Field(0));
+      const id2 = deriveMemberWalletId(testMember, key, Field(0));
       expect(id1.toString()).toBe(id2.toString());
     });
   });

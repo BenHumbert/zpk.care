@@ -46,6 +46,7 @@ export interface EmployerRosterEntry {
   familyId: string;
   familyIdHash: string;
   tokenId: string | null;
+  walletId: string | null;
   status: 'pending' | 'enrolled' | 'terminated';
   createdAt: number;
 }
@@ -156,6 +157,7 @@ export class EmployerNode extends EntityNodeBase {
       familyId,
       familyIdHash,
       tokenId: result.tokenId,
+      walletId: null,
       status: 'pending',
       createdAt: Date.now(),
     });
@@ -219,6 +221,7 @@ export class EmployerNode extends EntityNodeBase {
       for (const entry of this.roster.values()) {
         if (entry.tokenId === tokenId) {
           entry.status = 'enrolled';
+          entry.walletId = walletId;
           break;
         }
       }
@@ -246,6 +249,28 @@ export class EmployerNode extends EntityNodeBase {
   /** Get roster entry by employee ID hash */
   getRosterEntry(employeeIdHash: string): EmployerRosterEntry | undefined {
     return this.roster.get(employeeIdHash);
+  }
+
+  /**
+   * Confirm enrollment for a roster entry (called when member notifies employer).
+   * Matches by tokenId, sets walletId and status = 'enrolled'.
+   */
+  confirmEnrollment(tokenId: string, walletId: string): { found: boolean } {
+    for (const entry of this.roster.values()) {
+      if (entry.tokenId === tokenId) {
+        const wasAlreadyEnrolled = entry.status === 'enrolled';
+        entry.status = 'enrolled';
+        entry.walletId = walletId;
+        // Only increment group count if not already enrolled (avoid double-count)
+        if (!wasAlreadyEnrolled) {
+          const group = this.groups.get(entry.groupId);
+          if (group) group.enrolledCount++;
+        }
+        console.log('[employer] Enrollment confirmed: token=%s wallet=%s group=%s', tokenId, walletId.slice(0, 16), entry.groupId);
+        return { found: true };
+      }
+    }
+    return { found: false };
   }
 
   /** Terminate a roster entry */

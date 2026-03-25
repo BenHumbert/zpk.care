@@ -1,13 +1,13 @@
 /**
- * Start Interactive Demo — Boots L2Node + L2RpcServer + InteractiveDemoService.
+ * Start Adjudication Service — Boots L2Node + L2RpcServer + AdjudicationService.
  *
- * This is the single startup script for the interactive demo:
+ * This is the single startup script for the adjudication service:
  *   1. Creates L2Node + L2RpcServer
  *   2. Registers /interactive/* routes
  *   3. Compiles all ZkPrograms (~3.5 min, streams progress to SSE)
  *   4. Server ready for browser interaction
  *
- * Usage: npx tsx demo/start-interactive.ts
+ * Usage: npx tsx engine/start-interactive.ts
  */
 import { Field, MerkleTree } from 'o1js';
 import fs from 'fs';
@@ -18,7 +18,7 @@ import { L2Node } from '../../src/l2/l2-node.js';
 import { L2RpcServer } from '../../src/l2/l2-rpc-server.js';
 import { L2CheckpointStore } from '../../src/l2/l2-checkpoint.js';
 import type { VizEvent } from '../../src/l2/l2-rpc-server.js';
-import { InteractiveDemoService, type ConsoleEvent } from './interactive-service.js';
+import { AdjudicationService, type ConsoleEvent } from './interactive-service.js';
 import { registerInteractiveRoutes, getConsoleEmitter } from './interactive-routes.js';
 import { NfcBridge } from './nfc-bridge.js';
 
@@ -29,7 +29,7 @@ const BATCH_INTERVAL = parseInt(process.env.BATCH_INTERVAL || '90000', 10);
 async function main() {
   console.log('');
   console.log('+==========================================================+');
-  console.log('|       zkpCare — Interactive Demo (Full Proof Mode)        |');
+  console.log('|     Adjuda-GATOR — Adjudication Engine (Full Proof Mode)   |');
   console.log('+==========================================================+');
   console.log('');
 
@@ -98,17 +98,17 @@ async function main() {
   const checkpointStore = new L2CheckpointStore(checkpointDir);
   node.setCheckpointStore(checkpointStore, { autoCheckpoint: true, maxCheckpoints: 5 });
 
-  // 3. Initialize NFC Bridge (non-blocking — demo works without NFC reader)
+  // 3. Initialize NFC Bridge (non-blocking — system works without NFC reader)
   //    MIKROE-2540 is USB HID (VID 0x1FC9, PID 0x0088), auto-detected.
   const nfcBridge = new NfcBridge();
   nfcBridge.connect().then(() => {
     console.log(`  [NFC] Reader connected via HID (${nfcBridge.getStatus().devicePath})`);
   }).catch(() => {
-    console.log('  [NFC] No NFC reader detected — NFC features disabled (demo continues normally).');
+    console.log('  [NFC] No NFC reader detected — NFC features disabled (operation continues normally).');
   });
 
   // 4. Create the service (pass L2Node for real settlement)
-  const service = new InteractiveDemoService(bufferedConsoleEmitter, vizEmitter, node);
+  const service = new AdjudicationService(bufferedConsoleEmitter, vizEmitter, node);
 
   // 5. Register interactive routes (including NFC endpoints)
   registerInteractiveRoutes(server, service, nfcBridge);
@@ -143,7 +143,18 @@ async function main() {
   console.log(`  [Attestation] Sequencer Ed25519 pubkey: ${service.getSequencerPublicKey().slice(0, 16)}...`);
   console.log('');
 
-  // 6. Compile ZkPrograms (streams progress to console SSE clients)
+  // 6. Start proof pool (offloads ZK proving to child processes)
+  const proofPoolSize = parseInt(process.env.ZKTRIDENT_PROOF_POOL_SIZE ?? '2', 10);
+  if (proofPoolSize > 0) {
+    const { ProofPool } = await import('./proof-pool.js');
+    const proofPool = new ProofPool(proofPoolSize, { recycleAfterJobs: 50 });
+    console.log(`[Interactive] Starting ${proofPoolSize} proof worker(s)...`);
+    await proofPool.start();
+    service.setProofPool(proofPool);
+    console.log('[Interactive] Proof pool ready — proving offloaded to child processes');
+  }
+
+  // 7. Compile ZkPrograms (streams progress to console SSE clients)
   console.log('[Interactive] Starting ZkProgram compilation (~3.5 minutes)...');
   console.log('[Interactive] Connect browser to see real-time progress.');
   console.log('');

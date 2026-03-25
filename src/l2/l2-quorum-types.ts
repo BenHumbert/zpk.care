@@ -30,6 +30,8 @@ export interface QuorumConfig {
   publicKeyHex: string;
   /** Map of nodeId → Ed25519 public key hex for all known peers */
   peerPublicKeys: Map<string, string>;
+  /** Explicit node ID. If set, used directly instead of reverse-lookup from peerPublicKeys. */
+  nodeId?: string;
 }
 
 export const DEFAULT_QUORUM_TIMEOUT_MS = 5_000;

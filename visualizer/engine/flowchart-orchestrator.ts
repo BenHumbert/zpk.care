@@ -1,17 +1,17 @@
 /**
- * Flowchart Orchestrator — Boots L2Node + InteractiveDemoService + Dashboard.
+ * Flowchart Orchestrator — Boots L2Node + AdjudicationService + Dashboard.
  *
  * This is the main entry point for the interactive animated flowchart dashboard.
- * It reuses the existing InteractiveDemoService for real ZK proof orchestration
+ * It reuses the existing AdjudicationService for real ZK proof orchestration
  * and adds a dashboard HTTP server with SVG flowchart visualization.
  *
  * Architecture:
  *   - L2Node + L2RpcServer on port 3030 (proof engine)
- *   - InteractiveDemoService (real ZK proofs, all /interactive/* routes)
+ *   - AdjudicationService (real ZK proofs, all /interactive/* routes)
  *   - FlowchartDashboardServer on port 8080 (static files + API proxy)
  *   - /flowchart/* routes for dashboard-specific state and controls
  *
- * Usage: npx tsx visualizer/demo/flowchart-orchestrator.ts
+ * Usage: npx tsx visualizer/engine/flowchart-orchestrator.ts
  */
 import { Field, MerkleTree } from 'o1js';
 import http from 'http';
@@ -22,11 +22,13 @@ import { L2Node } from '../../src/l2/l2-node.js';
 import { L2RpcServer } from '../../src/l2/l2-rpc-server.js';
 import { L2CheckpointStore } from '../../src/l2/l2-checkpoint.js';
 import type { VizEvent } from '../../src/l2/l2-rpc-server.js';
-import { InteractiveDemoService, type ConsoleEvent } from './interactive-service.js';
+import { AdjudicationService, type ConsoleEvent } from './interactive-service.js';
 import { registerInteractiveRoutes, getConsoleEmitter } from './interactive-routes.js';
 import { AutoModeController } from './auto-mode-controller.js';
 import { FlowchartDashboardServer } from '../../src/poc/flowchart-dashboard-server.js';
 import { ProvingPool } from '../../src/l2/l2-proving-pool.js';
+import { MEDICATIONS } from '../../src/data/index.js';
+import { hashString } from '../../src/zkp/hash-utils.js';
 
 const REGISTRY_TREE_HEIGHT = 11;
 const BACKEND_PORT = parseInt(process.env.BACKEND_PORT || '3030', 10);
@@ -235,7 +237,7 @@ function resetLeviathanState(): void {
 async function main() {
   console.log('');
   console.log('  +============================================================+');
-  console.log('  |   zkpCare — Interactive Flowchart Dashboard (Real Proofs)   |');
+  console.log('  |  Adjuda-GATOR — Interactive Flowchart Dashboard (Real Proofs)|');
   console.log('  +============================================================+');
   console.log('');
 
@@ -310,8 +312,8 @@ async function main() {
   const checkpointStore = new L2CheckpointStore(checkpointDir);
   node.setCheckpointStore(checkpointStore, { autoCheckpoint: true, maxCheckpoints: 5 });
 
-  // 3. Create the InteractiveDemoService
-  const service = new InteractiveDemoService(bufferedConsoleEmitter, vizEmitter, node);
+  // 3. Create the AdjudicationService
+  const service = new AdjudicationService(bufferedConsoleEmitter, vizEmitter, node);
 
   // 3b. Create AutoModeController (module-level variable, assigned here)
   autoModeController = new AutoModeController(service, node);
@@ -558,7 +560,7 @@ function trackCompilationEvent(event: ConsoleEvent): void {
 
 function registerFlowchartRoutes(
   server: L2RpcServer,
-  service: InteractiveDemoService,
+  service: AdjudicationService,
   node: L2Node,
   vizEmitter: (event: VizEvent) => void,
 ): void {
@@ -996,7 +998,7 @@ function registerFlowchartRoutes(
 
 // ─── Smoke Test Runner ──────────────────────────────────
 
-async function runSmokeTest(service: InteractiveDemoService): Promise<void> {
+async function runSmokeTest(service: AdjudicationService): Promise<void> {
   const l2Node = service.getL2Node();
 
   async function runStep(index: number, fn: () => Promise<void>): Promise<void> {
@@ -1051,7 +1053,7 @@ async function runSmokeTest(service: InteractiveDemoService): Promise<void> {
       const rxResult = await l2Node.withProvingLock(() => service.createPrescription({
         prescriberIndex: 0,
         memberWalletId: aliceWalletId,
-        medicationIndex: 0, // Lisinopril
+        ndcHash: hashString(MEDICATIONS[0].ndc).toString(), // Lisinopril
         pharmacyIndex: 0,   // Main Street Pharmacy
         quantity: 30,
         refills: 3,
@@ -1066,7 +1068,7 @@ async function runSmokeTest(service: InteractiveDemoService): Promise<void> {
       const rxResult = await l2Node.withProvingLock(() => service.createPrescription({
         prescriberIndex: 1,
         memberWalletId: bobWalletId,
-        medicationIndex: 1, // Metformin
+        ndcHash: hashString(MEDICATIONS[1].ndc).toString(), // Metformin
         pharmacyIndex: 0,   // Main Street Pharmacy
         quantity: 60,
         refills: 2,
@@ -1076,7 +1078,7 @@ async function runSmokeTest(service: InteractiveDemoService): Promise<void> {
 
     // Step 5: Fill Alice's prescription
     await runStep(5, async () => {
-      await l2Node.withProvingLock(() => service.fillPrescription({
+      await l2Node.withProvingLock(() => service.dispensePrescription({
         prescriptionId: alicePrescriptionId,
         credentialJson: aliceCredentialJson,
       }));
@@ -1084,7 +1086,7 @@ async function runSmokeTest(service: InteractiveDemoService): Promise<void> {
 
     // Step 6: Fill Bob's prescription
     await runStep(6, async () => {
-      await l2Node.withProvingLock(() => service.fillPrescription({
+      await l2Node.withProvingLock(() => service.dispensePrescription({
         prescriptionId: bobPrescriptionId,
         credentialJson: bobCredentialJson,
       }));
@@ -1103,7 +1105,7 @@ async function runSmokeTest(service: InteractiveDemoService): Promise<void> {
       const paResult = service.requestPriorAuth({
         memberWalletId: aliceWalletId,
         prescriberIndex: 0,
-        medicationIndex: 4, // Humira (requires PA)
+        ndcHash: hashString(MEDICATIONS[4].ndc).toString(), // Humira (requires PA)
       });
       const paId = (paResult as any).priorAuthId;
       await l2Node.withProvingLock(() => service.approvePriorAuth(paId));

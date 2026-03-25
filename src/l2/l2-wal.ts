@@ -134,6 +134,9 @@ export function computeWalIntegrityHash(entry: {
   walletId?: string;
   stateSnapshot?: { registryRoot: string; lifecycleRoot: string; walletCount: string; auditChainHash: string };
   timestamp: number;
+  proofJson?: string;
+  receiptData?: unknown;
+  claimEntryData?: unknown;
 }): string {
   const content = [
     entry.type,
@@ -146,7 +149,12 @@ export function computeWalIntegrityHash(entry: {
     entry.stateSnapshot?.auditChainHash ?? '',
     String(entry.timestamp),
   ].join('|');
-  return createHash('sha256').update(content).digest('hex').slice(0, 32);
+  const hash = createHash('sha256').update(content);
+  // Include proof payload in integrity hash for tamper detection on recovery
+  if (entry.proofJson) hash.update('|p:').update(entry.proofJson);
+  if (entry.receiptData) hash.update('|r:').update(JSON.stringify(entry.receiptData));
+  if (entry.claimEntryData) hash.update('|c:').update(JSON.stringify(entry.claimEntryData));
+  return hash.digest('hex').slice(0, 32);
 }
 
 /**
@@ -349,6 +357,16 @@ export class FileWalProvider implements IWalProvider {
           if (!parsed.entryId || !parsed.type) continue; // Skip invalid entries
 
           const entry = parsed as unknown as WalEntry;
+
+          // Verify integrity hash — skip tampered/corrupt entries
+          if (entry.integrityHash) {
+            const recomputed = computeWalIntegrityHash(entry);
+            if (entry.integrityHash !== recomputed) {
+              console.warn(`[WAL] Corrupt entry ${entry.entryId} in partition ${partitionIndex} (hash mismatch), skipping`);
+              continue;
+            }
+          }
+
           if (commitSet.has(entry.entryId)) {
             entry.committed = true;
           }
@@ -383,7 +401,7 @@ export class FileWalProvider implements IWalProvider {
     fs.mkdirSync(walDir, { recursive: true });
 
     // Append line
-    const fd = fs.openSync(walFile, 'a');
+    const fd = fs.openSync(walFile, 'a', 0o600);
     try {
       fs.writeSync(fd, line + '\n');
       if (this.config.fsyncOnWrite) {
@@ -499,7 +517,7 @@ export class FileWalProvider implements IWalProvider {
 
     // Atomic write: temp file + fsync + rename
     const content = lines.length > 0 ? lines.join('\n') + '\n' : '';
-    const fd = fs.openSync(tmpFile, 'w');
+    const fd = fs.openSync(tmpFile, 'w', 0o600);
     try {
       fs.writeSync(fd, content);
       if (this.config.fsyncOnWrite) {

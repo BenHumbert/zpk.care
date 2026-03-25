@@ -1,5 +1,5 @@
 /**
- * zkp.Care Employer — SPA Application
+ * Adjuda-GATOR Employer — SPA Application
  * Hash-based routing, auto-refresh, SSE live events.
  */
 (() => {
@@ -620,10 +620,15 @@
         const messages = Array.isArray(data) ? data : (data && data.messages ? data.messages : [data]);
         el.innerHTML = '<div><span class="back-link" id="msg-back-btn">[back] Return to ' + esc(msgSubTab) + '</span></div>' +
           messages.map(m => {
+            var msg = m.message || {};
+            var payload = m.payload || {};
+            var sender = msg.senderWalletId || m.senderWalletId || m.sender || '--';
+            var ts = payload.timestamp || m.timestamp || m.createdAt;
+            var msgType = msg.messageType || m.messageType || 'message';
             return '<div class="thread-message"><div class="thread-message-header">' +
-              '<span class="thread-message-sender">' + esc(truncHash(m.senderWalletId || m.sender, 20)) + '</span>' +
-              '<span class="thread-message-time">' + esc(fmtDate(m.timestamp || m.createdAt)) + '</span></div>' +
-              '<div class="thread-message-body">' + esc(m.body || m.message || m.content || '') + '</div></div>';
+              '<span class="thread-message-sender">' + esc(truncHash(sender, 20)) + '</span>' +
+              '<span class="thread-message-time">' + esc(fmtDate(ts)) + '</span></div>' +
+              '<div class="thread-message-body"><span style="color:var(--text-secondary)">[' + esc(msgType) + '] Encrypted content</span></div></div>';
           }).join('');
         const backBtn = document.getElementById('msg-back-btn');
         if (backBtn) backBtn.onclick = () => { currentThread = null; loadMessages(); };
@@ -642,17 +647,22 @@
         return;
       }
       el.innerHTML = messages.map(m => {
+        // MessageStoreEntry: m.message is an object, m.payload is encrypted
+        const msg = m.message || {};
+        const payload = m.payload || {};
         const peer = msgSubTab === 'inbox'
-          ? (m.senderWalletId || m.sender || '--')
-          : (m.recipientWalletId || m.recipient || '--');
-        const threadId = m.threadIdHash || m.threadId || null;
+          ? (msg.senderWalletId || m.senderWalletId || m.sender || '--')
+          : (msg.recipientWalletId || m.recipientWalletId || m.recipient || '--');
+        const threadId = msg.threadIdHash || m.threadIdHash || m.threadId || null;
+        const ts = payload.timestamp || m.timestamp || m.createdAt;
+        const msgType = msg.messageType || m.messageType || 'message';
         return '<div class="message-item" ' + (threadId ? 'data-thread="' + esc(threadId) + '"' : '') + '>' +
           '<div class="message-item-header">' +
-            '<span class="message-subject">' + esc(m.subject || '(no subject)') + '</span>' +
-            '<span class="message-meta">' + esc(fmtDate(m.timestamp || m.createdAt)) + '</span>' +
+            '<span class="message-subject">' + esc(msgType) + '</span>' +
+            '<span class="message-meta">' + esc(fmtDate(ts)) + '</span>' +
           '</div>' +
           '<span class="message-sender">' + (msgSubTab === 'inbox' ? 'From: ' : 'To: ') + esc(truncHash(peer, 20)) + '</span>' +
-          '<div class="message-preview">' + esc((m.body || m.message || m.content || '').slice(0, 120)) + '</div>' +
+          '<div class="message-preview" style="color:var(--text-secondary);font-style:italic">Encrypted content</div>' +
         '</div>';
       }).join('');
       el.querySelectorAll('.message-item[data-thread]').forEach(item => {
@@ -791,7 +801,12 @@
   }
 
   // ---- Init ----
-  function init() {
+  async function init() {
+    // Admin token is restored from localStorage by rpc.js on load.
+    // If not set, prompt user to enter it in the Admin/Settings section.
+    if (!API.getAdminToken()) {
+      console.info('[employer] No admin token — set one in Settings for group/token operations');
+    }
     checkConnection();
     initSSE();
     const hash = location.hash.replace('#', '') || 'overview';

@@ -1,5 +1,5 @@
 /**
- * zkTrident Leviathan Explorer — JSON-RPC 2.0 Client
+ * Adjuda-GATOR Leviathan Explorer — JSON-RPC 2.0 Client
  * Public read-only interface to any Leviathan / L2 node.
  */
 const RPC = (() => {

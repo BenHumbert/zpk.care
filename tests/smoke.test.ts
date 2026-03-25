@@ -1,61 +1,61 @@
 import {
-  DEMO_PRESCRIBERS, PRESCRIBER_BY_NPI,
-  DEMO_PHARMACIES, PHARMACY_BY_NPI,
-  DEMO_MEDICATIONS, TIER1_GENERICS, TIER2_PREFERRED, TIER3_NON_PREFERRED, TIER4_SPECIALTY,
+  PRESCRIBERS, PRESCRIBER_BY_NPI,
+  PHARMACIES, PHARMACY_BY_NPI,
+  MEDICATIONS, TIER1_GENERICS, TIER2_PREFERRED, TIER3_NON_PREFERRED, TIER4_SPECIALTY,
   MEDICATION_BY_NDC, getAllFormularyEntries, getFormularyEntriesByTier,
   buildMedicationLocalData, buildMedicationPricingLocalData,
-  DEMO_MEMBERS, MEMBER_BY_CARDHOLDER_ID, getMembersByEmployee, getSubscribers, getAcmeMembers, getGlobexMembers,
+  MEMBERS, MEMBER_BY_CARDHOLDER_ID, getMembersByEmployee, getSubscribers, getAcmeMembers, getGlobexMembers,
 } from '../src/data/index.js';
 
 describe('Production Data — Smoke Tests', () => {
   // ── Prescribers (NPPES — Madison, WI) ──
   test('has 16 prescribers from NPPES', () => {
-    expect(DEMO_PRESCRIBERS.length).toBeGreaterThanOrEqual(16);
+    expect(PRESCRIBERS.length).toBeGreaterThanOrEqual(16);
   });
 
   test('all prescribers have NPI qualifier = 1', () => {
-    for (const p of DEMO_PRESCRIBERS) {
+    for (const p of PRESCRIBERS) {
       expect(p.localData.prescriberIdQualifier).toBe(1);
     }
   });
 
   test('all prescribers have 10-digit NPI', () => {
-    for (const p of DEMO_PRESCRIBERS) {
+    for (const p of PRESCRIBERS) {
       expect(p.localData.prescriberId).toMatch(/^\d{10}$/);
     }
   });
 
   test('PRESCRIBER_BY_NPI lookup works', () => {
-    const first = DEMO_PRESCRIBERS[0];
+    const first = PRESCRIBERS[0];
     const found = PRESCRIBER_BY_NPI.get(first.localData.prescriberId);
     expect(found).toBeDefined();
     expect(found!.lastName).toBe(first.lastName);
   });
 
   test('prescriber NPIs are unique', () => {
-    const npis = DEMO_PRESCRIBERS.map((p) => p.localData.prescriberId);
+    const npis = PRESCRIBERS.map((p) => p.localData.prescriberId);
     expect(new Set(npis).size).toBe(npis.length);
   });
 
   // ── Pharmacies (NPPES — Madison, WI) ──
   test('has 15 pharmacies from NPPES', () => {
-    expect(DEMO_PHARMACIES.length).toBeGreaterThanOrEqual(15);
+    expect(PHARMACIES.length).toBeGreaterThanOrEqual(15);
   });
 
   test('all pharmacies have qualifier = 1', () => {
-    for (const p of DEMO_PHARMACIES) {
+    for (const p of PHARMACIES) {
       expect(p.localData.serviceProviderIdQualifier).toBe(1);
     }
   });
 
   test('all pharmacies have 10-digit NPI', () => {
-    for (const p of DEMO_PHARMACIES) {
+    for (const p of PHARMACIES) {
       expect(p.localData.serviceProviderId).toMatch(/^\d{10}$/);
     }
   });
 
   test('PHARMACY_BY_NPI lookup works', () => {
-    const first = DEMO_PHARMACIES[0];
+    const first = PHARMACIES[0];
     const found = PHARMACY_BY_NPI.get(first.localData.serviceProviderId);
     expect(found).toBeDefined();
     expect(found!.storeName).toBe(first.storeName);
@@ -63,14 +63,14 @@ describe('Production Data — Smoke Tests', () => {
 
   test('all pharmacy types are valid NCPDP codes', () => {
     const validTypes = ['01', '02', '03', '04', '05', '06', '07'];
-    for (const p of DEMO_PHARMACIES) {
+    for (const p of PHARMACIES) {
       expect(validTypes).toContain(p.pharmacyType);
     }
   });
 
   // ── Medications (NADAC — 32,768 real drugs) ──
   test('has 32,768 medications (MerkleTree(16) capacity)', () => {
-    expect(DEMO_MEDICATIONS).toHaveLength(32768);
+    expect(MEDICATIONS).toHaveLength(32768);
   });
 
   test('tier distribution covers all 4 tiers', () => {
@@ -83,20 +83,20 @@ describe('Production Data — Smoke Tests', () => {
   });
 
   test('all NDCs are 11-digit', () => {
-    for (const m of DEMO_MEDICATIONS) {
+    for (const m of MEDICATIONS) {
       expect(m.ndc).toMatch(/^\d{11}$/);
     }
   });
 
   test('MEDICATION_BY_NDC lookup works', () => {
-    const first = DEMO_MEDICATIONS[0];
+    const first = MEDICATIONS[0];
     const found = MEDICATION_BY_NDC.get(first.ndc);
     expect(found).toBeDefined();
     expect(found!.formularyEntry.ndc).toBe(first.ndc);
   });
 
   test('formulary entry NDCs match medication NDCs', () => {
-    for (const m of DEMO_MEDICATIONS) {
+    for (const m of MEDICATIONS) {
       expect(m.formularyEntry.ndc).toBe(m.ndc);
     }
   });
@@ -126,7 +126,7 @@ describe('Production Data — Smoke Tests', () => {
   });
 
   test('buildMedicationLocalData produces valid MedicationLocalData', () => {
-    const med = DEMO_MEDICATIONS[0];
+    const med = MEDICATIONS[0];
     const medData = buildMedicationLocalData(med, 'RX-001', 30, 0, 30);
     expect(medData.productServiceId).toBe(med.ndc);
     expect(medData.productServiceIdQualifier).toBe(3);
@@ -136,7 +136,7 @@ describe('Production Data — Smoke Tests', () => {
   });
 
   test('buildMedicationPricingLocalData computes AWP-based costs', () => {
-    const med = DEMO_MEDICATIONS[0];
+    const med = MEDICATIONS[0];
     const pricing = buildMedicationPricingLocalData(med, 30);
     expect(pricing.ingredientCostSubmitted).toBe(med.awpUnitPriceCents * 30);
     expect(pricing.dispensingFeeSubmitted).toBe(200); // default $2.00
@@ -145,17 +145,17 @@ describe('Production Data — Smoke Tests', () => {
 
   // ── Members (POC — Madison, WI) ──
   test('has 8 members', () => {
-    expect(DEMO_MEMBERS).toHaveLength(8);
+    expect(MEMBERS).toHaveLength(8);
   });
 
   test('all members have valid DOB format', () => {
-    for (const m of DEMO_MEMBERS) {
+    for (const m of MEMBERS) {
       expect(m.localData.dateOfBirth).toMatch(/^\d{8}$/);
     }
   });
 
   test('all members have valid gender codes', () => {
-    for (const m of DEMO_MEMBERS) {
+    for (const m of MEMBERS) {
       expect([0, 1, 2]).toContain(m.localData.genderCode);
     }
   });
@@ -188,12 +188,12 @@ describe('Production Data — Smoke Tests', () => {
   });
 
   test('NDC uniqueness across all medications', () => {
-    const ndcs = DEMO_MEDICATIONS.map((m) => m.ndc);
+    const ndcs = MEDICATIONS.map((m) => m.ndc);
     expect(new Set(ndcs).size).toBe(ndcs.length);
   });
 
   test('cardholderId uniqueness', () => {
-    const ids = DEMO_MEMBERS.map((m) => m.localData.cardholderId);
+    const ids = MEMBERS.map((m) => m.localData.cardholderId);
     expect(new Set(ids).size).toBe(ids.length);
   });
 });

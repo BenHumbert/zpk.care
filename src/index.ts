@@ -249,6 +249,7 @@ export type {
 // Prescription Flow — Use Case D (L8)
 export {
   RX_STATUS_ACTIVE,
+  RX_STATUS_ADJUDICATED,
   RX_STATUS_PARTIALLY_FILLED,
   RX_STATUS_FILLED,
   RX_STATUS_CANCELLED,
@@ -424,18 +425,18 @@ export type {
 
 // ── Production Data (NPPES + NADAC) ─────────────────────────
 export {
-  DEMO_PRESCRIBERS, PRESCRIBER_BY_NPI,
-  DEMO_PHARMACIES, PHARMACY_BY_NPI, PHARMACY_BY_NCPDP,
-  DEMO_MEDICATIONS, TIER1_GENERICS, TIER2_PREFERRED, TIER3_NON_PREFERRED, TIER4_SPECIALTY,
+  PRESCRIBERS, PRESCRIBER_BY_NPI,
+  PHARMACIES, PHARMACY_BY_NPI, PHARMACY_BY_NCPDP,
+  MEDICATIONS, TIER1_GENERICS, TIER2_PREFERRED, TIER3_NON_PREFERRED, TIER4_SPECIALTY,
   MEDICATION_BY_NDC, MEDICATION_BY_GPI,
   getAllFormularyEntries, getFormularyEntriesByTier,
   buildMedicationLocalData, buildMedicationPricingLocalData,
-  DEMO_MEMBERS, MEMBER_BY_CARDHOLDER_ID,
+  MEMBERS, MEMBER_BY_CARDHOLDER_ID,
   getMembersByEmployee, getSubscribers, getAcmeMembers, getGlobexMembers,
 } from './data/index.js';
 export type {
-  DemoPrescriber,
-  DemoPharmacy,
-  DemoMedication,
-  DemoMember,
+  SeedPrescriber,
+  SeedPharmacy,
+  SeedMedication,
+  SeedMember,
 } from './data/index.js';

@@ -1,5 +1,5 @@
 /**
- * L2 Chain Tab — Real-time view of the zkpCare L2 sequencer.
+ * L2 Chain Tab — Real-time view of the Adjuda-GATOR L2 sequencer.
  *
  * Shows receipts, batches, audit chain, and sequencer status.
  * Action buttons: Force Batch, Save Checkpoint, Simulate Failure + Retry.

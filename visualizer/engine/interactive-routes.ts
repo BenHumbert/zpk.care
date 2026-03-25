@@ -1,5 +1,5 @@
 /**
- * Interactive Demo Routes — HTTP handlers for the interactive demo.
+ * Adjudication Routes — HTTP handlers for ZK proof claim adjudication.
  *
  * Registers endpoints on L2RpcServer:
  *   GET  /interactive/state          — current session state
@@ -13,8 +13,9 @@
  *   POST /interactive/approve-prior-auth — insurer approves PA (generates provePriorAuth proof)
  *   POST /interactive/deny-prior-auth    — insurer denies PA request
  *   POST /interactive/prescribe          — create prescription with proofs (enforces PA)
- *   POST /interactive/fill               — kick off async fill (returns 202, poll fill-status)
+ *   POST /interactive/fill               — dispense step (backward-compat path, returns 202, poll fill-status)
  *   GET  /interactive/fill-status       — poll fill job status
+ *   POST /interactive/mark-filled       — pharmacist marks prescription as physically prepared
  *   POST /interactive/update-rx-status   — cancel/reject prescription (state machine enforced)
  *   POST /interactive/reverse            — reverse a filled prescription (ZK proof + accumulator rollback)
  *   POST /interactive/terminate-member   — terminate a member (revoke credential, cancel Rx)
@@ -36,13 +37,14 @@
  */
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { L2RpcServer } from '../../src/l2/l2-rpc-server.js';
-import type { InteractiveDemoService, ConsoleEvent } from './interactive-service.js';
+import type { AdjudicationService, ConsoleEvent } from './interactive-service.js';
 import type { NfcBridge, NfcTagEvent, NdefPayload } from './nfc-bridge.js';
 import type { NfcCredentialAttestation } from '../../src/credentials/nfc-attestation.js';
+import { MEDICATIONS, PRESCRIBERS, PHARMACIES } from '../../src/data/index.js';
 
 export function registerInteractiveRoutes(
   server: L2RpcServer,
-  service: InteractiveDemoService,
+  service: AdjudicationService,
   nfcBridge?: NfcBridge,
 ): void {
   // Console SSE clients
@@ -104,6 +106,37 @@ export function registerInteractiveRoutes(
 
   // Badge tap concurrency guard — prevent concurrent ZK proofs from racing on o1js global context
   let badgeTapInProgress = false;
+
+  // POST /interactive/register-member — register an externally-enrolled member's proving context
+  // Called by the member Nautilus node at enrollment completion so the adjudication engine
+  // can generate proofs on behalf of the member. No seed data required.
+  server.registerRoute('POST', '/interactive/register-member', async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      const body = await readBody(req);
+      const params = JSON.parse(body);
+
+      if (!params.walletId || !params.preimageFields || !Array.isArray(params.preimageFields)) {
+        sendError(res, 400, 'Missing required fields: walletId, preimageFields (array of 6 decimal strings)');
+        return;
+      }
+
+      const result = await service.registerMemberFromEnrollment({
+        walletId: String(params.walletId),
+        preimageFields: params.preimageFields.map(String),
+        displayName: params.displayName || 'Member',
+        groupId: params.groupId,
+        planId: params.planId,
+        familyId: params.familyId,
+        relationship: params.relationship,
+        employeeId: params.employeeId,
+      });
+
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify(result));
+    } catch (err) {
+      sendError(res, 500, err instanceof Error ? err.message : String(err));
+    }
+  });
 
   // POST /interactive/enroll — kicks off enrollment, returns immediately
   server.registerRoute('POST', '/interactive/enroll', async (req: IncomingMessage, res: ServerResponse) => {
@@ -199,15 +232,15 @@ export function registerInteractiveRoutes(
 
       if (typeof params.memberWalletId !== 'string' ||
           typeof params.prescriberIndex !== 'number' ||
-          typeof params.medicationIndex !== 'number') {
-        sendError(res, 400, 'Missing required fields: memberWalletId, prescriberIndex, medicationIndex');
+          typeof params.ndcHash !== 'string') {
+        sendError(res, 400, 'Missing required fields: memberWalletId, prescriberIndex, ndcHash');
         return;
       }
 
       const result = service.requestPriorAuth({
         memberWalletId: params.memberWalletId,
         prescriberIndex: params.prescriberIndex,
-        medicationIndex: params.medicationIndex,
+        ndcHash: params.ndcHash,
       });
       res.writeHead(200, {
         'Content-Type': 'application/json',
@@ -268,6 +301,43 @@ export function registerInteractiveRoutes(
     }
   });
 
+  // POST /interactive/resolve-indices — map walletIds/ndcHash to seed data indices
+  // Used by entity Nautilus nodes to translate dashboard params into proof params.
+  server.registerRoute('POST', '/interactive/resolve-indices', async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      const body = await readBody(req);
+      const params = JSON.parse(body);
+
+      let prescriberIndex = -1;
+      let pharmacyIndex = -1;
+
+      if (params.prescriberWalletId) {
+        const pwid = String(params.prescriberWalletId);
+        for (let i = 0; i < PRESCRIBERS.length; i++) {
+          if (service.getPrescriberWalletId(i)?.toString() === pwid) {
+            prescriberIndex = i;
+            break;
+          }
+        }
+      }
+
+      if (params.pharmacyWalletId) {
+        const phwid = String(params.pharmacyWalletId);
+        for (let i = 0; i < PHARMACIES.length; i++) {
+          if (service.getPharmacyWalletId(i)?.toString() === phwid) {
+            pharmacyIndex = i;
+            break;
+          }
+        }
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ prescriberIndex, pharmacyIndex }));
+    } catch (err) {
+      sendError(res, 500, err instanceof Error ? err.message : String(err));
+    }
+  });
+
   // POST /interactive/prescribe
   server.registerRoute('POST', '/interactive/prescribe', async (req: IncomingMessage, res: ServerResponse) => {
     try {
@@ -276,33 +346,38 @@ export function registerInteractiveRoutes(
 
       if (typeof params.prescriberIndex !== 'number' ||
           typeof params.memberWalletId !== 'string' ||
-          typeof params.medicationIndex !== 'number' ||
+          typeof params.ndcHash !== 'string' ||
           typeof params.pharmacyIndex !== 'number') {
-        sendError(res, 400, 'Missing required fields: prescriberIndex, memberWalletId, medicationIndex, pharmacyIndex');
+        sendError(res, 400, 'Missing required fields: prescriberIndex, memberWalletId, ndcHash, pharmacyIndex');
         return;
       }
 
       const result = await service.getL2Node().withProvingLock(() => service.createPrescription({
         prescriberIndex: params.prescriberIndex,
         memberWalletId: params.memberWalletId,
-        medicationIndex: params.medicationIndex,
+        ndcHash: params.ndcHash,
         pharmacyIndex: params.pharmacyIndex,
         quantity: params.quantity ?? 30,
         refills: params.refills ?? 3,
+        rxId: params.rxId,  // optional: prescriber-supplied ID for cross-node ID consistency
       }));
       res.writeHead(200, {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
+      // Force batch to settle prescription proof immediately
+      service.forceBatch().catch(() => {});
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       sendError(res, 500, message);
     }
   });
 
-  // POST /interactive/fill — async fire-and-forget (poll fill-status for result)
-  const fillJobs = new Map<string, { status: 'pending' | 'complete' | 'error'; result?: unknown; error?: string }>();
+  // POST /interactive/fill — dispense step (backward-compat path; canonical name is dispensePrescription)
+  interface FillJob { status: 'pending' | 'complete' | 'error'; result?: unknown; error?: string; completedAt?: number; }
+  const fillJobs = new Map<string, FillJob>();
+  const FILL_JOB_TTL_MS = 5 * 60 * 1000; // Keep completed jobs for 5 minutes
 
   server.registerRoute('POST', '/interactive/fill', async (req: IncomingMessage, res: ServerResponse) => {
     try {
@@ -329,20 +404,20 @@ export function registerInteractiveRoutes(
       // Mark as pending and kick off in background
       fillJobs.set(jobKey, { status: 'pending' });
 
-      service.getL2Node().withProvingLock(() => service.fillPrescription({
+      service.getL2Node().withProvingLock(() => service.dispensePrescription({
         prescriptionId: params.prescriptionId,
         quantityDispensed: params.quantityDispensed,
         ingredientCostCents: params.ingredientCostCents,
         dispensingFeeCents: params.dispensingFeeCents,
       }))
         .then(async (result) => {
-          fillJobs.set(jobKey, { status: 'complete', result });
+          fillJobs.set(jobKey, { status: 'complete', result, completedAt: Date.now() });
           // Force batch to settle any pending transitions immediately
           try { await service.forceBatch(); } catch (e) { console.warn('[fill] forceBatch after fill:', e instanceof Error ? e.message : e); }
         })
         .catch((err) => {
           const message = err instanceof Error ? err.message : String(err);
-          fillJobs.set(jobKey, { status: 'error', error: message });
+          fillJobs.set(jobKey, { status: 'error', error: message, completedAt: Date.now() });
         });
 
       res.writeHead(202, {
@@ -383,12 +458,139 @@ export function registerInteractiveRoutes(
         'Access-Control-Allow-Origin': '*',
       });
 
-      // Clear completed/errored jobs so re-fill is possible
-      if (job.status === 'complete' || job.status === 'error') {
-        fillJobs.delete(prescriptionId);
+      // Prune old completed jobs (TTL-based, not delete-on-read)
+      const now = Date.now();
+      for (const [k, j] of fillJobs) {
+        if (j.completedAt && now - j.completedAt > FILL_JOB_TTL_MS) {
+          fillJobs.delete(k);
+        }
       }
 
       res.end(safeJsonStringify(job, 'fill-status'));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      sendError(res, 500, message);
+    }
+  });
+
+  // GET /interactive/prescriptions-by-pharmacy?pharmacyIndex=N — all prescriptions for a pharmacy
+  server.registerRoute('GET', '/interactive/prescriptions-by-pharmacy', async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      const url = new URL(req.url ?? '', `http://${req.headers.host}`);
+      const pharmacyIndex = parseInt(url.searchParams.get('pharmacyIndex') ?? '0', 10);
+      const prescriptions = service.getPrescriptionsByPharmacy(pharmacyIndex);
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(safeJsonStringify({ prescriptions }, 'prescriptions-by-pharmacy'));
+    } catch (err: any) {
+      sendError(res, 500, err.message);
+    }
+  });
+
+  // POST /interactive/mark-filled — pharmacist marks prescription as physically prepared
+  server.registerRoute('POST', '/interactive/mark-filled', async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      const body = await readBody(req);
+      const params = JSON.parse(body);
+      if (!params.prescriptionId) {
+        sendError(res, 400, 'Missing prescriptionId');
+        return;
+      }
+      const result = service.markFilled({ prescriptionId: params.prescriptionId });
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(safeJsonStringify(result, 'mark-filled'));
+    } catch (err: any) {
+      sendError(res, 500, err.message);
+    }
+  });
+
+  // POST /interactive/prescribe-and-fill — combined prescribe + fill for pharmacy PAID flow
+  // Passes ndcHash directly, creates prescription, then fills it (async).
+  // Accepts: { memberWalletId, ndcHash, prescriberWalletId?, pharmacyIndex?, quantity?, prescriberIndex? }
+  server.registerRoute('POST', '/interactive/prescribe-and-fill', async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      const body = await readBody(req);
+      const params = JSON.parse(body);
+
+      if (!params.memberWalletId || !params.ndcHash) {
+        sendError(res, 400, 'Missing required fields: memberWalletId, ndcHash');
+        return;
+      }
+
+      const ndcHashStr = String(params.ndcHash);
+
+      // Map prescriberWalletId → prescriberIndex (default to 0 if not found)
+      let prescriberIndex = params.prescriberIndex ?? 0;
+      if (params.prescriberWalletId && prescriberIndex === 0) {
+        const pwid = String(params.prescriberWalletId);
+        for (let i = 0; i < PRESCRIBERS.length; i++) {
+          // Check if this prescriber's wallet matches (approximate match on string)
+          // Prescriber wallets are derived, so we compare string representations
+          if (service.getPrescriberWalletId(i)?.toString() === pwid) {
+            prescriberIndex = i;
+            break;
+          }
+        }
+      }
+
+      const pharmacyIndex = params.pharmacyIndex ?? 0;
+      const quantity = params.quantity ?? 30;
+      const refills = params.refills ?? 3;
+
+      // Build a job key from the claim data
+      const jobKey = `pf_${params.memberWalletId}_${ndcHashStr}_${Date.now()}`;
+
+      // Check if already running
+      const existing = fillJobs.get(jobKey);
+      if (existing) {
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(safeJsonStringify({ ...existing, prescriptionId: jobKey }, 'prescribe-and-fill'));
+        return;
+      }
+
+      fillJobs.set(jobKey, { status: 'pending' });
+
+      // Run prescribe + fill in background
+      service.getL2Node().withProvingLock(async () => {
+        // Step 1: Create prescription
+        const rxResult = await service.createPrescription({
+          prescriberIndex,
+          memberWalletId: params.memberWalletId,
+          ndcHash: ndcHashStr,
+          pharmacyIndex,
+          quantity,
+          refills,
+        }) as { prescriptionId?: string };
+
+        const prescriptionId = rxResult.prescriptionId;
+        if (!prescriptionId) throw new Error('Prescription creation did not return prescriptionId');
+
+        // Step 2: Fill the prescription
+        const fillResult = await service.dispensePrescription({
+          prescriptionId,
+          quantityDispensed: params.quantityDispensed ?? quantity,
+          ingredientCostCents: params.ingredientCostCents,
+          dispensingFeeCents: params.dispensingFeeCents,
+        });
+
+        return fillResult;
+      })
+        .then(async (result) => {
+          fillJobs.set(jobKey, { status: 'complete', result });
+          try { await service.forceBatch(); } catch (e) { console.warn('[prescribe-and-fill] forceBatch:', e instanceof Error ? e.message : e); }
+        })
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          fillJobs.set(jobKey, { status: 'error', error: message });
+        });
+
+      res.writeHead(202, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.end(safeJsonStringify({ status: 'pending', prescriptionId: jobKey }, 'prescribe-and-fill'));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       sendError(res, 500, message);
@@ -827,9 +1029,9 @@ export function registerInteractiveRoutes(
       const body = await readBody(req);
       const params = JSON.parse(body);
 
-      if (typeof params.medicationIndex !== 'number' ||
+      if (typeof params.ndcHash !== 'string' ||
           !['MODIFY', 'REMOVE', 'ADD'].includes(params.action)) {
-        sendError(res, 400, 'Missing required fields: medicationIndex, action (MODIFY|REMOVE|ADD)');
+        sendError(res, 400, 'Missing required fields: ndcHash, action (MODIFY|REMOVE|ADD)');
         return;
       }
 
@@ -897,14 +1099,14 @@ export function registerInteractiveRoutes(
     try {
       const url = new URL(req.url!, `http://${req.headers.host}`);
       const walletId = url.searchParams.get('memberWalletId');
-      const medIdx = url.searchParams.get('medicationIndex');
+      const ndcHash = url.searchParams.get('ndcHash');
 
-      if (!walletId || !medIdx) {
-        sendError(res, 400, 'Missing query params: memberWalletId, medicationIndex');
+      if (!walletId || !ndcHash) {
+        sendError(res, 400, 'Missing query params: memberWalletId, ndcHash');
         return;
       }
 
-      const result = service.checkStepTherapy(walletId, parseInt(medIdx, 10));
+      const result = service.checkStepTherapy(walletId, ndcHash);
       res.writeHead(200, {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
@@ -1062,14 +1264,10 @@ export function registerInteractiveRoutes(
 
   // ─── Entity Node Dashboard Routes ────────────────────────
 
-  // GET /node/state — session state + demo data for entity dashboards
+  // GET /node/state — session state + seed data for entity dashboards
   server.registerRoute('GET', '/node/state', async (_req: IncomingMessage, res: ServerResponse) => {
     try {
       const state = service.getState();
-      // Import demo data dynamically
-      const { DEMO_PRESCRIBERS } = await import('../../src/demo/prescribers.js');
-      const { DEMO_PHARMACIES } = await import('../../src/demo/pharmacies.js');
-      const { DEMO_MEDICATIONS } = await import('../../src/demo/medications.js');
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
@@ -1077,7 +1275,7 @@ export function registerInteractiveRoutes(
       });
       res.end(safeJsonStringify({
         ...state,
-        prescribers: DEMO_PRESCRIBERS.map((p, i) => ({
+        prescribers: PRESCRIBERS.map((p, i) => ({
           index: i,
           firstName: p.firstName,
           lastName: p.lastName,
@@ -1087,7 +1285,7 @@ export function registerInteractiveRoutes(
           state: p.state,
           deaNumber: p.deaNumber,
         })),
-        pharmacies: DEMO_PHARMACIES.map((p, i) => ({
+        pharmacies: PHARMACIES.map((p, i) => ({
           index: i,
           storeName: p.storeName,
           chain: p.chain,
@@ -1099,7 +1297,7 @@ export function registerInteractiveRoutes(
           state: p.state,
           phone: p.phone,
         })),
-        medications: DEMO_MEDICATIONS.map((m, i) => ({
+        medications: MEDICATIONS.map((m, i) => ({
           index: i,
           brandName: m.brandName,
           genericName: m.genericName,

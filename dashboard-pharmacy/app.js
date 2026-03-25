@@ -1,20 +1,11 @@
-// zkp.Care Pharmacy Workstation — SPA Application Logic
-// 3-column dispensing workflow, script history, DUR, messaging, onboarding, proofs.
+// Adjuda-GATOR Pharmacy Workstation — SPA Application Logic
+// 4-column dispensing workflow (Adjudicated → Filled → Dispensed → History), script history, DUR, messaging, onboarding, proofs.
 
 (function () {
   'use strict';
 
-  // ── Demo Pharmacies ─────────────────────────────────────────
-  const PHARMACIES = [
-    { npi: '2345678901', ncpdp: '5901234', name: 'Main Street Pharmacy', chain: 'Independent', type: 'Community/Retail', city: 'Springfield', state: 'IL' },
-    { npi: '2456789012', ncpdp: '5902345', name: 'WellCare Drugs #1042', chain: 'WellCare Drugs', type: 'Community/Retail', city: 'Dallas', state: 'TX' },
-    { npi: '2567890123', ncpdp: '5903456', name: 'HealthMart Pharmacy #8871', chain: 'HealthMart', type: 'Community/Retail', city: 'New York', state: 'NY' },
-    { npi: '2678901234', ncpdp: '5904567', name: 'RxDirect Mail', chain: 'RxDirect', type: 'Mail Order', city: 'Memphis', state: 'TN' },
-    { npi: '2789012345', ncpdp: '5905678', name: 'BioSpecialty Pharmacy', chain: 'BioSpecialty', type: 'Specialty', city: 'Boston', state: 'MA' },
-    { npi: '2890123456', ncpdp: '5906789', name: 'Precision Compounding', chain: 'Independent', type: 'Compounding', city: 'San Francisco', state: 'CA' },
-    { npi: '2901234567', ncpdp: '5907890', name: 'Sunrise LTC Pharmacy', chain: 'Sunrise Health', type: 'Long-Term Care', city: 'Miami', state: 'FL' },
-    { npi: '2012345678', ncpdp: '5908901', name: 'Campus Health Pharmacy', chain: 'Independent', type: 'Institutional', city: 'Ann Arbor', state: 'MI' },
-  ];
+  // ── Pharmacies (loaded from server — real NPPES data) ───────
+  var PHARMACIES = [];
 
   const PHARMACY_KEY = 'zkp_pharmacy_selected';
 
@@ -39,12 +30,24 @@
   let durCurrentWallet = null;
   let durLookupCount = 0;
 
-  // Script workflow state — in-memory only, rebuilt from sequencer on each load
-  // { [scriptKey]: { status: 'active'|'dispensed'|'filled'|'complete'|'rejected'|'transferred', paid: bool, issue: string|null, transferTo: string|null, updatedAt: number } }
+  // Script workflow state — transient UI state only (memberVerified, proofStatus, filling/dispensing in-progress).
+  // Permanent status comes from the server via API.prescriptions.list().
+  // { [scriptKey]: { _transientStatus?, memberVerified?, proofStatus?, proofError?, proofResult?, _claim?, ... } }
   let scriptWorkflow = {};
 
-  // Verified member wallet for the Filled column
-  let verifiedMemberWallet = null;
+  // Verified member wallet for the Filled column — keyed by pharmacy NPI
+  // Restore verified member wallets from sessionStorage (survives refresh, clears on tab close)
+  let verifiedMemberWallets = {};
+  try { verifiedMemberWallets = JSON.parse(sessionStorage.getItem('zkt_pharmacy_verified') || '{}'); } catch { verifiedMemberWallets = {}; }
+  function getVerifiedMemberWallet() {
+    var pharm = getSelectedPharmacy();
+    return pharm ? (verifiedMemberWallets[pharm.npi] || null) : null;
+  }
+  function setVerifiedMemberWallet(walletId) {
+    var pharm = getSelectedPharmacy();
+    if (pharm) verifiedMemberWallets[pharm.npi] = walletId;
+    try { sessionStorage.setItem('zkt_pharmacy_verified', JSON.stringify(verifiedMemberWallets)); } catch {}
+  }
 
   // Messaging state
   let msgActiveThread = null;
@@ -54,6 +57,21 @@
 
   function $(sel) { return document.querySelector(sel); }
   function $$(sel) { return document.querySelectorAll(sel); }
+
+  function toast(msg, type) {
+    type = type || 'info';
+    var container = document.getElementById('toast-container');
+    if (!container) return;
+    var el = document.createElement('div');
+    el.className = 'toast ' + type;
+    el.textContent = msg;
+    container.appendChild(el);
+    setTimeout(function () {
+      el.style.opacity = '0';
+      el.style.transition = 'opacity 0.3s';
+      setTimeout(function () { el.remove(); }, 300);
+    }, 4000);
+  }
 
   function truncate(s, n) {
     if (!s) return '--';
@@ -125,32 +143,45 @@
   }
 
   function getScriptStatus(claim) {
-    const key = scriptKey(claim);
-    const w = scriptWorkflow[key];
-    return w ? w.status : 'active';
+    var key = scriptKey(claim);
+    var w = scriptWorkflow[key];
+    // Transient states override server state (filling, dispensing in progress)
+    if (w && w._transientStatus) return w._transientStatus;
+    // Server-side status is the truth
+    var s = (claim.status || 'ADJUDICATED').toLowerCase();
+    if (s === 'pending') return 'adjudicated'; // proofs generating
+    if (s === 'adjudicated') return 'adjudicated';
+    if (s === 'filled') return 'filled';
+    if (s === 'dispensed') return 'dispensed';
+    if (s === 'completed') return 'completed'; // completed = dispensed + paid → history column
+    if (s === 'reversed') return 'reversed';
+    if (s === 'cancelled') return 'cancelled';
+    if (s === 'rejected') return 'rejected';
+    if (s === 'transferred') return 'transferred';
+    return 'adjudicated'; // default
   }
 
   function setScriptStatus(claim, status, extra) {
-    const key = scriptKey(claim);
-    scriptWorkflow[key] = Object.assign(scriptWorkflow[key] || {}, {
-      status: status,
-      updatedAt: Date.now(),
-    }, extra || {});
-    // workflow state kept in-memory only
-  }
-
-  function isScriptPaid(claim) {
-    const key = scriptKey(claim);
-    return scriptWorkflow[key]?.paid || false;
-  }
-
-  function setScriptPaid(claim) {
-    const key = scriptKey(claim);
-    scriptWorkflow[key] = Object.assign(scriptWorkflow[key] || { status: getScriptStatus(claim) }, {
-      paid: true,
-      updatedAt: Date.now(),
-    });
-    // workflow state kept in-memory only
+    var key = scriptKey(claim);
+    // For transient states (filling, dispensing), store in workflow
+    if (status === 'filling' || status === 'dispensing') {
+      scriptWorkflow[key] = Object.assign(scriptWorkflow[key] || {}, {
+        _transientStatus: status,
+        updatedAt: Date.now(),
+      }, extra || {});
+    } else {
+      // For permanent states, update the claim object directly
+      // (it will be overwritten on next server poll)
+      claim.status = status.toUpperCase();
+      // Store extra metadata (issue, transferTo, etc.) in workflow for UI display
+      if (extra) {
+        scriptWorkflow[key] = Object.assign(scriptWorkflow[key] || {}, extra, { updatedAt: Date.now() });
+      }
+      // Clear transient status since we've moved to a permanent state
+      if (scriptWorkflow[key]) {
+        delete scriptWorkflow[key]._transientStatus;
+      }
+    }
   }
 
   function getScriptIssue(claim) {
@@ -217,29 +248,17 @@
   }
 
   // ══════════════════════════════════════════════════════════════
-  //  WORKSTATION — 3-Column Dispensing Workflow
+  //  WORKSTATION — 4-Column Dispensing Workflow
+  //  Adjudicated → Filled → Dispensed → History
   // ══════════════════════════════════════════════════════════════
 
   let allClaims = [];
-  let incomingScripts = []; // eScript messages from prescribers (not yet adjudicated)
-
-  // Decode hex-encoded prescription JSON from eScript message payload
-  function decodeEscriptPayload(hexCiphertext) {
-    try {
-      var bytes = [];
-      for (var i = 0; i < hexCiphertext.length; i += 2) {
-        bytes.push(parseInt(hexCiphertext.substr(i, 2), 16));
-      }
-      var jsonStr = String.fromCharCode.apply(null, bytes);
-      return JSON.parse(jsonStr);
-    } catch (_) { return null; }
-  }
 
   async function loadWorkstation() {
     var pharm = getSelectedPharmacy();
 
     // Show loading indicators in workstation columns
-    ['ws-active-list', 'ws-dispensed-list', 'ws-filled-list'].forEach(function (id) {
+    ['ws-adjudicated-list', 'ws-filled-list', 'ws-dispensed-list', 'ws-history-list'].forEach(function (id) {
       var el = document.getElementById(id);
       if (el) el.innerHTML = '<div class="ws-empty" style="opacity:0.6">Loading...</div>';
     });
@@ -251,109 +270,168 @@
       setText('#header-wallet', truncate(wid, 16));
     } catch (_) { }
 
-    // Fetch claims from accumulator AND incoming eScript messages in parallel
+    // FIRST: fetch server-side prescription state (the source of truth)
+    // THEN: merge with claim accumulator data for settlement details on completed claims
+    var rxPromise = API.prescriptions.list().catch(function () { return []; });
     var claimsPromise = API.dispensing.list().catch(function () { return []; });
-    var inboxPromise = API.messaging.inbox().catch(function () { return []; });
-    var results = await Promise.all([claimsPromise, inboxPromise]);
+    var results = await Promise.all([rxPromise, claimsPromise]);
 
-    // Process claims from accumulator
-    var claimsData = results[0];
-    var raw = Array.isArray(claimsData) ? claimsData : (claimsData.claims || claimsData.history || []);
+    // Process prescriptions from server (source of truth for status)
+    var rxData = results[0];
+    var prescriptions = Array.isArray(rxData) ? rxData : (rxData.prescriptions || rxData.data || []);
+
+    // Process claims from accumulator (settlement data for completed claims)
+    var claimsData = results[1];
+    var accumulatorClaims = Array.isArray(claimsData) ? claimsData : (claimsData.claims || claimsData.history || []);
+
+    // Build a lookup of accumulator claims by key for merging settlement data
+    var accumulatorByKey = {};
+    accumulatorClaims.forEach(function (c) {
+      accumulatorByKey[scriptKey(c)] = c;
+      // Also index by hash key for cross-referencing
+      var hashKey = 'h_' + (c.memberWalletId || '') + '_' + (c.ndcHash || '') + '_' + (c.dateOfService || '');
+      accumulatorByKey[hashKey] = c;
+    });
+
+    // Merge: prescriptions get settlement data from accumulator where available
+    prescriptions.forEach(function (rx) {
+      var key = scriptKey(rx);
+      var hashKey = 'h_' + (rx.memberWalletId || '') + '_' + (rx.ndcHash || '') + '_' + (rx.dateOfService || '');
+      var acc = accumulatorByKey[key] || accumulatorByKey[hashKey];
+      if (acc) {
+        // Merge settlement data from accumulator into prescription
+        if (acc.patientPayCents != null && !rx.patientPayCents) rx.patientPayCents = acc.patientPayCents;
+        if (acc.planPayCents != null && !rx.planPayCents) rx.planPayCents = acc.planPayCents;
+        if (acc.deductibleCreditCents != null) rx.deductibleCreditCents = acc.deductibleCreditCents;
+        if (acc.leafIndex != null && rx.leafIndex == null) rx.leafIndex = acc.leafIndex;
+        if (acc.ingredientCostCents != null) rx.ingredientCostCents = acc.ingredientCostCents;
+        if (acc.dispensingFeeCents != null) rx.dispensingFeeCents = acc.dispensingFeeCents;
+        if (acc.metadata) rx.metadata = Object.assign(rx.metadata || {}, acc.metadata);
+      }
+    });
+
     // Filter to selected pharmacy (by NPI wallet match) — if no pharmacy field, show all
-    allClaims = raw.filter(function (c) {
+    allClaims = prescriptions.filter(function (c) {
       var cPharm = c.pharmacyWalletId || c.pharmacy || '';
       if (!cPharm) return true; // no pharmacy tag — show in all
       return cPharm === pharm.npi || cPharm.indexOf(pharm.npi) !== -1;
     });
     // If filter yields nothing, show all (sequencer may not tag by NPI)
-    if (allClaims.length === 0 && raw.length > 0) allClaims = raw;
+    if (allClaims.length === 0 && prescriptions.length > 0) allClaims = prescriptions;
 
-    // Process incoming eScript messages (messageType '3') — these are prescriptions
-    // not yet in the claim accumulator (pre-adjudication)
-    var inboxData = Array.isArray(results[1]) ? results[1] : [];
-    incomingScripts = [];
-    var existingKeys = {};
-    allClaims.forEach(function (c) { existingKeys[scriptKey(c)] = true; });
+    // FALLBACK: if prescription list is empty but accumulator has claims,
+    // use accumulator data filtered to this pharmacy only.
+    if (allClaims.length === 0 && accumulatorClaims.length > 0) {
+      allClaims = accumulatorClaims.filter(function (c) {
+        var cPharm = c.pharmacyWalletId || c.pharmacy || '';
+        if (!cPharm) return true; // no pharmacy tag — include (may be pre-tagged data)
+        return cPharm === pharm.npi || cPharm.indexOf(pharm.npi) !== -1;
+      });
+    }
 
-    inboxData.forEach(function (msg) {
-      var mt = msg.messageType || (msg.message && msg.message.messageType) || '';
-      if (String(mt) !== '3') return; // only eScript messages
-      var payload = msg.payload || {};
-      var rx = decodeEscriptPayload(payload.ciphertext || '');
-      if (!rx) return;
-      // Build a claim-like object from the prescription for display
-      var claimLike = {
-        _isEscript: true,
-        rxId: rx.rxId,
-        memberWalletId: rx.memberWalletId,
-        prescriberWalletId: rx.prescriberWalletId,
-        pharmacyWalletId: rx.pharmacyWalletId,
-        ndcHash: rx.ndcHash,
-        brandName: rx.brandName,
-        quantity: rx.quantity,
-        daysSupply: rx.daysSupply,
-        refills: rx.refills,
-        directions: rx.directions,
-        diagnosis: rx.diagnosis,
-        dateOfService: rx.dateWritten,
-        patientPayCents: 0, // not yet adjudicated
-        planPayCents: 0,
-        messageIndex: msg.leafIndex || msg.index,
-        threadIdHash: msg.threadIdHash || (msg.message && msg.message.threadIdHash),
-      };
-      // Don't add if already in claim accumulator (already adjudicated)
-      var key = scriptKey(claimLike);
-      if (!existingKeys[key]) {
-        incomingScripts.push(claimLike);
-        existingKeys[key] = true;
+    // Clear transient workflow states when server state catches up —
+    // but ONLY if no proof is actively in progress for this claim.
+    allClaims.forEach(function (rx) {
+      var key = scriptKey(rx);
+      var w = scriptWorkflow[key];
+      if (w && w._transientStatus) {
+        // Don't clear transient status while a proof is still generating
+        if (w.proofStatus === 'pending') return;
+        var serverStatus = (rx.status || '').toUpperCase();
+        // Server has moved past PENDING — clear transient override
+        if (serverStatus && serverStatus !== 'PENDING') {
+          delete w._transientStatus;
+        }
       }
     });
 
-    // Merge incoming scripts into allClaims so they appear in the Active column
-    allClaims = incomingScripts.concat(allClaims);
+    // Restore payment state from sessionStorage
+    var savedPayments = {};
+    try { savedPayments = JSON.parse(sessionStorage.getItem('zkt_pharmacy_payments') || '{}'); } catch {}
 
-    renderWorkstationColumns();
+    // Reconcile server-side terminal states into scriptWorkflow
+    // so dispensed/reversed/completed prescriptions render correctly after page refresh
+    allClaims.forEach(function (rx) {
+      var key = scriptKey(rx);
+      var serverStatus = (rx.status || '').toUpperCase();
+      if (serverStatus === 'DISPENSED' || serverStatus === 'REVERSED' || serverStatus === 'COMPLETED' ||
+          serverStatus === 'PARTIALLY_FILLED') {
+        if (!scriptWorkflow[key]) scriptWorkflow[key] = {};
+        if (!scriptWorkflow[key].proofStatus) {
+          scriptWorkflow[key].proofStatus = rx.proofStatus || 'complete';
+        }
+        if (rx.prescriptionId && !scriptWorkflow[key].prescriptionId) {
+          scriptWorkflow[key].prescriptionId = rx.prescriptionId;
+        }
+        // Use != null (not !value) so zero amounts are preserved
+        if (rx.patientPayCents != null) {
+          scriptWorkflow[key].patientPayCents = String(rx.patientPayCents);
+        }
+        if (rx.planPayCents != null) {
+          scriptWorkflow[key].planPayCents = String(rx.planPayCents);
+        }
+        // Restore payment state from sessionStorage
+        if (savedPayments[key]) {
+          scriptWorkflow[key].paymentReceived = true;
+          scriptWorkflow[key].paymentReceivedAt = savedPayments[key].receivedAt;
+        }
+      }
+    });
 
-    // Auto-refresh workstation every 30s
-    if (window._overviewTimer) clearInterval(window._overviewTimer);
-    window._overviewTimer = setInterval(loadWorkstation, 30000);
+    // Only re-render if we have data (don't wipe the UI if fetch returned empty)
+    if (allClaims.length > 0 || !window._lastHadClaims) {
+      window._lastHadClaims = allClaims.length > 0;
+      renderWorkstationColumns();
+    }
+
+    // Auto-refresh workstation every 10s (set once, not every call)
+    if (!window._overviewTimer) {
+      window._overviewTimer = setInterval(loadWorkstation, 10000);
+    }
   }
 
   function renderWorkstationColumns() {
-    const active = [];
-    const dispensed = [];
+    const adjudicated = [];
     const filled = [];
+    const dispensed = [];
+    const history = [];
     let completedToday = 0;
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
 
     allClaims.forEach(function (claim) {
       const status = getScriptStatus(claim);
-      const issue = getScriptIssue(claim);
 
       switch (status) {
-        case 'active':
-          active.push(claim);
+        case 'adjudicated':
+          adjudicated.push(claim);
+          break;
+        case 'filling':
+          adjudicated.push(claim); // stays in adjudicated column, grayed out + pulsing
+          break;
+        case 'filled':
+          filled.push(claim);
+          break;
+        case 'dispensing':
+          filled.push(claim); // stays in filled column with "Proving..." badge
           break;
         case 'dispensed':
           dispensed.push(claim);
-          break;
-        case 'filled':
-        case 'complete':
-          filled.push(claim);
           if (scriptWorkflow[scriptKey(claim)]?.updatedAt >= todayStart.getTime()) {
             completedToday++;
           }
           break;
+        case 'completed':
         case 'reversed':
-          // Reversed scripts go back to Active column with issue flag (flashing)
-          active.push(claim);
-          break;
+        case 'cancelled':
         case 'rejected':
         case 'transferred':
-          // Don't show in columns — visible in history
+          history.push(claim);
+          if (scriptWorkflow[scriptKey(claim)]?.updatedAt >= todayStart.getTime()) {
+            completedToday++;
+          }
           break;
         default:
-          active.push(claim);
+          adjudicated.push(claim);
       }
     });
 
@@ -368,23 +446,27 @@
       return bDate - aDate;
     };
 
-    active.sort(sortWithIssues);
-    dispensed.sort(sortWithIssues);
+    adjudicated.sort(sortWithIssues);
     filled.sort(sortWithIssues);
+    dispensed.sort(sortWithIssues);
+    history.sort(sortWithIssues);
 
     // Stats
-    setText('#ws-active-count', String(active.length));
-    setText('#ws-dispensed-count', String(dispensed.length));
+    setText('#ws-adjudicated-count', String(adjudicated.length));
     setText('#ws-filled-count', String(filled.length));
+    setText('#ws-dispensed-count', String(dispensed.length));
+    setText('#ws-history-count', String(history.length));
     setText('#ws-completed-count', String(completedToday));
-    setText('#ws-active-badge', String(active.length));
-    setText('#ws-dispensed-badge', String(dispensed.length));
+    setText('#ws-adjudicated-badge', String(adjudicated.length));
     setText('#ws-filled-badge', String(filled.length));
+    setText('#ws-dispensed-badge', String(dispensed.length));
+    setText('#ws-history-badge', String(history.length));
 
     // Render columns
-    renderColumn('#ws-active-list', active, 'active');
-    renderColumn('#ws-dispensed-list', dispensed, 'dispensed');
+    renderColumn('#ws-adjudicated-list', adjudicated, 'adjudicated');
     renderColumn('#ws-filled-list', filled, 'filled');
+    renderColumn('#ws-dispensed-list', dispensed, 'dispensed');
+    renderColumn('#ws-history-list', history, 'history');
   }
 
   function renderColumn(sel, claims, columnType) {
@@ -393,9 +475,10 @@
 
     if (claims.length === 0) {
       const emptyMessages = {
-        active: 'No active scripts',
+        adjudicated: 'No adjudicated scripts — waiting for eScripts from prescribers',
+        filled: 'No scripts awaiting pickup',
         dispensed: 'No dispensed scripts',
-        filled: 'Scan member NFC or paste credential to verify & complete pickup',
+        history: 'No completed scripts',
       };
       container.innerHTML = '<div class="ws-empty">' + (emptyMessages[columnType] || 'No scripts') + '</div>';
       return;
@@ -404,44 +487,66 @@
     container.innerHTML = claims.map(function (claim) {
       const issue = getScriptIssue(claim);
       const recordingError = scriptWorkflow[scriptKey(claim)]?.recordingError || null;
-      const paid = isScriptPaid(claim);
+      const proofStatus = scriptWorkflow[scriptKey(claim)]?.proofStatus || null;
+      const currentClaimStatus = getScriptStatus(claim);
+      const isFilling = currentClaimStatus === 'filling';
+      const isDispensing = currentClaimStatus === 'dispensing';
       const isEscript = !!claim._isEscript;
       const medLabel = claim.brandName ? claim.brandName : (claim.ndcHash || claim.medication || '');
       const med = truncate(medLabel, 20);
       const patient = truncate(claim.memberWalletId || claim.patient || claim.patientWalletId, 14);
       const prescriber = truncate(claim.prescriberWalletId || claim.prescriber, 14);
       const date = formatDate(claim.dateOfService || claim.date);
-      const patientPay = isEscript ? 'Pending' : formatCents(claim.patientPayCents || claim.patientPay);
-      const planPay = isEscript ? '' : formatCents(claim.planPayCents || claim.planPay);
+      // Use workflow data first (from proof result), then server data. Use != null to preserve $0.00 amounts.
+      var wf = scriptWorkflow[scriptKey(claim)] || {};
+      const patientPayVal = wf.patientPayCents != null ? wf.patientPayCents : (claim.patientPayCents != null ? claim.patientPayCents : claim.patientPay);
+      const patientPay = isEscript ? 'Pending' : formatCents(patientPayVal);
+      const planPayVal = wf.planPayCents != null ? wf.planPayCents : (claim.planPayCents != null ? claim.planPayCents : claim.planPay);
+      const planPay = isEscript ? '' : formatCents(planPayVal);
       const key = scriptKey(claim);
 
       let actionsHtml = '';
-      if (columnType === 'active') {
+      if (columnType === 'adjudicated') {
         actionsHtml =
-          '<button class="btn btn-sm btn-primary" onclick="App.dispenseScript(\'' + escapeHtml(key) + '\')">Dispense</button>' +
+          '<button class="btn btn-sm btn-primary" onclick="App.fillScript(\'' + escapeHtml(key) + '\')">Fill</button>' +
           '<button class="btn btn-sm btn-danger" onclick="App.rejectScript(\'' + escapeHtml(key) + '\')">Reject</button>' +
           '<button class="btn btn-sm" onclick="App.transferScript(\'' + escapeHtml(key) + '\')">Transfer</button>';
-      } else if (columnType === 'dispensed') {
-        var memberWid = claim.memberWalletId || claim.patient || claim.patientWalletId || '';
-        var isVerified = verifiedMemberWallet && memberWid && verifiedMemberWallet === memberWid;
-        actionsHtml =
-          (isVerified
-            ? '<button class="btn btn-sm btn-paid" onclick="App.markPaid(\'' + escapeHtml(key) + '\')">PAID</button>'
-            : '<span class="btn btn-sm" style="opacity:0.4;cursor:not-allowed" title="Verify member first (NFC/attestation)">PAID</span>') +
-          '<button class="btn btn-sm btn-reverse" onclick="App.reverseScript(\'' + escapeHtml(key) + '\')">Reverse</button>' +
-          '<button class="btn btn-sm" onclick="App.transferScript(\'' + escapeHtml(key) + '\')">Transfer</button>';
       } else if (columnType === 'filled') {
+        var memberVerified = isScriptVerified(claim);
         actionsHtml =
-          '<button class="btn btn-sm btn-paid' + (paid ? ' paid' : '') + '" onclick="App.markPaid(\'' + escapeHtml(key) + '\')">' + (paid ? 'PAID' : 'PAID') + '</button>' +
+          (memberVerified
+            ? '<span class="btn btn-sm" style="background:#10b981;color:#fff;cursor:default;font-size:10px">Verified</span>'
+            : '<button class="btn btn-sm" onclick="App.verifyMemberForScript(\'' + escapeHtml(key) + '\')">Verify Member</button>') +
+          '<button class="btn btn-sm btn-primary" onclick="App.dispenseScript(\'' + escapeHtml(key) + '\')"' +
+            (memberVerified ? '' : ' disabled title="Verify member first"') + '>Dispense</button>';
+      } else if (columnType === 'dispensed') {
+        var paymentReceived = scriptWorkflow[key]?.paymentReceived;
+        actionsHtml =
+          (!paymentReceived
+            ? '<button class="btn btn-sm btn-primary" onclick="App.confirmPayment(\'' + escapeHtml(key) + '\')">Payment Received</button>'
+            : '<span class="btn btn-sm" style="background:#10b981;color:#fff;cursor:default;font-size:10px">Paid</span>') +
           '<button class="btn btn-sm btn-reverse" onclick="App.reverseScript(\'' + escapeHtml(key) + '\')">Reverse</button>';
       }
+      // history column: no action buttons
 
-      return '<div class="script-card' + (issue ? ' has-issue' : '') + (isEscript ? ' is-escript' : '') + '" data-key="' + escapeHtml(key) + '" onclick="App.showScriptDetail(\'' + escapeHtml(key) + '\')">' +
+      return '<div class="script-card' + (issue ? ' has-issue' : '') + (isEscript ? ' is-escript' : '') + (isDispensing || isFilling ? ' is-dispensing' : '') + '" data-key="' + escapeHtml(key) + '" onclick="App.showScriptDetail(\'' + escapeHtml(key) + '\')">' +
         '<div class="script-card-top">' +
           '<span class="script-med">' + escapeHtml(med) + '</span>' +
+          (isFilling ? '<span class="script-issue-badge" style="background:#6b7280;color:#fff;animation:pulse 2s infinite">Filling...</span>' : '') +
+          (isDispensing ? '<span class="script-issue-badge" style="background:#6b7280;color:#fff;animation:pulse 2s infinite">Dispensing...</span>' : '') +
           (isEscript ? '<span class="script-issue-badge" style="background:#0ea5e9;color:#fff">eRx</span>' : '') +
           (issue ? '<span class="script-issue-badge">' + escapeHtml(issue) + '</span>' : '') +
           (recordingError ? '<span class="script-issue-badge" style="background:#dc2626;color:#fff" title="' + escapeHtml(recordingError) + '">Not Recorded</span>' : '') +
+          (proofStatus === 'pending' ? '<span class="script-issue-badge" style="background:#f59e0b;color:#fff;animation:pulse 2s infinite">Proving...</span>' : '') +
+          (proofStatus === 'complete' ? '<span class="script-issue-badge" style="background:#10b981;color:#fff">ZK Proved</span>' : '') +
+          (proofStatus === 'error' ? '<span class="script-issue-badge" style="background:#dc2626;color:#fff" title="' + escapeHtml(scriptWorkflow[scriptKey(claim)]?.proofError || 'Unknown') + '">Proof Failed</span>' : '') +
+          (proofStatus === 'timeout' ? '<span class="script-issue-badge" style="background:#6b7280;color:#fff">Proof Timeout</span>' : '') +
+          (columnType === 'filled' && isScriptVerified(claim) ? '<span class="script-issue-badge" style="background:#10b981;color:#fff">Member Verified</span>' : '') +
+          (columnType === 'dispensed' ? '<span class="script-issue-badge" style="background:#10b981;color:#fff">Settlement Complete</span>' : '') +
+          (columnType === 'history' && currentClaimStatus === 'reversed' ? '<span class="script-issue-badge" style="background:#dc2626;color:#fff">Reversed</span>' : '') +
+          (columnType === 'history' && currentClaimStatus === 'rejected' ? '<span class="script-issue-badge" style="background:#dc2626;color:#fff">Rejected</span>' : '') +
+          (columnType === 'history' && currentClaimStatus === 'transferred' ? '<span class="script-issue-badge" style="background:#6b7280;color:#fff">Transferred</span>' : '') +
+          (columnType === 'history' && currentClaimStatus === 'cancelled' ? '<span class="script-issue-badge" style="background:#6b7280;color:#fff">Cancelled</span>' : '') +
         '</div>' +
         '<div class="script-card-meta">' +
           '<span class="script-patient" title="Patient">' + escapeHtml(patient) + '</span>' +
@@ -465,7 +570,14 @@
   // ── Workstation Actions ──────────────────────────────────────
 
   function findClaimByKey(key) {
-    return allClaims.find(function (c) { return scriptKey(c) === key; });
+    var found = allClaims.find(function (c) { return scriptKey(c) === key; });
+    // Fallback: if allClaims was refreshed and lost the reference, check workflow backup
+    if (!found && scriptWorkflow[key] && scriptWorkflow[key]._claim) {
+      found = scriptWorkflow[key]._claim;
+      // Re-add to allClaims so it appears in the columns
+      if (allClaims.indexOf(found) === -1) allClaims.push(found);
+    }
+    return found;
   }
 
   // Cached formulary entries for copay lookups during dispensing
@@ -498,57 +610,133 @@
   async function dispenseScript(key) {
     const claim = findClaimByKey(key);
     if (!claim) return;
-    setScriptStatus(claim, 'dispensed');
-    renderWorkstationColumns();
-
-    // Look up formulary pricing for eScripts (pre-adjudication prescriptions)
-    var patientPayCents = claim.patientPayCents || claim.patientPay || '0';
-    var planPayCents = claim.planPayCents || claim.planPay || '0';
-    if (claim._isEscript) {
-      try {
-        var entries = await loadFormularyCache();
-        var pricing = lookupCopay(entries, claim.ndcHash);
-        patientPayCents = String(pricing.patientPayCents);
-        planPayCents = String(pricing.planPayCents);
-      } catch (_) { /* use defaults */ }
+    // Guard: only dispense from FILLED status
+    var currentStatus = getScriptStatus(claim);
+    if (currentStatus === 'dispensed' || currentStatus === 'completed') {
+      // Already dispensed (e.g., by bootstrap auto-fill) — just refresh and show
+      toast('Already dispensed — refreshing view', 'info');
+      loadWorkstation();
+      return;
     }
+    if (currentStatus !== 'filled') return;
+    // Guard: must be member-verified before dispensing
+    if (!isScriptVerified(claim)) {
+      toast('Verify member first (NFC/attestation) before dispensing', 'error');
+      return;
+    }
+
+    // Set to dispensing — card stays in filled column with "Dispensing..." badge
+    setScriptStatus(claim, 'dispensing');
+    if (!scriptWorkflow[key]) scriptWorkflow[key] = {};
+    scriptWorkflow[key].proofStatus = 'pending';
+    scriptWorkflow[key].proofError = null;
+    scriptWorkflow[key].proofResult = null;
+    scriptWorkflow[key]._claim = claim; // preserve claim ref in case allClaims refreshes
+    renderWorkstationColumns();
 
     // NADAC transparent pricing — pharmacy reports actual cost breakdown
     var ingredientCostCents = Number(claim.ingredientCostCents || claim.ingredientCost || 0);
-    var dispensingFeeCents = Number(claim.dispensingFeeCents || claim.dispensingFee || 1300); // default $13 dispensing fee
-    var quantityDispensed = Number(claim.quantityDispensed || claim.quantity || 0);
+    var dispensingFeeCents = Number(claim.dispensingFeeCents || claim.dispensingFee || 1300);
+    var quantityDispensed = Number(claim.quantityDispensed || claim.quantity || 30);
 
-    // Record the fill on the sequencer's claim accumulator (best-effort)
-    API.dispensing.fill({
-      memberWalletId: claim.memberWalletId || claim.patient || claim.patientWalletId || '',
-      ndcHash: claim.ndcHash || '',
-      prescriberWalletId: claim.prescriberWalletId || claim.prescriber || '',
-      brandName: claim.brandName || '',
-      daysSupply: claim.daysSupply,
-      fillNumber: claim.fillNumber || 0,
-      ndc: claim.ndc || '',
-      patientPayCents: patientPayCents,
-      planPayCents: planPayCents,
+    // Fire async ZK proof pipeline via pharmacy route → sequencer interactive service
+    // Uses prescriptionId from the existing eScript (prescriber already adjudicated)
+    var prescriptionId = claim.rxId || claim.prescriptionId || claim.id;
+    if (!prescriptionId) {
+      toast('Cannot dispense: no prescription ID on this script', 'error');
+      setScriptStatus(claim, 'filled');
+      renderWorkstationColumns();
+      return;
+    }
+    API.dispensing.dispense({
+      prescriptionId: prescriptionId,
+      quantityDispensed: quantityDispensed,
       ingredientCostCents: ingredientCostCents,
       dispensingFeeCents: dispensingFeeCents,
-      quantityDispensed: quantityDispensed,
     }).then(function (result) {
-      // Update claim with the leaf index and adjudicated pricing
-      if (result && result.leafIndex) claim.leafIndex = result.leafIndex;
-      claim.patientPayCents = patientPayCents;
-      claim.planPayCents = planPayCents;
-      claim.ingredientCostCents = ingredientCostCents;
-      claim.dispensingFeeCents = dispensingFeeCents;
-      claim.quantityDispensed = quantityDispensed;
-      claim._isEscript = false;
-      renderWorkstationColumns();
+      var jobKey = result.jobKey;
+      if (!jobKey) {
+        scriptWorkflow[key].proofStatus = 'error';
+        scriptWorkflow[key].proofError = 'No job key returned';
+        setScriptStatus(claim, 'filled'); // back to filled on error
+        renderWorkstationColumns();
+        return;
+      }
+      scriptWorkflow[key].fillJobKey = jobKey;
+      pollDispenseStatus(jobKey, key);
     }).catch(function (err) {
-      console.warn('[Dispense] Failed to record fill on sequencer:', err);
-      setScriptStatus(claim, 'dispensed', { recordingError: err.message || String(err) });
+      console.warn('[Dispense] Proof pipeline failed:', err);
+      scriptWorkflow[key].proofStatus = 'error';
+      scriptWorkflow[key].proofError = err.message || 'Proof generation failed';
+      setScriptStatus(claim, 'filled'); // back to filled on error
       renderWorkstationColumns();
     });
+  }
 
-    API.dispensing.summary().catch(function () { /* best effort refresh */ });
+  function pollDispenseStatus(jobKey, key, attempts) {
+    attempts = attempts || 0;
+    if (attempts >= 120) { // 120 × 5s = 10 min timeout
+      if (scriptWorkflow[key]) {
+        scriptWorkflow[key].proofStatus = 'timeout';
+        scriptWorkflow[key].proofError = 'Proof generation timed out';
+      }
+      setScriptStatus(findClaimByKey(key), 'filled'); // back to filled on timeout
+      renderWorkstationColumns();
+      return;
+    }
+
+    setTimeout(function () {
+      API.dispensing.fillStatus(jobKey).then(function (resp) {
+        if (resp.status === 'complete') {
+          var r = resp.result || resp;
+          // Normalize: unwrap nested result.result from sequencer proxy layer
+          var inner = r.result || r;
+          // Extract prescriptionId from any level for reversal
+          var rxId = inner.prescriptionId || r.prescriptionId || '';
+          // Extract adjudication data from any level
+          var adj = inner.adjudication || r.adjudication || inner;
+
+          if (scriptWorkflow[key]) {
+            scriptWorkflow[key].proofStatus = 'complete';
+            scriptWorkflow[key].proofResult = resp.result;
+            if (rxId) scriptWorkflow[key].prescriptionId = rxId;
+            // Store adjudication in workflow (not on mutable claim object)
+            if (adj.patientPayCents != null) scriptWorkflow[key].patientPayCents = String(adj.patientPayCents);
+            if (adj.planPayCents != null) scriptWorkflow[key].planPayCents = String(adj.planPayCents);
+            if (adj.phase) scriptWorkflow[key].adjudicationPhase = adj.phase;
+          }
+          var claim = findClaimByKey(key);
+          if (claim) {
+            claim._isEscript = false;
+            setScriptStatus(claim, 'dispensed'); // terminal — settlement complete
+          }
+          renderWorkstationColumns();
+          toast('Dispensed — ZK settlement proof submitted', 'success');
+        } else if (resp.status === 'error') {
+          if (scriptWorkflow[key]) {
+            scriptWorkflow[key].proofStatus = 'error';
+            scriptWorkflow[key].proofError = resp.error || 'Proof failed';
+          }
+          setScriptStatus(findClaimByKey(key), 'filled'); // back to filled on error
+          renderWorkstationColumns();
+        } else if (resp.status === 'not_started') {
+          // Job was already processed and cleaned up by the sequencer.
+          // Refresh from server to get the current prescription status.
+          if (scriptWorkflow[key]) {
+            scriptWorkflow[key].proofStatus = 'complete';
+          }
+          loadWorkstation();
+          toast('Dispense completed (confirmed by sequencer)', 'success');
+        } else {
+          // Still pending — update elapsed time and poll again
+          renderWorkstationColumns();
+          pollDispenseStatus(jobKey, key, attempts + 1);
+        }
+      }).catch(function () {
+        // Network error — retry
+        pollDispenseStatus(jobKey, key, attempts + 1);
+      });
+    }, 5000);
   }
 
   function rejectScript(key) {
@@ -577,23 +765,78 @@
     renderWorkstationColumns();
   }
 
-  function fillScript(key) {
+  async function fillScript(key) {
     const claim = findClaimByKey(key);
     if (!claim) return;
+    // Guard: only fill from adjudicated status
+    var currentStatus = getScriptStatus(claim);
+    if (currentStatus !== 'adjudicated') return;
+
+    // Mark as filling (visual feedback) — no ZK proofs, just a status update
+    setScriptStatus(claim, 'filling');
+    renderWorkstationColumns();
+
+    try {
+      await API.dispensing.markFilled({
+        prescriptionId: claim.rxId || claim.prescriptionId || claim.id || '',
+        memberWalletId: claim.memberWalletId || claim.patient || claim.patientWalletId || '',
+        ndcHash: claim.ndcHash || '',
+      });
+    } catch (err) {
+      console.warn('[Fill] mark-filled API call failed (continuing locally):', err.message);
+    }
+
+    // Transition to Filled column
     setScriptStatus(claim, 'filled');
     renderWorkstationColumns();
+    toast('Script filled — awaiting member pickup', 'info');
   }
 
-  function markPaid(key) {
+  function verifyMemberForScript(key) {
+    // Open the NFC/attestation verify flow — requires actual attestation, NOT just wallet ID.
+    // The pharmacist must scan the member's NFC tag or paste a signed attestation credential.
     const claim = findClaimByKey(key);
     if (!claim) return;
-    var status = getScriptStatus(claim);
-    // PAID on a dispensed script also marks it as filled (payment = pickup complete)
-    if (status === 'dispensed') {
-      setScriptStatus(claim, 'filled');
+    var memberId = claim.memberWalletId || claim.patient || claim.patientWalletId || '';
+
+    // Pre-fill the wallet ID for reference but do NOT auto-verify.
+    // The pharmacist must provide an attestation (NFC tap or pasted credential).
+    if (memberId) {
+      $('#ws-verify-wallet').value = '';
+      $('#ws-verify-wallet').placeholder = 'Scan NFC tag or paste attestation for ' + truncate(memberId, 20);
     }
-    setScriptPaid(claim);
+    toast('Scan member NFC tag or paste attestation credential to verify', 'info');
+    // Focus the verify input for manual paste
+    $('#ws-verify-wallet').focus();
+  }
+
+  function confirmPayment(key) {
+    var claim = findClaimByKey(key);
+    if (!claim) return;
+    if (!scriptWorkflow[key]) scriptWorkflow[key] = {};
+    scriptWorkflow[key].paymentReceived = true;
+    scriptWorkflow[key].paymentReceivedAt = Date.now();
+
+    // Update claim display values from proof result or server data
+    var w = scriptWorkflow[key];
+    if (w.proofResult) {
+      var adj = w.proofResult.adjudication || w.proofResult;
+      if (adj.patientPayCents != null) claim.patientPayCents = String(adj.patientPayCents);
+      if (adj.planPayCents != null) claim.planPayCents = String(adj.planPayCents);
+      if (adj.phase) claim.adjudicationPhase = adj.phase;
+    }
+
+    // Persist paymentReceived in sessionStorage so it survives refresh
+    try {
+      var payments = JSON.parse(sessionStorage.getItem('zkt_pharmacy_payments') || '{}');
+      payments[key] = { receivedAt: Date.now() };
+      sessionStorage.setItem('zkt_pharmacy_payments', JSON.stringify(payments));
+    } catch {}
+
+    // Stay in dispensed column with "Paid" badge — don't move to history
+    // (History is for reversals/cancellations, not completed payments)
     renderWorkstationColumns();
+    toast('Payment confirmed — claim lifecycle complete', 'success');
   }
 
   function reverseScript(key) {
@@ -601,33 +844,95 @@
     if (!claim) return;
     const reason = prompt('Reversal reason:');
     if (reason === null) return; // cancelled
-    setScriptStatus(claim, 'reversed', { issue: reason || 'Reversed — back to shelf' });
-    // Clear paid flag on reversal
-    if (scriptWorkflow[key]) scriptWorkflow[key].paid = false;
-    // workflow state kept in-memory only
+
+    // Need a prescriptionId from the fill proof result or the original claim
+    var prescriptionId = scriptWorkflow[key]?.prescriptionId
+      || claim.rxId || claim.prescriptionId || claim.id;
+    if (!prescriptionId) {
+      toast('Cannot reverse: no prescription ID available', 'error');
+      return;
+    }
+
+    setScriptStatus(claim, 'reversed', { issue: reason || 'Reversing — ZK proof generating...' });
+    if (scriptWorkflow[key]) {
+      scriptWorkflow[key].reversalStatus = 'pending';
+    }
     renderWorkstationColumns();
 
-    // Record the reversal on the sequencer's claim accumulator (best-effort)
+    // Fire async ZK reversal proof via pharmacy route → sequencer
     API.dispensing.reverse({
-      memberWalletId: claim.memberWalletId || claim.patient || claim.patientWalletId || '',
-      ndcHash: claim.ndcHash || '',
-      prescriberWalletId: claim.prescriberWalletId || claim.prescriber || '',
+      prescriptionId: prescriptionId,
+      reason: reason || 'Pharmacy reversal',
+    }).then(function (result) {
+      var jobKey = result.jobKey;
+      if (!jobKey) {
+        if (scriptWorkflow[key]) scriptWorkflow[key].reversalStatus = 'error';
+        renderWorkstationColumns();
+        return;
+      }
+      pollReversalStatus(jobKey, key);
     }).catch(function (err) {
-      console.warn('[Reverse] Failed to record reversal on sequencer:', err);
+      console.warn('[Reverse] Reversal proof failed:', err);
+      if (scriptWorkflow[key]) {
+        scriptWorkflow[key].reversalStatus = 'error';
+        scriptWorkflow[key].reversalError = err.message || 'Reversal failed';
+      }
+      renderWorkstationColumns();
     });
   }
 
-  // Fill scripts for a verified member (move from dispensed → filled)
-  function fillScriptsForMember(memberWalletId) {
-    let moved = 0;
+  function pollReversalStatus(jobKey, key, attempts) {
+    attempts = attempts || 0;
+    if (attempts >= 120) {
+      if (scriptWorkflow[key]) scriptWorkflow[key].reversalStatus = 'timeout';
+      renderWorkstationColumns();
+      return;
+    }
+
+    setTimeout(function () {
+      API.dispensing.reverseStatus(jobKey).then(function (resp) {
+        if (resp.status === 'complete') {
+          if (scriptWorkflow[key]) scriptWorkflow[key].reversalStatus = 'complete';
+          setScriptStatus(findClaimByKey(key), 'reversed', { issue: 'Reversed — ZK proof verified' });
+          renderWorkstationColumns();
+          toast('Reversal ZK proof verified', 'success');
+        } else if (resp.status === 'error') {
+          if (scriptWorkflow[key]) {
+            scriptWorkflow[key].reversalStatus = 'error';
+            scriptWorkflow[key].reversalError = resp.error || 'Reversal proof failed';
+          }
+          renderWorkstationColumns();
+        } else {
+          pollReversalStatus(jobKey, key, attempts + 1);
+        }
+      }).catch(function () {
+        pollReversalStatus(jobKey, key, attempts + 1);
+      });
+    }, 5000);
+  }
+
+  // Mark filled scripts as verified for a member (member NFC/attestation scan)
+  function verifyScriptsForMember(memberWalletId) {
+    let verified = 0;
     allClaims.forEach(function (claim) {
       const cMember = claim.memberWalletId || claim.patient || claim.patientWalletId || '';
-      if (cMember === memberWalletId && getScriptStatus(claim) === 'dispensed') {
-        setScriptStatus(claim, 'filled');
-        moved++;
+      if (cMember === memberWalletId && getScriptStatus(claim) === 'filled') {
+        var k = scriptKey(claim);
+        if (!scriptWorkflow[k]) scriptWorkflow[k] = {};
+        scriptWorkflow[k].memberVerified = true;
+        verified++;
       }
     });
-    return moved;
+    return verified;
+  }
+
+  function isScriptVerified(claim) {
+    var k = scriptKey(claim);
+    if (scriptWorkflow[k] && scriptWorkflow[k].memberVerified) return true;
+    // Also check global verified wallet (single source of truth)
+    var currentVerified = getVerifiedMemberWallet();
+    var memberWid = claim.memberWalletId || claim.patient || claim.patientWalletId || '';
+    return !!(currentVerified && memberWid && currentVerified === memberWid);
   }
 
   // NFC Scan / Verify Member
@@ -659,25 +964,32 @@
           scanParams = { walletId: walletId };
         }
       } catch (_) {
-        // Not JSON — treat as raw walletId
-        scanParams = { walletId: walletId };
+        // Not JSON — require attestation, raw wallet IDs are NOT sufficient for verification.
+        // The member must present a signed attestation credential (NFC or pasted).
+        throw new Error('Invalid credential — paste a signed attestation JSON or scan an NFC tag. Raw wallet IDs are not accepted.');
       }
 
       const result = await API.nfc.scan(scanParams);
-      verifiedMemberWallet = result.walletId || walletId;
+      if (!result.attestationVerified) {
+        throw new Error('Attestation signature NOT verified — member identity not confirmed');
+      }
+      if (result.attestationExpired) {
+        throw new Error('Attestation EXPIRED — member must obtain a fresh credential');
+      }
+      setVerifiedMemberWallet(result.walletId || walletId);
 
-      // Move their dispensed scripts to filled
-      const moved = fillScriptsForMember(verifiedMemberWallet);
+      // Mark their filled scripts as member-verified (Dispense now enabled)
+      const verified = verifyScriptsForMember(getVerifiedMemberWallet());
 
       // Build verification status text
-      var statusText = 'Verified: ' + truncate(verifiedMemberWallet, 20);
+      var statusText = 'Verified: ' + truncate(getVerifiedMemberWallet(), 20);
       if (result.attestationVerified) {
         statusText += ' [Attestation: Ed25519 signature valid';
         if (result.attestationExpired) statusText += ', EXPIRED';
         statusText += ']';
       }
-      if (moved > 0) statusText += ' — ' + moved + ' script(s) moved to Filled';
-      else statusText += ' — no dispensed scripts found';
+      if (verified > 0) statusText += ' — ' + verified + ' script(s) ready for dispensing';
+      else statusText += ' — no filled scripts awaiting pickup';
 
       statusEl.classList.add('verified');
       statusEl.textContent = statusText;
@@ -721,7 +1033,6 @@
     if (!claim) return;
 
     const status = getScriptStatus(claim);
-    const paid = isScriptPaid(claim);
     const issue = getScriptIssue(claim);
     const w = scriptWorkflow[key] || {};
 
@@ -760,11 +1071,46 @@
     fields.push(['Plan Pays', formatCents(claim.planPayCents || claim.planPay)]);
     fields.push(['Deductible Credit', formatCents(claim.deductibleCreditCents || claim.deductibleCredit)]);
     fields.push(['Workflow Status', status.toUpperCase()]);
-    fields.push(['Payment', paid ? 'PAID' : 'UNPAID']);
+    fields.push(['Member Verified', isScriptVerified(claim) ? 'YES' : 'NO']);
 
     if (issue) fields.push(['Issue', issue]);
     if (w.transferTo) fields.push(['Transferred To', w.transferTo]);
     if (w.updatedAt) fields.push(['Last Updated', new Date(w.updatedAt).toLocaleString()]);
+
+    // ZK Proof status
+    if (w.proofStatus) {
+      fields.push(['--- ZK PROOF ---', '']);
+      if (w.proofStatus === 'pending') {
+        fields.push(['Proof Status', 'GENERATING (AccumulatorFulfillmentProgram)...']);
+      } else if (w.proofStatus === 'complete') {
+        fields.push(['Proof Status', 'VERIFIED']);
+        if (w.proofResult) {
+          var adj = w.proofResult.adjudication || {};
+          var acc = w.proofResult.accumulator || {};
+          var timings = w.proofResult.proofTimesMs || {};
+          fields.push(['Adjudication Phase', adj.phase || '--']);
+          fields.push(['ZK Patient Pay', formatCents(adj.patientPayCents)]);
+          fields.push(['ZK Plan Pay', formatCents(adj.planPayCents)]);
+          if (adj.familyPoolingApplied) {
+            fields.push(['Family Pooling', adj.familyPoolingReason || 'Applied']);
+          }
+          if (acc.after) {
+            fields.push(['Deductible After', formatCents(acc.after.deductiblePaidCents) + ' / ' + formatCents((acc.limits || {}).deductibleAmountCents)]);
+            fields.push(['OOP After', formatCents(acc.after.oopPaidCents) + ' / ' + formatCents((acc.limits || {}).oopMaxCents)]);
+          }
+          if (timings.total) {
+            fields.push(['Proof Time', (timings.total / 1000).toFixed(1) + 's (' +
+              'Gate:' + (timings.proofGate / 1000).toFixed(1) + 's + ' +
+              'Rx:' + (timings.prescriptionStatus / 1000).toFixed(1) + 's + ' +
+              'Claim:' + (timings.accumulatorFulfillment / 1000).toFixed(1) + 's)']);
+          }
+        }
+      } else if (w.proofStatus === 'error') {
+        fields.push(['Proof Status', 'FAILED: ' + (w.proofError || 'Unknown error')]);
+      } else if (w.proofStatus === 'timeout') {
+        fields.push(['Proof Status', 'TIMEOUT']);
+      }
+    }
 
     let html = fields.map(function (f) {
       return '<div class="modal-row">' +
@@ -775,26 +1121,24 @@
 
     // Actions
     html += '<div class="modal-actions">';
-    if (status === 'active') {
-      html += '<button class="btn btn-primary" onclick="App.dispenseScript(\'' + escapeHtml(key) + '\'); App.closeModal();">Dispense</button>';
+    if (status === 'adjudicated') {
+      html += '<button class="btn btn-primary" onclick="App.fillScript(\'' + escapeHtml(key) + '\'); App.closeModal();">Fill</button>';
       html += '<button class="btn btn-danger" onclick="App.rejectScript(\'' + escapeHtml(key) + '\'); App.closeModal();">Reject</button>';
       html += '<button class="btn" onclick="App.transferScript(\'' + escapeHtml(key) + '\'); App.closeModal();">Transfer</button>';
     }
-    if (status === 'dispensed') {
-      var memberWid = claim.memberWalletId || claim.patient || claim.patientWalletId || '';
-      var isVerified = verifiedMemberWallet && memberWid && verifiedMemberWallet === memberWid;
-      if (isVerified) {
-        html += '<button class="btn btn-paid" onclick="App.markPaid(\'' + escapeHtml(key) + '\'); App.closeModal();">Collect Payment & Fill</button>';
-      } else {
-        html += '<div style="color:var(--text-muted);font-size:12px;margin:8px 0">Verify member (NFC/attestation) to enable payment</div>';
-      }
-      html += '<button class="btn btn-reverse" onclick="App.reverseScript(\'' + escapeHtml(key) + '\'); App.closeModal();">Reverse</button>';
-    }
     if (status === 'filled') {
-      html += '<button class="btn btn-paid' + (paid ? ' paid' : '') + '" onclick="App.markPaid(\'' + escapeHtml(key) + '\'); App.closeModal();">Mark PAID</button>';
+      var isVerified = isScriptVerified(claim);
+      if (isVerified) {
+        html += '<button class="btn btn-primary" onclick="App.dispenseScript(\'' + escapeHtml(key) + '\'); App.closeModal();">Dispense (Collect Payment + Settle)</button>';
+      } else {
+        html += '<div style="color:var(--text-muted);font-size:12px;margin:8px 0">Verify member (NFC/attestation) to enable dispensing</div>';
+        html += '<button class="btn" onclick="App.verifyMemberForScript(\'' + escapeHtml(key) + '\'); App.closeModal();">Verify Member</button>';
+      }
+    }
+    if (status === 'dispensed') {
       html += '<button class="btn btn-reverse" onclick="App.reverseScript(\'' + escapeHtml(key) + '\'); App.closeModal();">Reverse</button>';
     }
-    if (status === 'active' || status === 'dispensed') {
+    if (status === 'adjudicated' || status === 'filled') {
       html += '<button class="btn" onclick="App.flagIssue(\'' + escapeHtml(key) + '\')">Flag Issue</button>';
     }
     html += '<button class="btn" onclick="App.durLookupFromScript(\'' + escapeHtml(key) + '\')">DUR Lookup</button>';
@@ -1545,8 +1889,9 @@
     if (!sel) return;
     var current = getSelectedPharmacy();
     sel.innerHTML = PHARMACIES.map(function (p) {
+      var loc = p.city ? (p.city + ', ' + p.state) : (p.state || '');
       return '<option value="' + p.npi + '"' + (p.npi === current.npi ? ' selected' : '') + '>' +
-        escapeHtml(p.name) + ' — ' + escapeHtml(p.city) + ', ' + escapeHtml(p.state) +
+        escapeHtml(p.name) + ' — ' + escapeHtml(p.type || 'Pharmacy') + (loc ? ' (' + escapeHtml(loc) + ')' : '') +
         '</option>';
     }).join('');
     sel.addEventListener('change', function () {
@@ -1558,7 +1903,7 @@
     setSelectedPharmacy(npi);
     // Reset in-memory workflow state for the new pharmacy
     resetWorkflow();
-    verifiedMemberWallet = null;
+    setVerifiedMemberWallet(null);
     // Refresh current tab
     onTabEnter(currentTab);
   }
@@ -1745,7 +2090,18 @@
     }
   }
 
-  function init() {
+  async function loadPharmacyList() {
+    try {
+      var res = await fetch(location.origin + '/pharmacies/list');
+      var json = await res.json();
+      if (json.ok && Array.isArray(json.data)) {
+        PHARMACIES = json.data;
+      }
+    } catch (_) { /* server not ready — PHARMACIES stays empty */ }
+  }
+
+  async function init() {
+    await loadPharmacyList();
     initPharmacySelector();
     initBadgeTap();
     resetWorkflow();
@@ -1762,7 +2118,8 @@
     fillScript: fillScript,
     rejectScript: rejectScript,
     transferScript: transferScript,
-    markPaid: markPaid,
+    verifyMemberForScript: verifyMemberForScript,
+    confirmPayment: confirmPayment,
     showScriptDetail: showScriptDetail,
     closeModal: closeModal,
     flagIssue: flagIssue,

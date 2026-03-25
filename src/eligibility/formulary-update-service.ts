@@ -49,7 +49,7 @@ export interface PublishedFormulary {
  *   2. Publishes to L2 sequencer (stored by planIdHash)
  *   3. SSE broadcasts 'formulary:updated' event to all nodes
  *   4. Member nodes detect update, download new formulary, rebuild forest
- *   5. Demo shortcut: bulk update via updateMemberFormulary()
+ *   5. Admin shortcut: bulk update via updateMemberFormulary()
  *
  * This service is STATELESS — all methods are static.
  * Follows the ReportingService pattern.

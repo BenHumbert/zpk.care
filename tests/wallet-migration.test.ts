@@ -136,10 +136,10 @@ function makeRecoveryCard(
   pin: string,
   local: MemberLocalData,
 ): RecoveryCard {
-  const walletId = deriveMemberWalletId(local, enrollmentKey);
   const tokenIdHash = hashString('TOKEN-001').toString();
   const employeeIdHash = hashString('EMP-12345').toString();
-  const groupIdHash = hashString('ACME-CORP-001').toString();
+  const groupIdHash = hashString('ACME-CORP-001');
+  const walletId = deriveMemberWalletId(local, enrollmentKey, groupIdHash);
 
   return exportRecoveryCard(
     enrollmentKey,
@@ -148,7 +148,7 @@ function makeRecoveryCard(
     0,
     tokenIdHash,
     employeeIdHash,
-    groupIdHash,
+    groupIdHash.toString(),
   );
 }
 
@@ -267,8 +267,8 @@ describe('Recovery Card v2', () => {
     expect(recovered).toBe(TEST_ENROLLMENT_KEY);
 
     // Verify the recovered key derives the same wallet ID
-    const walletIdFromOriginal = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY);
-    const walletIdFromRecovered = deriveMemberWalletId(TEST_MEMBER, recovered);
+    const walletIdFromOriginal = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0));
+    const walletIdFromRecovered = deriveMemberWalletId(TEST_MEMBER, recovered, Field(0));
     expect(walletIdFromRecovered.toString()).toBe(walletIdFromOriginal.toString());
   });
 
@@ -562,40 +562,44 @@ describe('WalletMigrationProgram — MigrationOutput + Hash Consistency', () => 
     expect(output.newWalletId.toString()).toBe('222');
   });
 
-  test('paddedPreimage produces correct 6-field array for members', () => {
-    const preimage = memberTransitionPreimage(TEST_MEMBER, TEST_ENROLLMENT_KEY);
+  test('paddedPreimage produces correct 7-field array for members', () => {
+    const preimage = memberTransitionPreimage(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0));
 
-    expect(preimage.length).toBe(6);
+    expect(preimage.length).toBe(7);
     expect(preimage[0].toString()).toBe(DOMAIN_TAG_MEMBER.toString());
     // Fields 1-5 are identity + enrollment key hashes
     for (let i = 1; i < 6; i++) {
       expect(preimage[i].toString()).not.toBe('0');
     }
+    // Field 6 is groupIdHash (Field(0) in this test)
+    expect(preimage[6].toString()).toBe('0');
   });
 
-  test('paddedPreimage produces correct 6-field array for prescribers', () => {
+  test('paddedPreimage produces correct 7-field array for prescribers', () => {
     const preimage = prescriberTransitionPreimage(TEST_PRESCRIBER, TEST_ENROLLMENT_KEY);
 
-    expect(preimage.length).toBe(6);
+    expect(preimage.length).toBe(7);
     expect(preimage[0].toString()).toBe(DOMAIN_TAG_PRESCRIBER.toString());
-    // Prescriber has 3 identity fields, so f3 and f4 should be zero padding
+    // Prescriber has 3 identity fields, so f4, f5, f6 should be zero padding
     expect(preimage[4].toString()).toBe('0');
     expect(preimage[5].toString()).toBe('0');
+    expect(preimage[6].toString()).toBe('0');
   });
 
-  test('paddedPreimage produces correct 6-field array for pharmacies', () => {
+  test('paddedPreimage produces correct 7-field array for pharmacies', () => {
     const preimage = pharmacyTransitionPreimage(TEST_PHARMACY, TEST_ENROLLMENT_KEY);
 
-    expect(preimage.length).toBe(6);
+    expect(preimage.length).toBe(7);
     expect(preimage[0].toString()).toBe(DOMAIN_TAG_PHARMACY.toString());
-    // Pharmacy has 3 identity fields, so f3 and f4 should be zero padding
+    // Pharmacy has 3 identity fields, so f4, f5, f6 should be zero padding
     expect(preimage[4].toString()).toBe('0');
     expect(preimage[5].toString()).toBe('0');
+    expect(preimage[6].toString()).toBe('0');
   });
 
   test('wallet ID derivation consistency: old key -> oldWalletId, new key -> newWalletId', () => {
-    const oldWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY);
-    const newWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY_2);
+    const oldWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0));
+    const newWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY_2, Field(0));
 
     // Both are valid Poseidon hashes
     expect(oldWalletId.toString()).not.toBe('0');
@@ -609,14 +613,14 @@ describe('WalletMigrationProgram — MigrationOutput + Hash Consistency', () => 
     const key1 = generateEnrollmentKey();
     const key2 = generateEnrollmentKey();
 
-    const walletId1 = deriveMemberWalletId(TEST_MEMBER, key1);
-    const walletId2 = deriveMemberWalletId(TEST_MEMBER, key2);
+    const walletId1 = deriveMemberWalletId(TEST_MEMBER, key1, Field(0));
+    const walletId2 = deriveMemberWalletId(TEST_MEMBER, key2, Field(0));
 
     expect(walletId1.toString()).not.toBe(walletId2.toString());
   });
 
   test('all 3 entity types produce different wallet IDs with same key', () => {
-    const memberWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY);
+    const memberWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0));
     const prescriberWalletId = derivePrescriberWalletId(TEST_PRESCRIBER, TEST_ENROLLMENT_KEY);
     const pharmacyWalletId = derivePharmacyWalletId(TEST_PHARMACY, TEST_ENROLLMENT_KEY);
 
@@ -630,9 +634,9 @@ describe('WalletMigrationProgram — MigrationOutput + Hash Consistency', () => 
   });
 
   test('paddedPreimage: member preimage round-trips to same wallet ID', () => {
-    const preimage = memberTransitionPreimage(TEST_MEMBER, TEST_ENROLLMENT_KEY);
+    const preimage = memberTransitionPreimage(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0));
     const walletIdFromPreimage = Poseidon.hash(preimage);
-    const walletIdDirect = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY);
+    const walletIdDirect = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0));
 
     expect(walletIdFromPreimage.toString()).toBe(walletIdDirect.toString());
   });
@@ -640,21 +644,21 @@ describe('WalletMigrationProgram — MigrationOutput + Hash Consistency', () => 
   test('paddedPreimage: prescriber preimage round-trips to same wallet ID', () => {
     const preimage = prescriberTransitionPreimage(TEST_PRESCRIBER, TEST_ENROLLMENT_KEY);
     // Prescriber wallet ID is Poseidon.hash([tag, codeToField(qual), hash(id), hash(key)])
-    // paddedPreimage adds 2 zeros, so Poseidon.hash of 6 fields should equal derivation + 2 zeros
+    // paddedPreimage adds 3 zeros, so Poseidon.hash of 7 fields should equal derivation + 3 zeros
     // Verify that the padded preimage structure is consistent
-    expect(preimage.length).toBe(6);
+    expect(preimage.length).toBe(7);
     expect(preimage[0].toString()).toBe('1'); // DOMAIN_TAG_PRESCRIBER
   });
 
   test('paddedPreimage: pharmacy preimage round-trips to same wallet ID', () => {
     const preimage = pharmacyTransitionPreimage(TEST_PHARMACY, TEST_ENROLLMENT_KEY);
-    expect(preimage.length).toBe(6);
+    expect(preimage.length).toBe(7);
     expect(preimage[0].toString()).toBe('2'); // DOMAIN_TAG_PHARMACY
   });
 
   test('identity fields match between old and new preimages for same person', () => {
-    const oldPreimage = memberTransitionPreimage(TEST_MEMBER, TEST_ENROLLMENT_KEY);
-    const newPreimage = memberTransitionPreimage(TEST_MEMBER, TEST_ENROLLMENT_KEY_2);
+    const oldPreimage = memberTransitionPreimage(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0));
+    const newPreimage = memberTransitionPreimage(TEST_MEMBER, TEST_ENROLLMENT_KEY_2, Field(0));
 
     // Domain tag must match
     expect(oldPreimage[0].toString()).toBe(newPreimage[0].toString());
@@ -666,8 +670,10 @@ describe('WalletMigrationProgram — MigrationOutput + Hash Consistency', () => 
     expect(oldPreimage[3].toString()).toBe(newPreimage[3].toString());
     // lastName hash (f3) must match (member-specific)
     expect(oldPreimage[4].toString()).toBe(newPreimage[4].toString());
-    // enrollmentKey hash (f4) must DIFFER
+    // enrollmentKey hash (f5) must DIFFER
     expect(oldPreimage[5].toString()).not.toBe(newPreimage[5].toString());
+    // groupIdHash (f6) must match
+    expect(oldPreimage[6].toString()).toBe(newPreimage[6].toString());
   });
 });
 
@@ -678,7 +684,7 @@ describe('WalletMigrationService', () => {
     const card = makeRecoveryCard(TEST_ENROLLMENT_KEY, TEST_PIN, TEST_MEMBER);
     const result = WalletMigrationService.recoverFromCard(card, TEST_PIN, TEST_MEMBER);
 
-    const expectedWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY);
+    const expectedWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, hashString('ACME-CORP-001'));
     expect(result.oldWalletId).toBe(expectedWalletId.toString());
     expect(result.oldEnrollmentKey).toBe(TEST_ENROLLMENT_KEY);
     expect(result.domainTag).toBe(0);
@@ -709,7 +715,7 @@ describe('WalletMigrationService', () => {
     expect(result.newWalletId).toBeDefined();
 
     // New wallet ID should differ from old wallet ID
-    const oldWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY);
+    const oldWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0));
     expect(result.newWalletId).not.toBe(oldWalletId.toString());
   });
 
@@ -801,7 +807,7 @@ describe('EnrollmentService.processMigration', () => {
       'TOKEN-ORIG-001',
     );
 
-    const oldWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY);
+    const oldWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0));
     service.processEnrollment(oldWalletId, 'TOKEN-ORIG-001', '20260115');
 
     return {
@@ -816,7 +822,7 @@ describe('EnrollmentService.processMigration', () => {
 
   test('processMigration succeeds with valid token', () => {
     const ctx = setupMigrationContext();
-    const newWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY_2);
+    const newWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY_2, Field(0));
     const tokenIdHash = hashString('TOKEN-ORIG-001').toString();
 
     const result = ctx.service.processMigration(
@@ -1146,7 +1152,8 @@ describe('Migration E2E Flow', () => {
       'TOKEN-E2E-001',
     );
 
-    const oldWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY);
+    const e2eGroupIdHash = hashString('ACME-CORP-001');
+    const oldWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, e2eGroupIdHash);
     enrollmentService.processEnrollment(oldWalletId, 'TOKEN-E2E-001', '20260115');
 
     // Verify enrollment
@@ -1156,7 +1163,7 @@ describe('Migration E2E Flow', () => {
     // ── Phase 2: Export Recovery Card ───────────────────────
     const tokenIdHash = hashString('TOKEN-E2E-001').toString();
     const employeeIdHash = hashString('EMP-12345').toString();
-    const groupIdHash = hashString('ACME-CORP-001').toString();
+    const groupIdHash = e2eGroupIdHash.toString();
 
     const recoveryCard = exportRecoveryCard(
       TEST_ENROLLMENT_KEY,
@@ -1256,12 +1263,13 @@ describe('Migration E2E Flow', () => {
       'TOKEN-ACC-001',
     );
 
-    const oldWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY);
+    const accGroupIdHash = hashString('ACME-CORP-001');
+    const oldWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, accGroupIdHash);
     enrollmentService.processEnrollment(oldWalletId, 'TOKEN-ACC-001', '20260115');
 
     // Migrate with reconstructed accumulator values
     const newKey = generateEnrollmentKey();
-    const newWalletId = deriveMemberWalletId(TEST_MEMBER, newKey);
+    const newWalletId = deriveMemberWalletId(TEST_MEMBER, newKey, accGroupIdHash);
     const tokenIdHash = hashString('TOKEN-ACC-001').toString();
 
     const migrationResult = enrollmentService.processMigration(
@@ -1285,10 +1293,11 @@ describe('Migration E2E Flow', () => {
 
   test('recovery card + migration preserves insurer identification hashes', () => {
     // Export recovery card with specific hashes
-    const oldWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY);
+    const traceGroupIdHash = hashString('ACME-TRACE-001');
+    const oldWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, traceGroupIdHash);
     const tokenIdHash = hashString('TOKEN-TRACE-001').toString();
     const employeeIdHash = hashString('EMP-TRACE-001').toString();
-    const groupIdHash = hashString('ACME-TRACE-001').toString();
+    const groupIdHash = traceGroupIdHash.toString();
 
     const card = exportRecoveryCard(
       TEST_ENROLLMENT_KEY,

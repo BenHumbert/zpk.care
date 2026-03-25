@@ -70,7 +70,7 @@ const pin = env.ZKTRIDENT_PIN;
 async function main(): Promise<void> {
   console.log('');
   console.log('  ╔══════════════════════════════════════════════╗');
-  console.log('  ║     🐚  PRESCRIBER NAUTILUS — zkTrident      ║');
+  console.log('  ║     🐊  PRESCRIBER NAUTILUS — Adjuda-GATOR   ║');
   console.log('  ╚══════════════════════════════════════════════╝');
   console.log('');
 
@@ -80,24 +80,24 @@ async function main(): Promise<void> {
   // Register prescriber routes (no network registry at startup — can be loaded later)
   server.registerRoutes(buildPrescriberRoutes(server));
 
-  // ── Demo Prescriber (skip onboarding — seed identity from demo data) ──
+  // ── Seed Prescriber (skip onboarding — seed identity from seed data) ──
 
-  const demoPrescriberId = env.ZKTRIDENT_DEMO_PRESCRIBER;
-  if (demoPrescriberId) {
-    const { DEMO_PRESCRIBERS } = await import('../demo/prescribers.js');
+  const seedPrescriberId = env.ZKTRIDENT_SEED_PRESCRIBER;
+  if (seedPrescriberId) {
+    const { PRESCRIBERS } = await import('../data/index.js');
     const { derivePrescriberWalletId } = await import('../wallets/wallet-derivation.js');
 
-    const idx = parseInt(demoPrescriberId, 10);
-    const prescriber = !isNaN(idx) && idx >= 0 && idx < DEMO_PRESCRIBERS.length
-      ? DEMO_PRESCRIBERS[idx]
-      : DEMO_PRESCRIBERS.find((p) =>
-          p.lastName.toLowerCase() === demoPrescriberId.toLowerCase() ||
-          `${p.firstName} ${p.lastName}`.toLowerCase() === demoPrescriberId.toLowerCase()
+    const idx = parseInt(seedPrescriberId, 10);
+    const prescriber = !isNaN(idx) && idx >= 0 && idx < PRESCRIBERS.length
+      ? PRESCRIBERS[idx]
+      : PRESCRIBERS.find((p) =>
+          p.lastName.toLowerCase() === seedPrescriberId.toLowerCase() ||
+          `${p.firstName} ${p.lastName}`.toLowerCase() === seedPrescriberId.toLowerCase()
         );
 
     if (!prescriber) {
-      console.error('  [FATAL] Demo prescriber not found: %s', demoPrescriberId);
-      console.error('  Available: %s', DEMO_PRESCRIBERS.map((p, i) =>
+      console.error('  [FATAL] Seed prescriber not found: %s', seedPrescriberId);
+      console.error('  Available: %s', PRESCRIBERS.map((p, i) =>
         `${i}=${p.firstName} ${p.lastName}`).join(', '));
       process.exit(1);
     }
@@ -105,9 +105,9 @@ async function main(): Promise<void> {
     const walletId = derivePrescriberWalletId(prescriber.localData, prescriber.enrollmentKey).toString();
     const displayName = `Dr. ${prescriber.firstName} ${prescriber.lastName}, ${prescriber.credential}`;
 
-    console.log('  [demo] Prescriber: %s', displayName);
-    console.log('  [demo] Specialty:  %s', prescriber.specialty);
-    console.log('  [demo] Wallet:     %s...', walletId.slice(0, 20));
+    console.log('  [seed] Prescriber: %s', displayName);
+    console.log('  [seed] Specialty:  %s', prescriber.specialty);
+    console.log('  [seed] Wallet:     %s...', walletId.slice(0, 20));
 
     const node = new PrescriberNode({
       role: 'prescriber',
@@ -120,7 +120,7 @@ async function main(): Promise<void> {
     // Start server BEFORE credentialing poll so dashboard is accessible during the wait
     server.setOnboardingPhase('awaiting_credentialing' as any);
     await server.start();
-    console.log('  [demo] Server started — waiting for credentialing on sequencer...');
+    console.log('  [seed] Server started — waiting for credentialing on sequencer...');
 
     const seqUrl = config.sequencerUrl.replace(/\/+$/, '');
     let credentialed = false;
@@ -141,15 +141,15 @@ async function main(): Promise<void> {
     }
 
     if (credentialed) {
-      console.log('  [demo] Credentialed on sequencer — transitioning to ready');
+      console.log('  [seed] Credentialed on sequencer — transitioning to ready');
       server.setOnboardingPhase('ready');
     } else {
-      console.log('  [demo] Credentialing timeout — starting in ready mode (insurer may not be running)');
+      console.log('  [seed] Credentialing timeout — starting in ready mode (insurer may not be running)');
       server.setOnboardingPhase('ready');
     }
   }
 
-  // ── State Recovery (non-demo mode) ──
+  // ── State Recovery (recovery mode) ──
 
   else {
     const stateExists = await localState.exists();
@@ -184,7 +184,7 @@ async function main(): Promise<void> {
     }
   }
 
-  // ── Start Server (if not already started by demo credentialing path) ──
+  // ── Start Server (if not already started by seed credentialing path) ──
 
   if (!server.isRunning()) {
     await server.start();

@@ -1,4 +1,4 @@
-/* zkTrident Explorer — Dark Theme (Leviathan/Infrastructure) */
+/* Adjuda-GATOR Explorer — Dark Theme (Leviathan/Infrastructure) */
 
 :root {
   --bg-primary: #0d1117;
@@ -67,7 +67,7 @@ a:hover { color: var(--accent-hover); }
   white-space: nowrap;
 }
 .logo:hover { color: var(--text-primary); }
-.logo-icon { font-size: 22px; }
+.brand-logo-img { height: 36px; width: auto; object-fit: contain; }
 .logo-sub { color: var(--text-secondary); font-weight: 400; font-size: 14px; }
 
 .nav {

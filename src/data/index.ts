@@ -5,7 +5,7 @@
  *   - NPPES (NPI Registry) — prescribers and pharmacies
  *   - NADAC (CMS Medicaid drug pricing) — formulary with 32,768 medications
  *
- * This module exports the same interfaces and constants as src/demo/index.ts
+ * This module exports the same interfaces and constants as src/seed/index.ts
  * so existing code can swap imports with minimal changes.
  *
  * Members remain POC-specific (configurable test beneficiaries).
@@ -31,9 +31,9 @@ const _dataDir = path.resolve(
 
 /**
  * Prescriber record — real NPPES data.
- * Compatible with DemoPrescriber interface from src/demo/.
+ * Compatible with SeedPrescriber interface from src/seed/.
  */
-export interface DemoPrescriber {
+export interface SeedPrescriber {
   localData: PrescriberLocalData;
   enrollmentKey: string;
   firstName: string;
@@ -48,9 +48,9 @@ export interface DemoPrescriber {
 
 /**
  * Pharmacy record — real NPPES data.
- * Compatible with DemoPharmacy interface from src/demo/.
+ * Compatible with SeedPharmacy interface from src/seed/.
  */
-export interface DemoPharmacy {
+export interface SeedPharmacy {
   localData: PharmacyLocalData;
   enrollmentKey: string;
   ncpdpProviderId: string;
@@ -68,9 +68,9 @@ export interface DemoPharmacy {
 
 /**
  * Medication record — real NADAC data mapped to formulary structure.
- * Compatible with DemoMedication interface from src/demo/.
+ * Compatible with SeedMedication interface from src/seed/.
  */
-export interface DemoMedication {
+export interface SeedMedication {
   ndc: string;
   ndcFormatted: string;
   gpi: string;
@@ -91,9 +91,9 @@ export interface DemoMedication {
 
 /**
  * Member record — POC beneficiaries (configurable test data).
- * Compatible with DemoMember interface from src/demo/.
+ * Compatible with SeedMember interface from src/seed/.
  */
-export interface DemoMember {
+export interface SeedMember {
   localData: MemberLocalData;
   enrollmentKey: string;
   employeeId: string;
@@ -249,11 +249,17 @@ function guessRoute(dosageForm: string): string {
 
 const prescribersRaw = loadJson<PrescriberJson[]>('prescribers.json');
 const pharmaciesRaw = loadJson<PharmacyJson[]>('pharmacies.json');
-const formularyRaw = loadJson<FormularyJson[]>('formulary.json');
+
+// When ZKTRIDENT_FORMULARY_LIMIT is set, load the pre-built 100-drug subset
+// instead of parsing the full 32K NADAC JSON (saves ~2s startup).
+const _formularyLimit = parseInt(process.env.ZKTRIDENT_FORMULARY_LIMIT || '0', 10);
+const formularyRaw = _formularyLimit > 0 && _formularyLimit <= 100
+  ? loadJson<FormularyJson[]>('formulary-100.json')
+  : loadJson<FormularyJson[]>('formulary.json');
 
 // ── Prescribers ─────────────────────────────────────────────
 
-export const DEMO_PRESCRIBERS: DemoPrescriber[] = prescribersRaw.map((p) => ({
+export const PRESCRIBERS: SeedPrescriber[] = prescribersRaw.map((p) => ({
   localData: p.localData,
   enrollmentKey: p.enrollmentKey,
   firstName: p.firstName,
@@ -266,13 +272,13 @@ export const DEMO_PRESCRIBERS: DemoPrescriber[] = prescribersRaw.map((p) => ({
   deaNumber: p.deaNumber,
 }));
 
-export const PRESCRIBER_BY_NPI = new Map<string, DemoPrescriber>(
-  DEMO_PRESCRIBERS.map((p) => [p.localData.prescriberId, p]),
+export const PRESCRIBER_BY_NPI = new Map<string, SeedPrescriber>(
+  PRESCRIBERS.map((p) => [p.localData.prescriberId, p]),
 );
 
 // ── Pharmacies ──────────────────────────────────────────────
 
-export const DEMO_PHARMACIES: DemoPharmacy[] = pharmaciesRaw.map((p) => ({
+export const PHARMACIES: SeedPharmacy[] = pharmaciesRaw.map((p) => ({
   localData: p.localData,
   enrollmentKey: p.enrollmentKey,
   ncpdpProviderId: p.ncpdpProviderId || '',
@@ -288,17 +294,17 @@ export const DEMO_PHARMACIES: DemoPharmacy[] = pharmaciesRaw.map((p) => ({
   deaNumber: '', // DEA not available from NPPES
 }));
 
-export const PHARMACY_BY_NPI = new Map<string, DemoPharmacy>(
-  DEMO_PHARMACIES.map((p) => [p.localData.serviceProviderId, p]),
+export const PHARMACY_BY_NPI = new Map<string, SeedPharmacy>(
+  PHARMACIES.map((p) => [p.localData.serviceProviderId, p]),
 );
 
-export const PHARMACY_BY_NCPDP = new Map<string, DemoPharmacy>(
-  DEMO_PHARMACIES.filter((p) => p.ncpdpProviderId).map((p) => [p.ncpdpProviderId, p]),
+export const PHARMACY_BY_NCPDP = new Map<string, SeedPharmacy>(
+  PHARMACIES.filter((p) => p.ncpdpProviderId).map((p) => [p.ncpdpProviderId, p]),
 );
 
 // ── Medications (from NADAC formulary) ──────────────────────
 
-function nadacToMedication(f: FormularyJson): DemoMedication {
+function nadacToMedication(f: FormularyJson): SeedMedication {
   const { genericName, strength, dosageForm } = parseDescription(f.description);
   const route = guessRoute(dosageForm);
 
@@ -333,34 +339,34 @@ function nadacToMedication(f: FormularyJson): DemoMedication {
   };
 }
 
-export const DEMO_MEDICATIONS: DemoMedication[] = formularyRaw.map(nadacToMedication);
+export const MEDICATIONS: SeedMedication[] = formularyRaw.map(nadacToMedication);
 
 // Tier arrays
-export const TIER1_GENERICS = DEMO_MEDICATIONS.filter((m) => m.formularyEntry.tierLevel === 1);
-export const TIER2_PREFERRED = DEMO_MEDICATIONS.filter((m) => m.formularyEntry.tierLevel === 2);
-export const TIER3_NON_PREFERRED = DEMO_MEDICATIONS.filter((m) => m.formularyEntry.tierLevel === 3);
-export const TIER4_SPECIALTY = DEMO_MEDICATIONS.filter((m) => m.formularyEntry.tierLevel === 4);
+export const TIER1_GENERICS = MEDICATIONS.filter((m) => m.formularyEntry.tierLevel === 1);
+export const TIER2_PREFERRED = MEDICATIONS.filter((m) => m.formularyEntry.tierLevel === 2);
+export const TIER3_NON_PREFERRED = MEDICATIONS.filter((m) => m.formularyEntry.tierLevel === 3);
+export const TIER4_SPECIALTY = MEDICATIONS.filter((m) => m.formularyEntry.tierLevel === 4);
 
-export const MEDICATION_BY_NDC = new Map<string, DemoMedication>(
-  DEMO_MEDICATIONS.map((m) => [m.ndc, m]),
+export const MEDICATION_BY_NDC = new Map<string, SeedMedication>(
+  MEDICATIONS.map((m) => [m.ndc, m]),
 );
 
-export const MEDICATION_BY_GPI = new Map<string, DemoMedication>(
-  DEMO_MEDICATIONS.filter((m) => m.gpi).map((m) => [m.gpi, m]),
+export const MEDICATION_BY_GPI = new Map<string, SeedMedication>(
+  MEDICATIONS.filter((m) => m.gpi).map((m) => [m.gpi, m]),
 );
 
 export function getAllFormularyEntries(): FormularyEntryLocalData[] {
-  return DEMO_MEDICATIONS.map((m) => m.formularyEntry);
+  return MEDICATIONS.map((m) => m.formularyEntry);
 }
 
 export function getFormularyEntriesByTier(tier: number): FormularyEntryLocalData[] {
-  return DEMO_MEDICATIONS
+  return MEDICATIONS
     .filter((m) => m.formularyEntry.tierLevel === tier)
     .map((m) => m.formularyEntry);
 }
 
 export function buildMedicationLocalData(
-  med: DemoMedication,
+  med: SeedMedication,
   rxRefNumber: string,
   quantity: number,
   fillNumber: number,
@@ -380,7 +386,7 @@ export function buildMedicationLocalData(
 }
 
 export function buildMedicationPricingLocalData(
-  med: DemoMedication,
+  med: SeedMedication,
   quantity: number,
   dispensingFeeCents: number = 200,
 ): MedicationPricingLocalData {
@@ -396,7 +402,7 @@ export function buildMedicationPricingLocalData(
 
 // ── Members (POC beneficiaries — Madison, WI) ───────────────
 
-export const DEMO_MEMBERS: DemoMember[] = [
+export const MEMBERS: SeedMember[] = [
   {
     localData: {
       cardholderId: 'EPIC-EMP-001',
@@ -551,30 +557,30 @@ export const DEMO_MEMBERS: DemoMember[] = [
   },
 ];
 
-export const MEMBER_BY_CARDHOLDER_ID = new Map<string, DemoMember>(
-  DEMO_MEMBERS.map((m) => [m.localData.cardholderId, m]),
+export const MEMBER_BY_CARDHOLDER_ID = new Map<string, SeedMember>(
+  MEMBERS.map((m) => [m.localData.cardholderId, m]),
 );
 
-export function getMembersByEmployee(employeeId: string): DemoMember[] {
-  return DEMO_MEMBERS.filter((m) => m.employeeId === employeeId);
+export function getMembersByEmployee(employeeId: string): SeedMember[] {
+  return MEMBERS.filter((m) => m.employeeId === employeeId);
 }
 
-export function getMembersByFamily(familyId: string): DemoMember[] {
-  return DEMO_MEMBERS.filter((m) => m.familyId === familyId);
+export function getMembersByFamily(familyId: string): SeedMember[] {
+  return MEMBERS.filter((m) => m.familyId === familyId);
 }
 
-export function getSubscribers(): DemoMember[] {
-  return DEMO_MEMBERS.filter((m) => m.relationship === 'SELF');
+export function getSubscribers(): SeedMember[] {
+  return MEMBERS.filter((m) => m.relationship === 'SELF');
 }
 
 /** Get Epic Systems employer members */
-export function getEpicMembers(): DemoMember[] {
-  return DEMO_MEMBERS.filter((m) => m.localData.cardholderId.startsWith('EPIC'));
+export function getEpicMembers(): SeedMember[] {
+  return MEMBERS.filter((m) => m.localData.cardholderId.startsWith('EPIC'));
 }
 
 /** Get Exact Sciences employer members */
-export function getExactMembers(): DemoMember[] {
-  return DEMO_MEMBERS.filter((m) => m.localData.cardholderId.startsWith('EXACT'));
+export function getExactMembers(): SeedMember[] {
+  return MEMBERS.filter((m) => m.localData.cardholderId.startsWith('EXACT'));
 }
 
 // Backward-compatible aliases

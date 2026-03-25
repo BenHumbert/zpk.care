@@ -1,5 +1,5 @@
 /**
- * zkTrident RPC Client — Browser JSON-RPC 2.0 + SSE
+ * Adjuda-GATOR RPC Client — Browser JSON-RPC 2.0 + SSE
  */
 const RPC = (() => {
   // Auto-detect: same origin if served from Leviathan, otherwise configurable

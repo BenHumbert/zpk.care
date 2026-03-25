@@ -12,7 +12,7 @@ import { hashString } from '../zkp/hash-utils.js';
 import {
   PrescriptionData,
   PrescriptionStatusData,
-  RX_STATUS_ACTIVE,
+  RX_STATUS_ADJUDICATED,
   RX_STATUS_TRANSFERRED,
   EMERGENCY_FILL_HASH,
   isValidStatusTransition,
@@ -118,7 +118,7 @@ export class PrescriptionService {
     // Build initial ACTIVE status entry at TRANSACTION leaf 0
     const initialStatus = new PrescriptionStatusData({
       prescriptionHash: prescriptionData.commitment(),
-      status: RX_STATUS_ACTIVE,
+      status: RX_STATUS_ADJUDICATED,
       updatedByWalletId: prescriberWalletId,
       updatedAt: issuedAt,
       pharmacyWalletId,
@@ -444,7 +444,7 @@ export class PrescriptionService {
     const destActiveStatusIndex = transferSlotIndex + 1n;
     const destActiveStatus = new PrescriptionStatusData({
       prescriptionHash: prescriptionData.commitment(),
-      status: RX_STATUS_ACTIVE,
+      status: RX_STATUS_ADJUDICATED,
       updatedByWalletId: destPharmacyWalletId,
       updatedAt: transferStatus.updatedAt,
       pharmacyWalletId: destPharmacyWalletId,

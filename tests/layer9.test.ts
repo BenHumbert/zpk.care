@@ -22,7 +22,7 @@ import { FulfillmentVerificationService } from '../src/fulfillment/fulfillment-v
 import {
   PrescriptionData,
   PrescriptionStatusData,
-  RX_STATUS_ACTIVE,
+  RX_STATUS_ADJUDICATED,
   RX_STATUS_FILLED,
   RX_STATUS_PARTIALLY_FILLED,
 } from '../src/prescription/prescription-data.js';
@@ -149,7 +149,7 @@ function setupFilledPrescription(): {
   // Insert initial ACTIVE status at TRANSACTION leaf 0
   const activeStatus = new PrescriptionStatusData({
     prescriptionHash: rxData.commitment(),
-    status: RX_STATUS_ACTIVE,
+    status: RX_STATUS_ADJUDICATED,
     updatedByWalletId: prescriberWalletId,
     updatedAt: dateToField('20260201'),
     pharmacyWalletId,
@@ -412,7 +412,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
       // Only ACTIVE status (not filled yet)
       const activeStatus = new PrescriptionStatusData({
         prescriptionHash: rxData.commitment(),
-        status: RX_STATUS_ACTIVE,
+        status: RX_STATUS_ADJUDICATED,
         updatedByWalletId: prescriberWalletId,
         updatedAt: dateToField('20260201'),
         pharmacyWalletId,
@@ -697,7 +697,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
         forest.setLeaf(ForestDomain.MEDICATION, 0n, rxData.commitment());
         const activeStatus = new PrescriptionStatusData({
           prescriptionHash: rxData.commitment(),
-          status: RX_STATUS_ACTIVE,
+          status: RX_STATUS_ADJUDICATED,
           updatedByWalletId: prescriberWalletId,
           updatedAt: dateToField('20260201'),
           pharmacyWalletId,

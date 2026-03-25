@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>&#x1F41A;</text></svg>">
+  <link rel="icon" href="logo.png">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>zkp.Care Prescriber</title>
+  <title>Prescriber Node</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -15,8 +15,8 @@
   <!-- ── Header ─────────────────────────────────────────────── -->
   <header class="header">
     <div class="header-brand">
-      <div class="brand-icon">Rx</div>
-      <span>zkp.Care Prescriber</span>
+      <img src="logo.png" alt="Adjuda-GATOR" class="brand-logo-img">
+      <span>Prescriber Node</span>
     </div>
     <div class="header-center">
       <select id="prescriber-selector" class="prescriber-selector" title="Switch prescriber"></select>
@@ -279,11 +279,29 @@
     <!-- ════════════════════════════════════════════════════════ -->
     <section class="page" id="page-formulary">
       <div class="panel">
-        <div class="panel-header"><h3>Look Up Plan Formulary</h3></div>
+        <div class="panel-header">
+          <h3>Available Medications</h3>
+          <span id="form-drug-count" style="font-size:12px;color:var(--text-muted);margin-left:12px"></span>
+          <span id="form-merkle-root" style="font-size:11px;color:var(--accent);margin-left:12px"></span>
+        </div>
         <div class="panel-body">
-          <div class="search-row">
-            <input type="text" class="form-input" id="form-plan-id" placeholder="Enter Plan ID Hash...">
-            <button class="btn btn-primary" id="form-lookup-btn">Load Formulary</button>
+          <div class="search-row" style="flex-wrap:wrap;gap:8px">
+            <input type="text" class="form-input" id="form-search" placeholder="Search by drug name..." oninput="window._filterFormulary && window._filterFormulary(this.value)" style="flex:2;min-width:200px">
+            <select class="form-input" id="form-route-filter" onchange="window._formularySetRoute && window._formularySetRoute(this.value)" style="max-width:160px">
+              <option value="">All Routes</option>
+            </select>
+            <select class="form-input" id="form-tier-filter" onchange="window._formularySetTier && window._formularySetTier(this.value)" style="max-width:160px">
+              <option value="">All Tiers</option>
+              <option value="1">Tier 1 — Generic</option>
+              <option value="2">Tier 2 — Preferred Brand</option>
+              <option value="3">Tier 3 — Non-Preferred</option>
+              <option value="4">Tier 4 — Specialty</option>
+            </select>
+            <select class="form-input" id="form-class-filter" onchange="window._formularySetClassification && window._formularySetClassification(this.value)" style="max-width:140px">
+              <option value="">All Types</option>
+              <option value="G">Generic</option>
+              <option value="B">Brand</option>
+            </select>
           </div>
           <div id="form-result"></div>
         </div>

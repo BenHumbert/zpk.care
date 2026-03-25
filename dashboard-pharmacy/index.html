@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>&#x1F41A;</text></svg>">
+  <link rel="icon" href="logo.png">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>zkp.Care Pharmacy Workstation</title>
+  <title>Pharmacy Node</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -15,8 +15,8 @@
   <!-- ── Header ─────────────────────────────────────────────── -->
   <header class="header">
     <div class="header-brand">
-      <div class="brand-icon">Rx</div>
-      <span>zkp.Care Pharmacy</span>
+      <img src="logo.png" alt="Adjuda-GATOR" class="brand-logo-img">
+      <span>Pharmacy Node</span>
     </div>
     <div class="header-center">
       <select id="pharmacy-selector" class="pharmacy-selector" title="Switch pharmacy"></select>
@@ -44,22 +44,27 @@
   <main class="main" role="main">
 
     <!-- ════════════════════════════════════════════════════════ -->
-    <!--  WORKSTATION — 3-Column Dispensing Workflow              -->
+    <!--  WORKSTATION — 4-Column Dispensing Workflow              -->
+    <!--  Adjudicated → Filled → Dispensed → History             -->
     <!-- ════════════════════════════════════════════════════════ -->
     <section class="page active" id="page-workstation">
       <!-- Top Stats Bar -->
       <div class="ws-stats-bar">
         <div class="ws-stat">
-          <span class="ws-stat-label">Active</span>
-          <span class="ws-stat-value accent" id="ws-active-count">0</span>
-        </div>
-        <div class="ws-stat">
-          <span class="ws-stat-label">Dispensed</span>
-          <span class="ws-stat-value green" id="ws-dispensed-count">0</span>
+          <span class="ws-stat-label">Adjudicated</span>
+          <span class="ws-stat-value accent" id="ws-adjudicated-count">0</span>
         </div>
         <div class="ws-stat">
           <span class="ws-stat-label">Filled</span>
-          <span class="ws-stat-value blue" id="ws-filled-count">0</span>
+          <span class="ws-stat-value green" id="ws-filled-count">0</span>
+        </div>
+        <div class="ws-stat">
+          <span class="ws-stat-label">Dispensed</span>
+          <span class="ws-stat-value blue" id="ws-dispensed-count">0</span>
+        </div>
+        <div class="ws-stat">
+          <span class="ws-stat-label">History</span>
+          <span class="ws-stat-value" id="ws-history-count">0</span>
         </div>
         <div class="ws-stat">
           <span class="ws-stat-label">Completed Today</span>
@@ -69,28 +74,53 @@
         <button class="btn btn-sm" id="ws-refresh-btn">Refresh</button>
       </div>
 
-      <!-- 3-Column Layout -->
+      <!-- NFC/Credential Verify Bar (shared across columns) -->
+      <div class="ws-verify-input">
+        <div class="ws-nfc-icon">NFC</div>
+        <textarea id="ws-verify-wallet" class="form-input mono" rows="1" placeholder="Scan NFC, paste wallet ID, or paste attestation JSON..." style="resize:vertical;min-height:32px;max-height:120px;overflow-y:auto"></textarea>
+        <div class="ws-verify-actions">
+          <button class="btn btn-primary btn-sm" id="ws-nfc-scan-btn">Scan</button>
+          <button class="btn btn-sm" id="ws-verify-lookup-btn">Lookup</button>
+        </div>
+        <div id="ws-verify-status" class="ws-verify-status hidden"></div>
+      </div>
+
+      <!-- 4-Column Layout -->
       <div class="ws-columns">
 
-        <!-- LEFT: Active (incoming scripts from prescribers) -->
+        <!-- COL 1: Adjudicated (eScripts with proven adjudication) -->
         <div class="ws-column">
-          <div class="ws-column-header active-header">
+          <div class="ws-column-header adjudicated-header">
             <div class="ws-col-title">
               <span class="ws-col-icon">1</span>
-              Active
+              Adjudicated
             </div>
-            <span class="ws-col-count" id="ws-active-badge">0</span>
+            <span class="ws-col-count" id="ws-adjudicated-badge">0</span>
           </div>
-          <div class="ws-column-body" id="ws-active-list">
-            <div class="ws-empty">No active scripts</div>
+          <div class="ws-column-body" id="ws-adjudicated-list">
+            <div class="ws-empty">No adjudicated scripts</div>
           </div>
         </div>
 
-        <!-- CENTER: Dispensed (filled, waiting for member pickup) -->
+        <!-- COL 2: Filled (physically prepared, awaiting pickup) -->
+        <div class="ws-column">
+          <div class="ws-column-header filled-header">
+            <div class="ws-col-title">
+              <span class="ws-col-icon">2</span>
+              Filled
+            </div>
+            <span class="ws-col-count" id="ws-filled-badge">0</span>
+          </div>
+          <div class="ws-column-body" id="ws-filled-list">
+            <div class="ws-empty">No scripts awaiting pickup</div>
+          </div>
+        </div>
+
+        <!-- COL 3: Dispensed (settlement complete, terminal) -->
         <div class="ws-column">
           <div class="ws-column-header dispensed-header">
             <div class="ws-col-title">
-              <span class="ws-col-icon">2</span>
+              <span class="ws-col-icon">3</span>
               Dispensed
             </div>
             <span class="ws-col-count" id="ws-dispensed-badge">0</span>
@@ -100,27 +130,17 @@
           </div>
         </div>
 
-        <!-- RIGHT: Filled (member verified + picked up) -->
+        <!-- COL 4: History (reversed/cancelled/rejected — view only) -->
         <div class="ws-column">
-          <div class="ws-column-header filled-header">
+          <div class="ws-column-header history-header">
             <div class="ws-col-title">
-              <span class="ws-col-icon">3</span>
-              Filled
+              <span class="ws-col-icon">4</span>
+              History
             </div>
-            <span class="ws-col-count" id="ws-filled-badge">0</span>
+            <span class="ws-col-count" id="ws-history-badge">0</span>
           </div>
-          <!-- NFC/Credential Input -->
-          <div class="ws-verify-input">
-            <div class="ws-nfc-icon">NFC</div>
-            <textarea id="ws-verify-wallet" class="form-input mono" rows="1" placeholder="Scan NFC, paste wallet ID, or paste attestation JSON..." style="resize:vertical;min-height:32px;max-height:120px;overflow-y:auto"></textarea>
-            <div class="ws-verify-actions">
-              <button class="btn btn-primary btn-sm" id="ws-nfc-scan-btn">Scan</button>
-              <button class="btn btn-sm" id="ws-verify-lookup-btn">Lookup</button>
-            </div>
-            <div id="ws-verify-status" class="ws-verify-status hidden"></div>
-          </div>
-          <div class="ws-column-body" id="ws-filled-list">
-            <div class="ws-empty">Scan member NFC or paste credential to verify &amp; complete pickup</div>
+          <div class="ws-column-body" id="ws-history-list">
+            <div class="ws-empty">No completed scripts</div>
           </div>
         </div>
 
@@ -162,11 +182,11 @@
           <label>Status</label>
           <select id="hist-filter-status">
             <option value="">All</option>
-            <option value="active">Active</option>
-            <option value="dispensed">Dispensed</option>
+            <option value="adjudicated">Adjudicated</option>
             <option value="filled">Filled</option>
-            <option value="complete">Complete</option>
+            <option value="dispensed">Dispensed</option>
             <option value="reversed">Reversed</option>
+            <option value="cancelled">Cancelled</option>
             <option value="rejected">Rejected</option>
             <option value="transferred">Transferred</option>
           </select>
@@ -537,6 +557,8 @@
       </div>
     </div>
   </div>
+
+  <div class="toast-container" id="toast-container"></div>
 
   <script src="rpc.js"></script>
   <script src="app.js"></script>

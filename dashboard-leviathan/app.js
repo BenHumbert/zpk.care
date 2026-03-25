@@ -1,5 +1,5 @@
 /**
- * zkp.Care Leviathan Dashboard — Application Logic
+ * Adjuda-GATOR Leviathan Dashboard — Application Logic
  * 8 tabs: Overview, Partitions, Workers, Gossip, WAL/Quorum, Batches, Audit, Admin
  */
 (function () {
@@ -279,6 +279,7 @@
 
   /** Update throughput stats */
   function updateThroughputPanel() {
+    if (!$('cc-rate')) return; // Throughput tile removed — no-op
     var now = Date.now();
     metrics.proofTimestamps = metrics.proofTimestamps.filter(function (t) { return now - t < 60000; });
     var rate = metrics.proofTimestamps.length / 60;
@@ -367,6 +368,39 @@
     $('cc-queue').textContent = String(metrics.queueDepth);
   }
 
+  /** Render proof queue tile showing pending proofs awaiting batch settlement */
+  function renderQueuePanel(status) {
+    var gt = status.globalTotals || {};
+    var pending = gt.pendingProofs || 0;
+    var totalBatched = gt.totalBatchesBuilt || 0;
+    var nextBatchMs = status.nextBatchInMs || gt.nextBatchInMs || 0;
+
+    $('cc-queue-badge').textContent = String(pending);
+    $('cc-total-batched').textContent = String(totalBatched);
+    $('cc-next-batch').textContent = nextBatchMs > 0 ? formatMs(nextBatchMs) : 'now';
+
+    var el = $('cc-queue-list');
+    if (pending === 0) {
+      el.innerHTML = '<div class="cc-empty">No pending proofs — queue empty</div>';
+      return;
+    }
+
+    // Show pending count as visual queue items
+    var html = '';
+    for (var i = 0; i < Math.min(pending, 10); i++) {
+      html += '<div class="cc-worker-row">' +
+        '<span class="cc-worker-id">P' + (i + 1) + '</span>' +
+        '<div class="cc-worker-bar-bg"><div class="cc-worker-bar-fill proving" style="width:100%"></div></div>' +
+        '<span class="cc-worker-state proving">awaiting batch</span>' +
+        '</div>';
+    }
+    if (pending > 10) {
+      html += '<div class="cc-worker-row"><span class="cc-worker-id">...</span>' +
+        '<span class="cc-worker-state idle">+ ' + (pending - 10) + ' more</span></div>';
+    }
+    el.innerHTML = html;
+  }
+
   /** Add a feed item with From→To flow detail */
   function addFeedItem(item) {
     // item: { type, typeClass, from, to, detail, timestamp }
@@ -432,7 +466,7 @@
       if (status === 'settled') fillPct = 100;
       var idx = b.index !== undefined ? b.index : (b.batchIndex || b.batchNumber || '?');
 
-      html += '<div class="cc-batch-item ' + status + '">' +
+      html += '<div class="cc-batch-item ' + status + '" onclick="window._showBatchDetail(' + idx + ')">' +
         '<span class="cc-batch-num">#' + idx + '</span>' +
         '<div class="cc-batch-bar-wrap">' +
         '<div class="cc-batch-bar-bg"><div class="cc-batch-bar-fill ' + status + '" style="width:' + fillPct + '%"></div></div>' +
@@ -445,60 +479,251 @@
     el.innerHTML = html;
   }
 
-  /** Render network nodes panel */
+  /** Open Etherscan-style batch detail modal */
+  async function showBatchDetail(batchIdx) {
+    var modal = $('batch-modal');
+    var title = $('bm-title');
+    var body = $('bm-body');
+    modal.style.display = 'flex';
+    title.textContent = 'Batch #' + batchIdx;
+    body.innerHTML = '<div class="loading">Loading batch details...</div>';
+
+    // Close on overlay click
+    modal.onclick = function (e) { if (e.target === modal) modal.style.display = 'none'; };
+
+    try {
+      // Fetch batch and all receipts
+      var batch = null;
+      var allReceipts = [];
+      try { batch = await RPC.call('l2_getBatch', { batchNumber: batchIdx }); } catch (_) {}
+      if (!batch) {
+        // Fallback: find in cache
+        batch = batchCache.find(function (b) {
+          return (b.index !== undefined ? b.index : (b.batchIndex || b.batchNumber)) == batchIdx;
+        });
+      }
+      try { allReceipts = await RPC.getReceipts(200); } catch (_) {}
+      if (!Array.isArray(allReceipts)) allReceipts = [];
+
+      // Filter receipts belonging to this batch
+      var batchReceipts = allReceipts.filter(function (r) {
+        var rBatch = r.batchIndex !== undefined ? r.batchIndex : r.l1BatchNumber;
+        return rBatch !== undefined && String(rBatch) === String(batchIdx);
+      });
+
+      if (!batch) {
+        body.innerHTML = '<div class="empty-state">Batch not found</div>';
+        return;
+      }
+
+      var status = batch.status || batch.l1Status || 'pending';
+      var proofs = batch.proofCount || batch.transitionCount || 0;
+      var html = '';
+
+      // ── Overview Section ──
+      html += '<div class="bm-section">';
+      html += '<div class="bm-section-title">Overview</div>';
+      html += bmRow('Status', '<span class="bm-badge ' + status + '">' + status + '</span>');
+      html += bmRow('Batch Number', '#' + batchIdx);
+      html += bmRow('Transitions', proofs);
+      html += bmRow('Registrations', batch.registrationCount || 0);
+      if (batch.timestamp || batch.createdAt)
+        html += bmRow('Created', new Date(batch.timestamp || batch.createdAt).toLocaleString());
+      if (batch.workerId !== undefined)
+        html += bmRow('Proved By', 'Worker ' + batch.workerId);
+      if (batch.proveTimeMs)
+        html += bmRow('Prove Time', (batch.proveTimeMs / 1000).toFixed(1) + 's');
+      if (batch.blockHeight !== undefined)
+        html += bmRow('Block Height', batch.blockHeight);
+      html += '</div>';
+
+      // ── State Transitions ──
+      html += '<div class="bm-section">';
+      html += '<div class="bm-section-title">State Transitions</div>';
+      html += bmRootRow('Registry Root', batch.oldRegistryRoot, batch.newRegistryRoot);
+      html += bmRootRow('Lifecycle Root', batch.oldLifecycleRoot, batch.newLifecycleRoot);
+      if (batch.globalStateRoot)
+        html += bmRow('Global State Root', '<span class="bm-hash">' + batch.globalStateRoot + '</span>');
+      html += '</div>';
+
+      // ── Merkle Roots Snapshot ──
+      if (batch.claimAccumulatorRoot || batch.messageStoreRoot || batch.providerRegistryRoot) {
+        html += '<div class="bm-section">';
+        html += '<div class="bm-section-title">Merkle Root Snapshots</div>';
+        if (batch.claimAccumulatorRoot)
+          html += bmRow('Claim Accumulator', '<span class="bm-hash">' + shortHash(batch.claimAccumulatorRoot) + '</span>');
+        if (batch.messageStoreRoot)
+          html += bmRow('Message Store', '<span class="bm-hash">' + shortHash(batch.messageStoreRoot) + '</span>');
+        if (batch.providerRegistryRoot)
+          html += bmRow('Provider Registry', '<span class="bm-hash">' + shortHash(batch.providerRegistryRoot) + '</span>');
+        html += '</div>';
+      }
+
+      // ── Quorum / Certificate ──
+      if (batch.stateCertificate) {
+        html += '<div class="bm-section">';
+        html += '<div class="bm-section-title">State Certificate</div>';
+        var cert = batch.stateCertificate;
+        html += bmRow('Votes', (cert.votes ? cert.votes.length : 0) + ' / ' + (cert.quorumSize || '?'));
+        if (cert.batchNumber !== undefined) html += bmRow('Certified Batch', '#' + cert.batchNumber);
+        html += '</div>';
+      }
+
+      // ── Receipts (Transactions) ──
+      html += '<div class="bm-section">';
+      html += '<div class="bm-section-title">Transactions (' + batchReceipts.length + ')</div>';
+      if (batchReceipts.length === 0) {
+        html += '<div class="empty-state" style="font-size:12px">No receipts found for this batch</div>';
+      } else {
+        batchReceipts.forEach(function (r) {
+          var rStatus = r.status || r.l1Status || 'pending';
+          var rId = r.id || r.receiptId || '--';
+          html += '<div class="bm-receipt">';
+          html += '<div class="bm-receipt-header">';
+          html += '<span class="bm-receipt-id">' + escHtml(rId) + '</span>';
+          html += '<span class="bm-badge bm-receipt-badge ' + rStatus + '">' + rStatus + '</span>';
+          html += '</div>';
+          html += '<div class="bm-receipt-row">';
+          html += '<span>Wallet: <b class="bm-hash">' + shortHash(r.walletId) + '</b></span>';
+          html += '<span>Seq: <b>' + (r.sequenceNumber || r.seqNum || '--') + '</b></span>';
+          html += '<span>Type: <b>' + (r.isRegistration ? 'Registration' : 'Transition') + '</b></span>';
+          html += '</div>';
+          html += '<div class="bm-receipt-row">';
+          html += '<span>Registry: <b class="bm-hash">' + shortHash(r.oldRegistryRoot) + '</b><span class="bm-arrow">\u2192</span><b class="bm-hash">' + shortHash(r.newRegistryRoot) + '</b></span>';
+          html += '</div>';
+          if (r.auditEventHash) {
+            html += '<div class="bm-receipt-row">';
+            html += '<span>Audit Hash: <b class="bm-hash">' + shortHash(r.auditEventHash) + '</b></span>';
+            html += '</div>';
+          }
+          if (r.claimLeafIndex !== undefined && r.claimLeafIndex !== null) {
+            html += '<div class="bm-receipt-row">';
+            html += '<span>Claim Leaf: <b>' + r.claimLeafIndex + '</b></span>';
+            html += '</div>';
+          }
+          if (r.quorumCertificate) {
+            var qc = r.quorumCertificate;
+            html += '<div class="bm-receipt-row">';
+            html += '<span>Quorum: <b>' + (qc.votes ? qc.votes.length : 0) + ' votes</b></span>';
+            html += '</div>';
+          }
+          html += '</div>';
+        });
+      }
+      html += '</div>';
+
+      // ── Proof Data ──
+      if (batch.batchProofJson) {
+        html += '<div class="bm-section">';
+        html += '<div class="bm-section-title">Proof Data</div>';
+        var proofSize = batch.batchProofJson.length;
+        html += bmRow('Batch Proof', (proofSize / 1024).toFixed(1) + ' KB');
+        if (batch.chainProofJson)
+          html += bmRow('Chain Proof', (batch.chainProofJson.length / 1024).toFixed(1) + ' KB');
+        html += '</div>';
+      }
+
+      body.innerHTML = html;
+    } catch (e) {
+      body.innerHTML = '<div class="empty-state">Error loading batch: ' + escHtml(e.message) + '</div>';
+    }
+  }
+
+  function bmRow(label, value) {
+    return '<div class="bm-row"><span class="bm-label">' + label + '</span><span class="bm-value">' + value + '</span></div>';
+  }
+  function bmRootRow(label, oldRoot, newRoot) {
+    if (!oldRoot && !newRoot) return '';
+    return '<div class="bm-row"><span class="bm-label">' + label + '</span>' +
+      '<span class="bm-value"><span class="bm-hash">' + shortHash(oldRoot) + '</span>' +
+      '<span class="bm-arrow">\u2192</span>' +
+      '<span class="bm-hash">' + shortHash(newRoot) + '</span></span></div>';
+  }
+
+  // Expose globally for onclick
+  window._showBatchDetail = showBatchDetail;
+
+  /** Render network nodes panel — shows sequencer + known replicas */
   function renderNetworkPanel(status) {
     var el = $('cc-network-nodes');
     if (!status) { el.innerHTML = '<div class="cc-empty">Loading...</div>'; return; }
 
-    var partitions = status.partitions || [];
-    var nodeId = status.nodeId || 'self';
+    // Build node list: self (sequencer) + replicas from NETWORK_NODES
+    var nodes = [];
 
-    // Gather unique leviathan IDs
-    var levIds = new Set();
-    levIds.add(nodeId);
-    partitions.forEach(function (p) {
-      if (p.leader) levIds.add(p.leader);
-      if (p.failoverChain) p.failoverChain.forEach(function (f) { levIds.add(f); });
+    // Self — the sequencer
+    var selfId = status.nodeId || 'sequencer';
+    var gt = status.globalTotals || {};
+    nodes.push({
+      id: selfId,
+      role: 'sequencer',
+      isSelf: true,
+      url: ':' + (window._seqPort || 3030),
+      alive: true,
+      detail: (gt.totalProofsAccepted || status.totalProofsAccepted || 0) + ' proofs accepted',
     });
-    var peers = status.peers || [];
-    peers.forEach(function (p) {
-      var pid = p.nodeId || p.id || p.peerId;
-      if (pid) levIds.add(pid);
-    });
+
+    // Replicas — check from NETWORK_NODES or hardcoded replica ports
+    var replicaPorts = [];
+    if (typeof NETWORK_NODES !== 'undefined' && Array.isArray(NETWORK_NODES)) {
+      NETWORK_NODES.forEach(function (n) {
+        if (n.role === 'replica' || (n.id && n.id.indexOf('replica') >= 0)) {
+          replicaPorts.push(n);
+        }
+      });
+    }
+    // Fallback: check known replica ports from nodeHealthState
+    if (replicaPorts.length === 0 && nodeHealthState) {
+      Object.keys(nodeHealthState).forEach(function (key) {
+        if (key.indexOf('replica') >= 0 || key.indexOf('3031') >= 0 || key.indexOf('3032') >= 0) {
+          var nh = nodeHealthState[key];
+          replicaPorts.push({ id: key, url: nh.url || key, role: 'replica', alive: nh.alive });
+        }
+      });
+    }
+    // Last fallback: just show replica-1 and replica-2 with health state
+    if (replicaPorts.length === 0) {
+      [3031, 3032].forEach(function (p, i) {
+        var rid = 'replica-' + (i + 1);
+        var nh = nodeHealthState[rid] || nodeHealthState['localhost:' + p] || {};
+        nodes.push({
+          id: rid,
+          role: 'replica',
+          isSelf: false,
+          url: ':' + p,
+          alive: nh.alive !== false, // assume alive unless proven dead
+          detail: nh.latencyMs ? nh.latencyMs + 'ms' : 'gossip replication',
+        });
+      });
+    } else {
+      replicaPorts.forEach(function (rp) {
+        var nh = nodeHealthState[rp.id] || {};
+        nodes.push({
+          id: rp.id || rp.url,
+          role: 'replica',
+          isSelf: false,
+          url: rp.url || '',
+          alive: nh.alive !== undefined ? nh.alive : true,
+          detail: nh.latencyMs ? nh.latencyMs + 'ms' : 'gossip replication',
+        });
+      });
+    }
 
     var html = '';
-    Array.from(levIds).forEach(function (lid) {
-      var leadsParts = [];
-      partitions.forEach(function (p, pi) {
-        if (p.leader === lid) leadsParts.push(pi);
-      });
-      var isLeader = leadsParts.length > 0;
-      var isSelf = lid === nodeId;
-      var role = isLeader || isSelf ? 'sequencer' : 'replica';
-
-      var totalReceipts = partitions.filter(function (p) { return p.leader === lid; })
-        .reduce(function (a, p) { return a + (p.receiptCount || 0); }, 0);
-
+    nodes.forEach(function (n) {
+      var cls = n.alive ? n.role : 'dead';
       html += '<div class="cc-node-item">' +
-        '<div class="cc-node-icon ' + role + '" data-node="' + escHtml(lid) + '">' +
-        (isLeader || isSelf ? 'S' : 'R') +
+        '<div class="cc-node-icon ' + cls + '">' +
+        (n.role === 'sequencer' ? 'S' : 'R') +
         '<div class="cc-heartbeat-ring"></div>' +
         '</div>' +
         '<div class="cc-node-info">' +
-        '<div class="cc-node-name">' + escHtml(lid.length > 20 ? lid.slice(0, 18) + '\u2026' : lid) +
-        (isSelf ? ' (self)' : '') + '</div>' +
-        '<div class="cc-node-meta">' + totalReceipts + ' receipts' +
-        (peers.length ? ' \u00B7 ' + peers.length + ' peers' : '') + '</div>' +
+        '<div class="cc-node-name">' + escHtml(n.id) +
+        (n.isSelf ? ' (self)' : '') +
+        ' <span style="color:var(--text-secondary);font-size:11px">' + escHtml(n.url) + '</span></div>' +
+        '<div class="cc-node-meta">' + escHtml(n.detail) + '</div>' +
+        '</div>' +
         '</div>';
-
-      if (leadsParts.length) {
-        html += '<div class="cc-node-partitions">';
-        leadsParts.forEach(function (pi) {
-          html += '<span class="cc-part-badge">P' + pi + '</span>';
-        });
-        html += '</div>';
-      }
-      html += '</div>';
     });
 
     el.innerHTML = html || '<div class="cc-empty">No nodes</div>';
@@ -649,6 +874,7 @@
       // Render all Command Center panels
       updateThroughputPanel();
       renderWorkerPanel(status);
+      renderQueuePanel(status);
       renderFeedPanel();
       renderBatchPanel();
       renderNetworkPanel(status);
@@ -659,6 +885,12 @@
 
       // Worker pool summary
       renderOverviewWorkers(status);
+
+      // Entity proof pool (from health endpoint)
+      try {
+        var health = await RPC.getHealth();
+        renderEntityProofPool(health);
+      } catch (_) { /* health fetch optional */ }
     } catch (e) {
       setConnDot('disconnected');
       diagLog('loadOverview FAILED: ' + e.message + ' — is leviathan running on :3030?', true);
@@ -713,6 +945,93 @@
     if (dead) html += '<span style="color:var(--red)">Dead: <b>' + dead + '</b></span>';
     html += '</div>';
     $('ov-workers').innerHTML = html;
+  }
+
+  /** Render entity proof pool — same visual style as batch Worker Pool */
+  function renderEntityProofPool(health) {
+    var ep = health.entityProofPool;
+    var workers = health.entityWorkers || [];
+    if (!Array.isArray(workers)) workers = [];
+
+    var el = $('cc-ep-worker-list');
+    var badge = $('cc-ep-badge');
+    if (!el || !badge) return;
+
+    if (!workers.length || !ep) {
+      el.innerHTML = '<div class="cc-empty">No entity proof workers</div>';
+      badge.textContent = '--';
+      $('cc-ep-jobs').textContent = '0';
+      $('cc-ep-avg').textContent = '--';
+      $('cc-ep-queue').textContent = '0';
+      return;
+    }
+
+    var alive = 0, proving = 0;
+    var html = '';
+    workers.forEach(function (w, i) {
+      var s = (w.state || w.status || 'idle').toLowerCase();
+      if (s === 'idle' || s === 'ready') s = 'idle';
+      else if (s === 'proving' || s === 'busy') { s = 'proving'; proving++; }
+      else if (s === 'compiling') s = 'compiling';
+      else s = 'dead';
+      if (s !== 'dead') alive++;
+
+      var wId = 'E' + (w.id !== undefined ? w.id : i);
+
+      // Bar width: for proving, simulate progress based on avg prove time
+      var barWidth = '0';
+      if (s === 'proving') {
+        barWidth = '50'; // no elapsed tracking yet for entity pool
+      } else if (s === 'compiling') {
+        barWidth = '40';
+      } else if (s === 'dead') {
+        barWidth = '100';
+      }
+
+      var jobLabel = w.currentJobId || '';
+      var recycleTag = w.pendingRecycle ? ' <span style="color:var(--amber);font-size:10px">[recycle]</span>' : '';
+      html += '<div class="cc-worker-row">' +
+        '<span class="cc-worker-id">' + escHtml(wId) + '</span>' +
+        '<div class="cc-worker-bar-bg"><div class="cc-worker-bar-fill ' + s + '" style="width:' + barWidth + '%"></div></div>' +
+        '<span class="cc-worker-state ' + s + '">' + s + recycleTag + '</span>' +
+        (jobLabel ? '<span class="cc-worker-job">' + escHtml(jobLabel) + '</span>' : '') +
+        '<span class="cc-worker-elapsed">' + (w.jobsProcessed || 0) + ' jobs' +
+        (w.lastJobDescription && !w.busy ? ' \u00B7 ' + escHtml(w.lastJobDescription) + ' (' + (w.lastJobTimeMs / 1000).toFixed(1) + 's)' : '') +
+        '</span></div>';
+    });
+    el.innerHTML = html;
+    badge.textContent = alive + '/' + workers.length;
+
+    // Stats
+    $('cc-ep-jobs').textContent = String(ep.totalJobsCompleted || 0);
+    var avgMs = ep.avgProveTimeMs || 0;
+    $('cc-ep-avg').textContent = avgMs > 0 ? (avgMs < 1000 ? avgMs.toFixed(0) + 'ms' : (avgMs / 1000).toFixed(1) + 's') : '--';
+    $('cc-ep-queue').textContent = String(ep.queueDepth || 0);
+
+    // Also update worker cards page if it exists
+    var cardsEl = $('ep-worker-cards');
+    if (cardsEl) {
+      if (!workers.length) {
+        cardsEl.innerHTML = '<div class="empty-state">No entity proof pool workers</div>';
+      } else {
+        var cardsHtml = '<div class="worker-card-grid">';
+        workers.forEach(function (w) {
+          var ws = (w.state || w.status || 'idle').toLowerCase();
+          var cls = ws === 'proving' || ws === 'busy' ? 'worker-card proving' :
+                    ws === 'compiling' ? 'worker-card compiling' :
+                    ws === 'dead' ? 'worker-card dead' : 'worker-card idle';
+          cardsHtml += '<div class="' + cls + '">' +
+            '<div class="worker-card-header">Worker E' + w.id + '</div>' +
+            '<div class="worker-card-status">' + ws + '</div>' +
+            '<div class="worker-card-stat">Jobs: ' + (w.jobsProcessed || 0) + '</div>' +
+            (w.currentJobId ? '<div class="worker-card-stat" style="color:var(--accent)">Job: ' + w.currentJobId + '</div>' : '') +
+            (w.pendingRecycle ? '<div class="worker-card-stat" style="color:var(--amber)">Pending recycle</div>' : '') +
+            '</div>';
+        });
+        cardsHtml += '</div>';
+        cardsEl.innerHTML = cardsHtml;
+      }
+    }
   }
 
   // ── Event Feed (SSE) ────────────────────────────────────────
@@ -1235,7 +1554,8 @@
       var bHtml = '<table class="data-table"><thead><tr>' +
         '<th>#</th><th>Status</th><th>Proofs</th><th>Root</th><th>Time</th></tr></thead><tbody>';
       batches.slice(0, 30).forEach(function (b) {
-        bHtml += '<tr><td>' + (b.index !== undefined ? b.index : b.batchIndex || '--') + '</td>' +
+        var bIdx = b.index !== undefined ? b.index : (b.batchIndex || b.batchNumber || 0);
+        bHtml += '<tr onclick="window._showBatchDetail(' + bIdx + ')" style="cursor:pointer"><td>' + bIdx + '</td>' +
           '<td><span class="badge ' + (b.status === 'settled' || b.l1Status === 'settled' ? 'badge-ready' : 'badge-pending') + '">' +
           (b.status || b.l1Status || '--') + '</span></td>' +
           '<td>' + (b.proofCount || b.transitionCount || '--') + '</td>' +
@@ -1431,10 +1751,10 @@
 
     $('admin-health-refresh').addEventListener('click', refreshAdminHealth);
 
-    // ── Demo Setup Buttons ──
-    $('demo-setup-btn').addEventListener('click', function () { runDemoSetup(false); });
-    $('demo-token-only-btn').addEventListener('click', function () { runDemoSetup(true); });
-    $('demo-token-value').addEventListener('click', function () {
+    // ── Setup Buttons ──
+    $('setup-setup-btn').addEventListener('click', function () { runSetup(false); });
+    $('setup-token-only-btn').addEventListener('click', function () { runSetup(true); });
+    $('setup-token-value').addEventListener('click', function () {
       var text = this.textContent;
       if (text && navigator.clipboard) {
         navigator.clipboard.writeText(text).then(function () {
@@ -1444,7 +1764,7 @@
     });
   }
 
-  // ── Demo Helpers ──────────────────────────────────────────────
+  // ── Setup Helpers ──────────────────────────────────────────────
 
   function demoLogStep(log, msg, ok) {
     var color = ok === true ? 'var(--green)' : ok === false ? 'var(--red)' : 'var(--text-secondary)';
@@ -1469,22 +1789,22 @@
     return data;
   }
 
-  async function runDemoSetup(tokenOnly) {
-    var fullBtn = $('demo-setup-btn');
-    var tokenBtn = $('demo-token-only-btn');
-    var log = $('demo-setup-log');
-    var tokenDisplay = $('demo-token-display');
+  async function runSetup(tokenOnly) {
+    var fullBtn = $('setup-setup-btn');
+    var tokenBtn = $('setup-token-only-btn');
+    var log = $('setup-setup-log');
+    var tokenDisplay = $('setup-token-display');
     fullBtn.disabled = true;
     tokenBtn.disabled = true;
     fullBtn.textContent = tokenOnly ? 'Running...' : 'Running Full Ceremony...';
     log.innerHTML = '';
     tokenDisplay.style.display = 'none';
 
-    var empUrl = $('demo-employer-url').value.trim() || 'http://localhost:4005';
-    var memUrl = $('demo-member-url').value.trim() || 'http://localhost:4001';
-    var adminToken = $('demo-admin-token').value.trim() || 'admin123';
-    var groupId = $('demo-group-id').value.trim() || 'GRP-001';
-    var employeeId = $('demo-employee-id').value.trim() || 'EMP-001';
+    var empUrl = $('setup-employer-url').value.trim() || 'http://localhost:4005';
+    var memUrl = $('setup-member-url').value.trim() || 'http://localhost:4001';
+    var adminToken = $('setup-admin-token').value.trim() || 'admin123';
+    var groupId = $('setup-group-id').value.trim() || 'GRP-001';
+    var employeeId = $('setup-employee-id').value.trim() || 'EMP-001';
 
     function L(msg, ok) { demoLogStep(log, msg, ok); }
     function empReq(m, p, b) { return demoRequest(empUrl, m, p, b, adminToken); }
@@ -1572,7 +1892,7 @@
       var tokenId = tokenResult.tokenId || tokenResult;
       L('Token: ' + tokenId, true);
 
-      $('demo-token-value').textContent = tokenId;
+      $('setup-token-value').textContent = tokenId;
       tokenDisplay.style.display = 'block';
 
       if (tokenOnly) {
@@ -1753,10 +2073,15 @@
           var gt = status.globalTotals || {};
           metrics.queueDepth = gt.pendingProofs || 0;
           renderWorkerPanel(status);
+          renderQueuePanel(status);
           renderNetworkPanel(status);
           renderEntityPanel();
           renderOverviewPartitions(status);
           renderOverviewWorkers(status);
+          try {
+            var health = await RPC.getHealth();
+            renderEntityProofPool(health);
+          } catch (_) { /* health fetch optional */ }
           setConnDot('connected');
         } catch (e) {
           setConnDot('disconnected');
@@ -1766,7 +2091,7 @@
       if (Date.now() - entityCacheTime > 30000) {
         loadEntities();
       }
-    }, 5000);
+    }, 3000);
   }
 
   // ── Refresh Buttons ─────────────────────────────────────────
@@ -1829,18 +2154,30 @@
       startPolling();
     });
 
-    // Re-check node health every 15s
+    // Re-check node health every 3s
     setInterval(function () {
       checkAllNodeHealth();
-    }, 15000);
+    }, 3000);
 
     // Sparkline ticker — 1s interval
     setInterval(tickSparkline, 1000);
 
-    // Worker elapsed timer — update proving bars every 2s
+    // Worker elapsed timer — update proving bars every 3s
     workerTimerInterval = setInterval(function () {
-      if (currentTab === 'overview' && levStatus) renderWorkerPanel(levStatus);
-    }, 2000);
+      if (currentTab === 'overview' && levStatus) {
+        renderWorkerPanel(levStatus);
+        renderQueuePanel(levStatus);
+      }
+    }, 3000);
+
+    // Entity proof pool fast poll — 1.5s to catch workers in "proving" state
+    setInterval(async function () {
+      if (currentTab !== 'overview') return;
+      try {
+        var health = await RPC.getHealth();
+        renderEntityProofPool(health);
+      } catch (_) { /* ignore */ }
+    }, 1500);
   }
 
   // Boot

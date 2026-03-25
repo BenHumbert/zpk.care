@@ -21,7 +21,7 @@ import {
 import {
   PrescriptionData,
   PrescriptionStatusData,
-  RX_STATUS_ACTIVE,
+  RX_STATUS_ADJUDICATED,
   RX_STATUS_FILLED,
 } from '../src/prescription/prescription-data.js';
 import { CredentialData, CREDENTIAL_TYPE_PRESCRIPTION, CREDENTIAL_TYPE_ELIGIBILITY } from '../src/credentials/credential-data.js';
@@ -167,7 +167,7 @@ function setupDualCredentialScenario(accumulator: AccumulatorData): {
   // Insert initial ACTIVE status at TRANSACTION leaf 0
   const activeStatus = new PrescriptionStatusData({
     prescriptionHash: rxData.commitment(),
-    status: RX_STATUS_ACTIVE,
+    status: RX_STATUS_ADJUDICATED,
     updatedByWalletId: prescriberWalletId,
     updatedAt: dateToField('20260201'),
     pharmacyWalletId,

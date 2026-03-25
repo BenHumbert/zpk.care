@@ -76,7 +76,7 @@ interface NppesRecord {
   }[];
 }
 
-// Output interfaces (match existing DemoPrescriber/DemoPharmacy structure)
+// Output interfaces (match existing SeedPrescriber/SeedPharmacy structure)
 interface PrescriberRecord {
   localData: { prescriberIdQualifier: number; prescriberId: string };
   enrollmentKey: string;

@@ -409,8 +409,9 @@ export class L2QuorumService {
 
   // ─── Accessors ────────────────────────────────────────
 
-  /** Get the node ID (derived from the public key hex — first 16 chars) */
+  /** Get the node ID (explicit config value, or reverse-lookup from peer keys) */
   private getNodeId(): string {
+    if (this.config.nodeId) return this.config.nodeId;
     // Find our node ID by checking which peer key matches our public key
     for (const [nodeId, pubKey] of this.config.peerPublicKeys) {
       if (pubKey === this.config.publicKeyHex) return nodeId;

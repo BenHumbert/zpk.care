@@ -40,6 +40,13 @@ export class ClaimAccumulatorService {
   private prescriberIndex: Map<string, bigint[]> = new Map();
   private ndcIndex: Map<string, bigint[]> = new Map();
 
+  /**
+   * Deduplication index: tracks active fills to prevent duplicate dispensing.
+   * Key = "memberWalletId:ndcHash:pharmacyWalletId:dateOfService"
+   * Value = leafIndex of the existing fill
+   */
+  private fillDedup: Map<string, bigint> = new Map();
+
   constructor() {
     this.tree = new MerkleTree(CLAIM_TREE_HEIGHT);
   }
@@ -47,13 +54,47 @@ export class ClaimAccumulatorService {
   // ─── Write ───────────────────────────────────────────────
 
   /**
+   * Build a dedup key for fill uniqueness checks.
+   * Reversals (operationType '2') are excluded from dedup — multiple reversals are allowed.
+   */
+  private static fillDedupKey(leaf: ClaimLeaf): string | null {
+    if (leaf.operationType === '2') return null; // reversals are never deduped
+    return `${leaf.memberWalletId}:${leaf.ndcHash}:${leaf.pharmacyWalletId}:${leaf.dateOfService}`;
+  }
+
+  /**
+   * Check whether a fill already exists for this (member, ndc, pharmacy, date) combination.
+   * Returns the existing entry if found, undefined otherwise.
+   * Reversals always return undefined (they are never considered duplicates).
+   */
+  hasActiveFill(memberWalletId: string, ndcHash: string, pharmacyWalletId: string, dateOfService: string): ClaimAccumulatorEntry | undefined {
+    const key = `${memberWalletId}:${ndcHash}:${pharmacyWalletId}:${dateOfService}`;
+    const existingIndex = this.fillDedup.get(key);
+    if (existingIndex === undefined) return undefined;
+    return this.entries.get(existingIndex);
+  }
+
+  /**
    * Append a new claim to the accumulator tree.
+   * Fills (operationType != '2') are deduplicated by (member, ndc, pharmacy, date).
+   * If a duplicate fill is detected, the existing entry is returned instead of
+   * appending a new leaf — this makes the operation idempotent.
    *
    * @param leaf  The 8-Field claim leaf (all values as decimal strings)
    * @param metadata  Non-cryptographic display metadata
-   * @returns The ClaimAccumulatorEntry with assigned leafIndex and leafHash
+   * @returns The ClaimAccumulatorEntry (existing if duplicate, new if unique)
    */
   appendClaim(leaf: ClaimLeaf, metadata: ClaimMetadata): ClaimAccumulatorEntry {
+    // Dedup check for fills (not reversals)
+    const dedupKey = ClaimAccumulatorService.fillDedupKey(leaf);
+    if (dedupKey) {
+      const existingIndex = this.fillDedup.get(dedupKey);
+      if (existingIndex !== undefined) {
+        const existing = this.entries.get(existingIndex);
+        if (existing) return existing; // idempotent — return existing entry
+      }
+    }
+
     const leafIndex = this.nextLeafIndex;
     const leafHash = computeClaimLeafHash(leaf);
 
@@ -76,6 +117,11 @@ export class ClaimAccumulatorService {
     this.addToIndex(this.pharmacyIndex, leaf.pharmacyWalletId, leafIndex);
     this.addToIndex(this.prescriberIndex, leaf.prescriberWalletId, leafIndex);
     this.addToIndex(this.ndcIndex, leaf.ndcHash, leafIndex);
+
+    // Track in dedup index
+    if (dedupKey) {
+      this.fillDedup.set(dedupKey, leafIndex);
+    }
 
     this.nextLeafIndex++;
     return entry;
@@ -177,6 +223,7 @@ export class ClaimAccumulatorService {
     this.pharmacyIndex.clear();
     this.prescriberIndex.clear();
     this.ndcIndex.clear();
+    this.fillDedup.clear();
 
     // Re-append each entry (rebuilds tree + indexes)
     for (const entry of state.entries) {

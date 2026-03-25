@@ -20,6 +20,7 @@ import http from 'http';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { timingSafeEqual } from 'crypto';
 import { Field } from 'o1js';
+import { WalletState } from '../wallets/wallet-state.js';
 import { StateTransitionProof } from '../engine/state-transition.js';
 import type { L2Node, L2ChainEvent, L2EventHandler } from './l2-node.js';
 import { L2Leviathan } from './l2-leviathan.js';
@@ -65,7 +66,7 @@ export type VizLane = 'enrollment' | 'eligibility' | 'prescription' | 'fulfillme
 /** Actor types in the system */
 export type VizActorType = 'member' | 'prescriber' | 'pharmacy' | 'insurer' | 'employer' | 'leviathan' | 'worker';
 
-/** A visualization event pushed by the demo scenario script */
+/** A visualization event pushed by the scenario script */
 export interface VizEvent {
   type: VizEventType;
   timestamp: number;
@@ -120,7 +121,7 @@ export interface L2RpcServerOptions {
 export const DEFAULT_RPC_SERVER_OPTIONS: L2RpcServerOptions = {
   port: 3030,
   host: '127.0.0.1',
-  maxBodyBytes: 10 * 1024 * 1024,
+  maxBodyBytes: 20 * 1024 * 1024, // 20MB — Option C eliminates 10MB formulary blobs
   enableSSE: true,
 };
 
@@ -166,6 +167,14 @@ export class L2RpcServer {
   private eventHandler: L2EventHandler;
   private listening = false;
 
+  /** Optional entity proof pool status getter (set by start-leviathan.ts) */
+  private entityProofPoolStatusFn: (() => { status: Record<string, unknown>; workers: Record<string, unknown>[] }) | null = null;
+
+  /** Register an entity proof pool status provider for the health/status endpoints. */
+  setEntityProofPoolStatus(fn: () => { status: Record<string, unknown>; workers: Record<string, unknown>[] }): void {
+    this.entityProofPoolStatusFn = fn;
+  }
+
   /** Admin-only RPC methods that require bearer token authentication */
   private static readonly ADMIN_METHODS = new Set([
     'l2_forceBatch',
@@ -178,6 +187,7 @@ export class L2RpcServer {
     'l2_requestSnapshot',
     'l2_gossipRelay',
     'l2_recordFill',
+    'l2_publishPlanOverlay',
   ]);
 
   // M9 fix: SSE replay buffer for chain events (ring buffer, max 256)
@@ -199,6 +209,7 @@ export class L2RpcServer {
 
   // Rate limiting
   private proofSubmissionLog: Map<string, number[]> = new Map();
+  private rateLimitSweepTimer: ReturnType<typeof setInterval> | null = null;
 
   // Dynamic route registration
   private additionalRoutes: Map<string, (req: IncomingMessage, res: ServerResponse) => Promise<void>> = new Map();
@@ -230,7 +241,7 @@ export class L2RpcServer {
     });
   }
 
-  /** Programmatically seed entities into the entity registry (e.g. demo providers on startup) */
+  /** Programmatically seed entities into the entity registry (e.g. seed providers on startup) */
   seedEntities(entities: VizEntity[]): void {
     for (const entity of entities) {
       this.entityRegistry.set(entity.walletId, entity);
@@ -242,6 +253,20 @@ export class L2RpcServer {
   /** Start listening for HTTP connections */
   async start(): Promise<void> {
     if (this.listening) return;
+
+    // Prune inactive IPs from rate limit map every 5 minutes
+    this.rateLimitSweepTimer = setInterval(() => {
+      const now = Date.now();
+      const windowMs = 60_000;
+      for (const [ip, timestamps] of this.proofSubmissionLog) {
+        const active = timestamps.filter(t => now - t < windowMs);
+        if (active.length === 0) {
+          this.proofSubmissionLog.delete(ip);
+        } else {
+          this.proofSubmissionLog.set(ip, active);
+        }
+      }
+    }, 300_000);
 
     return new Promise<void>((resolve, reject) => {
       this.server.listen(this.options.port, this.options.host, () => {
@@ -274,6 +299,10 @@ export class L2RpcServer {
     }
 
     // Clear rate limiting state
+    if (this.rateLimitSweepTimer) {
+      clearInterval(this.rateLimitSweepTimer);
+      this.rateLimitSweepTimer = null;
+    }
     this.proofSubmissionLog.clear();
 
     return new Promise<void>((resolve) => {
@@ -421,7 +450,17 @@ export class L2RpcServer {
       const safePath = pathname === '/' ? '/index.html' : pathname;
       // Only allow alphanumeric, dots, hyphens, slashes — no ..
       if (/^[/a-zA-Z0-9._-]+$/.test(safePath) && !safePath.includes('..')) {
-        const filePath = path.join(this.dashboardDir, safePath);
+        // Strip leading slash so path.resolve treats it as relative to dashboardDir
+        const relativePath = safePath.replace(/^\/+/, '');
+        // Canonicalize and verify the resolved path stays within the dashboard directory
+        const resolved = path.resolve(this.dashboardDir, relativePath);
+        if (!resolved.startsWith(this.dashboardDir)) {
+          // Path escapes dashboard directory
+          res.writeHead(403);
+          res.end('Forbidden');
+          return;
+        }
+        const filePath = resolved;
         try {
           const content = fs.readFileSync(filePath);
           const ext = path.extname(filePath).toLowerCase();
@@ -476,6 +515,13 @@ export class L2RpcServer {
       }
     }
 
+    // Include entity proof pool status if registered
+    if (this.entityProofPoolStatusFn) {
+      const ep = this.entityProofPoolStatusFn();
+      health.entityProofPool = ep.status;
+      health.entityWorkers = ep.workers;
+    }
+
     const body = JSON.stringify(health);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(body);
@@ -528,12 +574,13 @@ export class L2RpcServer {
     // Clean up on disconnect
     req.on('close', () => {
       this.sseClients.delete(res);
+      try { res.end(); } catch { /* already closed */ }
     });
   }
 
   private broadcastSSE(event: L2ChainEvent): void {
     // M9 fix: Store in ring buffer before broadcasting
-    this.sseEventIdCounter++;
+    this.sseEventIdCounter = (this.sseEventIdCounter + 1) % Number.MAX_SAFE_INTEGER;
     this.sseReplayBuffer.push({ id: this.sseEventIdCounter, event });
     if (this.sseReplayBuffer.length > L2RpcServer.SSE_REPLAY_BUFFER_SIZE) {
       this.sseReplayBuffer.shift();
@@ -545,6 +592,7 @@ export class L2RpcServer {
         client.write(`id: ${this.sseEventIdCounter}\ndata: ${data}\n\n`);
       } catch {
         this.sseClients.delete(client);
+        try { client.end(); } catch { /* socket already dead */ }
       }
     }
   }
@@ -652,6 +700,31 @@ export class L2RpcServer {
         return result;
       }
 
+      case 'l2_syncWalletState': {
+        // Sync the sequencer's walletRegistry tree with externally-submitted wallet updates.
+        // Called by Nautilus nodes after submitting wallet update proofs (PCP assignment, etc.)
+        // so the sequencer's witness tree stays in sync for future proof generation.
+        const syncWalletId = params.walletId as string;
+        const syncNewCredRoot = params.newCredentialInventoryRoot as string;
+        const syncNewNonce = params.newNonce as string;
+        if (!syncWalletId || !syncNewCredRoot || !syncNewNonce) {
+          throw new Error('Missing walletId, newCredentialInventoryRoot, or newNonce');
+        }
+        try {
+          const seq = this.node.getSequencer();
+          const wid = Field(BigInt(syncWalletId));
+          const newState = new WalletState({
+            walletId: wid,
+            credentialInventoryRoot: Field(BigInt(syncNewCredRoot)),
+            nonce: Field(BigInt(syncNewNonce)),
+          });
+          seq.syncWalletState(wid, newState);
+          return { synced: true };
+        } catch (err) {
+          return { synced: false, error: err instanceof Error ? err.message : String(err) };
+        }
+      }
+
       case 'l2_getStatus':
         return this.node.getStatus();
 
@@ -660,6 +733,8 @@ export class L2RpcServer {
         const pool = !(this.node instanceof L2Leviathan)
           ? (this.node as L2Node).getProvingPool()
           : null;
+        const epFn = this.entityProofPoolStatusFn;
+        const ep = epFn ? epFn() : null;
         return {
           memory: {
             rss: mem.rss,
@@ -671,6 +746,8 @@ export class L2RpcServer {
           },
           provingPool: pool?.getStatus() ?? null,
           workers: pool?.getWorkerStatuses() ?? [],
+          entityProofPool: ep?.status ?? null,
+          entityWorkers: ep?.workers ?? [],
           timestamp: Date.now(),
         };
       }
@@ -902,6 +979,88 @@ export class L2RpcServer {
         return { success: deleted, planId };
       }
 
+      // ── Formulary Service (Option C — paginated queries) ──
+
+      case 'l2_getFormularyCategories': {
+        return this.node.getSequencer().getFormularyService().getCategories();
+      }
+
+      case 'l2_getFormularyPage': {
+        const filter = params.filter ?? {};
+        const offset = typeof params.offset === 'number' ? params.offset : 0;
+        const limit = typeof params.limit === 'number' ? Math.min(params.limit, 500) : 100;
+        return this.node.getSequencer().getFormularyService().getPage(filter, offset, limit);
+      }
+
+      case 'l2_getDrugDetail': {
+        const ndcHash = params.ndcHash;
+        if (typeof ndcHash !== 'string') throw new Error('Missing ndcHash parameter');
+        const drug = this.node.getSequencer().getFormularyService().getDrug(ndcHash);
+        if (!drug) throw new Error(`Drug not found: ${ndcHash}`);
+        return drug;
+      }
+
+      case 'l2_checkCoverage': {
+        const planIdHash = params.planIdHash;
+        const ndcHash = params.ndcHash;
+        if (typeof planIdHash !== 'string') throw new Error('Missing planIdHash parameter');
+        if (typeof ndcHash !== 'string') throw new Error('Missing ndcHash parameter');
+        const result = this.node.getSequencer().getFormularyService().checkCoverage(planIdHash, ndcHash);
+        if (!result) throw new Error(`Drug not found: ${ndcHash}`);
+        return result;
+      }
+
+      case 'l2_publishPlanOverlay': {
+        const fSvc = this.node.getSequencer().getFormularyService();
+        const planIdHash = params.planIdHash;
+        const planName = (params.planName as string) ?? '';
+        const overrides = (params.overrides ?? []) as import('./formulary-service.js').DrugOverride[];
+        const defaults = params.defaults as import('./formulary-service.js').PlanDefaults;
+        if (typeof planIdHash !== 'string') throw new Error('Missing planIdHash parameter');
+        if (!defaults || typeof defaults !== 'object') throw new Error('Missing defaults parameter');
+        const overlay = fSvc.publishOverlay(planIdHash, planName, overrides, defaults);
+        this.node.emit({
+          type: 'formulary:updated',
+          timestamp: Date.now(),
+          data: { planIdHash, type: 'overlay', version: overlay.version },
+        });
+        return { success: true, planIdHash, version: overlay.version };
+      }
+
+      case 'l2_getFormularyRoutes': {
+        return this.node.getSequencer().getFormularyService().getRoutes();
+      }
+
+      case 'l2_getFormularyDrugCount': {
+        return { count: this.node.getSequencer().getFormularyService().drugCount };
+      }
+
+      case 'l2_getFormularyRoot': {
+        const root = this.node.getSequencer().getFormularyService().getRootString();
+        return { formularyRoot: root, drugCount: this.node.getSequencer().getFormularyService().drugCount };
+      }
+
+      case 'l2_getFormularyWitness': {
+        const ndcHash = params.ndcHash;
+        if (typeof ndcHash !== 'string') throw new Error('Missing ndcHash parameter');
+        const fSvc = this.node.getSequencer().getFormularyService();
+        const witness = fSvc.getWitness(ndcHash);
+        if (!witness) throw new Error(`Drug not found in Merkle tree: ${ndcHash}`);
+        const leafIndex = fSvc.getLeafIndex(ndcHash);
+        const drug = fSvc.getDrug(ndcHash);
+        // Serialize witness path as array of { isLeft, sibling } for client consumption
+        const path = witness.path.map((f: any) => f.toString());
+        const isLeft = witness.isLeft.map((b: any) => b.toBoolean());
+        return {
+          ndcHash,
+          leafIndex: leafIndex!.toString(),
+          formularyRoot: fSvc.getRootString(),
+          witnessPath: path,
+          witnessIsLeft: isLeft,
+          drug: drug ? { genericName: drug.genericName, brandName: drug.brandName, tierLevel: drug.defaultTier, copayAmount: drug.defaultCopay } : null,
+        };
+      }
+
       case 'l2_syncFromL1': {
         // L1 sync disabled — Leviathan is the sole trust layer (no MINA L1)
         throw new Error('l2_syncFromL1 is disabled: this network operates in L2-only mode without MINA L1');
@@ -975,20 +1134,31 @@ export class L2RpcServer {
         const fillDispFee = params.dispensingFeeCents != null ? Number(params.dispensingFeeCents) : undefined;
         const fillQty = params.quantityDispensed != null ? Number(params.quantityDispensed) : undefined;
         const fillTotalDrug = (fillIngredient != null && fillDispFee != null) ? fillIngredient + fillDispFee : undefined;
+
+        // Check for duplicate fill before recording (pre-check for response flag)
+        const fillLeaf = { memberWalletId: fillMember, ndcHash: fillNdc, pharmacyWalletId: fillPharmacy, prescriberWalletId: fillPrescriber, dateOfService: fillDate, patientPayCents: fillPatientPay, planPayCents: fillPlanPay, operationType: fillOpType, deductibleCreditCents: fillDeductible };
+        const priorLeafCount = fillSeq.getClaimAccumulator().getLeafCount();
+
         const fillEntry = fillSeq.recordFill(
-          { memberWalletId: fillMember, ndcHash: fillNdc, pharmacyWalletId: fillPharmacy, prescriberWalletId: fillPrescriber, dateOfService: fillDate, patientPayCents: fillPatientPay, planPayCents: fillPlanPay, operationType: fillOpType, deductibleCreditCents: fillDeductible },
+          fillLeaf,
           { receiptId: `FILL-${Date.now()}`, timestamp: Date.now(), ndc: params.ndc as string, brandName: params.brandName as string, daysSupply: params.daysSupply as number, fillNumber: params.fillNumber as number, ingredientCostCents: fillIngredient, dispensingFeeCents: fillDispFee, totalDrugCostCents: fillTotalDrug, quantityDispensed: fillQty },
         );
-        // Emit viz event for pharmacy fill
-        const fillPharmacyEntity = this.entityRegistry.get(fillPharmacy);
-        const fillMemberEntity = this.entityRegistry.get(fillMember);
-        this.emitVizEvent('viz:pharmacy:dispensed', 'fulfillment',
-          fillPharmacyEntity?.displayName ?? fillPharmacy.slice(0, 12) + '…',
-          'pharmacy',
-          { memberWalletId: fillMember, ndcHash: fillNdc, leafIndex: fillEntry.leafIndex.toString(), brandName: params.brandName, daysSupply: params.daysSupply },
-          { target: fillMemberEntity?.displayName ?? fillMember.slice(0, 12) + '…', targetType: 'member' },
-        );
-        return { ok: true, leafIndex: fillEntry.leafIndex.toString(), leafHash: fillEntry.leafHash };
+
+        // Detect if this was a duplicate (leaf count didn't change)
+        const isDuplicate = fillSeq.getClaimAccumulator().getLeafCount() === priorLeafCount;
+
+        // Only emit viz event for new fills (not duplicates)
+        if (!isDuplicate) {
+          const fillPharmacyEntity = this.entityRegistry.get(fillPharmacy);
+          const fillMemberEntity = this.entityRegistry.get(fillMember);
+          this.emitVizEvent('viz:pharmacy:dispensed', 'fulfillment',
+            fillPharmacyEntity?.displayName ?? fillPharmacy.slice(0, 12) + '…',
+            'pharmacy',
+            { memberWalletId: fillMember, ndcHash: fillNdc, leafIndex: fillEntry.leafIndex.toString(), brandName: params.brandName, daysSupply: params.daysSupply },
+            { target: fillMemberEntity?.displayName ?? fillMember.slice(0, 12) + '…', targetType: 'member' },
+          );
+        }
+        return { ok: true, leafIndex: fillEntry.leafIndex.toString(), leafHash: fillEntry.leafHash, duplicate: isDuplicate };
       }
 
       case 'l2_getRegistrationWitnesses': {
@@ -1143,7 +1313,7 @@ export class L2RpcServer {
                 specialty: params.specialty as string | undefined,
                 pharmacyType: params.pharmacyType as string | undefined,
                 npi: npi || undefined,
-                verificationMethod: 'demo',
+                verificationMethod: 'manual',
                 updatedAt: Date.now(),
               },
             );
@@ -1161,6 +1331,23 @@ export class L2RpcServer {
           { walletId, type, specialty: params.specialty, pharmacyType: params.pharmacyType },
         );
         return { ok: true, walletId, displayName, type };
+      }
+
+      // ── Entity Lookup (non-admin — used by insurer to verify enrollment) ──
+
+      case 'l2_getEntity': {
+        const walletId = params.walletId as string;
+        if (!walletId) throw new Error('Missing walletId');
+        const entity = this.entityRegistry.get(walletId);
+        if (!entity) return null;
+        return {
+          walletId: entity.walletId,
+          displayName: entity.displayName,
+          type: entity.type,
+          group: entity.group,
+          specialty: entity.specialty,
+          pharmacyType: entity.pharmacyType,
+        };
       }
 
       // ── Provider Credentialing (admin-gated) ──
@@ -1198,7 +1385,7 @@ export class L2RpcServer {
             npi: npi || undefined,
             deaNumber: params.deaNumber as string | undefined,
             stateOfLicense: params.stateOfLicense as string | undefined,
-            verificationMethod: (params.verificationMethod as 'nppes' | 'ncpdp' | 'manual' | 'demo' | undefined) ?? 'manual',
+            verificationMethod: (params.verificationMethod as 'nppes' | 'ncpdp' | 'manual' | undefined) ?? 'manual',
             applicationId: params.applicationId as string | undefined,
             updatedAt: Date.now(),
           },
@@ -1229,9 +1416,14 @@ export class L2RpcServer {
 
       case 'l2_updateProviderStatus': {
         const walletId = params.walletId as string;
-        const newState = parseInt(String(params.newState), 10) as ProviderLifecycle;
         if (!walletId) throw new Error('Missing walletId');
-        if (isNaN(newState) || newState < 0 || newState > 4) throw new Error('Invalid newState (0-4)');
+        if (params.newState === undefined || params.newState === null) {
+          throw new Error('Missing newState parameter');
+        }
+        const newState = parseInt(String(params.newState), 10) as ProviderLifecycle;
+        if (isNaN(newState) || newState < 0 || newState > 4) {
+          throw new Error('newState must be 0-4 (PENDING=0, VERIFIED=1, ACTIVE=2, SUSPENDED=3, TERMINATED=4)');
+        }
         const seq = this.node.getSequencer();
         const entry = seq.updateProviderStatus(walletId, newState);
         // Emit viz event for provider status update
@@ -1324,9 +1516,12 @@ export class L2RpcServer {
           return registryEntries.map((e) => ({
             walletId: e.leaf.walletId,
             displayName: e.metadata.displayName,
-            role: e.metadata.providerType,
+            providerType: e.metadata.providerType,
+            role: e.metadata.providerType,  // backward compat
+            npi: e.metadata.npi,
             specialty: e.metadata.specialty,
             pharmacyType: e.metadata.pharmacyType,
+            stateOfLicense: e.metadata.stateOfLicense,
             credentialState: parseInt(e.leaf.credentialState, 10),
             leafIndex: e.leafIndex.toString(),
           }));
@@ -1341,7 +1536,9 @@ export class L2RpcServer {
           .map((e) => ({
             walletId: e.walletId,
             displayName: e.displayName,
-            role: e.type,
+            providerType: e.type,
+            role: e.type,  // backward compat
+            npi: (e as any).npi || '',
             specialty: e.specialty,
             pharmacyType: e.pharmacyType,
             group: e.group,
@@ -1610,7 +1807,7 @@ export class L2RpcServer {
 
   // ─── Viz Endpoints ───────────────────────────────────
 
-  /** Accept a VizEvent from the demo script */
+  /** Accept a VizEvent from the scenario script */
   private async handleVizEmit(req: IncomingMessage, res: ServerResponse): Promise<void> {
     let body: string;
     try {
@@ -1632,7 +1829,7 @@ export class L2RpcServer {
 
     // Assign sequential ID if missing
     if (!event.id) {
-      this.vizEventIdCounter++;
+      this.vizEventIdCounter = (this.vizEventIdCounter + 1) % Number.MAX_SAFE_INTEGER;
       event.id = `viz-${String(this.vizEventIdCounter).padStart(6, '0')}`;
     }
     if (!event.timestamp) {
@@ -1673,6 +1870,7 @@ export class L2RpcServer {
 
     req.on('close', () => {
       this.vizSseClients.delete(res);
+      try { res.end(); } catch { /* already closed */ }
     });
   }
 
@@ -1755,6 +1953,7 @@ export class L2RpcServer {
         client.write(`data: ${data}\n\n`);
       } catch {
         this.vizSseClients.delete(client);
+        try { client.end(); } catch { /* socket already dead */ }
       }
     }
   }
@@ -1774,7 +1973,7 @@ export class L2RpcServer {
     const event: VizEvent = {
       type,
       timestamp: Date.now(),
-      id: `viz-${String(++this.vizEventIdCounter).padStart(6, '0')}`,
+      id: `viz-${String(this.vizEventIdCounter = (this.vizEventIdCounter + 1) % Number.MAX_SAFE_INTEGER).padStart(6, '0')}`,
       actor,
       actorType,
       data,

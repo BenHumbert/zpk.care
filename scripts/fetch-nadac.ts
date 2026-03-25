@@ -5,8 +5,8 @@
  * NADAC (National Average Drug Acquisition Cost) is published by CMS
  * and is freely available with no API key required.
  *
- * This script fetches 500 entries, maps them to the DemoMedication interface,
- * and writes `src/demo/nadac-formulary.ts` as a static TypeScript file.
+ * This script fetches 500 entries, maps them to the SeedMedication interface,
+ * and writes `src/seed/nadac-formulary.ts` as a static TypeScript file.
  *
  * Run once:
  *   npx tsx scripts/fetch-nadac.ts
@@ -177,7 +177,7 @@ async function fetchNadac(): Promise<void> {
 
   console.log(`  Deduplicated to ${unique.length} unique NDCs`);
 
-  // Transform to DemoMedication entries
+  // Transform to SeedMedication entries
   const entries: string[] = [];
 
   for (let i = 0; i < unique.length; i++) {
@@ -231,24 +231,24 @@ async function fetchNadac(): Promise<void> {
  * Source: CMS NADAC (data.medicaid.gov) — public domain, no API key required.
  * Generated: ${new Date().toISOString()}
  */
-import type { DemoMedication } from './medications.js';
+import type { SeedMedication } from './medications.js';
 
-export const NADAC_MEDICATIONS: DemoMedication[] = [
+export const NADAC_MEDICATIONS: SeedMedication[] = [
 ${entries.join(',\n')}
 ];
 
-/** NDC → DemoMedication lookup */
-export const NADAC_MEDICATION_BY_NDC = new Map<string, DemoMedication>(
+/** NDC → SeedMedication lookup */
+export const NADAC_MEDICATION_BY_NDC = new Map<string, SeedMedication>(
   NADAC_MEDICATIONS.map((m) => [m.ndc, m]),
 );
 
-/** GPI → DemoMedication lookup */
-export const NADAC_MEDICATION_BY_GPI = new Map<string, DemoMedication>(
+/** GPI → SeedMedication lookup */
+export const NADAC_MEDICATION_BY_GPI = new Map<string, SeedMedication>(
   NADAC_MEDICATIONS.map((m) => [m.gpi, m]),
 );
 `;
 
-  const outPath = path.resolve(process.cwd(), 'src', 'demo', 'nadac-formulary.ts');
+  const outPath = path.resolve(process.cwd(), 'src', 'seed', 'nadac-formulary.ts');
   fs.writeFileSync(outPath, output, 'utf-8');
   console.log(`  Written ${unique.length} entries to ${outPath}`);
   console.log('Done.');

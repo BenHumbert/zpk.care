@@ -379,10 +379,10 @@ describe('ClaimAccumulatorService — Export / Restore', () => {
   test('restoreState clears previous data', () => {
     const service = new ClaimAccumulatorService();
 
-    // Add some data first
-    service.appendClaim(makeLeaf(), makeMetadata());
-    service.appendClaim(makeLeaf(), makeMetadata());
-    service.appendClaim(makeLeaf(), makeMetadata());
+    // Add some data first (each with a unique date to avoid dedup)
+    service.appendClaim(makeLeaf({ dateOfService: '20260101' }), makeMetadata());
+    service.appendClaim(makeLeaf({ dateOfService: '20260102' }), makeMetadata());
+    service.appendClaim(makeLeaf({ dateOfService: '20260103' }), makeMetadata());
     expect(service.getLeafCount()).toBe(3n);
 
     // Restore with just 1 entry

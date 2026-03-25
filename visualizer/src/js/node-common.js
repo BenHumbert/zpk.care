@@ -1,4 +1,4 @@
-// node-common.js — Shared utilities for zkpCare visualizer dashboard pages
+// node-common.js — Shared utilities for Adjuda-GATOR visualizer dashboard pages
 // ES module syntax (export/import)
 
 export const API_BASE = 'http://127.0.0.1:3030';

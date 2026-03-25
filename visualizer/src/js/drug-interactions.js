@@ -1,5 +1,5 @@
 // drug-interactions.js — Drug interaction reference matrix for pharmacy DUR panel
-// Based on zkpCare demo medication therapeutic classes
+// Based on Adjuda-GATOR seed medication therapeutic classes
 
 // Each interaction: [classA, classB, severity, description]
 // severity: 'critical' | 'major' | 'moderate' | 'minor'

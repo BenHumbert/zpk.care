@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 /**
- * scenario-runner.mjs — Random Scenario Runner for zkpCare Interactive Demo
+ * scenario-runner.mjs — Random Scenario Runner for zkpCare Adjudication System
  *
  * Enrolls all 8 members, generates credentials, then executes 5 random
- * scenario paths per member against the running demo server.
+ * scenario paths per member against the running server.
  * Designed to be watched in real-time on the network topology dashboard.
  *
  * Usage:
- *   node visualizer/demo/scenario-runner.mjs [--base http://localhost:3030] [--delay 2000] [--members 0,1,2] [--scenarios 5]
+ *   node visualizer/engine/scenario-runner.mjs [--base http://localhost:3030] [--delay 2000] [--members 0,1,2] [--scenarios 5]
  *
  * Options:
- *   --base       Base URL of running demo server (default: http://localhost:3030)
+ *   --base       Base URL of running server (default: http://localhost:3030)
  *   --delay      Delay in ms between operations for visual observability (default: 2000)
  *   --members    Comma-separated member indices to run (default: all 0-7)
  *   --scenarios  Number of scenarios per member (default: 5)
@@ -37,8 +37,8 @@ const SKIP_RESET = hasFlag('no-reset');
 const SKIP_SETUP = hasFlag('skip-setup');
 const MEMBER_FILTER = getArg('members', null);
 
-// ─── Demo Data Reference ────────────────────────────────────
-// Indices into DEMO_MEMBERS, DEMO_PRESCRIBERS, DEMO_PHARMACIES, DEMO_MEDICATIONS
+// ─── Seed Data Reference ────────────────────────────────────
+// Indices into MEMBERS, PRESCRIBERS, PHARMACIES, MEDICATIONS
 
 const MEMBERS = [
   { idx: 0, name: 'Alice Johnson',    familyId: 'FAM-ACME-10001', relationship: 'SELF' },
@@ -119,7 +119,7 @@ function log(msg) { console.log(`[${new Date().toLocaleTimeString()}] ${msg}`); 
 function header(msg) { console.log(`\n${'═'.repeat(60)}\n  ${msg}\n${'═'.repeat(60)}`); }
 function subheader(msg) { console.log(`\n  ── ${msg} ──`); }
 
-/** Wait for the demo server to be reachable AND compilation to finish. */
+/** Wait for the server to be reachable AND compilation to finish. */
 async function waitForServer(maxWaitMs = 600000) {
   const start = Date.now();
 

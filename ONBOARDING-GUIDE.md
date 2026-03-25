@@ -28,9 +28,9 @@ npx tsx src/nodes/start-leviathan.ts
 |-------|---------|------|-------------|
 | 1 | Leviathan Sequencer | 3030 | Genesis or checkpoint recovery, proving pool, RPC server |
 | 2 | Replica nodes | 3031-3032 | Gossip replication (data availability) |
-| 3 | Insurer Nautilus | 4004 | Credentials 18 demo providers, publishes formulary |
-| 4 | Prescriber Nautilus | 4002 | Demo prescriber (Dr. Sarah Chen, MD) |
-| 5 | Pharmacy Nautilus | 4003 | Demo pharmacy (Main Street Pharmacy) |
+| 3 | Insurer Nautilus | 4004 | Credentials 18 seed providers, publishes formulary |
+| 4 | Prescriber Nautilus | 4002 | Seed prescriber (Dr. Sarah Chen, MD) |
+| 5 | Pharmacy Nautilus | 4003 | Seed pharmacy (Main Street Pharmacy) |
 | 6 | Employer Nautilus | 4005 | Token authority for enrollment |
 | 7 | Member Nautilus | 4001 | Fresh — awaiting enrollment |
 | 8 | Explorer | 8000 | Block explorer dashboard |
@@ -303,11 +303,11 @@ ZKTRIDENT_SEED_PEERS=             # Comma-separated peer URLs
 
 ---
 
-## Onboarding Your First Real Client (Non-Demo)
+## Onboarding Your First Real Client (Production)
 
-### Step 1: Disable demo data
+### Step 1: Disable seed data
 
-Start the Leviathan without demo entity auto-spawning:
+Start the Leviathan without seed entity auto-spawning:
 
 ```bash
 ZKTRIDENT_ADMIN_TOKEN=<token> npx tsx src/nodes/start-leviathan.ts

@@ -1067,7 +1067,7 @@ function renderNodeInfo() {
   const content = renderDataGrid([
     { label: 'Sequencer URL', value: 'http://127.0.0.1:3030' },
     { label: 'Node Type', value: 'Insurer / PBM' },
-    { label: 'Protocol', value: 'zkpCare L2 on MINA' },
+    { label: 'Protocol', value: 'Adjuda-GATOR L2' },
     { label: 'Registry Root', value: `<span class="mono" style="font-size: 10px; word-break: break-all;">${chainState.walletRegistryRoot || l2Status.currentRegistryRoot || '--'}</span>` },
     { label: 'Lifecycle Root', value: `<span class="mono" style="font-size: 10px; word-break: break-all;">${chainState.lifecycleRoot || l2Status.currentLifecycleRoot || '--'}</span>` },
     { label: 'Wallet Count', value: chainState.walletCount || l2Status.currentWalletCount || 0 },

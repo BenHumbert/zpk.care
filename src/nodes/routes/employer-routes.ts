@@ -44,6 +44,7 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
         displayName: server.getConfig().displayName,
         employerId: b.employerId,
         insurerUrl: b.insurerUrl,
+        clientOptions: server.getConfig().adminToken ? { adminToken: server.getConfig().adminToken } : undefined,
       });
       server.setEntityNode(node);
 
@@ -200,7 +201,7 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
         status: record.status,
         groupId: record.localData.groupId,
         planId: record.localData.planId,
-        validUntil: record.localData.validUntil,
+        validUntil: record.localData.validUntil.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'),
         consumedByWalletId: record.consumedByWalletId ?? null,
         consumedAt: record.consumedAt ?? null,
       });
@@ -255,6 +256,31 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
       } else {
         server.sendResponse(res, 502, false, undefined, result.error ?? 'Submission failed');
       }
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  ENROLLMENT CONFIRMATION (called by member node after enrollment)
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'POST',
+    path: '/enrollment/confirm',
+    handler: async (_req, res, _params, _query, body) => {
+      const node = server.getEntityNode() as EmployerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
+
+      const b = body as { tokenId?: string; walletId?: string } | undefined;
+      if (!b?.tokenId || !b?.walletId) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing tokenId or walletId');
+      }
+
+      const result = node.confirmEnrollment(b.tokenId, b.walletId);
+      if (!result.found) {
+        return server.sendResponse(res, 404, false, undefined, 'Token not found in roster');
+      }
+
+      server.sendResponse(res, 200, true, { confirmed: true, tokenId: b.tokenId });
     },
   });
 

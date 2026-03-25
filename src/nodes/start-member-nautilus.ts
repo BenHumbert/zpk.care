@@ -20,6 +20,8 @@
  *   ZKTRIDENT_DISPLAY_NAME     — Display name for logging
  *   ZKTRIDENT_PROVER_URL       — Proof delegation URL (optional)
  *   ZKTRIDENT_PROVER_API_KEY   — Prover API key (optional)
+ *   ZKTRIDENT_INSURER_URL      — Insurer Nautilus URL for enrollment (optional)
+ *   ZKTRIDENT_EMPLOYER_URL     — Employer Nautilus URL for enrollment confirmation (optional)
  *   ZKTRIDENT_PIN              — PIN for encrypted state (for CI/testing; stdin if not set)
  *
  * Usage:
@@ -56,6 +58,8 @@ const config: NautilusAppConfig = {
   displayName: env.ZKTRIDENT_DISPLAY_NAME,
   proverUrl: env.ZKTRIDENT_PROVER_URL,
   proverApiKey: env.ZKTRIDENT_PROVER_API_KEY,
+  insurerUrl: env.ZKTRIDENT_INSURER_URL,
+  employerUrl: env.ZKTRIDENT_EMPLOYER_URL,
 };
 
 // Auto-detect dashboard directory
@@ -73,7 +77,7 @@ const pin = env.ZKTRIDENT_PIN;
 async function main(): Promise<void> {
   console.log('');
   console.log('  ╔══════════════════════════════════════════════╗');
-  console.log('  ║     🐚  MEMBER NAUTILUS — zkTrident          ║');
+  console.log('  ║     🐊  MEMBER NAUTILUS — Adjuda-GATOR       ║');
   console.log('  ╚══════════════════════════════════════════════╝');
   console.log('');
 

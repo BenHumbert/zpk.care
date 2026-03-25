@@ -1,5 +1,5 @@
 /**
- * zkTrident Prescriber — REST API Client + SSE
+ * Adjuda-GATOR Prescriber — REST API Client + SSE
  *
  * Talks to the local Nautilus server via REST endpoints.
  * All responses are wrapped in { ok, data, error, timestamp } envelope.
@@ -176,18 +176,41 @@ const API = (() => {
   function getMedicationBreakdown() { return get('/prescriptions/medications/breakdown'); }
   function writePrescription(data) { return post('/prescriptions/write', data); }
 
+  // ── Prescribe with ZK Proof (async — polls for result) ─────
+
+  function prescribeWithProof(data) { return post('/prescriptions/prescribe', data); }
+  function prescribeStatus(jobKey) { return get('/prescriptions/prescribe-status?jobKey=' + encodeURIComponent(jobKey)); }
+
   // ── Provider Network ───────────────────────────────────────
 
   function getNetworkPrescribers() { return get('/network/prescribers'); }
   function checkNetwork(walletId) { return get(`/network/check/${encodeURIComponent(walletId)}`); }
   function getNetworkCount() { return get('/network/count'); }
 
-  // ── Formulary ──────────────────────────────────────────────
-
+  // ── Formulary (legacy) ──────────────────────────────────────
   function getFormulary(planIdHash) { return get(`/formulary/${encodeURIComponent(planIdHash)}`); }
   function checkDrugCoverage(planIdHash, ndcHash) {
     return get(`/formulary/${encodeURIComponent(planIdHash)}/check/${encodeURIComponent(ndcHash)}`);
   }
+
+  // ── Formulary (Option C — paginated) ──────────────────────
+  function getFormularyCategories() { return get('/formulary-categories'); }
+  function getFormularyPage(params) {
+    var qs = [];
+    if (params.namePrefix) qs.push('namePrefix=' + encodeURIComponent(params.namePrefix));
+    if (params.classification) qs.push('classification=' + encodeURIComponent(params.classification));
+    if (params.tierLevel) qs.push('tierLevel=' + params.tierLevel);
+    if (params.route) qs.push('route=' + encodeURIComponent(params.route));
+    if (params.planIdHash) qs.push('planIdHash=' + encodeURIComponent(params.planIdHash));
+    if (params.offset != null) qs.push('offset=' + params.offset);
+    if (params.limit != null) qs.push('limit=' + params.limit);
+    return get('/formulary-page' + (qs.length ? '?' + qs.join('&') : ''));
+  }
+  function getFormularyDrug(ndcHash) { return get(`/formulary-drug/${encodeURIComponent(ndcHash)}`); }
+  function getFormularyRoutes() { return get('/formulary-routes'); }
+  function getFormularyDrugCount() { return get('/formulary-drug-count'); }
+  function getFormularyRoot() { return get('/formulary-root'); }
+  function getFormularyWitness(ndcHash) { return get(`/formulary-witness/${encodeURIComponent(ndcHash)}`); }
 
   // ── Providers ─────────────────────────────────────────────
 
@@ -241,15 +264,25 @@ const API = (() => {
     getPharmacyCount,
     getMedicationBreakdown,
     writePrescription,
+    prescribeWithProof,
+    prescribeStatus,
 
     // Network
     getNetworkPrescribers,
     checkNetwork,
     getNetworkCount,
 
-    // Formulary
+    // Formulary (legacy)
     getFormulary,
     checkDrugCoverage,
+    // Formulary (Option C — paginated)
+    getFormularyCategories,
+    getFormularyPage,
+    getFormularyDrug,
+    getFormularyRoutes,
+    getFormularyDrugCount,
+    getFormularyRoot,
+    getFormularyWitness,
 
     // Providers
     getProviders,

@@ -1,5 +1,5 @@
 /**
- * zkp.Care Member Portal — JSON-RPC 2.0 + REST Client
+ * Adjuda-GATOR Member Portal — JSON-RPC 2.0 + REST Client
  * Talks to the Leviathan / Nautilus sequencer node.
  */
 const RPC = (() => {
@@ -82,8 +82,16 @@ const RPC = (() => {
   // ── Accumulator ──────────────────────────────────────
   function reconstructAccumulator(w) { return call('l2_reconstructAccumulator', { walletId: w }); }
 
-  // ── Formulary ────────────────────────────────────────
+  // ── Formulary (legacy) ────────────────────────────────
   function getFormulary(planIdHash) { return call('l2_getFormulary', { planIdHash }); }
+
+  // ── Formulary (Option C — paginated) ─────────────────
+  function getFormularyPage(filter, offset, limit) {
+    return call('l2_getFormularyPage', { filter: filter || {}, offset: offset || 0, limit: limit || 100 });
+  }
+  function getFormularyDrugCount() { return call('l2_getFormularyDrugCount', {}); }
+  function getFormularyRoutes() { return call('l2_getFormularyRoutes', {}); }
+  function getFormularyRoot() { return call('l2_getFormularyRoot', {}); }
 
   // ── Providers ────────────────────────────────────────
   function getNetworkProviders(role) {
@@ -198,7 +206,7 @@ const RPC = (() => {
     call, getHealth, getStatus, getChainState,
     getReceiptsByWallet, getReceipt,
     getClaimsByMember, getClaimsByPharmacy, getClaimsByPrescriber, getClaimsByNdc, getClaimAccumulatorRoot,
-    reconstructAccumulator, getFormulary,
+    reconstructAccumulator, getFormulary, getFormularyPage, getFormularyDrugCount, getFormularyRoutes, getFormularyRoot,
     getNetworkProviders,
     getMessagesByWallet, getMessagesByThread, getMessagesBySender, getMessagesByRecipient,
     storeMessage, getMessageStoreRoot,

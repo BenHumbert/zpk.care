@@ -76,6 +76,15 @@ export class BenefitPlanRegistry {
   }
 
   /**
+   * Update an existing plan's EligibilityData (e.g., after formulary root changes).
+   * Recomputes the commitment and updates the tree leaf at the given index.
+   */
+  updatePlan(index: bigint, eligData: EligibilityData): void {
+    this.plans.set(index, eligData);
+    this.tree.setLeaf(index, eligData.commitment());
+  }
+
+  /**
    * Get a circuit-compatible witness for a plan's position in the registry.
    * Used in EligibilityProgram to prove plan existence.
    */

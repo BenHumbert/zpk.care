@@ -1,5 +1,5 @@
 /**
- * Interactive App — Browser entry point for the interactive demo.
+ * Interactive App — Browser entry point for the adjudication engine.
  *
  * Connects to the backend, manages phase state machine,
  * dispatches UI updates to phase modules.

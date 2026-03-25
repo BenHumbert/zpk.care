@@ -9,16 +9,16 @@
  */
 import http from 'http';
 import {
-  DEMO_PRESCRIBERS,
-  DEMO_PHARMACIES,
+  PRESCRIBERS,
+  PHARMACIES,
   TIER1_GENERICS,
   TIER2_PREFERRED,
   TIER3_NON_PREFERRED,
   TIER4_SPECIALTY,
 } from '../../src/data/index.js';
-import type { DemoPrescriber } from '../../src/data/index.js';
-import type { DemoPharmacy } from '../../src/data/index.js';
-import type { DemoMedication } from '../../src/data/index.js';
+import type { SeedPrescriber } from '../../src/data/index.js';
+import type { SeedPharmacy } from '../../src/data/index.js';
+import type { SeedMedication } from '../../src/data/index.js';
 import type { VizEvent, VizEntity, VizActorType, VizLane } from '../../src/l2/l2-rpc-server.js';
 
 // ─── Configuration ───────────────────────────────────
@@ -69,8 +69,8 @@ interface SimMember {
   cardholderId: string;
   walletId: string;
   needsPA: boolean;
-  assignedPrescriber: DemoPrescriber;
-  assignedPharmacy: DemoPharmacy;
+  assignedPrescriber: SeedPrescriber;
+  assignedPharmacy: SeedPharmacy;
   scripts: SimScript[];
   deductiblePaid: number;
   oopPaid: number;
@@ -79,9 +79,9 @@ interface SimMember {
 interface SimScript {
   id: string;
   member: SimMember;
-  prescriber: DemoPrescriber;
-  pharmacy: DemoPharmacy;
-  medication: DemoMedication;
+  prescriber: SeedPrescriber;
+  pharmacy: SeedPharmacy;
+  medication: SeedMedication;
   qty: number;
   needsPA: boolean;
   paApproved: boolean;
@@ -198,7 +198,7 @@ async function registerEntities(entities: VizEntity[]): Promise<void> {
   });
 }
 
-function prescriberDisplayName(p: DemoPrescriber): string {
+function prescriberDisplayName(p: SeedPrescriber): string {
   return `Dr. ${p.lastName}`;
 }
 
@@ -211,7 +211,7 @@ function formatCents(cents: number): string {
 async function processMember(
   m: SimMember,
   cfg: ScenarioConfig,
-  paDrugs: DemoMedication[],
+  paDrugs: SeedMedication[],
   batchNumber: { value: number },
 ): Promise<void> {
   const pace = cfg.paceMs;
@@ -238,7 +238,7 @@ async function processMember(
   await sleep(pace);
 
   await emit(makeEvent(
-    'viz:enrollment:complete', 'zkpCare PBM', 'insurer', 'enrollment', 3, 5,
+    'viz:enrollment:complete', 'Adjuda-GATOR PBM', 'insurer', 'enrollment', 3, 5,
     { walletRegistered: true, credentialMinted: true, credentialType: 'ELIGIBILITY', lifecycle: 'ELIGIBLE' },
     m.displayName, 'member',
   ));
@@ -261,7 +261,7 @@ async function processMember(
     await sleep(pace / 2);
 
     await emit(makeEvent(
-      'viz:eligibility:verified', 'zkpCare PBM', 'insurer', 'eligibility', 1, 4,
+      'viz:eligibility:verified', 'Adjuda-GATOR PBM', 'insurer', 'eligibility', 1, 4,
       { eligible: true, coverageType: 'MEDICAL', deductible: '$500' },
       m.displayName, 'member',
     ));
@@ -275,7 +275,7 @@ async function processMember(
     await sleep(pace / 2);
 
     await emit(makeEvent(
-      'viz:formulary:verified', 'zkpCare PBM', 'insurer', 'eligibility', 3, 4,
+      'viz:formulary:verified', 'Adjuda-GATOR PBM', 'insurer', 'eligibility', 3, 4,
       { onFormulary: true, tier: firstMed.formularyEntry.tierLevel,
         copay: formatCents(firstMed.formularyEntry.copayAmount),
         requiresPA: firstMed.formularyEntry.requiresPriorAuth },
@@ -294,12 +294,12 @@ async function processMember(
       'viz:message:sent', pName, 'prescriber', 'messaging', 0, 5,
       { messageType: 'MSG_TYPE_PA_REQUEST',
         content: `Prior Auth Request: ${drug} for ${m.displayName}`, encrypted: true },
-      'zkpCare PBM', 'insurer',
+      'Adjuda-GATOR PBM', 'insurer',
     ));
     await sleep(pace);
 
     await emit(makeEvent(
-      'viz:message:received', 'zkpCare PBM', 'insurer', 'messaging', 3, 5,
+      'viz:message:received', 'Adjuda-GATOR PBM', 'insurer', 'messaging', 3, 5,
       { messageType: 'MSG_TYPE_PA_REQUEST', from: pName },
     ));
     await sleep(pace);
@@ -308,7 +308,7 @@ async function processMember(
     script.paApproved = approved;
 
     await emit(makeEvent(
-      'viz:message:sent', 'zkpCare PBM', 'insurer', 'messaging', 0, 5,
+      'viz:message:sent', 'Adjuda-GATOR PBM', 'insurer', 'messaging', 0, 5,
       { messageType: 'MSG_TYPE_PA_RESPONSE',
         content: approved
           ? `PA APPROVED: ${drug} — auth code ZKP-PA-${randInt(1000, 9999)}`
@@ -320,7 +320,7 @@ async function processMember(
 
     await emit(makeEvent(
       'viz:message:received', pName, 'prescriber', 'messaging', 3, 5,
-      { messageType: 'MSG_TYPE_PA_RESPONSE', approved, from: 'zkpCare PBM' },
+      { messageType: 'MSG_TYPE_PA_RESPONSE', approved, from: 'Adjuda-GATOR PBM' },
     ));
     await sleep(pace);
   }
@@ -387,7 +387,7 @@ async function processMember(
         { type: 'MSG_TYPE_NOTIFICATION', from: phName, fromType: 'pharmacy' as VizActorType,
           to: mName, toType: 'member' as VizActorType,
           content: `Your ${drug} prescription is being processed` },
-        { type: 'MSG_TYPE_NOTIFICATION', from: 'zkpCare PBM', fromType: 'insurer' as VizActorType,
+        { type: 'MSG_TYPE_NOTIFICATION', from: 'Adjuda-GATOR PBM', fromType: 'insurer' as VizActorType,
           to: phName, toType: 'pharmacy' as VizActorType,
           content: `Formulary note: ${drug} — verify quantity limits` },
       ];
@@ -464,7 +464,7 @@ async function processMember(
     await sleep(pace);
 
     await emit(makeEvent(
-      'viz:fulfillment:settled', 'zkpCare PBM', 'insurer', 'fulfillment', 1, 5,
+      'viz:fulfillment:settled', 'Adjuda-GATOR PBM', 'insurer', 'fulfillment', 1, 5,
       { patientPay: formatCents(patientPay),
         planPay: formatCents(planPay),
         patientPayCents: patientPay, planPayCents: planPay,
@@ -482,7 +482,7 @@ async function processMember(
     m.oopPaid += patientPay;
 
     await emit(makeEvent(
-      'viz:accumulator:updated', 'zkpCare PBM', 'insurer', 'fulfillment', 2, 5,
+      'viz:accumulator:updated', 'Adjuda-GATOR PBM', 'insurer', 'fulfillment', 2, 5,
       { member: mName,
         deductiblePaid: formatCents(Math.min(m.deductiblePaid, 50000)),
         deductibleMax: '$500.00',
@@ -529,18 +529,18 @@ async function processMember(
           'Question about coverage',
         ]),
         encrypted: true },
-      'zkpCare PBM', 'insurer',
+      'Adjuda-GATOR PBM', 'insurer',
     ));
     await sleep(pace);
 
     await emit(makeEvent(
-      'viz:message:received', 'zkpCare PBM', 'insurer', 'messaging', 3, 5,
+      'viz:message:received', 'Adjuda-GATOR PBM', 'insurer', 'messaging', 3, 5,
       { messageType: 'MSG_TYPE_SUPPORT', from: m.displayName },
     ));
     await sleep(pace);
 
     await emit(makeEvent(
-      'viz:message:sent', 'zkpCare PBM', 'insurer', 'messaging', 0, 5,
+      'viz:message:sent', 'Adjuda-GATOR PBM', 'insurer', 'messaging', 0, 5,
       { messageType: 'MSG_TYPE_SUPPORT_SUMMARY',
         content: `Deductible: ${formatCents(Math.min(m.deductiblePaid, 50000))} of $500. OOPM: ${formatCents(Math.min(m.oopPaid, 300000))} of $3,000.` },
       m.displayName, 'member',
@@ -549,7 +549,7 @@ async function processMember(
 
     await emit(makeEvent(
       'viz:message:received', m.displayName, 'member', 'messaging', 3, 5,
-      { messageType: 'MSG_TYPE_SUPPORT_SUMMARY', from: 'zkpCare PBM' },
+      { messageType: 'MSG_TYPE_SUPPORT_SUMMARY', from: 'Adjuda-GATOR PBM' },
     ));
     await sleep(pace / 2);
   }
@@ -581,7 +581,7 @@ async function processMember(
     await sleep(pace);
 
     await emit(makeEvent(
-      'viz:accumulator:updated', 'zkpCare PBM', 'insurer', 'fulfillment', 2, 5,
+      'viz:accumulator:updated', 'Adjuda-GATOR PBM', 'insurer', 'fulfillment', 2, 5,
       { member: m.displayName, action: 'REVERSAL_DECREMENT',
         deductiblePaid: formatCents(Math.max(0, m.deductiblePaid - patientRefund)),
         deductibleMax: '$500.00',
@@ -625,8 +625,8 @@ export async function runScenario(config: Partial<ScenarioConfig> = {}): Promise
       cardholderId: `${cfg.groupId.split('-')[0]}-EMP-${String(i + 1).padStart(4, '0')}`,
       walletId: `member-${i + 1}`,
       needsPA: false,
-      assignedPrescriber: pick(DEMO_PRESCRIBERS),
-      assignedPharmacy: pick(DEMO_PHARMACIES),
+      assignedPrescriber: pick(PRESCRIBERS),
+      assignedPharmacy: pick(PHARMACIES),
       scripts: [],
       deductiblePaid: 0,
       oopPaid: 0,
@@ -654,7 +654,7 @@ export async function runScenario(config: Partial<ScenarioConfig> = {}): Promise
     const member = pick(members);
     scriptCounter++;
 
-    let medication: DemoMedication;
+    let medication: SeedMedication;
     let needsPA = false;
 
     if (member.needsPA && paDrugs.length > 0 && Math.random() < 0.3) {
@@ -664,8 +664,8 @@ export async function runScenario(config: Partial<ScenarioConfig> = {}): Promise
       medication = pick(nonPaDrugs);
     }
 
-    const prescriber = Math.random() < 0.3 ? pick(DEMO_PRESCRIBERS) : member.assignedPrescriber;
-    const pharmacy = Math.random() < 0.2 ? pick(DEMO_PHARMACIES) : member.assignedPharmacy;
+    const prescriber = Math.random() < 0.3 ? pick(PRESCRIBERS) : member.assignedPrescriber;
+    const pharmacy = Math.random() < 0.2 ? pick(PHARMACIES) : member.assignedPharmacy;
 
     const qty = medication.formularyEntry.tierLevel === 4
       ? randInt(1, 3)
@@ -702,7 +702,7 @@ export async function runScenario(config: Partial<ScenarioConfig> = {}): Promise
       group: cfg.employerName,
     });
   }
-  for (const p of DEMO_PRESCRIBERS) {
+  for (const p of PRESCRIBERS) {
     entities.push({
       walletId: `prescriber-${p.localData.prescriberId}`,
       displayName: prescriberDisplayName(p),
@@ -710,7 +710,7 @@ export async function runScenario(config: Partial<ScenarioConfig> = {}): Promise
       specialty: p.specialty,
     });
   }
-  for (const ph of DEMO_PHARMACIES) {
+  for (const ph of PHARMACIES) {
     entities.push({
       walletId: `pharmacy-${ph.localData.serviceProviderId}`,
       displayName: ph.storeName,
@@ -718,7 +718,7 @@ export async function runScenario(config: Partial<ScenarioConfig> = {}): Promise
       pharmacyType: ph.pharmacyTypeDesc,
     });
   }
-  entities.push({ walletId: 'insurer-zkpcare', displayName: 'zkpCare PBM', type: 'insurer' });
+  entities.push({ walletId: 'insurer-zkpcare', displayName: 'Adjuda-GATOR PBM', type: 'insurer' });
   entities.push({ walletId: `employer-${cfg.groupId}`, displayName: `${cfg.employerName} HR`, type: 'employer', group: cfg.employerName });
 
   await registerEntities(entities);
@@ -757,19 +757,19 @@ export async function runScenario(config: Partial<ScenarioConfig> = {}): Promise
     batchNumber.value++;
 
     await emit(makeEvent(
-      'viz:batch:submitted', 'zkpCare PBM', 'insurer', 'batch', 0, 4,
+      'viz:batch:submitted', 'Adjuda-GATOR PBM', 'insurer', 'batch', 0, 4,
       { pendingCount: count, batchNumber: batchNumber.value },
     ));
     await sleep(cfg.paceMs * 2);
 
     await emit(makeEvent(
-      'viz:batch:submitted', 'zkpCare PBM', 'insurer', 'batch', 1, 4,
+      'viz:batch:submitted', 'Adjuda-GATOR PBM', 'insurer', 'batch', 1, 4,
       { batchNumber: batchNumber.value, transitionCount: count, buildTimeMs: randInt(800, 2500) },
     ));
     await sleep(cfg.paceMs * 2);
 
     await emit(makeEvent(
-      'viz:batch:settled', 'zkpCare PBM', 'insurer', 'batch', 2, 4,
+      'viz:batch:settled', 'Adjuda-GATOR PBM', 'insurer', 'batch', 2, 4,
       { batchNumber: batchNumber.value,
         l1TxHash: `sim-l1-tx-${String(batchNumber.value).padStart(5, '0')}`,
         transitionCount: count },

@@ -35,6 +35,8 @@ import { WalletRegistry, WALLET_TREE_HEIGHT } from '../wallets/wallet-state.js';
 import { lifecycleLeafCommitment, LIFECYCLE_REGISTERED, LifecycleWitness } from '../engine/lifecycle.js';
 import type { IWalProvider, WalEntry } from './l2-wal.js';
 import type { ProvingJobRequest, ProvingJobResult } from './l2-proving-pool-types.js';
+import { FormularyService } from './formulary-service.js';
+import type { FormularyServiceState } from './formulary-service.js';
 
 /** Default batch interval: 3 minutes (matches MINA L1 block time) */
 export const DEFAULT_BATCH_INTERVAL_MS = 180_000;
@@ -143,6 +145,9 @@ export class L2SequencerService {
   // Provider registry — global MerkleTree tracking credentialed prescribers/pharmacies
   private providerRegistry: ProviderRegistryService = new ProviderRegistryService();
 
+  // Formulary service — Option C: canonical 32K drug store with plan overlays
+  private formularyService: FormularyService = new FormularyService();
+
   // Proof fingerprint deduplication — prevents replay of identical transitions
   private seenProofFingerprints: Set<string> = new Set();
 
@@ -152,6 +157,10 @@ export class L2SequencerService {
   // currentLifecycleRoot by applying the same mutations after each submitProof().
   private walletRegistry: WalletRegistry = new WalletRegistry();
   private lifecycleTree: MerkleTree = new MerkleTree(WALLET_TREE_HEIGHT);
+  /** Tracks current lifecycle state per wallet (walletId string → Field).
+   *  The lifecycle tree stores Poseidon commitments so the raw state isn't
+   *  recoverable from the leaf — we track it here for getWalletWitnesses(). */
+  private walletLifecycleStates: Map<string, Field> = new Map();
 
   // Pre-batch snapshots for rollback on batch failure
   private preBatchAuditLogLength = 0;
@@ -159,6 +168,7 @@ export class L2SequencerService {
   private preBatchClaimLeafCount = 0n;
   private preBatchAuditMerkleLeafCount = 0n;
   private preBatchFingerprints: Set<string> = new Set();
+  private preBatchWalletSnapshot: Map<string, { walletId: string; lifecycleState: bigint }> = new Map();
 
   // Formulary store — published formularies indexed by planIdHash
   private formularyStore: Map<string, {
@@ -310,6 +320,13 @@ export class L2SequencerService {
     const isRegistration = registryChanged && lifecycleChanged;
 
     if (isRegistration) {
+      // Early guard: reject re-registration of a wallet the sequencer already knows
+      if (this.walletRegistry.isRegistered(output.walletId)) {
+        // Roll back root mutations applied above (step 3)
+        this.currentRegistryRoot = oldRegRoot;
+        this.currentLifecycleRoot = oldLifeRoot;
+        throw new Error(`Wallet already registered: ${output.walletId.toString()}`);
+      }
       this.currentWalletCount = this.currentWalletCount.add(1);
       // Update witness trees to stay in sync with root Fields
       const regIndex = this.walletRegistry.register(output.walletId);
@@ -317,6 +334,39 @@ export class L2SequencerService {
         regIndex,
         lifecycleLeafCommitment(output.walletId, LIFECYCLE_REGISTERED),
       );
+      this.walletLifecycleStates.set(output.walletId.toString(), LIFECYCLE_REGISTERED);
+    } else if (registryChanged) {
+      // Wallet update (credential mutation, nonce increment) — sync witness tree
+      // The proof verified a valid transition; reconstruct the new wallet state
+      // by incrementing nonce and computing the new commitment that produces newRegistryRoot.
+      try {
+        const wid = output.walletId;
+        const oldState = this.walletRegistry.getState(wid);
+        const newNonce = oldState.nonce.add(1);
+        // Compute what the new credentialInventoryRoot must be:
+        // newRegistryRoot = witness.calculateRoot(Poseidon.hash([walletId, newCredRoot, newNonce]))
+        // We don't have newCredRoot directly, but we can derive it by finding the commitment
+        // that makes the witness produce newRegistryRoot.
+        // Simpler approach: just set the tree leaf to the commitment that produces the correct root.
+        const walletIndex = this.walletRegistry.getIndex(wid);
+        // The new commitment is the value that, when placed at walletIndex in the tree,
+        // produces newRegistryRoot. We can find it by noting that the proof already verified this.
+        // Since MerkleTree.setLeaf updates the root, we set the leaf to a commitment
+        // that we compute from the known walletId + newNonce, and the newCredRoot is unknown.
+        // BUT we know the tree root MUST equal newRegistryRoot after the update.
+        // The only way to achieve this is to directly set the tree root — but MerkleTree doesn't support that.
+        // Instead, we compute the new leaf value by working backward from the root.
+        // Actually — the simplest correct approach: brute-force set the leaf and check the root.
+        // The new credential root IS available in the metadata if provided.
+        if (metadata && (metadata as any).newCredentialInventoryRoot) {
+          const newCredRoot = Field(BigInt((metadata as any).newCredentialInventoryRoot));
+          const newState = new WalletState({ walletId: wid, credentialInventoryRoot: newCredRoot, nonce: newNonce });
+          this.walletRegistry.updateState(wid, newState);
+        }
+      } catch {
+        // Non-critical: witness tree may drift, but roots are still correct
+        // Proofs using getWalletWitnesses() may fail until next registration syncs the tree
+      }
     }
 
     // 5. Issue receipt
@@ -426,6 +476,20 @@ export class L2SequencerService {
         `Batch ${this.inFlightBatchNumber} is still in-flight. ` +
         `Call markBatchSettled() or markBatchFailed() before building a new batch.`,
       );
+    }
+
+    // L14 fix: Capture pre-batch snapshots BEFORE any draining or proving begins.
+    // If the NEXT batch fails, rollback uses these snapshots (which reflect the
+    // state before THIS batch mutated anything). Previously captured AFTER settlement,
+    // which meant rollback would use post-settlement state (wrong).
+    this.preBatchAuditLogLength = this.auditLog.length;
+    this.preBatchChainHash = this.latestChainHash;
+    this.preBatchClaimLeafCount = this.claimAccumulator.getLeafCount();
+    this.preBatchAuditMerkleLeafCount = this.auditMerkleIndex.getEventCount();
+    this.preBatchFingerprints = new Set(this.seenProofFingerprints);
+    this.preBatchWalletSnapshot = new Map();
+    for (const [walletIdStr, lcState] of this.walletLifecycleStates) {
+      this.preBatchWalletSnapshot.set(walletIdStr, { walletId: walletIdStr, lifecycleState: lcState.toBigInt() });
     }
 
     if (this.pendingPool.length === 0) {
@@ -600,12 +664,6 @@ export class L2SequencerService {
       this.lastSettledRegistryRoot = this.currentRegistryRoot;
       this.lastSettledLifecycleRoot = this.currentLifecycleRoot;
       this.lastSettledWalletCount = this.currentWalletCount;
-      // H5 fix: Update rollback snapshots for l2Only auto-settle
-      this.preBatchAuditLogLength = this.auditLog.length;
-      this.preBatchChainHash = this.latestChainHash;
-      this.preBatchClaimLeafCount = this.claimAccumulator.getLeafCount();
-      this.preBatchAuditMerkleLeafCount = this.auditMerkleIndex.getEventCount();
-      this.preBatchFingerprints = new Set(this.seenProofFingerprints);
       // No in-flight guard — next batch can build immediately
       this.evictOldEntries();
     } else {
@@ -638,6 +696,17 @@ export class L2SequencerService {
         `Batch ${this.inFlightBatchNumber} is still in-flight. ` +
         `Call markBatchSettled() or markBatchFailed() before building a new batch.`,
       );
+    }
+
+    // L14 fix: Capture pre-batch snapshots BEFORE any draining or proving begins.
+    this.preBatchAuditLogLength = this.auditLog.length;
+    this.preBatchChainHash = this.latestChainHash;
+    this.preBatchClaimLeafCount = this.claimAccumulator.getLeafCount();
+    this.preBatchAuditMerkleLeafCount = this.auditMerkleIndex.getEventCount();
+    this.preBatchFingerprints = new Set(this.seenProofFingerprints);
+    this.preBatchWalletSnapshot = new Map();
+    for (const [walletIdStr, lcState] of this.walletLifecycleStates) {
+      this.preBatchWalletSnapshot.set(walletIdStr, { walletId: walletIdStr, lifecycleState: lcState.toBigInt() });
     }
 
     // Empty pool — create empty batch record (no proving needed)
@@ -715,11 +784,14 @@ export class L2SequencerService {
    */
   async finalizeBatch(result: ProvingJobResult): Promise<L2Batch> {
     const transitions = this.drainedTransitions;
-    this.drainedTransitions = [];
 
     if (transitions.length === 0) {
       throw new Error('finalizeBatch: no drained transitions — call prepareBatch() first');
     }
+
+    // NOTE: drainedTransitions is NOT cleared here. It stays populated so that
+    // if any operation below throws, the caller's catch block can still call
+    // restoreDrainedTransitions() to recover them. Cleared only on success below.
 
     // Create L2Block from result output
     const blockNumber = this.nextBlockNumber++;
@@ -806,15 +878,14 @@ export class L2SequencerService {
       this.lastSettledRegistryRoot = this.currentRegistryRoot;
       this.lastSettledLifecycleRoot = this.currentLifecycleRoot;
       this.lastSettledWalletCount = this.currentWalletCount;
-      this.preBatchAuditLogLength = this.auditLog.length;
-      this.preBatchChainHash = this.latestChainHash;
-      this.preBatchClaimLeafCount = this.claimAccumulator.getLeafCount();
-      this.preBatchAuditMerkleLeafCount = this.auditMerkleIndex.getEventCount();
-      this.preBatchFingerprints = new Set(this.seenProofFingerprints);
       this.evictOldEntries();
     } else {
       this.inFlightBatchNumber = batchNumber;
     }
+
+    // Clear drained transitions only after all operations succeeded.
+    // If any operation above threw, restoreDrainedTransitions() can still recover them.
+    this.drainedTransitions = [];
 
     return batch;
   }
@@ -1005,6 +1076,11 @@ export class L2SequencerService {
     this.preBatchChainHash = this.latestChainHash;
     this.preBatchClaimLeafCount = this.claimAccumulator.getLeafCount();
     this.preBatchAuditMerkleLeafCount = this.auditMerkleIndex.getEventCount();
+    // Snapshot witness tree state for rollback
+    this.preBatchWalletSnapshot = new Map();
+    for (const [walletIdStr, lcState] of this.walletLifecycleStates) {
+      this.preBatchWalletSnapshot.set(walletIdStr, { walletId: walletIdStr, lifecycleState: lcState.toBigInt() });
+    }
 
     // Evict settled fingerprints — rebuild from pending pool only.
     // Settled proofs are protected by L1 root chain (replay impossible).
@@ -1062,6 +1138,23 @@ export class L2SequencerService {
     // Update audit events
     this.markAuditEventsStatus(batch, 'failed');
 
+    // Roll back all mutable state to the pre-batch snapshot
+    this.rollbackBatchState();
+
+    this.inFlightBatchNumber = null;
+  }
+
+  /**
+   * Roll back all mutable sequencer state to pre-batch snapshots.
+   *
+   * Restores: roots, wallet count, audit log, audit chain hash,
+   * audit Merkle index, claim accumulator, fingerprints, and witness trees.
+   *
+   * Called from markBatchFailed() and applyReplicatedBatchFailure() to
+   * ensure both the sequencer and replicas converge to the same state
+   * after a batch failure.
+   */
+  private rollbackBatchState(): void {
     // H3 fix: Roll back current roots to last-settled state.
     // After a failed batch, L1 is still at lastSettled roots. New proofs must
     // chain from there, not from the failed batch's end-state.
@@ -1097,7 +1190,21 @@ export class L2SequencerService {
     // Roll back fingerprints — allow resubmission of proofs from the failed batch
     this.seenProofFingerprints = new Set(this.preBatchFingerprints);
 
-    this.inFlightBatchNumber = null;
+    // Roll back witness trees to pre-batch snapshot.
+    // Rebuild from snapshot to ensure materialized trees match scalar roots.
+    this.walletRegistry = new WalletRegistry();
+    this.lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
+    this.walletLifecycleStates = new Map();
+    for (const [walletIdStr, snap] of this.preBatchWalletSnapshot) {
+      const walletId = Field(BigInt(walletIdStr));
+      const lcState = Field(snap.lifecycleState);
+      const regIndex = this.walletRegistry.register(walletId);
+      this.lifecycleTree.setLeaf(
+        regIndex,
+        lifecycleLeafCommitment(walletId, lcState),
+      );
+      this.walletLifecycleStates.set(walletIdStr, lcState);
+    }
   }
 
   /** Rebuild fingerprint set from only the current pending pool entries. */
@@ -1189,7 +1296,35 @@ export class L2SequencerService {
    * via submitProof() — their effects are reflected in the roots that
    * this admin update is now superseding.
    */
-  applyAdminRootUpdate(opts: { newLifecycleRoot?: Field; newRegistryRoot?: Field }): void {
+  applyAdminRootUpdate(opts: {
+    newLifecycleRoot?: Field;
+    newRegistryRoot?: Field;
+    /** Pre-provisioned wallets to sync into internal witness trees (admin-enrolled entities). */
+    provisionedWallets?: Array<{ walletId: Field; lifecycleState: Field }>;
+  }): void {
+    // Sync internal witness trees with admin-provisioned wallets BEFORE updating roots.
+    // This ensures the sequencer's MerkleTrees match the roots being set.
+    if (opts.provisionedWallets) {
+      for (const pw of opts.provisionedWallets) {
+        if (!this.walletRegistry.isRegistered(pw.walletId)) {
+          const regIndex = this.walletRegistry.register(pw.walletId);
+          this.lifecycleTree.setLeaf(
+            regIndex,
+            lifecycleLeafCommitment(pw.walletId, pw.lifecycleState),
+          );
+          this.currentWalletCount = this.currentWalletCount.add(1);
+        } else {
+          // Wallet already registered — advance lifecycle state (e.g. REGISTERED → ELIGIBLE)
+          const regIndex = this.walletRegistry.getIndex(pw.walletId);
+          this.lifecycleTree.setLeaf(
+            regIndex,
+            lifecycleLeafCommitment(pw.walletId, pw.lifecycleState),
+          );
+        }
+        this.walletLifecycleStates.set(pw.walletId.toString(), pw.lifecycleState);
+      }
+    }
+
     if (opts.newLifecycleRoot) this.currentLifecycleRoot = opts.newLifecycleRoot;
     if (opts.newRegistryRoot) this.currentRegistryRoot = opts.newRegistryRoot;
 
@@ -1219,7 +1354,7 @@ export class L2SequencerService {
   }
 
   /**
-   * Reset sequencer to fresh state for demo replay.
+   * Reset sequencer to fresh state for replay.
    * Clears all accumulated receipts, batches, audit log, claim accumulator, and message store.
    * Caller must also call applyAdminRootUpdate() after rebuilding infrastructure trees
    * to sync the sequencer roots with the new service state.
@@ -1249,13 +1384,17 @@ export class L2SequencerService {
     this.seenProofFingerprints.clear();
     this.walletRegistry = new WalletRegistry();
     this.lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
+    this.walletLifecycleStates = new Map();
     this.preBatchAuditLogLength = 0;
     this.preBatchChainHash = Field(0);
     this.preBatchClaimLeafCount = 0n;
     this.preBatchAuditMerkleLeafCount = 0n;
     this.preBatchFingerprints.clear();
+    this.preBatchWalletSnapshot = new Map();
     this.formularyStore.clear();
     this.planStore.clear();
+    this.formularyService = new FormularyService();
+    this.providerRegistry = new ProviderRegistryService();
     this.lastSettledRegistryRoot = initialRegistryRoot;
     this.lastSettledLifecycleRoot = initialLifecycleRoot;
     this.lastSettledWalletCount = Field(0);
@@ -1416,6 +1555,13 @@ export class L2SequencerService {
     return new Map(this.formularyStore);
   }
 
+  // ─── Formulary Service (Option C) ─────────────────────────
+
+  /** Get the FormularyService instance (for RPC handlers) */
+  getFormularyService(): FormularyService {
+    return this.formularyService;
+  }
+
   // ─── Plan Store ──────────────────────────────────────────
 
   /** Store a benefit plan config (sync — used by replication) */
@@ -1559,7 +1705,7 @@ export class L2SequencerService {
       currentRegistryRoot: this.currentRegistryRoot.toString(),
       currentLifecycleRoot: this.currentLifecycleRoot.toString(),
       slotIndex: index.toString(),
-      currentLifecycleState: LIFECYCLE_REGISTERED.toString(),
+      currentLifecycleState: (this.walletLifecycleStates.get(walletId) ?? LIFECYCLE_REGISTERED).toString(),
     };
   }
 
@@ -1579,6 +1725,19 @@ export class L2SequencerService {
       credentialInventoryRoot: state.credentialInventoryRoot.toString(),
       nonce: state.nonce.toString(),
     };
+  }
+
+  /**
+   * Sync a wallet's state in the witness tree after an externally-submitted proof.
+   * Called by the RPC layer when a Nautilus node submits a wallet update proof directly
+   * (e.g., PCP assignment) and the sequencer's witness tree needs to match the new root.
+   */
+  syncWalletState(walletId: Field, newState: WalletState): void {
+    try {
+      this.walletRegistry.updateState(walletId, newState);
+    } catch {
+      // Wallet may not be registered yet — non-critical
+    }
   }
 
   /** Last-settled registry root (matches L1 state) */
@@ -1740,7 +1899,7 @@ export class L2SequencerService {
   }
 
   /**
-   * Record a fill directly on the claim accumulator (admin/demo path).
+   * Record a fill directly on the claim accumulator (admin path).
    * Used by pharmacy Nautilus nodes to record dispensing without full ZK proof.
    * In production, fills go through AccumulatorFulfillmentProgram + proof submission.
    */
@@ -1749,6 +1908,11 @@ export class L2SequencerService {
     metadata: ClaimMetadata,
   ): ClaimAccumulatorEntry {
     return this.claimAccumulator.appendClaim(leaf, metadata);
+  }
+
+  /** Direct access to the claim accumulator (for dedup checks in RPC layer) */
+  getClaimAccumulator(): ClaimAccumulatorService {
+    return this.claimAccumulator;
   }
 
   // ─── Accumulator Reconstruction (Wallet Migration) ──────────
@@ -2107,6 +2271,7 @@ export class L2SequencerService {
           regIndex,
           lifecycleLeafCommitment(walletId, LIFECYCLE_REGISTERED),
         );
+        this.walletLifecycleStates.set(receipt.walletId, LIFECYCLE_REGISTERED);
       }
     }
 
@@ -2154,13 +2319,27 @@ export class L2SequencerService {
       this.nextBatchNumber = batch.batchNumber + 1n;
     }
 
-    // Update receipt statuses (pending → batched)
+    // Update receipt statuses (pending → batched) and sync witness trees
     for (const updated of updatedReceipts) {
       const existing = this.receipts.get(updated.receiptId);
       if (existing) {
         existing.l1Status = updated.l1Status;
         existing.l2BlockNumber = updated.l2BlockNumber;
         existing.l1BatchNumber = updated.l1BatchNumber;
+      }
+
+      // Sync witness trees for registration receipts that may have arrived
+      // via batch gossip rather than individual receipt gossip.
+      if (updated.isRegistration) {
+        const walletId = Field(BigInt(updated.walletId));
+        if (!this.walletRegistry.isRegistered(walletId)) {
+          const regIndex = this.walletRegistry.register(walletId);
+          this.lifecycleTree.setLeaf(
+            regIndex,
+            lifecycleLeafCommitment(walletId, LIFECYCLE_REGISTERED),
+          );
+          this.walletLifecycleStates.set(updated.walletId, LIFECYCLE_REGISTERED);
+        }
       }
     }
 
@@ -2175,6 +2354,12 @@ export class L2SequencerService {
         event.l2BlockNumber = updated.l2BlockNumber;
         event.l1BatchNumber = updated.l1BatchNumber;
       }
+    }
+
+    // Snapshot witness tree state for rollback (batch is now in-flight)
+    this.preBatchWalletSnapshot = new Map();
+    for (const [walletIdStr, lcState] of this.walletLifecycleStates) {
+      this.preBatchWalletSnapshot.set(walletIdStr, { walletId: walletIdStr, lifecycleState: lcState.toBigInt() });
     }
 
     // Track in-flight
@@ -2289,11 +2474,8 @@ export class L2SequencerService {
       this.inFlightBatchNumber = null;
     }
 
-    // Roll back roots to last-settled state (match sequencer behavior)
-    // Without this, replicas diverge and can't accept subsequent proof:accepted gossip
-    this.currentRegistryRoot = this.lastSettledRegistryRoot;
-    this.currentLifecycleRoot = this.lastSettledLifecycleRoot;
-    this.currentWalletCount = this.lastSettledWalletCount;
+    // Roll back all mutable state to pre-batch snapshot (unified with markBatchFailed)
+    this.rollbackBatchState();
   }
 
   // ─── Checkpoint: Export / Restore ─────────────────────────
@@ -2359,9 +2541,14 @@ export class L2SequencerService {
       state.providerRegistryState = this.providerRegistry.exportState();
     }
 
-    // Include formulary state
+    // Include formulary state (legacy)
     if (this.formularyStore.size > 0) {
       state.formularyStore = Object.fromEntries(this.formularyStore);
+    }
+
+    // Include formulary service overlay state (Option C)
+    if (this.formularyService.overlayCount > 0) {
+      state.formularyServiceState = this.formularyService.exportState();
     }
 
     // Include plan store state
@@ -2401,6 +2588,13 @@ export class L2SequencerService {
         }
       }
       state.registeredWallets = wallets;
+
+      // Include lifecycle states for accurate witness reconstruction
+      const lcStates: Record<string, string> = {};
+      for (const [wid, lcState] of this.walletLifecycleStates) {
+        lcStates[wid] = lcState.toString();
+      }
+      state.walletLifecycleStates = lcStates;
     }
 
     return state;
@@ -2543,6 +2737,11 @@ export class L2SequencerService {
       }
     }
 
+    // Restore formulary service overlay state (Option C)
+    if (state.formularyServiceState) {
+      this.formularyService.restoreState(state.formularyServiceState);
+    }
+
     // Restore plan store state
     this.planStore.clear();
     if (state.planStore) {
@@ -2577,15 +2776,31 @@ export class L2SequencerService {
     // Rebuild witness trees from registered wallet list
     this.walletRegistry = new WalletRegistry();
     this.lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
+    this.walletLifecycleStates = new Map();
     if (state.registeredWallets) {
+      const lcStates: Record<string, string> = state.walletLifecycleStates ?? {};
       for (const walletIdStr of state.registeredWallets) {
         const walletId = Field(BigInt(walletIdStr));
+        const lcState = lcStates[walletIdStr]
+          ? Field(BigInt(lcStates[walletIdStr]))
+          : LIFECYCLE_REGISTERED;
         const regIndex = this.walletRegistry.register(walletId);
         this.lifecycleTree.setLeaf(
           regIndex,
-          lifecycleLeafCommitment(walletId, LIFECYCLE_REGISTERED),
+          lifecycleLeafCommitment(walletId, lcState),
         );
+        this.walletLifecycleStates.set(walletIdStr, lcState);
       }
+      // 1D fix: Derive walletCount from the materialized WalletRegistry
+      // instead of arithmetic derivation from batch metadata. This ensures
+      // scalar walletCount stays in sync with the witness tree after recovery.
+      this.currentWalletCount = Field(BigInt(this.walletRegistry.count));
+    }
+
+    // Initialize pre-batch wallet snapshot from restored witness trees
+    this.preBatchWalletSnapshot = new Map();
+    for (const [walletIdStr, lcState] of this.walletLifecycleStates) {
+      this.preBatchWalletSnapshot.set(walletIdStr, { walletId: walletIdStr, lifecycleState: lcState.toBigInt() });
     }
 
     // Pending pool is NOT restored — proofs are transient

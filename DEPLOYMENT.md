@@ -54,10 +54,10 @@ Fetch real drug data from the FDA NADAC public API and generate a static TypeScr
 npx tsx scripts/fetch-nadac.ts
 ```
 
-This creates `src/demo/nadac-formulary.ts` (~600 lines, 500 unique NDCs). Commit it:
+This creates `src/seed/nadac-formulary.ts` (~600 lines, 500 unique NDCs). Commit it:
 
 ```bash
-git add src/demo/nadac-formulary.ts
+git add src/seed/nadac-formulary.ts
 git commit -m "chore: generate 500 NDC NADAC formulary"
 ```
 
@@ -643,7 +643,7 @@ For the fastest path to a running network:
 ```bash
 # 1. Generate formulary
 npx tsx scripts/fetch-nadac.ts
-git add src/demo/nadac-formulary.ts && git commit -m "formulary"
+git add src/seed/nadac-formulary.ts && git commit -m "formulary"
 
 # 2. Push to repo connected to Render
 git push origin main

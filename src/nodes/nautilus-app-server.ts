@@ -40,7 +40,7 @@ import type {
 
 // ─── Constants ──────────────────────────────────────────────
 
-const MAX_BODY_BYTES = 1 * 1024 * 1024; // 1MB
+const MAX_BODY_BYTES = 5 * 1024 * 1024; // 5MB — Option C paginated queries keep responses small
 const REQUEST_TIMEOUT_MS = 30_000;
 const SSE_REPLAY_BUFFER_SIZE = 128;
 
@@ -369,7 +369,10 @@ export class NautilusAppServer {
       displayName: this.config.displayName,
       uptime: this.startTime > 0 ? Date.now() - this.startTime : 0,
       tls: this.tls,
+      sequencerUrl: this.config.sequencerUrl,
     };
+    // Admin token is never exposed via health endpoint — use a separate
+    // authenticated endpoint or inject via server-rendered HTML if needed.
     this.sendResponse(res, 200, true, health);
   }
 
@@ -447,6 +450,7 @@ export class NautilusAppServer {
 
     req.on('close', () => {
       this.sseClients.delete(res);
+      try { res.end(); } catch { /* already closed */ }
     });
   }
 
@@ -463,6 +467,7 @@ export class NautilusAppServer {
         client.write(`id: ${this.sseEventIdCounter}\ndata: ${data}\n\n`);
       } catch {
         this.sseClients.delete(client);
+        try { client.end(); } catch { /* socket already dead */ }
       }
     }
   }

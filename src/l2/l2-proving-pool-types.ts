@@ -130,6 +130,8 @@ export interface ProvingPoolStatus {
   totalJobsCompleted: number;
   totalJobsFailed: number;
   avgProveTimeMs: number;
+  totalRecycles: number;
+  lastRecycleMs: number;
 }
 
 // ─── Pool Options ─────────────────────────────────────────
@@ -153,6 +155,13 @@ export interface ProvingPoolOptions {
    * Default: 0 (disabled — workers are never recycled).
    */
   recycleAfterJobs?: number;
+
+  /**
+   * Number of workers to compile concurrently during pool.start().
+   * Default: 'auto' — uses floor(cpuCores / 4), minimum 1, capped at poolSize.
+   * Set to 1 for sequential compilation (old behavior).
+   */
+  compileConcurrency?: number | 'auto';
 }
 
 // ─── Pool Events ─────────────────────────────────────────

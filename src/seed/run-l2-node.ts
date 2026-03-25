@@ -1,5 +1,5 @@
 /**
- * zkpCare — L2 Chain Node Demo
+ * Adjuda-GATOR — L2 Chain Node
  *
  * Runs a fully functional L2 chain with:
  *   - 3-level recursive proof compilation (ProofGate → StateTransition → BatchProgram)
@@ -9,7 +9,7 @@
  *   - Audit trail verification
  *
  * Run:
- *   $env:NODE_OPTIONS="--max-old-space-size=12288"; npx tsx src/demo/run-l2-node.ts
+ *   $env:NODE_OPTIONS="--max-old-space-size=12288"; npx tsx src/seed/run-l2-node.ts
  *
  * Duration: ~10-15 min (compilations ~3 min, proofs ~5-8 min, batch builds ~3-5 min)
  */
@@ -45,8 +45,8 @@ import { L2BlockWatcher } from '../l2/l2-block-watcher.js';
 import { InMemoryStore } from '../storage/local-store.js';
 import { AuditService } from '../audit/audit-service.js';
 
-// Demo data
-import { DEMO_MEMBERS } from './members.js';
+// Seed data
+import { MEMBERS } from './members.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -91,7 +91,7 @@ async function main() {
 
   console.log('');
   console.log('+==========================================================+');
-  console.log('|           zkpCare -- L2 CHAIN NODE DEMO                  |');
+  console.log('|         Adjuda-GATOR -- L2 CHAIN NODE                       |');
   console.log('|                                                          |');
   console.log('|  Live L2 chain with real ZK proofs, automatic batching,  |');
   console.log('|  simulated L1 settlement, and audit trail verification.  |');
@@ -144,16 +144,16 @@ async function main() {
   console.log('-- Phase 3: Derive Wallets & Prepare State Trees --');
   console.log('');
 
-  const alice = DEMO_MEMBERS[0]; // Alice Johnson
-  const bob = DEMO_MEMBERS[1];   // Bob Martinez
+  const alice = MEMBERS[0]; // Alice Johnson
+  const bob = MEMBERS[1];   // Bob Martinez
 
-  const aliceWalletId = deriveMemberWalletId(alice.localData, alice.enrollmentKey);
-  const alicePreimage = memberWalletPreimage(alice.localData, alice.enrollmentKey);
+  const aliceWalletId = deriveMemberWalletId(alice.localData, alice.enrollmentKey, Field(0));
+  const alicePreimage = memberWalletPreimage(alice.localData, alice.enrollmentKey, Field(0));
   console.log(`  Alice: ${alice.localData.firstName} ${alice.localData.lastName} (${alice.localData.cardholderId})`);
   console.log(`         Wallet: ${truncField(aliceWalletId)}`);
 
-  const bobWalletId = deriveMemberWalletId(bob.localData, bob.enrollmentKey);
-  const bobPreimage = memberWalletPreimage(bob.localData, bob.enrollmentKey);
+  const bobWalletId = deriveMemberWalletId(bob.localData, bob.enrollmentKey, Field(0));
+  const bobPreimage = memberWalletPreimage(bob.localData, bob.enrollmentKey, Field(0));
   console.log(`  Bob:   ${bob.localData.firstName} ${bob.localData.lastName} (${bob.localData.cardholderId})`);
   console.log(`         Wallet: ${truncField(bobWalletId)}`);
 
@@ -170,7 +170,7 @@ async function main() {
   // Phase 4: Start L2 Node
   // ═══════════════════════════════════════════════════════════
 
-  const BATCH_INTERVAL_MS = 30_000; // 30s for demo
+  const BATCH_INTERVAL_MS = 30_000; // 30s for local testing
 
   console.log('-- Phase 4: Start L2 Node --');
   console.log('');
@@ -220,7 +220,7 @@ async function main() {
 
   const aliceStResult = await StateTransitionProgram.proveRegistration(
     DOMAIN_TAG_MEMBER,
-    alicePreimage[0]!, alicePreimage[1]!, alicePreimage[2]!, alicePreimage[3]!, alicePreimage[4]!,
+    alicePreimage[0]!, alicePreimage[1]!, alicePreimage[2]!, alicePreimage[3]!, alicePreimage[4]!, alicePreimage[5]!,
     aliceRegWitness,
     aliceLcWitness,
     regTree.getRoot(),
@@ -252,7 +252,7 @@ async function main() {
 
   const bobStResult = await StateTransitionProgram.proveRegistration(
     DOMAIN_TAG_MEMBER,
-    bobPreimage[0]!, bobPreimage[1]!, bobPreimage[2]!, bobPreimage[3]!, bobPreimage[4]!,
+    bobPreimage[0]!, bobPreimage[1]!, bobPreimage[2]!, bobPreimage[3]!, bobPreimage[4]!, bobPreimage[5]!,
     bobRegWitness,
     bobLcWitness,
     regTree.getRoot(),
@@ -307,7 +307,7 @@ async function main() {
 
   const aliceUpdResult = await StateTransitionProgram.proveWalletUpdate(
     DOMAIN_TAG_MEMBER,
-    alicePreimage[0]!, alicePreimage[1]!, alicePreimage[2]!, alicePreimage[3]!, alicePreimage[4]!,
+    alicePreimage[0]!, alicePreimage[1]!, alicePreimage[2]!, alicePreimage[3]!, alicePreimage[4]!, alicePreimage[5]!,
     EMPTY_CREDENTIAL_ROOT,        // oldCredentialRoot
     Field(0),               // oldNonce
     newCredentialRoot,             // newCredentialRoot

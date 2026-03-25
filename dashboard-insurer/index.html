@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>&#x1F41A;</text></svg>">
+  <link rel="icon" href="logo.png">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>zkp.Care Insurer</title>
+  <title>Insurer Node</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -15,8 +15,8 @@
   <!-- ── Header ─────────────────────────────────────────────── -->
   <header class="header">
     <div class="header-brand">
-      <div class="brand-icon">INS</div>
-      <span>zkp.Care Insurer</span>
+      <img src="logo.png" alt="Adjuda-GATOR" class="brand-logo-img">
+      <span>Insurer Node</span>
     </div>
     <div class="header-meta">
       <span class="header-wallet" id="header-wallet">--</span>
@@ -524,6 +524,44 @@
     </section>
 
     <!-- ════════════════════════════════════════════════════════ -->
+    <!--  CLAIMS                                                  -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <section class="page" id="page-claims">
+      <div class="panel">
+        <div class="panel-header"><h3>Query Claims</h3></div>
+        <div class="panel-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Entity Type</label>
+              <select class="form-input form-select" id="cl-type">
+                <option value="member">Member</option>
+                <option value="prescriber">Prescriber</option>
+                <option value="pharmacy">Pharmacy</option>
+                <option value="drug">Drug (NDC Hash)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Wallet ID / NDC Hash</label>
+              <input type="text" class="form-input" id="cl-id" placeholder="Enter wallet ID or NDC hash">
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="cl-query-btn">Query</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel hidden" id="cl-results-panel">
+        <div class="panel-header">
+          <h3>Results</h3>
+          <span class="badge badge-info" id="cl-count">--</span>
+        </div>
+        <div class="panel-body" id="cl-results">
+          <div class="loading">Loading...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════ -->
     <!--  REPORTS                                                  -->
     <!-- ════════════════════════════════════════════════════════ -->
     <section class="page" id="page-reports">
@@ -577,44 +615,6 @@
     </section>
 
     <!-- ════════════════════════════════════════════════════════ -->
-    <!--  CLAIMS                                                  -->
-    <!-- ════════════════════════════════════════════════════════ -->
-    <section class="page" id="page-claims">
-      <div class="panel">
-        <div class="panel-header"><h3>Claims Lookup</h3></div>
-        <div class="panel-body">
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Entity Type</label>
-              <select class="form-input form-select" id="cl-type">
-                <option value="member">Member</option>
-                <option value="prescriber">Prescriber</option>
-                <option value="pharmacy">Pharmacy</option>
-                <option value="drug">Drug (NDC Hash)</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Wallet ID / NDC Hash</label>
-              <input type="text" class="form-input" id="cl-id" placeholder="Enter wallet ID or NDC hash">
-            </div>
-          </div>
-          <div class="form-actions">
-            <button class="btn btn-primary" id="cl-query-btn">Query</button>
-          </div>
-        </div>
-      </div>
-      <div class="panel hidden" id="cl-results-panel">
-        <div class="panel-header">
-          <h3>Results</h3>
-          <span class="badge badge-info" id="cl-count">--</span>
-        </div>
-        <div class="panel-body" id="cl-results">
-          <div class="loading">Loading...</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ════════════════════════════════════════════════════════ -->
     <!--  AUDIT                                                   -->
     <!-- ════════════════════════════════════════════════════════ -->
     <section class="page" id="page-audit">
@@ -662,7 +662,7 @@
       <!-- Admin Token -->
       <div class="admin-token-bar">
         <label>Admin Token:</label>
-        <input type="password" class="form-input" id="admin-token-input" placeholder="Enter admin bearer token" style="flex: 1;">
+        <input type="text" class="form-input" id="admin-token-input" placeholder="Enter admin bearer token" style="flex: 1;">
         <button class="btn btn-sm" id="admin-set-token">Set</button>
       </div>
 

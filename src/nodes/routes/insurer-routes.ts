@@ -66,6 +66,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         role: 'insurer',
         sequencerUrl: server.getConfig().sequencerUrl,
         displayName: server.getConfig().displayName,
+        clientOptions: server.getConfig().adminToken ? { adminToken: server.getConfig().adminToken } : undefined,
       });
       server.setEntityNode(node);
 
@@ -75,7 +76,23 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         data.onboarding.phase = 'ready';
         data.onboarding.enrollmentTimestamp = Date.now();
         data.lastSequencerUrl = server.getConfig().sequencerUrl;
-        await state.save(data);
+        try {
+          await state.save(data);
+        } catch (err) {
+          return server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Failed to save state');
+        }
+      }
+
+      // Restore enrollment registry from persisted state (survives restarts)
+      if (data) {
+        const persisted = (data as any).enrollmentRegistry;
+        if (persisted && typeof persisted === 'object') {
+          const registry = (server as any).__enrollmentRegistry ??= new Map<string, unknown>();
+          for (const [wid, record] of Object.entries(persisted)) {
+            registry.set(wid, record);
+          }
+          console.log('[insurer] Restored %d enrollment records from local state', registry.size);
+        }
       }
 
       server.setOnboardingPhase('ready');
@@ -91,7 +108,6 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'POST',
     path: '/enrollment/process',
-    adminOnly: true,
     handler: async (_req, res, _params, _query, body) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) {
@@ -101,6 +117,32 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       const b = body as { walletId?: string; tokenId?: string; role?: string } | undefined;
       if (!b?.walletId) {
         return server.sendResponse(res, 400, false, undefined, 'Missing walletId');
+      }
+
+      // Verify the walletId exists on the sequencer (member must register there first)
+      const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+      let sequencerVerified = false;
+      try {
+        const resp = await fetch(`${seqUrl}/rpc`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0', id: 1,
+            method: 'l2_getEntity',
+            params: { walletId: b.walletId },
+          }),
+        });
+        const json = await resp.json() as any;
+        sequencerVerified = !!(json.result);
+      } catch {
+        // Sequencer unreachable — allow enrollment anyway (insurer can re-verify later)
+        console.warn('[enrollment] Could not verify walletId on sequencer — accepting provisionally');
+        sequencerVerified = true;
+      }
+
+      if (!sequencerVerified) {
+        return server.sendResponse(res, 400, false, undefined,
+          'walletId not found on sequencer — member must register with sequencer before enrolling with insurer');
       }
 
       // Record enrollment in in-memory roster for the insurer's view.
@@ -113,12 +155,28 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         enrolledAt: Date.now(),
       };
 
-      // Store in insurer's local enrollment registry
+      // Store in insurer's local enrollment registry (in-memory + persisted to state)
       const registry = (server as any).__enrollmentRegistry ??= new Map<string, typeof enrollmentRecord>();
       registry.set(b.walletId, enrollmentRecord);
 
+      // Persist registry to local state so it survives restarts
+      try {
+        const localState = server.getLocalState();
+        const stateData = localState.getState() as any;
+        if (stateData) {
+          if (!stateData.enrollmentRegistry) stateData.enrollmentRegistry = {};
+          stateData.enrollmentRegistry[b.walletId] = enrollmentRecord;
+          await localState.save(stateData);
+        }
+      } catch (saveErr: any) {
+        console.warn('[enrollment] Failed to persist enrollment to local state:', saveErr?.message ?? saveErr);
+      }
+
+      console.log('[enrollment] Member enrolled: wallet=%s token=%s', b.walletId.slice(0, 16), b.tokenId ?? 'none');
+
       server.sendResponse(res, 200, true, {
         enrolled: true,
+        sequencerVerified,
         ...enrollmentRecord,
       });
     },
@@ -161,7 +219,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
             displayName: entity?.displayName ?? `Wallet ${r.walletId.substring(0, 12)}...`,
             specialty: entity?.specialty ?? null,
             pharmacyType: entity?.pharmacyType ?? null,
-            groupId: enrollment?.groupId ?? null,
+            groupId: enrollment?.groupId ?? entity?.group ?? null,
             employerId: enrollment?.employerId ?? null,
             registeredAt: r.acceptedAt,
             receiptId: r.receiptId,
@@ -170,8 +228,8 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         });
 
         // Group-level summary
-        const groupFilter = query?.groupId as string | undefined;
-        const roleFilter = query?.role as string | undefined;
+        const groupFilter = query?.get('groupId') ?? undefined;
+        const roleFilter = query?.get('role') ?? undefined;
         let filtered = roster;
         if (groupFilter) filtered = filtered.filter(r => r.groupId === groupFilter);
         if (roleFilter) filtered = filtered.filter(r => r.role === roleFilter);
@@ -239,10 +297,14 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     handler: async (_req, res, _params, query) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      const receipts = await node.getAllReceipts();
-      const limit = Math.min(parseInt(query.get('limit') ?? '1000', 10), 1000);
-      const offset = Math.max(parseInt(query.get('offset') ?? '0', 10), 0);
-      server.sendResponse(res, 200, true, receipts.slice(offset, offset + limit));
+      try {
+        const receipts = await node.getAllReceipts();
+        const limit = Math.min(parseInt(query.get('limit') ?? '1000', 10) || 1000, 1000);
+        const offset = Math.max(parseInt(query.get('offset') ?? '0', 10) || 0, 0);
+        server.sendResponse(res, 200, true, receipts.slice(offset, offset + limit));
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -252,10 +314,14 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     handler: async (_req, res, _params, query) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      const batches = await node.getAllBatches();
-      const limit = Math.min(parseInt(query.get('limit') ?? '1000', 10), 1000);
-      const offset = Math.max(parseInt(query.get('offset') ?? '0', 10), 0);
-      server.sendResponse(res, 200, true, batches.slice(offset, offset + limit));
+      try {
+        const batches = await node.getAllBatches();
+        const limit = Math.min(parseInt(query.get('limit') ?? '1000', 10) || 1000, 1000);
+        const offset = Math.max(parseInt(query.get('offset') ?? '0', 10) || 0, 0);
+        server.sendResponse(res, 200, true, batches.slice(offset, offset + limit));
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -265,13 +331,17 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     handler: async (_req, res, _params, query) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      const log = await node.getAuditLog();
-      const limit = Math.min(parseInt(query.get('limit') ?? '1000', 10), 1000);
-      const offset = Math.max(parseInt(query.get('offset') ?? '0', 10), 0);
-      server.sendResponse(res, 200, true, {
-        ...log,
-        events: log.events.slice(offset, offset + limit),
-      });
+      try {
+        const log = await node.getAuditLog();
+        const limit = Math.min(parseInt(query.get('limit') ?? '1000', 10) || 1000, 1000);
+        const offset = Math.max(parseInt(query.get('offset') ?? '0', 10) || 0, 0);
+        server.sendResponse(res, 200, true, {
+          ...log,
+          events: log.events.slice(offset, offset + limit),
+        });
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -281,7 +351,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     handler: async (_req, res) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      server.sendResponse(res, 200, true, await node.getChainProof());
+      try {
+        server.sendResponse(res, 200, true, await node.getChainProof());
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -295,7 +369,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     handler: async (_req, res, params) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      server.sendResponse(res, 200, true, await node.getMemberClaims(params.walletId));
+      try {
+        server.sendResponse(res, 200, true, await node.getMemberClaims(params.walletId));
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -305,7 +383,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     handler: async (_req, res, params) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      server.sendResponse(res, 200, true, await node.getPrescriberClaims(params.walletId));
+      try {
+        server.sendResponse(res, 200, true, await node.getPrescriberClaims(params.walletId));
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -315,7 +397,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     handler: async (_req, res, params) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      server.sendResponse(res, 200, true, await node.getPharmacyClaims(params.walletId));
+      try {
+        server.sendResponse(res, 200, true, await node.getPharmacyClaims(params.walletId));
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -325,7 +411,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     handler: async (_req, res, params) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      server.sendResponse(res, 200, true, await node.getDrugClaims(params.ndcHash));
+      try {
+        server.sendResponse(res, 200, true, await node.getDrugClaims(params.ndcHash));
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -339,7 +429,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     handler: async (_req, res) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      server.sendResponse(res, 200, true, await node.verifyChainIntegrity());
+      try {
+        server.sendResponse(res, 200, true, await node.verifyChainIntegrity());
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -349,7 +443,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     handler: async (_req, res) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      server.sendResponse(res, 200, true, await node.verifyFinancialBalance());
+      try {
+        server.sendResponse(res, 200, true, await node.verifyFinancialBalance());
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -359,7 +457,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     handler: async (_req, res) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      server.sendResponse(res, 200, true, await node.detectDuplicateClaims());
+      try {
+        server.sendResponse(res, 200, true, await node.detectDuplicateClaims());
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -379,15 +481,19 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         return server.sendResponse(res, 400, false, undefined, 'Missing onChainState or rosterEntries');
       }
 
-      const result = await node.runFullAudit(
-        {
-          walletRegistryRoot: b.onChainState.walletRegistryRoot,
-          lifecycleRoot: b.onChainState.lifecycleRoot,
-          walletCount: BigInt(b.onChainState.walletCount),
-        },
-        b.rosterEntries,
-      );
-      server.sendResponse(res, 200, true, result);
+      try {
+        const result = await node.runFullAudit(
+          {
+            walletRegistryRoot: b.onChainState.walletRegistryRoot,
+            lifecycleRoot: b.onChainState.lifecycleRoot,
+            walletCount: BigInt(b.onChainState.walletCount),
+          },
+          b.rosterEntries,
+        );
+        server.sendResponse(res, 200, true, result);
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
     adminOnly: true,
   });
@@ -410,7 +516,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as ReportBody | undefined;
       if (!b?.claims) return server.sendResponse(res, 400, false, undefined, 'Missing claims');
-      server.sendResponse(res, 200, true, node.generateClaimsRegister(b.claims, b.filter));
+      try {
+        server.sendResponse(res, 200, true, node.generateClaimsRegister(b.claims, b.filter));
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -422,7 +532,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as ReportBody | undefined;
       if (!b?.claims) return server.sendResponse(res, 400, false, undefined, 'Missing claims');
-      server.sendResponse(res, 200, true, node.generatePharmacyReport(b.claims, b.filter));
+      try {
+        server.sendResponse(res, 200, true, node.generatePharmacyReport(b.claims, b.filter));
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -434,7 +548,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as ReportBody | undefined;
       if (!b?.claims) return server.sendResponse(res, 400, false, undefined, 'Missing claims');
-      server.sendResponse(res, 200, true, node.generatePrescriberReport(b.claims, b.filter));
+      try {
+        server.sendResponse(res, 200, true, node.generatePrescriberReport(b.claims, b.filter));
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -446,7 +564,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as ReportBody | undefined;
       if (!b?.claims) return server.sendResponse(res, 400, false, undefined, 'Missing claims');
-      server.sendResponse(res, 200, true, node.generateMemberReport(b.claims, b.filter));
+      try {
+        server.sendResponse(res, 200, true, node.generateMemberReport(b.claims, b.filter));
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -458,7 +580,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as ReportBody | undefined;
       if (!b?.claims) return server.sendResponse(res, 400, false, undefined, 'Missing claims');
-      server.sendResponse(res, 200, true, node.generateMedicationUtilization(b.claims, b.filter));
+      try {
+        server.sendResponse(res, 200, true, node.generateMedicationUtilization(b.claims, b.filter));
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -470,7 +596,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as ReportBody | undefined;
       if (!b?.claims) return server.sendResponse(res, 400, false, undefined, 'Missing claims');
-      server.sendResponse(res, 200, true, node.generateFinancialSummary(b.claims, b.filter));
+      try {
+        server.sendResponse(res, 200, true, node.generateFinancialSummary(b.claims, b.filter));
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -482,7 +612,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as { claims?: VerifiedClaim[]; priorAuths?: PriorAuthContext[]; filter?: ReportFilter } | undefined;
       if (!b?.claims || !b?.priorAuths) return server.sendResponse(res, 400, false, undefined, 'Missing claims or priorAuths');
-      server.sendResponse(res, 200, true, node.generatePriorAuthReport(b.claims, b.priorAuths, b.filter));
+      try {
+        server.sendResponse(res, 200, true, node.generatePriorAuthReport(b.claims, b.priorAuths, b.filter));
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -494,7 +628,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as ReportBody | undefined;
       if (!b?.claims) return server.sendResponse(res, 400, false, undefined, 'Missing claims');
-      server.sendResponse(res, 200, true, node.generateReversalReport(b.claims, b.filter));
+      try {
+        server.sendResponse(res, 200, true, node.generateReversalReport(b.claims, b.filter));
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -506,7 +644,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as ReportBody | undefined;
       if (!b?.claims) return server.sendResponse(res, 400, false, undefined, 'Missing claims');
-      server.sendResponse(res, 200, true, node.generateTierAnalysis(b.claims, b.filter));
+      try {
+        server.sendResponse(res, 200, true, node.generateTierAnalysis(b.claims, b.filter));
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -518,7 +660,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as ReportBody | undefined;
       if (!b?.claims) return server.sendResponse(res, 400, false, undefined, 'Missing claims');
-      server.sendResponse(res, 200, true, node.generateTherapeuticClassReport(b.claims, b.filter));
+      try {
+        server.sendResponse(res, 200, true, node.generateTherapeuticClassReport(b.claims, b.filter));
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -530,7 +676,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as { claims?: VerifiedClaim[]; bucket?: TimeBucket; filter?: ReportFilter } | undefined;
       if (!b?.claims) return server.sendResponse(res, 400, false, undefined, 'Missing claims');
-      server.sendResponse(res, 200, true, node.generateTimeSeries(b.claims, b.bucket, b.filter));
+      try {
+        server.sendResponse(res, 200, true, node.generateTimeSeries(b.claims, b.bucket, b.filter));
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -550,7 +700,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!b?.claims || !b?.row || !b?.col || !b?.measure) {
         return server.sendResponse(res, 400, false, undefined, 'Missing claims, row, col, or measure');
       }
-      server.sendResponse(res, 200, true, node.generateCrossTab(b.claims, b.row, b.col, b.measure, b.filter));
+      try {
+        server.sendResponse(res, 200, true, node.generateCrossTab(b.claims, b.row, b.col, b.measure, b.filter));
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -581,8 +735,12 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     handler: async (_req, res) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      const batch = await node.forceBatch();
-      server.sendResponse(res, 200, true, batch);
+      try {
+        const batch = await node.forceBatch();
+        server.sendResponse(res, 200, true, batch);
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -960,7 +1118,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     handler: async (_req, res) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      server.sendResponse(res, 200, true, await node.listPlans());
+      try {
+        server.sendResponse(res, 200, true, await node.listPlans());
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -971,9 +1133,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     handler: async (_req, res, params) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      const plan = await node.getPlan(params.planId);
-      if (!plan) return server.sendResponse(res, 404, false, undefined, 'Plan not found');
-      server.sendResponse(res, 200, true, plan);
+      try {
+        const plan = await node.getPlan(params.planId);
+        if (!plan) return server.sendResponse(res, 404, false, undefined, 'Plan not found');
+        server.sendResponse(res, 200, true, plan);
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -1006,6 +1172,55 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
           formularyNdcs: b.formularyNdcs ?? [],
           networkProviderWalletIds: b.networkProviderWalletIds ?? [],
         });
+
+        // Auto-publish: push plan overlay to sequencer (Option C — lightweight ~5KB, not 10MB)
+        // Empty formularyNdcs = all drugs (no per-drug overrides); empty networkProviderWalletIds = all providers
+        try {
+          const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+          const adminToken = server.getConfig().adminToken;
+          const pubHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (adminToken) pubHeaders['Authorization'] = 'Bearer ' + adminToken;
+
+          // Build per-drug overrides only for explicitly listed NDCs
+          const overrides: any[] = [];
+          if (plan.formularyNdcs.length > 0) {
+            // When NDCs are specified, mark all OTHER drugs as excluded
+            // For now, just publish with the specified NDCs as the covered set
+            // (the overlay defaults apply to all drugs not in overrides)
+          }
+
+          // Plan-wide tier copay defaults (cents) — derived from plan's base copay
+          const baseCopay = plan.copayAmountCents || 1000;
+          const defaults = {
+            tier1Copay: baseCopay,
+            tier2Copay: Math.round(baseCopay * 3.5),
+            tier3Copay: Math.round(baseCopay * 7.5),
+            tier4Copay: Math.round(baseCopay * 15),
+          };
+
+          const overlayRes = await fetch(seqUrl + '/rpc', {
+            method: 'POST', headers: pubHeaders,
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_publishPlanOverlay',
+              params: { planIdHash: plan.planId, planName: plan.name, overrides, defaults } }),
+          });
+          const overlayJson = await overlayRes.json() as any;
+          if (overlayJson.error) throw new Error(overlayJson.error.message ?? 'Sequencer error');
+
+          const networkRoot = plan.networkProviderWalletIds.length > 0
+            ? String(plan.networkProviderWalletIds.length)
+            : '0';
+
+          // Mark plan as published
+          await node.markPlanPublished(plan.planId, String(overlayJson.result?.version ?? 1), networkRoot);
+          plan.published = true;
+          plan.formularyRoot = String(overlayJson.result?.version ?? 1);
+          plan.networkRoot = networkRoot;
+        } catch (pubErr: any) {
+          // Plan created but publish failed — flag it clearly so the client can retry
+          console.warn('[insurer] Auto-publish failed for %s: %s', plan.planId, pubErr.message);
+          plan.publishError = pubErr.message;
+        }
+
         server.sendResponse(res, 201, true, plan);
       } catch (err: any) {
         server.sendResponse(res, 409, false, undefined, err.message);
@@ -1040,9 +1255,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     handler: async (_req, res, params) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      const deleted = await node.deletePlan(params.planId);
-      if (!deleted) return server.sendResponse(res, 404, false, undefined, 'Plan not found');
-      server.sendResponse(res, 200, true, { deleted: true, planId: params.planId });
+      try {
+        const deleted = await node.deletePlan(params.planId);
+        if (!deleted) return server.sendResponse(res, 404, false, undefined, 'Plan not found');
+        server.sendResponse(res, 200, true, { deleted: true, planId: params.planId });
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -1064,53 +1283,41 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (adminToken) headers['Authorization'] = 'Bearer ' + adminToken;
 
-        // Fetch full formulary from sequencer to filter for this plan's NDCs
-        const formRes = await fetch(seqUrl + '/rpc', {
+        // Option C: Publish lightweight plan overlay (~5KB, not 10MB blob)
+        const overrides: any[] = [];
+        // Plan-wide tier copay defaults (cents) — derived from plan's base copay
+        const baseCopay = plan.copayAmountCents || 1000;
+        const defaults = {
+          tier1Copay: baseCopay,
+          tier2Copay: Math.round(baseCopay * 3.5),
+          tier3Copay: Math.round(baseCopay * 7.5),
+          tier4Copay: Math.round(baseCopay * 15),
+        };
+
+        const overlayRes = await fetch(seqUrl + '/rpc', {
           method: 'POST',
           headers,
           body: JSON.stringify({
             jsonrpc: '2.0', id: 1,
-            method: 'l2_getFormulary',
-            params: { planIdHash: 'default' },
+            method: 'l2_publishPlanOverlay',
+            params: { planIdHash: params.planId, planName: plan.name, overrides, defaults },
           }),
         });
-        const formJson = await formRes.json() as any;
-        const allEntries: any[] = formJson.result?.entries ?? [];
+        const overlayJson = await overlayRes.json() as any;
+        if (overlayJson.error) throw new Error(overlayJson.error.message ?? 'Sequencer error');
 
-        // Filter to plan's NDC list (empty = all)
-        const planEntries = plan.formularyNdcs.length > 0
-          ? allEntries.filter((e: any) => plan.formularyNdcs.includes(e.ndc))
-          : allEntries;
-
-        // Compute a simple formulary root (hash of count for now — production uses MerkleTree)
-        const formularyRoot = String(planEntries.length);
         const networkRoot = plan.networkProviderWalletIds.length > 0
           ? String(plan.networkProviderWalletIds.length)
           : '0'; // 0 = all providers accepted
 
-        // Publish filtered formulary to sequencer under plan-specific key
-        const entriesJson = JSON.stringify(planEntries);
-        const publishRes = await fetch(seqUrl + '/rpc', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            jsonrpc: '2.0', id: 1,
-            method: 'l2_storeFormulary',
-            params: { planIdHash: params.planId, formularyRoot, entriesJson },
-          }),
-        });
-        const publishJson = await publishRes.json() as any;
-        if (publishJson.error) throw new Error(publishJson.error.message ?? 'Sequencer error');
-
         // Mark plan as published
-        const updated = await node.markPlanPublished(params.planId, formularyRoot, networkRoot);
+        const updated = await node.markPlanPublished(params.planId, String(overlayJson.result?.version ?? 1), networkRoot);
 
         server.sendResponse(res, 200, true, {
           published: true,
           planId: params.planId,
-          formularyRoot,
+          overlayVersion: overlayJson.result?.version ?? 1,
           networkRoot,
-          formularyEntryCount: planEntries.length,
           networkProviderCount: plan.networkProviderWalletIds.length,
           plan: updated,
         });
@@ -1127,20 +1334,34 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'GET',
     path: '/messaging/wallet/:walletId',
-    handler: async (_req, res, params) => {
+    handler: async (_req, res, params, query) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      server.sendResponse(res, 200, true, await node.getMessagesByWallet(params.walletId));
+      try {
+        const messages = await node.getMessagesByWallet(params.walletId);
+        const limit = Math.min(parseInt(query?.get('limit') ?? '500', 10) || 500, 500);
+        const offset = Math.max(parseInt(query?.get('offset') ?? '0', 10) || 0, 0);
+        server.sendResponse(res, 200, true, messages.slice(offset, offset + limit));
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
   routes.push({
     method: 'GET',
     path: '/messaging/thread/:threadIdHash',
-    handler: async (_req, res, params) => {
+    handler: async (_req, res, params, query) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      server.sendResponse(res, 200, true, await node.getMessagesByThread(params.threadIdHash));
+      try {
+        const messages = await node.getMessagesByThread(params.threadIdHash);
+        const limit = Math.min(parseInt(query?.get('limit') ?? '500', 10) || 500, 500);
+        const offset = Math.max(parseInt(query?.get('offset') ?? '0', 10) || 0, 0);
+        server.sendResponse(res, 200, true, messages.slice(offset, offset + limit));
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 
@@ -1150,7 +1371,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     handler: async (_req, res) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      server.sendResponse(res, 200, true, await node.getMessageStoreStatus());
+      try {
+        server.sendResponse(res, 200, true, await node.getMessageStoreStatus());
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+      }
     },
   });
 

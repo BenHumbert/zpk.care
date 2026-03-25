@@ -251,6 +251,7 @@ export class L2Leviathan {
       privateKey: this.quorumKeyAuthority.getPrivateKey(),
       publicKeyHex: this.quorumKeyAuthority.publicKeyHex,
       peerPublicKeys: this.peerPublicKeys,
+      nodeId: this.nodeId,
     };
 
     this.quorumService = new L2QuorumService(quorumConfig);
@@ -976,6 +977,11 @@ export class L2Leviathan {
 
       if (this.provingPool) {
         // Pool path: prepareBatch → pool.prove → finalizeBatch
+        if (!this.provingPool.isRunning()) {
+          // Pool is configured but still compiling — skip this cycle
+          this.batchInProgress.set(partitionIndex, false);
+          return null;
+        }
         const { job, emptyBatch } = seq.prepareBatch();
         if (!job) {
           batch = emptyBatch;
@@ -1183,7 +1189,11 @@ export class L2Leviathan {
     switch (msg.type) {
       case 'proof:accepted': {
         const payload = msg.payload as ProofAcceptedPayload;
-        const partition = payload.partitionIndex ?? 0;
+        if (payload.partitionIndex === undefined || payload.partitionIndex === null) {
+          console.warn(`[Leviathan] Gossip ${msg.type} from ${msg.senderId} missing partitionIndex, dropping`);
+          return;
+        }
+        const partition = payload.partitionIndex;
         const seq = this.partitionSequencers.get(partition);
         if (!seq) return;
 
@@ -1214,7 +1224,11 @@ export class L2Leviathan {
 
       case 'batch:built': {
         const payload = msg.payload as BatchBuiltPayload;
-        const partition = payload.partitionIndex ?? 0;
+        if (payload.partitionIndex === undefined || payload.partitionIndex === null) {
+          console.warn(`[Leviathan] Gossip ${msg.type} from ${msg.senderId} missing partitionIndex, dropping`);
+          return;
+        }
+        const partition = payload.partitionIndex;
         const seq = this.partitionSequencers.get(partition);
         if (!seq) return;
         if (this.isLeaderFor(partition)) return;
@@ -1230,7 +1244,11 @@ export class L2Leviathan {
 
       case 'batch:settled': {
         const payload = msg.payload as BatchSettledPayload;
-        const partition = payload.partitionIndex ?? 0;
+        if (payload.partitionIndex === undefined || payload.partitionIndex === null) {
+          console.warn(`[Leviathan] Gossip ${msg.type} from ${msg.senderId} missing partitionIndex, dropping`);
+          return;
+        }
+        const partition = payload.partitionIndex;
         const seq = this.partitionSequencers.get(partition);
         if (!seq) return;
         if (this.isLeaderFor(partition)) return;
@@ -1247,7 +1265,11 @@ export class L2Leviathan {
 
       case 'batch:failed': {
         const payload = msg.payload as BatchFailedPayload;
-        const partition = payload.partitionIndex ?? 0;
+        if (payload.partitionIndex === undefined || payload.partitionIndex === null) {
+          console.warn(`[Leviathan] Gossip ${msg.type} from ${msg.senderId} missing partitionIndex, dropping`);
+          return;
+        }
+        const partition = payload.partitionIndex;
         const seq = this.partitionSequencers.get(partition);
         if (!seq) return;
         if (this.isLeaderFor(partition)) return;
@@ -1268,22 +1290,18 @@ export class L2Leviathan {
       }
 
       case 'plan:updated': {
-        // Skip own broadcasts — only apply gossip from other leviathans
-        if (msg.senderId === this.nodeId) break;
         const planPayload = msg.payload as PlanUpdatedPayload;
         this.getSequencer().applyReplicatedPlan(planPayload.plan);
         break;
       }
 
       case 'plan:deleted': {
-        if (msg.senderId === this.nodeId) break;
         const delPayload = msg.payload as PlanDeletedPayload;
         this.getSequencer().applyReplicatedPlanDeletion(delPayload.planId);
         break;
       }
 
       case 'formulary:updated': {
-        if (msg.senderId === this.nodeId) break;
         const formPayload = msg.payload as FormularyUpdatedPayload;
         this.getSequencer().storeFormulary(formPayload.planIdHash, formPayload.formularyRoot, formPayload.entriesJson);
         break;
@@ -1473,7 +1491,7 @@ export class L2Leviathan {
   }
 
   /** Promote this node to leader for a partition */
-  promoteToLeader(partitionIndex: number, previousLeaderId?: string): void {
+  promoteToLeader(partitionIndex: number, previousLeaderId?: string, reason: 'heartbeat_timeout' | 'manual' | 'rejoin' = 'heartbeat_timeout'): void {
     const entry = this.leaderMap.get(partitionIndex);
     if (!entry) return;
 
@@ -1483,17 +1501,20 @@ export class L2Leviathan {
     entry.isLocalLeader = true;
     entry.lastHeartbeatAt = Date.now();
 
-    // Start batch timer for this partition
+    // Clear any existing batch timer before scheduling a new one
+    const existingTimer = this.batchTimers.get(partitionIndex);
+    if (existingTimer) clearTimeout(existingTimer);
     this.scheduleBatchTick(partitionIndex);
 
     this.emit({
-      type: 'node:started',
+      type: 'leader:promoted',
       timestamp: Date.now(),
       data: {
         action: 'leader_promotion',
         partitionIndex,
         previousLeader: prevLeader,
         newLeader: this.nodeId,
+        reason,
       },
     });
 
@@ -1503,7 +1524,7 @@ export class L2Leviathan {
         newLeaderId: this.nodeId,
         partitionIndex,
         previousLeaderId: prevLeader,
-        reason: 'heartbeat_timeout',
+        reason,
         timestamp: Date.now(),
       };
 
@@ -1538,7 +1559,7 @@ export class L2Leviathan {
     entry.lastHeartbeatAt = Date.now();
 
     this.emit({
-      type: 'node:started',
+      type: 'leader:demoted',
       timestamp: Date.now(),
       data: {
         action: 'leader_demotion',

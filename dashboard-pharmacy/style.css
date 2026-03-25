@@ -1,4 +1,4 @@
-/* zkp.Care Pharmacy Workstation — Dark Theme (Amber Accent) */
+/* Adjuda-GATOR Pharmacy Workstation — Dark Theme (Amber Accent) */
 
 :root {
   --bg-primary: #0d1117;
@@ -65,6 +65,8 @@ html, body {
   color: var(--accent);
   letter-spacing: -0.3px;
 }
+
+.header-brand .brand-logo-img { height: 36px; width: auto; object-fit: contain; }
 
 .header-brand .brand-icon {
   width: 28px;
@@ -254,11 +256,11 @@ html, body {
   flex: 1;
 }
 
-/* ── 3 Columns ──────────────────────────────────────────── */
+/* ── 4 Columns ──────────────────────────────────────────── */
 
 .ws-columns {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
   gap: 12px;
   min-height: calc(100vh - 200px);
 }
@@ -281,19 +283,24 @@ html, body {
   flex-shrink: 0;
 }
 
-.ws-column-header.active-header {
+.ws-column-header.adjudicated-header {
   border-bottom-color: var(--accent);
   background: linear-gradient(180deg, rgba(245,158,11,0.08) 0%, transparent 100%);
 }
 
-.ws-column-header.dispensed-header {
+.ws-column-header.filled-header {
   border-bottom-color: var(--green);
   background: linear-gradient(180deg, rgba(63,185,80,0.08) 0%, transparent 100%);
 }
 
-.ws-column-header.filled-header {
+.ws-column-header.dispensed-header {
   border-bottom-color: var(--blue);
   background: linear-gradient(180deg, rgba(88,166,255,0.08) 0%, transparent 100%);
+}
+
+.ws-column-header.history-header {
+  border-bottom-color: var(--text-muted);
+  background: linear-gradient(180deg, rgba(139,148,158,0.08) 0%, transparent 100%);
 }
 
 .ws-col-title {
@@ -316,19 +323,24 @@ html, body {
   flex-shrink: 0;
 }
 
-.active-header .ws-col-icon {
+.adjudicated-header .ws-col-icon {
   background: var(--accent-dim);
   color: var(--accent);
 }
 
-.dispensed-header .ws-col-icon {
+.filled-header .ws-col-icon {
   background: rgba(63,185,80,0.15);
   color: var(--green);
 }
 
-.filled-header .ws-col-icon {
+.dispensed-header .ws-col-icon {
   background: rgba(88,166,255,0.15);
   color: var(--blue);
+}
+
+.history-header .ws-col-icon {
+  background: rgba(139,148,158,0.15);
+  color: var(--text-muted);
 }
 
 .ws-col-count {
@@ -370,6 +382,19 @@ html, body {
 .script-card:hover {
   border-color: var(--text-muted);
   background: var(--bg-hover);
+}
+
+.script-card.is-dispensing {
+  opacity: 0.45;
+  pointer-events: none;
+  user-select: none;
+  animation: dispensing-pulse 2s ease-in-out infinite;
+  border-color: var(--text-muted);
+}
+
+@keyframes dispensing-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.25; }
 }
 
 .script-card.has-issue {
@@ -1560,7 +1585,7 @@ select.form-input {
 
 /* ── Responsive ───────────────────────────────────────────── */
 
-@media (max-width: 1200px) {
+@media (max-width: 1400px) {
   .ws-columns {
     grid-template-columns: 1fr 1fr;
   }
@@ -1789,6 +1814,11 @@ select.form-input {
   to { transform: rotate(360deg); }
 }
 
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 .badge-step.done {
   color: var(--green);
   background: rgba(63, 185, 80, 0.08);
@@ -1846,4 +1876,43 @@ select.form-input {
   color: var(--text-secondary);
   font-family: var(--font-mono);
   margin-top: 4px;
+}
+
+/* ── Toast Notifications ───────────────────────────────── */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.toast {
+  padding: 12px 16px;
+  font-size: 13px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  animation: toast-in 0.25s ease-out;
+  max-width: 400px;
+  word-break: break-word;
+}
+.toast.success {
+  background: rgba(63,185,80,0.15);
+  border: 1px solid rgba(63,185,80,0.3);
+  color: var(--green);
+}
+.toast.error {
+  background: rgba(248,81,73,0.15);
+  border: 1px solid rgba(248,81,73,0.3);
+  color: var(--red);
+}
+.toast.info {
+  background: rgba(88,166,255,0.15);
+  border: 1px solid rgba(88,166,255,0.3);
+  color: var(--blue);
+}
+@keyframes toast-in {
+  from { transform: translateY(12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
 }

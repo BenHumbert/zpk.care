@@ -73,7 +73,7 @@ export type SettlementStrategy = (batch: L2Batch) => Promise<string>;
 
 /** Configuration for the L2 node */
 export interface L2NodeOptions {
-  /** Batch interval in ms. Default 30_000 (30s) for demo, 180_000 (3 min) for production */
+  /** Batch interval in ms. Default 30_000 (30s) for local testing, 180_000 (3 min) for production */
   batchIntervalMs: number;
   /** If true, automatically simulates L1 settlement after each batch */
   autoSettle: boolean;
@@ -144,7 +144,9 @@ export type L2EventType =
   | 'pool:worker:compile_failed'
   | 'pool:worker:dispatched'
   | 'pool:worker:completed'
-  | 'pool:worker:crashed';
+  | 'pool:worker:crashed'
+  | 'leader:promoted'
+  | 'leader:demoted';
 
 /** Chain event with typed data payload */
 export interface L2ChainEvent {
@@ -440,7 +442,7 @@ export class L2Node {
 
       // Eager batch: if proving pool has idle workers and no batch in progress,
       // trigger an immediate batch cycle instead of waiting for the timer.
-      if (this.provingPool && !this.batchInProgress) {
+      if (this.provingPool && this.provingPool.isRunning() && !this.batchInProgress) {
         const poolStatus = this.provingPool.getStatus();
         if (poolStatus.workersIdle > 0) {
           // Fire-and-forget — don't block submitProof on batch building
@@ -787,7 +789,7 @@ export class L2Node {
     return this.sequencer.getClaimWithProof(leafIndex);
   }
 
-  /** Record a fill directly on the claim accumulator (admin/demo path) */
+  /** Record a fill directly on the claim accumulator (admin path) */
   recordFill(
     leaf: import('./claim-accumulator-types.js').ClaimLeaf,
     metadata: import('./claim-accumulator-types.js').ClaimMetadata,
@@ -1126,6 +1128,11 @@ export class L2Node {
 
       if (this.provingPool) {
         // Pool path: prepareBatch → pool.prove → finalizeBatch
+        if (!this.provingPool.isRunning()) {
+          // Pool is configured but still compiling — skip this cycle
+          this.batchInProgress = false;
+          return null;
+        }
         batch = await this.executeBatchWithPool();
       } else {
         // Legacy path: single-process proving with proving lock

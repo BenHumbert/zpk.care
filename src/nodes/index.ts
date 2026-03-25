@@ -1,4 +1,4 @@
-// Entity Node SDK — production-mode entity nodes for zkpCare
+// Entity Node SDK — production-mode entity nodes for Adjuda-GATOR
 
 // Base class
 export { EntityNodeBase } from './entity-node-base.js';

@@ -92,8 +92,14 @@ async function handleProve(
       // Pair transitions and wrap each pair
       const wrappedProofs: BatchProof[] = [];
       for (let i = 0; i < proofs.length; i += 2) {
-        const wrapped = await BatchProgram.wrapPair(proofs[i], proofs[i + 1]);
-        wrappedProofs.push(wrapped.proof as BatchProof);
+        if (i + 1 < proofs.length) {
+          const wrapped = await BatchProgram.wrapPair(proofs[i], proofs[i + 1]);
+          wrappedProofs.push(wrapped.proof as BatchProof);
+        } else {
+          // Odd last element — wrap as single (pass same proof twice per wrapSingle contract)
+          const wrapped = await BatchProgram.wrapSingle(proofs[i], proofs[i]);
+          wrappedProofs.push(wrapped.proof as BatchProof);
+        }
       }
 
       // Tree-merge: pair-wise merge until single proof remains

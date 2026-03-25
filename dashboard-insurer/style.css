@@ -1,4 +1,4 @@
-/* zkp.Care Insurer Dashboard — Dark Theme (Blue Accent) */
+/* Adjuda-GATOR Insurer Dashboard — Dark Theme (Blue Accent) */
 
 :root {
   --bg-primary: #0d1117;
@@ -65,6 +65,8 @@ html, body {
   color: var(--accent);
   letter-spacing: -0.3px;
 }
+
+.header-brand .brand-logo-img { height: 36px; width: auto; object-fit: contain; }
 
 .header-brand .brand-icon {
   width: 28px;
@@ -389,6 +391,7 @@ html, body {
 .badge-accent { background: var(--accent-dim); color: var(--accent); }
 .badge-live { background: #0d3b1e; color: var(--green); animation: pulse 2s infinite; }
 .badge-error { background: #3b0d0d; color: var(--red); }
+.badge-specialty { background: #2d1b4e; color: var(--purple); }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * PoC Orchestrator — Main entry point for the zkpCare proof-of-concept.
+ * PoC Orchestrator — Main entry point for the Adjuda-GATOR proof-of-concept.
  *
  * Boots a full multi-node network (3 Leviathans, 1 Insurer, 5 Members,
  * 2 Prescribers, 2 Pharmacies), serves a monitoring dashboard, and runs
@@ -84,7 +84,7 @@ class SimplePocEmitter implements PocEventEmitter {
 async function main(): Promise<void> {
   console.log('');
   console.log('  ╔══════════════════════════════════════════════════════════╗');
-  console.log('  ║     zkpCare Proof-of-Concept — Multi-Node Dashboard      ║');
+  console.log('  ║   Adjuda-GATOR Proof-of-Concept — Multi-Node Dashboard    ║');
   console.log('  ╚══════════════════════════════════════════════════════════╝');
   console.log('');
 
@@ -202,7 +202,7 @@ async function main(): Promise<void> {
 
     emitter.emit({
       timestamp: Date.now(), source: 'orchestrator', level: 'info',
-      message: 'Deriving wallet IDs from demo data...', phase: 'booting',
+      message: 'Deriving wallet IDs from seed data...', phase: 'booting',
     });
 
     const wallets: DerivedWallets = deriveAllWalletIds();

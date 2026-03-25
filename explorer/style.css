@@ -1,4 +1,4 @@
-/* zkTrident Explorer — Dark Theme (Explorer Emerald) */
+/* Adjuda-GATOR Explorer — Dark Theme (Explorer Emerald) */
 
 :root {
   --bg-primary: #0a0f14;
@@ -64,28 +64,25 @@ html, body {
 }
 
 .logo {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 600;
   color: var(--text-primary);
   text-decoration: none;
   white-space: nowrap;
   display: flex;
-  align-items: baseline;
-  gap: 4px;
+  align-items: center;
+  gap: 10px;
 }
-.logo-mark {
-  color: var(--accent);
-  font-family: var(--font-mono);
-  font-weight: 800;
-  letter-spacing: -0.5px;
+.brand-logo-img {
+  height: 36px;
+  width: auto;
+  object-fit: contain;
 }
 .logo-role {
-  font-size: 11px;
+  font-size: 15px;
   font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-left: 6px;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
 }
 
 .nav {

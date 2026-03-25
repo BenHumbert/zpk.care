@@ -1,4 +1,4 @@
-// zkTrident Pharmacy Nautilus — REST API Client
+// Adjuda-GATOR Pharmacy Nautilus — REST API Client
 // Talks to the local Nautilus server at the same origin.
 
 const BASE_URL = location.origin;
@@ -173,6 +173,11 @@ const API = {
     },
   },
 
+  // ── Prescriptions (server-side state from sequencer) ──────
+  prescriptions: {
+    list() { return get('/prescriptions/list'); },
+  },
+
   // ── Dispensing ─────────────────────────────────────────────
   dispensing: {
     list() {
@@ -181,13 +186,30 @@ const API = {
     summary() {
       return get('/dispensing/summary');
     },
+    markFilled(params) {
+      // Marks a script as physically filled (no ZK proofs — status update only).
+      // params: { prescriptionId, memberWalletId, ndcHash }
+      return post('/dispensing/mark-filled', params);
+    },
     fill(params) {
-      // params: { memberWalletId, ndcHash, prescriberWalletId?, brandName?, quantity?, daysSupply?, ndc?, patientPayCents?, planPayCents?, fillNumber? }
+      // Legacy: prescribe-and-fill (creates Rx + dispenses in one step).
       return post('/dispensing/fill', params);
     },
+    dispense(params) {
+      // Dispense an existing FILLED prescription (3 ZK proofs: ProofGate + PrescriptionStatus + AccumulatorFulfillment).
+      // params: { prescriptionId, quantityDispensed, ingredientCostCents, dispensingFeeCents }
+      return post('/dispensing/dispense', params);
+    },
+    fillStatus(jobKey) {
+      return get('/dispensing/fill-status?jobKey=' + encodeURIComponent(jobKey));
+    },
     reverse(params) {
-      // params: { memberWalletId, ndcHash, prescriberWalletId?, patientPayCents?, planPayCents? }
+      // Fires async ZK reversal proof. Returns 202 { jobKey, status: 'pending' }.
+      // params: { prescriptionId, reason? }
       return post('/dispensing/reverse', params);
+    },
+    reverseStatus(jobKey) {
+      return get('/dispensing/reverse-status?jobKey=' + encodeURIComponent(jobKey));
     },
     range(start, end) {
       return get('/dispensing/range?start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end));
@@ -238,6 +260,8 @@ const API = {
       return stripBigints(json.result);
     },
   },
+
+  // (Interactive namespace removed — proof pipeline now handled by pharmacy routes internally)
 
   // ── NFC ────────────────────────────────────────────────────
   nfc: {

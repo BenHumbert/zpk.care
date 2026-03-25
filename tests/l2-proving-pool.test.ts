@@ -486,7 +486,7 @@ describe('L2Node — proving pool integration', () => {
     expect(node.getProvingPool()).toBeNull();
 
     // Create a mock pool
-    const mockPool = { prove: jest.fn(), isRunning: () => true, on: jest.fn(), off: jest.fn() } as any;
+    const mockPool = { prove: jest.fn(), isRunning: () => true, on: jest.fn(), off: jest.fn(), getStatus: () => ({ workersIdle: 0, workersBusy: 0, queueDepth: 0 }) } as any;
     node.setProvingPool(mockPool);
     expect(node.getProvingPool()).toBe(mockPool);
   });
@@ -507,6 +507,7 @@ describe('L2Node — proving pool integration', () => {
       isRunning: () => true,
       on: jest.fn(),
       off: jest.fn(),
+      getStatus: () => ({ workersIdle: 0, workersBusy: 1, queueDepth: 0 }),
     } as any;
     node.setProvingPool(mockPool);
 
@@ -544,6 +545,7 @@ describe('L2Node — proving pool integration', () => {
       isRunning: () => true,
       on: jest.fn(),
       off: jest.fn(),
+      getStatus: () => ({ workersIdle: 0, workersBusy: 1, queueDepth: 0 }),
     } as any;
     node.setProvingPool(mockPool);
 
@@ -938,6 +940,7 @@ describe('L2Node — pool event forwarding', () => {
       isRunning: () => true,
       on: jest.fn(),
       off: jest.fn(),
+      getStatus: () => ({ workersIdle: 0, workersBusy: 1, queueDepth: 0 }),
     } as any;
     node.setProvingPool(mockPool);
 

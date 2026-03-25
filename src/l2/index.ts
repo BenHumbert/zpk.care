@@ -138,6 +138,26 @@ export type {
 } from './provider-registry-types.js';
 export { ProviderRegistryService, ProviderRegistryWitness } from './provider-registry-service.js';
 
+// Formulary Service — Option C: canonical 32K drug store with plan overlays
+export {
+  FormularyService,
+  FormularyWitness,
+  FORMULARY_TREE_HEIGHT,
+  computeFormularyLeafHash,
+} from './formulary-service.js';
+export type {
+  FormularyDrug,
+  FormularyDrugWithPlan,
+  PlanOverlay,
+  DrugOverride,
+  PlanDefaults,
+  FormularyCategory,
+  FormularyPage,
+  FormularyFilter,
+  CoverageResult,
+  FormularyServiceState,
+} from './formulary-service.js';
+
 // L2 Checkpoint / Crash Recovery
 export {
   L2CheckpointStore,

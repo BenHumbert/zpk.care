@@ -63,7 +63,7 @@ if (fs.existsSync(path.join(dashboardDir, 'index.html'))) {
 async function main(): Promise<void> {
   console.log('');
   console.log('  ╔══════════════════════════════════════════════╗');
-  console.log('  ║     🐚  INSURER NAUTILUS — zkTrident         ║');
+  console.log('  ║     🐊  INSURER NAUTILUS — Adjuda-GATOR      ║');
   console.log('  ╚══════════════════════════════════════════════╝');
   console.log('');
 
@@ -92,7 +92,7 @@ async function main(): Promise<void> {
   //
   //  In production: insurer verifies NPI/NCPDP credentials via NPPES/PECOS,
   //  then registers them in the sequencer's entity registry.
-  //  Here: loads demo prescribers + pharmacies and registers via RPC.
+  //  Here: loads seed prescribers + pharmacies and registers via RPC.
   // ══════════════════════════════════════════════════════════
 
   const seqUrl = config.sequencerUrl.replace(/\/+$/, '');
@@ -123,11 +123,11 @@ async function main(): Promise<void> {
 
   if (seqReady) {
     // ── Credential Prescribers (via provider registry) ──
-    const { DEMO_PRESCRIBERS } = await import('../data/index.js');
+    const { PRESCRIBERS } = await import('../data/index.js');
     const { derivePrescriberWalletId } = await import('../wallets/wallet-derivation.js');
 
     let prescriberCount = 0;
-    for (const p of DEMO_PRESCRIBERS) {
+    for (const p of PRESCRIBERS) {
       const walletId = derivePrescriberWalletId(p.localData, p.enrollmentKey).toString();
       try {
         await rpcCall('l2_credentialProvider', {
@@ -153,11 +153,11 @@ async function main(): Promise<void> {
     console.log('  [credential] Credentialed %d prescribers in provider registry', prescriberCount);
 
     // ── Credential Pharmacies (via provider registry) ──
-    const { DEMO_PHARMACIES } = await import('../data/index.js');
+    const { PHARMACIES } = await import('../data/index.js');
     const { derivePharmacyWalletId } = await import('../wallets/wallet-derivation.js');
 
     let pharmacyCount = 0;
-    for (const p of DEMO_PHARMACIES) {
+    for (const p of PHARMACIES) {
       const walletId = derivePharmacyWalletId(p.localData, p.enrollmentKey).toString();
       try {
         await rpcCall('l2_credentialProvider', {
@@ -181,42 +181,18 @@ async function main(): Promise<void> {
     }
     console.log('  [credential] Credentialed %d pharmacies in provider registry', pharmacyCount);
 
-    // ── Publish Formulary ──
-    const { DEMO_MEDICATIONS } = await import('../data/index.js');
-    const { Poseidon, Field } = await import('o1js');
-    const { hashString } = await import('../zkp/hash-utils.js');
-
-    const standardPlanIdHash = Poseidon.hash(
-      [...'standard-plan'].map((c) => Field(c.charCodeAt(0))),
-    ).toString();
-
-    const formularyEntries = DEMO_MEDICATIONS.map((m) => ({
-      ndc: m.ndc,
-      brandName: m.brandName,
-      genericName: m.genericName,
-      dosageForm: m.dosageForm,
-      strength: m.strength,
-      tierLevel: m.formularyEntry.tierLevel,
-      therapeuticClass: m.therapeuticClass,
-      gpi: m.gpi,
-      ndcHash: hashString(m.ndc).toString(),
-      pricePerUnit: m.awpUnitPriceCents / 100,
-      copayAmountCents: m.formularyEntry.copayAmount,
-      requiresPriorAuth: m.formularyEntry.requiresPriorAuth,
-      maxDaySupply: m.formularyEntry.maxDaySupply,
-      maxQuantityPerFill: m.formularyEntry.maxQuantityPerFill,
-      deaSchedule: m.deaSchedule,
-    }));
-
-    const formularyRoot = Poseidon.hash([Field(formularyEntries.length)]).toString();
-    const entriesJson = JSON.stringify(formularyEntries);
-
+    // ── Publish Plan Overlay (Option C) ──
+    // Canonical 32K drugs already loaded into FormularyService on leviathan.
+    // Just publish a default plan overlay with standard tier copays.
     try {
-      await rpcCall('l2_storeFormulary', { planIdHash: standardPlanIdHash, formularyRoot, entriesJson });
-      await rpcCall('l2_storeFormulary', { planIdHash: 'default', formularyRoot, entriesJson });
-      console.log('  [formulary] Published %d medications (plan: %s...)', formularyEntries.length, standardPlanIdHash.slice(0, 16));
+      const defaults = { tier1Copay: 1000, tier2Copay: 3500, tier3Copay: 7500, tier4Copay: 15000 };
+      await rpcCall('l2_publishPlanOverlay', { planIdHash: 'default', planName: 'Standard Plan', overrides: [], defaults });
+
+      // Also verify the formulary loaded
+      const countRes = await rpcCall('l2_getFormularyDrugCount', {});
+      console.log('  [formulary] Published default plan overlay (sequencer has %d drugs)', (countRes as any)?.count ?? '?');
     } catch (err) {
-      console.error('  [formulary] Failed to publish formulary: %s', err);
+      console.error('  [formulary] Failed to publish plan overlay: %s', err);
     }
   } else {
     console.error('  [credential] Sequencer not reachable after 30s — skipping provider registration');
