@@ -134,7 +134,7 @@ class MemberDashboardViewModel(application: Application) : AndroidViewModel(appl
         viewModelScope.launch {
             try {
                 val result = client.reconstructAccumulator(wid)
-                val obj = result.jsonObject
+                val obj = care.zktrident.shared.crypto.BigIntJson.unwrapBigInts(result).jsonObject
                 _planSpend.value = PlanSpend(
                     deductiblePaidCents = obj["deductiblePaidCents"]?.jsonPrimitive?.longOrNull ?: 0L,
                     oopPaidCents = obj["oopPaidCents"]?.jsonPrimitive?.longOrNull ?: 0L,

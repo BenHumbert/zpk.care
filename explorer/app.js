@@ -409,9 +409,9 @@
         detailRow('Total Receipts', receipts.length) +
         detailRow('Registrations', regs) +
         detailRow('Transitions', txns) +
-        (accum ? detailRow('Patient Pay (total)', fmtCents(accum.patientPayCents || accum.totalPatientPay)) : '') +
-        (accum ? detailRow('Plan Pay (total)', fmtCents(accum.planPayCents || accum.totalPlanPay)) : '') +
-        (accum ? detailRow('Deductible Used', fmtCents(accum.deductibleCreditCents || accum.totalDeductibleCredit)) : '') +
+        (accum ? detailRow('Patient Pay (total)', fmtCents(accum.oopPaidCents || accum.patientPayCents || accum.totalPatientPay)) : '') +
+        (accum ? detailRow('Plan Pay (total)', fmtCents(accum.benefitUsedCents || accum.planPayCents || accum.totalPlanPay)) : '') +
+        (accum ? detailRow('Deductible Used', fmtCents(accum.deductiblePaidCents || accum.deductibleCreditCents || accum.totalDeductibleCredit)) : '') +
         '</div>';
 
       $('wallet-receipts').innerHTML = receipts.length ? '<div class="table-wrap">' + renderReceiptTable(receipts, true) + '</div>' : '<div class="empty-state">No receipts</div>';

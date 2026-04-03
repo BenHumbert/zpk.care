@@ -80,7 +80,17 @@ const RPC = (() => {
   function getClaimAccumulatorRoot() { return call('l2_getClaimAccumulatorRoot'); }
 
   // ── Accumulator ──────────────────────────────────────
-  function reconstructAccumulator(w) { return call('l2_reconstructAccumulator', { walletId: w }); }
+  function reconstructAccumulator(w, planIdHash) {
+    var p = { walletId: w };
+    if (planIdHash) p.planIdHash = planIdHash;
+    return call('l2_reconstructAccumulator', p);
+  }
+
+  // ── Plan Limits ─────────────────────────────────────
+  function getPlanLimits(planId) { return call('l2_getPlanLimits', { planId: planId }); }
+
+  // ── Cost Estimation ────────────────────────────────
+  function estimateCost(params) { return call('l2_estimateCost', params); }
 
   // ── Formulary (legacy) ────────────────────────────────
   function getFormulary(planIdHash) { return call('l2_getFormulary', { planIdHash }); }
@@ -206,7 +216,7 @@ const RPC = (() => {
     call, getHealth, getStatus, getChainState,
     getReceiptsByWallet, getReceipt,
     getClaimsByMember, getClaimsByPharmacy, getClaimsByPrescriber, getClaimsByNdc, getClaimAccumulatorRoot,
-    reconstructAccumulator, getFormulary, getFormularyPage, getFormularyDrugCount, getFormularyRoutes, getFormularyRoot,
+    reconstructAccumulator, getPlanLimits, estimateCost, getFormulary, getFormularyPage, getFormularyDrugCount, getFormularyRoutes, getFormularyRoot,
     getNetworkProviders,
     getMessagesByWallet, getMessagesByThread, getMessagesBySender, getMessagesByRecipient,
     storeMessage, getMessageStoreRoot,

@@ -10,6 +10,7 @@
     "start:leviathan": "npx tsx src/nodes/start-leviathan.ts",
     "start:leviathan:clean": "npm run kill:ports && npm run clean:state && npx tsx src/nodes/start-leviathan.ts",
     "start:leviathan:clean:100": "npm run kill:ports && npm run clean:state && node -e \"require('child_process').execSync('npx tsx src/nodes/start-leviathan.ts',{stdio:'inherit',env:{...process.env,ZKTRIDENT_FORMULARY_LIMIT:'100',ZKTRIDENT_POOL_SIZE:'2',ZKTRIDENT_PROOF_POOL_SIZE:'4'}})\"",
+    "start:leviathan:clean:100:unsecure": "npm run kill:ports && npm run clean:state && node -e \"require('child_process').execSync('npx tsx src/nodes/start-leviathan.ts',{stdio:'inherit',env:{...process.env,ZKTRIDENT_FORMULARY_LIMIT:'100',ZKTRIDENT_POOL_SIZE:'2',ZKTRIDENT_PROOF_POOL_SIZE:'4',ZKTRIDENT_UNSECURE:'true'}})\"",
     "start:nautilus": "npx tsx src/nodes/start-nautilus.ts",
     "start:prover": "npx tsx src/nodes/start-prover.ts",
     "start:member": "npx tsx src/nodes/start-member-nautilus.ts",

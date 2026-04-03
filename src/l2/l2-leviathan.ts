@@ -1291,13 +1291,15 @@ export class L2Leviathan {
 
       case 'plan:updated': {
         const planPayload = msg.payload as PlanUpdatedPayload;
-        this.getSequencer().applyReplicatedPlan(planPayload.plan);
+        // WAL-durable path: survives partition crash without requiring checkpoint
+        await this.getSequencer().storePlanWithWal(planPayload.plan);
         break;
       }
 
       case 'plan:deleted': {
         const delPayload = msg.payload as PlanDeletedPayload;
-        this.getSequencer().applyReplicatedPlanDeletion(delPayload.planId);
+        // WAL-durable path: survives partition crash without requiring checkpoint
+        await this.getSequencer().deletePlanWithWal(delPayload.planId);
         break;
       }
 

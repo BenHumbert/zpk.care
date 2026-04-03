@@ -224,6 +224,14 @@ export class L2Node {
   /** Known wallets registered via entity registry (fed by RPC server) */
   knownWallets: Set<string> | null = null;
 
+  /** Admin registry state provider for checkpoint persistence */
+  private adminRegistryProvider: (() => { keys: Array<{ nodeId: string; publicKeyHex: string; admittedBy: string; reason: string; timestamp: number }>; blacklist: string[] }) | null = null;
+
+  /** Set the admin registry state provider (called by start-leviathan.ts to wire RPC server registry into checkpoints) */
+  setAdminRegistryProvider(fn: () => { keys: Array<{ nodeId: string; publicKeyHex: string; admittedBy: string; reason: string; timestamp: number }>; blacklist: string[] }): void {
+    this.adminRegistryProvider = fn;
+  }
+
   /** Register a wallet as known to the network (called by RPC server on l2_registerEntity) */
   registerKnownWallet(walletId: string): void {
     if (!this.knownWallets) this.knownWallets = new Set();
@@ -990,14 +998,16 @@ export class L2Node {
       case 'plan:updated': {
         if (this.role !== 'replica') return;
         const planPayload = msg.payload as PlanUpdatedPayload;
-        this.sequencer.applyReplicatedPlan(planPayload.plan);
+        // WAL-durable path: survives replica crash without requiring checkpoint
+        await this.sequencer.storePlanWithWal(planPayload.plan);
         break;
       }
 
       case 'plan:deleted': {
         if (this.role !== 'replica') return;
         const delPayload = msg.payload as PlanDeletedPayload;
-        this.sequencer.applyReplicatedPlanDeletion(delPayload.planId);
+        // WAL-durable path: survives replica crash without requiring checkpoint
+        await this.sequencer.deletePlanWithWal(delPayload.planId);
         break;
       }
 
@@ -1005,6 +1015,16 @@ export class L2Node {
         if (this.role !== 'replica') return;
         const formPayload = msg.payload as FormularyUpdatedPayload;
         this.sequencer.storeFormulary(formPayload.planIdHash, formPayload.formularyRoot, formPayload.entriesJson);
+        break;
+      }
+
+      case 'admin:eviction': {
+        const evictionPayload = msg.payload as import('./l2-peer-types.js').EvictionPayload;
+        const evictedId = evictionPayload.evictedNodeId;
+        if (this.peerNetwork && !this.peerNetwork.isPeerBanned(evictedId)) {
+          this.peerNetwork.banPeer(evictedId);
+          console.warn(`  [eviction] Peer ${evictedId} banned via gossip: ${evictionPayload.reason}`);
+        }
         break;
       }
 
@@ -1529,6 +1549,11 @@ export class L2Node {
       checkpoint.sequencerState.knownWallets = Array.from(this.knownWallets);
     }
 
+    // Include admin registry state if provider is set
+    if (this.adminRegistryProvider) {
+      checkpoint.sequencerState.adminRegistryState = this.adminRegistryProvider();
+    }
+
     return checkpoint;
   }
 
@@ -1553,7 +1578,14 @@ export class L2Node {
         this.knownWallets.add(wid);
       }
     }
+
+    // Admin registry state is restored by the RPC server via restoreAdminRegistryState()
+    // (the node stores the state in checkpoint but the RPC server owns the registry)
+    this._checkpointAdminRegistryState = checkpoint.sequencerState.adminRegistryState ?? null;
   }
+
+  /** Checkpoint admin registry state — held temporarily until RPC server restores it */
+  _checkpointAdminRegistryState: { keys: Array<{ nodeId: string; publicKeyHex: string; admittedBy: string; reason: string; timestamp: number }>; blacklist: string[] } | null = null;
 
   /**
    * Create a new L2Node from a checkpoint (crash recovery).

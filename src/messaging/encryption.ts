@@ -118,10 +118,17 @@ export function deriveSharedSecret(
  * Raw ECDH outputs should NEVER be used directly as cipher keys — they
  * have non-uniform entropy distribution. HKDF-SHA256 produces a
  * cryptographically proper key with uniform distribution.
+ *
+ * When messageNonce is provided, the HKDF info string includes the nonce,
+ * producing a unique AES key per message. This eliminates GCM nonce reuse
+ * risk even with a static shared secret across all messages in a relationship.
  */
-function deriveAesKey(sharedSecret: Buffer): Buffer {
+function deriveAesKey(sharedSecret: Buffer, messageNonce?: number): Buffer {
+  const info = messageNonce !== undefined
+    ? `zkpcare-msg-aes256gcm-${messageNonce}`
+    : 'zkpcare-msg-aes256gcm';
   return Buffer.from(
-    hkdfSync('sha256', sharedSecret, Buffer.alloc(0), 'zkpcare-msg-aes256gcm', 32),
+    hkdfSync('sha256', sharedSecret, Buffer.alloc(0), info, 32),
   );
 }
 
@@ -142,14 +149,16 @@ export interface EncryptedPayload {
  *
  * @param plaintext — the message content to encrypt
  * @param sharedSecret — 32-byte ECDH shared secret (used as AES key)
+ * @param messageNonce — optional per-message nonce for unique key derivation
  * @returns { ciphertext, iv, tag }
  */
 export function encryptMessage(
   plaintext: string,
   sharedSecret: Buffer,
+  messageNonce?: number,
 ): EncryptedPayload {
   // H1 fix: derive AES key via HKDF instead of using raw shared secret
-  const key = deriveAesKey(sharedSecret);
+  const key = deriveAesKey(sharedSecret, messageNonce);
   // 12-byte random IV for GCM
   const iv = Buffer.from(
     globalThis.crypto.getRandomValues(new Uint8Array(12)),
@@ -172,6 +181,7 @@ export function encryptMessage(
  * @param iv — 12-byte initialization vector
  * @param tag — 16-byte authentication tag
  * @param sharedSecret — 32-byte ECDH shared secret (used as AES key)
+ * @param messageNonce — optional per-message nonce (must match the nonce used during encryption)
  * @returns decrypted plaintext string
  */
 export function decryptMessage(
@@ -179,9 +189,10 @@ export function decryptMessage(
   iv: Buffer,
   tag: Buffer,
   sharedSecret: Buffer,
+  messageNonce?: number,
 ): string {
   // H1 fix: derive AES key via HKDF instead of using raw shared secret
-  const key = deriveAesKey(sharedSecret);
+  const key = deriveAesKey(sharedSecret, messageNonce);
   const decipher = createDecipheriv('aes-256-gcm', key, iv);
   decipher.setAuthTag(tag);
   const decrypted = Buffer.concat([

@@ -104,6 +104,10 @@ export interface ClaimMetadata {
   totalDrugCostCents?: number;
   /** Quantity dispensed (decimal, e.g. 30 tablets) */
   quantityDispensed?: number;
+
+  // ─── Plan Context ─────────────────────────────────────
+  /** Benefit plan ID hash (links claim to plan for accumulator filtering) */
+  planIdHash?: string;
 }
 
 // ─── Claim Accumulator Entry ────────────────────────────────

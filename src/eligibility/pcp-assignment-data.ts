@@ -9,7 +9,9 @@ export const PCP_SCOPE_RX_HISTORY = Field(1);
 export const PCP_SCOPE_ELIGIBILITY = Field(2);
 /** Access to accumulator state (deductible, OOPM, annual max) */
 export const PCP_SCOPE_ACCUMULATORS = Field(4);
-/** Full access — RX_HISTORY + ELIGIBILITY + ACCUMULATORS (1 | 2 | 4 = 7) */
+/** Messaging access — initiate and receive encrypted messages (requires explicit consent) */
+export const PCP_SCOPE_MESSAGING = Field(8);
+/** Full clinical access — RX_HISTORY + ELIGIBILITY + ACCUMULATORS (1 | 2 | 4 = 7). Does NOT include MESSAGING — messaging requires explicit consent. */
 export const PCP_SCOPE_ALL = Field(7);
 
 /** Leaf index in the MEMBER domain tree for the PCP assignment */

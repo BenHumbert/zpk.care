@@ -501,7 +501,11 @@ export class EnrollmentService {
    * @param newWalletId — the new wallet to enroll
    * @param tokenIdHash — Poseidon hash of the original enrollment tokenId
    * @param currentDate — current date as CCYYMMDD string
-   * @param reconstructedAccumulator — optional accumulator totals from sequencer
+   * @param reconstructedAccumulator — optional accumulator totals from sequencer.
+   *   IMPORTANT: Callers should use plan-filtered reconstruction
+   *   (`sequencer.reconstructAccumulator(walletId, planIdHash)`) to avoid
+   *   cross-plan contamination for members who changed plans mid-year.
+   *   The planIdHash is available on MigrationRequest from the recovery card.
    */
   processMigration(
     oldWalletId: Field,

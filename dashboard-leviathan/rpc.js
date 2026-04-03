@@ -82,8 +82,8 @@ const RPC = (() => {
     return call('l2_getLeviathanStatus').catch(function () {
       // Fallback for single L2Node (not L2Leviathan)
       return Promise.all([
-        call('l2_getStatus'),
-        getHealth(),
+        call('l2_getStatus').catch(function () { return {}; }),
+        getHealth().catch(function () { return {}; }),
         call('l2_getPeerInfo').catch(function () { return null; }),
         call('l2_getPeerList').catch(function () { return []; }),
       ]).then(function (results) {

@@ -230,6 +230,9 @@ const API = (() => {
   function getSent() { return get('/messaging/sent'); }
   function getThread(threadIdHash) { return get(`/messaging/thread/${encodeURIComponent(threadIdHash)}`); }
 
+  // ── Cost Estimation (proxied through Nautilus → sequencer RPC) ──
+  function estimateCost(params) { return post('/estimate-cost', params); }
+
   // ── Public API ─────────────────────────────────────────────
 
   return {
@@ -295,5 +298,8 @@ const API = (() => {
     getInbox,
     getSent,
     getThread,
+
+    // Cost estimation
+    estimateCost,
   };
 })();

@@ -114,7 +114,14 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         return server.sendResponse(res, 503, false, undefined, 'Insurer node not configured');
       }
 
-      const b = body as { walletId?: string; tokenId?: string; role?: string } | undefined;
+      const b = body as {
+        walletId?: string;
+        tokenId?: string;
+        role?: string;
+        groupId?: string;
+        planId?: string;
+        employerId?: string;
+      } | undefined;
       if (!b?.walletId) {
         return server.sendResponse(res, 400, false, undefined, 'Missing walletId');
       }
@@ -150,8 +157,9 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         walletId: b.walletId,
         tokenId: b.tokenId ?? null,
         role: b.role ?? 'member',
-        groupId: (b as any).groupId ?? null,
-        employerId: (b as any).employerId ?? null,
+        groupId: b.groupId ?? null,
+        planId: b.planId ?? null,
+        employerId: b.employerId ?? null,
         enrolledAt: Date.now(),
       };
 
@@ -220,6 +228,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
             specialty: entity?.specialty ?? null,
             pharmacyType: entity?.pharmacyType ?? null,
             groupId: enrollment?.groupId ?? entity?.group ?? null,
+            planId: enrollment?.planId ?? null,
             employerId: enrollment?.employerId ?? null,
             registeredAt: r.acceptedAt,
             receiptId: r.receiptId,
@@ -266,6 +275,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         walletId?: string;
         role?: string;
         groupId?: string;
+        planId?: string;
         employerId?: string;
       } | undefined;
 
@@ -278,6 +288,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         walletId: b.walletId,
         role: b.role ?? 'member',
         groupId: b.groupId ?? null,
+        planId: b.planId ?? null,
         employerId: b.employerId ?? null,
         enrolledAt: Date.now(),
       };

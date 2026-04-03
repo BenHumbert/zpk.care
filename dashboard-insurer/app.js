@@ -1120,11 +1120,12 @@
     }
 
     bodyEl.innerHTML =
-      '<table class="data-table"><thead><tr><th>Wallet ID</th><th>Role</th><th>Display Name</th><th>Registered</th></tr></thead><tbody>' +
+      '<table class="data-table"><thead><tr><th>Wallet ID</th><th>Role</th><th>Plan</th><th>Display Name</th><th>Registered</th></tr></thead><tbody>' +
       entries.map(function (e) {
         return '<tr>' +
           '<td><span class="hash" title="' + esc(e.walletId) + '">' + esc(truncHash(e.walletId, 16)) + '</span></td>' +
           '<td><span class="badge badge-info">' + esc(e.role || 'member') + '</span></td>' +
+          '<td style="font-family:var(--font-mono);font-size:12px">' + esc(e.planId || '--') + '</td>' +
           '<td>' + esc(e.displayName || '--') + '</td>' +
           '<td style="font-family:var(--font-mono);font-size:12px">' + esc(fmtDate(e.registeredAt)) + '</td>' +
         '</tr>';

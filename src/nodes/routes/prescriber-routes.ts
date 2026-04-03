@@ -1101,6 +1101,23 @@ export function buildPrescriberRoutes(
     },
   });
 
+  // ── Cost Estimation (proxy to sequencer l2_estimateCost) ──
+
+  routes.push({
+    method: 'POST',
+    path: '/estimate-cost',
+    handler: async (_req, res, _params, _query, body) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      try {
+        const result = await node.getClient().estimateCost(body as any);
+        server.sendResponse(res, 200, true, result);
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : String(err));
+      }
+    },
+  });
+
   // ══════════════════════════════════════════════════════════
   //  PRESCRIBER LIST (for dashboard dropdown)
   // ══════════════════════════════════════════════════════════
@@ -1195,7 +1212,7 @@ export function buildPrescriberRoutes(
         let isNewWallet = false;
         try {
           const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
-          const adminToken = server.getConfig().adminToken ?? 'admin123';
+          const adminToken = server.getConfig().adminToken;
           const resp = await fetch(seqUrl + '/rpc', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1209,12 +1226,11 @@ export function buildPrescriberRoutes(
             // First time alias — register this prescriber's wallet on the sequencer
             isNewWallet = true;
             console.log(`[badge:tap] First alias for ${displayName} — registering wallet ${walletId.slice(0, 16)}… on sequencer`);
+            const regHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (adminToken) regHeaders['Authorization'] = `Bearer ${adminToken}`;
             const regResp = await fetch(seqUrl + '/rpc', {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${adminToken}`,
-              },
+              headers: regHeaders,
               body: JSON.stringify({
                 jsonrpc: '2.0', id: 2, method: 'l2_registerEntity',
                 params: {

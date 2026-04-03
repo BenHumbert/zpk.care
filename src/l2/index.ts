@@ -196,6 +196,8 @@ export type {
   PlanDeletedPayload,
   FormularyUpdatedPayload,
   PeerAnnouncePayload,
+  EvictionPayload,
+  EquivocationEvidence,
   StateDigest,
   PeerNetworkConfig,
 } from './l2-peer-types.js';
@@ -231,6 +233,7 @@ export {
   InMemoryWalProvider,
   FileWalProvider,
   computeWalIntegrityHash,
+  WAL_CHAIN_GENESIS,
 } from './l2-wal.js';
 export type {
   WalEntry,

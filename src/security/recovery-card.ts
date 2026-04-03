@@ -10,12 +10,13 @@ import { MIN_PIN_LENGTH } from './enrollment-backup.js';
  * designed for cold storage (firebox, safe deposit box) — a Ledger-style
  * physical backup that bridges old wallet → new wallet.
  *
- * v2 adds three opaque hash fields (~200 extra bytes):
+ * v2 adds four opaque hash fields (~250 extra bytes):
  *   - tokenIdHash — insurer looks up consumed token → confirms identity
  *   - employeeIdHash — employer's internal employee ID hash
  *   - groupIdHash — employer group hash (plan lookup)
+ *   - planIdHash — benefit plan hash (accumulator limit resolution)
  *
- * Total payload: ~400 bytes — well under NTAG216's 888 byte capacity.
+ * Total payload: ~450 bytes — well under NTAG216's 888 byte capacity.
  *
  * Recovery flow:
  *   1. Member scans NFC card + enters PIN → recovers old enrollment key
@@ -67,6 +68,8 @@ export interface RecoveryCard {
   employeeIdHash: string;
   /** Hash of employer group ID (plan lookup) */
   groupIdHash: string;
+  /** Hash of benefit plan ID (accumulator limit resolution during migration). May be absent on cards created before this field was added. */
+  planIdHash?: string;
   /** Timestamp when card was created */
   createdAt: number;
 }
@@ -98,6 +101,7 @@ export function isRecoveryCard(
  * @param tokenIdHash — Poseidon hash of the enrollment tokenId
  * @param employeeIdHash — Poseidon hash of the employee ID
  * @param groupIdHash — Poseidon hash of the employer group ID
+ * @param planIdHash — Poseidon hash of the benefit plan ID
  * @returns RecoveryCard ready for NFC storage
  */
 export function exportRecoveryCard(
@@ -108,6 +112,7 @@ export function exportRecoveryCard(
   tokenIdHash: string,
   employeeIdHash: string,
   groupIdHash: string,
+  planIdHash: string,
 ): RecoveryCard {
   validatePin(pin);
 
@@ -138,6 +143,7 @@ export function exportRecoveryCard(
       tokenIdHash,
       employeeIdHash,
       groupIdHash,
+      planIdHash,
       createdAt: Date.now(),
     };
   } finally {

@@ -46,9 +46,20 @@
   /** Probe a single node's health endpoint */
   async function probeNode(node) {
     var t0 = Date.now();
+
+    // Self-node: this dashboard is served by the Leviathan — it's alive if we're running.
+    // Skip the HTTP probe which can false-timeout under browser connection limits.
+    if (node.id === 'leviathan') {
+      nodeHealthState[node.id] = {
+        alive: true, lastCheck: Date.now(), latencyMs: 0,
+        phase: 'running', error: null, detail: 'self'
+      };
+      return;
+    }
+
     try {
       var controller = new AbortController();
-      var timeout = setTimeout(function () { controller.abort(); }, 3000);
+      var timeout = setTimeout(function () { controller.abort(); }, 8000);
       var res = await fetch(node.url + node.healthPath, { signal: controller.signal });
       clearTimeout(timeout);
       var latency = Date.now() - t0;
@@ -2154,10 +2165,10 @@
       startPolling();
     });
 
-    // Re-check node health every 3s
+    // Re-check node health every 10s (reduced from 3s to avoid request contention)
     setInterval(function () {
       checkAllNodeHealth();
-    }, 3000);
+    }, 10000);
 
     // Sparkline ticker — 1s interval
     setInterval(tickSparkline, 1000);

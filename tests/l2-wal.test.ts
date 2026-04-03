@@ -13,7 +13,7 @@ import * as os from 'os';
 
 // ─── Test Helpers ──────────────────────────────────────────
 
-function makeProofEntry(partitionIndex: number, seqNum: bigint, walletId?: string): Omit<WalEntry, 'entryId' | 'committed' | 'integrityHash'> {
+function makeProofEntry(partitionIndex: number, seqNum: bigint, walletId?: string): Omit<WalEntry, 'entryId' | 'committed' | 'integrityHash' | 'prevIntegrityHash'> {
   return {
     type: 'proof',
     partitionIndex,
@@ -29,7 +29,7 @@ function makeProofEntry(partitionIndex: number, seqNum: bigint, walletId?: strin
   };
 }
 
-function makeBatchEntry(partitionIndex: number, seqNum: bigint, type: 'batch_begin' | 'batch_commit' | 'batch_abort'): Omit<WalEntry, 'entryId' | 'committed' | 'integrityHash'> {
+function makeBatchEntry(partitionIndex: number, seqNum: bigint, type: 'batch_begin' | 'batch_commit' | 'batch_abort'): Omit<WalEntry, 'entryId' | 'committed' | 'integrityHash' | 'prevIntegrityHash'> {
   return {
     type,
     partitionIndex,
@@ -214,6 +214,29 @@ describe('InMemoryWalProvider', () => {
     expect(typeof entries[0].integrityHash).toBe('string');
     expect(entries[0].integrityHash.length).toBe(32);
   });
+
+  test('entries are hash-chained via prevIntegrityHash', async () => {
+    await wal.append(makeProofEntry(0, 1n));
+    await wal.append(makeProofEntry(0, 2n));
+    await wal.append(makeProofEntry(0, 3n));
+    const entries = wal.getAllEntries(0);
+
+    expect(entries[0].prevIntegrityHash).toBe('0'); // genesis
+    expect(entries[1].prevIntegrityHash).toBe(entries[0].integrityHash);
+    expect(entries[2].prevIntegrityHash).toBe(entries[1].integrityHash);
+  });
+
+  test('chain resets after truncation', async () => {
+    await wal.append(makeProofEntry(0, 1n));
+    await wal.append(makeProofEntry(0, 2n));
+    await wal.truncateBefore(0, 1n);
+    await wal.append(makeProofEntry(0, 3n));
+    const entries = wal.getAllEntries(0);
+
+    // After truncation, the chain continues from the last kept entry
+    expect(entries).toHaveLength(2); // seq 2 + seq 3
+    expect(entries[1].prevIntegrityHash).toBe(entries[0].integrityHash);
+  });
 });
 
 // ─── FileWalProvider Tests ─────────────────────────────────
@@ -343,5 +366,85 @@ describe('FileWalProvider', () => {
     expect(entries[0].sequenceNumber).toBe(1n);
     expect(entries[1].sequenceNumber).toBe(2n);
     expect(entries[2].sequenceNumber).toBe(3n);
+  });
+
+  test('HMAC secret file is created', async () => {
+    await wal.append(makeProofEntry(0, 1n));
+    const secretFile = path.join(tmpDir, 'wal', 'wal.secret');
+    expect(fs.existsSync(secretFile)).toBe(true);
+    expect(fs.readFileSync(secretFile).length).toBe(32);
+  });
+
+  test('entries are hash-chained on disk', async () => {
+    await wal.append(makeProofEntry(0, 1n));
+    await wal.append(makeProofEntry(0, 2n));
+    await wal.close();
+
+    const wal2 = new FileWalProvider({ dataDir: tmpDir, fsyncOnWrite: false });
+    const entries = await wal2.readAfter(0, 0n);
+    expect(entries).toHaveLength(2);
+    expect(entries[0].prevIntegrityHash).toBe('0');
+    expect(entries[1].prevIntegrityHash).toBe(entries[0].integrityHash);
+    await wal2.close();
+  });
+
+  test('injected entries are rejected on recovery (HMAC mismatch)', async () => {
+    await wal.append(makeProofEntry(0, 1n));
+    await wal.append(makeProofEntry(0, 2n));
+    await wal.close();
+
+    // Attacker appends a forged entry — they don't have the HMAC secret
+    const walFile = path.join(tmpDir, 'wal', 'partition-0.wal');
+    const forgedEntry = JSON.stringify({
+      entryId: 'forged-entry-id',
+      sequenceNumber: '3',
+      type: 'proof',
+      partitionIndex: 0,
+      walletId: 'attacker-wallet',
+      stateSnapshot: { registryRoot: 'fake', lifecycleRoot: 'fake', walletCount: '999', auditChainHash: 'fake' },
+      integrityHash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      prevIntegrityHash: '0',
+      timestamp: Date.now(),
+      committed: false,
+    });
+    fs.appendFileSync(walFile, forgedEntry + '\n');
+
+    const wal2 = new FileWalProvider({ dataDir: tmpDir, fsyncOnWrite: false });
+    const entries = await wal2.readAfter(0, 0n);
+
+    // Only the 2 legitimate entries survive — the forged entry is rejected
+    expect(entries).toHaveLength(2);
+    expect(entries.find(e => e.walletId === 'attacker-wallet')).toBeUndefined();
+    await wal2.close();
+  });
+
+  test('chain break rejects all subsequent injected entries', async () => {
+    await wal.append(makeProofEntry(0, 1n));
+    await wal.close();
+
+    // Attacker injects TWO entries
+    const walFile = path.join(tmpDir, 'wal', 'partition-0.wal');
+    for (let i = 2; i <= 3; i++) {
+      const forged = JSON.stringify({
+        entryId: `forged-${i}`,
+        sequenceNumber: String(i),
+        type: 'proof',
+        partitionIndex: 0,
+        walletId: `attacker-${i}`,
+        integrityHash: `${'b'.repeat(32)}`,
+        prevIntegrityHash: i === 2 ? `${'b'.repeat(32)}` : `${'c'.repeat(32)}`,
+        timestamp: Date.now(),
+        committed: false,
+      });
+      fs.appendFileSync(walFile, forged + '\n');
+    }
+
+    const wal2 = new FileWalProvider({ dataDir: tmpDir, fsyncOnWrite: false });
+    const entries = await wal2.readAfter(0, 0n);
+
+    // Only the 1 legitimate entry survives
+    expect(entries).toHaveLength(1);
+    expect(entries[0].sequenceNumber).toBe(1n);
+    await wal2.close();
   });
 });

@@ -16,7 +16,7 @@
  * Zero external dependencies — Node.js fs + crypto only.
  */
 
-import { createHash } from 'crypto';
+import { createHash, createHmac, randomBytes } from 'crypto';
 import { l2Stringify, l2Parse } from './l2-json.js';
 
 // ─── WAL Entry Types ─────────────────────────────────────
@@ -68,8 +68,10 @@ export interface WalEntry {
     walletCount: string;
     auditChainHash: string;
   };
-  /** SHA-256 integrity hash of critical fields */
+  /** HMAC-SHA-256 integrity hash chained to previous entry */
   integrityHash: string;
+  /** Integrity hash of the previous entry in this partition's chain ('0' for first) */
+  prevIntegrityHash: string;
   /** Unix timestamp (ms) when entry was written */
   timestamp: number;
   /** Whether mutations have been applied (commit marker) */
@@ -100,7 +102,7 @@ export const DEFAULT_WAL_CONFIG: Omit<WalConfig, 'dataDir'> = {
  */
 export interface IWalProvider {
   /** Append an entry. Returns the entryId. */
-  append(entry: Omit<WalEntry, 'entryId' | 'committed' | 'integrityHash'>): Promise<string>;
+  append(entry: Omit<WalEntry, 'entryId' | 'committed' | 'integrityHash' | 'prevIntegrityHash'>): Promise<string>;
 
   /** Mark an entry as committed (mutations applied). */
   commit(entryId: string): Promise<void>;
@@ -123,9 +125,21 @@ export interface IWalProvider {
 
 // ─── Integrity Hash ──────────────────────────────────────
 
+/** WAL chain genesis hash — the prevIntegrityHash for the first entry in a partition */
+export const WAL_CHAIN_GENESIS = '0';
+
 /**
- * Compute the integrity hash for a WAL entry.
- * SHA-256 of the critical fields (type, partition, sequence, walletId, state snapshot).
+ * Compute the HMAC-chained integrity hash for a WAL entry.
+ *
+ * HMAC-SHA-256 of critical fields + previous entry's hash.
+ * - Chain link: prevIntegrityHash is included in the hash input, so modifying
+ *   or inserting any earlier entry invalidates all subsequent hashes.
+ * - HMAC: keyed with a per-node secret stored separately from the WAL file,
+ *   so an attacker who writes to the WAL but doesn't have the secret cannot
+ *   forge valid entries.
+ *
+ * Falls back to plain SHA-256 if no secret is provided (InMemoryWalProvider
+ * in tests, or legacy WAL files from before this change).
  */
 export function computeWalIntegrityHash(entry: {
   type: WalEntryType;
@@ -137,8 +151,10 @@ export function computeWalIntegrityHash(entry: {
   proofJson?: string;
   receiptData?: unknown;
   claimEntryData?: unknown;
-}): string {
+  prevIntegrityHash?: string;
+}, hmacSecret?: Buffer): string {
   const content = [
+    entry.prevIntegrityHash ?? WAL_CHAIN_GENESIS,
     entry.type,
     String(entry.partitionIndex),
     entry.sequenceNumber.toString(),
@@ -149,7 +165,9 @@ export function computeWalIntegrityHash(entry: {
     entry.stateSnapshot?.auditChainHash ?? '',
     String(entry.timestamp),
   ].join('|');
-  const hash = createHash('sha256').update(content);
+  const hash = hmacSecret
+    ? createHmac('sha256', hmacSecret).update(content)
+    : createHash('sha256').update(content);
   // Include proof payload in integrity hash for tamper detection on recovery
   if (entry.proofJson) hash.update('|p:').update(entry.proofJson);
   if (entry.receiptData) hash.update('|r:').update(JSON.stringify(entry.receiptData));
@@ -185,16 +203,20 @@ export class InMemoryWalProvider implements IWalProvider {
   private entryIndex: Map<string, WalEntry> = new Map();
   /** Map of partitionIndex → latest sequence number */
   private latestSeqNums: Map<number, bigint> = new Map();
+  /** Map of partitionIndex → last integrity hash for chaining */
+  private lastHash: Map<number, string> = new Map();
 
   async append(
-    entry: Omit<WalEntry, 'entryId' | 'committed' | 'integrityHash'>,
+    entry: Omit<WalEntry, 'entryId' | 'committed' | 'integrityHash' | 'prevIntegrityHash'>,
   ): Promise<string> {
     const entryId = generateEntryId(entry);
-    const integrityHash = computeWalIntegrityHash(entry);
+    const prevIntegrityHash = this.lastHash.get(entry.partitionIndex) ?? WAL_CHAIN_GENESIS;
+    const integrityHash = computeWalIntegrityHash({ ...entry, prevIntegrityHash });
 
     const fullEntry: WalEntry = {
       ...entry,
       entryId,
+      prevIntegrityHash,
       integrityHash,
       committed: false,
     };
@@ -206,6 +228,7 @@ export class InMemoryWalProvider implements IWalProvider {
     }
     partitionEntries.push(fullEntry);
     this.entryIndex.set(entryId, fullEntry);
+    this.lastHash.set(entry.partitionIndex, integrityHash);
 
     const currentLatest = this.latestSeqNums.get(entry.partitionIndex) ?? -1n;
     if (entry.sequenceNumber > currentLatest) {
@@ -259,8 +282,16 @@ export class InMemoryWalProvider implements IWalProvider {
     for (const entry of removed) {
       this.entryIndex.delete(entry.entryId);
     }
-
     this.entries.set(partitionIndex, kept);
+
+    // Update chain head and sequence tracker to the last kept entry (or reset)
+    if (kept.length > 0) {
+      this.lastHash.set(partitionIndex, kept[kept.length - 1].integrityHash);
+      this.latestSeqNums.set(partitionIndex, kept[kept.length - 1].sequenceNumber);
+    } else {
+      this.lastHash.delete(partitionIndex);
+      this.latestSeqNums.delete(partitionIndex);
+    }
   }
 
   async close(): Promise<void> {
@@ -286,6 +317,7 @@ export class InMemoryWalProvider implements IWalProvider {
     this.entries.clear();
     this.entryIndex.clear();
     this.latestSeqNums.clear();
+    this.lastHash.clear();
   }
 }
 
@@ -308,16 +340,48 @@ export class FileWalProvider implements IWalProvider {
   private entries: Map<number, WalEntry[]> = new Map();
   private entryIndex: Map<string, WalEntry> = new Map();
   private latestSeqNums: Map<number, bigint> = new Map();
+  /** Map of partitionIndex → last integrity hash for chaining */
+  private lastHash: Map<number, string> = new Map();
   /** Whether the provider has been initialized */
   private initialized: Map<number, boolean> = new Map();
+  /** HMAC secret for WAL integrity — generated once, stored in separate file */
+  private hmacSecret: Buffer | undefined;
 
   constructor(config: WalConfig) {
     this.config = config;
   }
 
+  /** Load or generate the HMAC secret. Stored at {dataDir}/wal/wal.secret */
+  private async ensureHmacSecret(): Promise<Buffer> {
+    if (this.hmacSecret) return this.hmacSecret;
+
+    const fs = await import('fs');
+    const path = await import('path');
+    const walDir = path.join(this.config.dataDir, 'wal');
+    const secretFile = path.join(walDir, 'wal.secret');
+
+    fs.mkdirSync(walDir, { recursive: true });
+
+    if (fs.existsSync(secretFile)) {
+      this.hmacSecret = fs.readFileSync(secretFile);
+    } else {
+      this.hmacSecret = randomBytes(32);
+      const fd = fs.openSync(secretFile, 'w', 0o600);
+      try {
+        fs.writeSync(fd, this.hmacSecret);
+        fs.fsyncSync(fd);
+      } finally {
+        fs.closeSync(fd);
+      }
+    }
+    return this.hmacSecret;
+  }
+
   /** Lazily initialize a partition's WAL from disk */
   private async ensureInitialized(partitionIndex: number): Promise<void> {
     if (this.initialized.get(partitionIndex)) return;
+
+    const secret = await this.ensureHmacSecret();
 
     // Dynamic import for fs (ESM compatible)
     const fs = await import('fs');
@@ -349,7 +413,10 @@ export class FileWalProvider implements IWalProvider {
         }
       }
 
-      // Second pass: load entries, apply commit markers
+      // Second pass: load entries, verify chain + HMAC, apply commit markers
+      let expectedPrevHash = WAL_CHAIN_GENESIS;
+      let chainBroken = false;
+
       for (const line of lines) {
         try {
           const parsed = l2Parse<Record<string, unknown>>(line);
@@ -358,13 +425,39 @@ export class FileWalProvider implements IWalProvider {
 
           const entry = parsed as unknown as WalEntry;
 
-          // Verify integrity hash — skip tampered/corrupt entries
+          // Verify integrity hash with HMAC secret
           if (entry.integrityHash) {
-            const recomputed = computeWalIntegrityHash(entry);
-            if (entry.integrityHash !== recomputed) {
-              console.warn(`[WAL] Corrupt entry ${entry.entryId} in partition ${partitionIndex} (hash mismatch), skipping`);
+            // Try HMAC verification first (current format)
+            const recomputedHmac = computeWalIntegrityHash(entry, secret);
+            // Fall back to plain SHA-256 for legacy entries (pre-HMAC WAL files)
+            const recomputedPlain = computeWalIntegrityHash(entry);
+            if (entry.integrityHash !== recomputedHmac && entry.integrityHash !== recomputedPlain) {
+              console.warn(`[WAL] Tampered entry ${entry.entryId} seq=${entry.sequenceNumber} in partition ${partitionIndex} (HMAC mismatch), skipping`);
+              chainBroken = true;
               continue;
             }
+          }
+
+          // Verify chain link — prevIntegrityHash must match the previous entry's hash
+          if (!entry.prevIntegrityHash) {
+            // Legacy entry without chain link — chain validation degraded for this entry
+            if (partitionEntries.length === 0) {
+              console.info(`[WAL] Legacy entry ${entry.entryId} seq=${entry.sequenceNumber} in partition ${partitionIndex} (no prevIntegrityHash — pre-HMAC format)`);
+            }
+          } else if (!chainBroken) {
+            if (entry.prevIntegrityHash !== expectedPrevHash) {
+              console.warn(`[WAL] Chain break at entry ${entry.entryId} seq=${entry.sequenceNumber} in partition ${partitionIndex} (prev hash mismatch: expected ${expectedPrevHash.slice(0, 8)}…, got ${entry.prevIntegrityHash.slice(0, 8)}…), skipping this and all subsequent injected entries`);
+              chainBroken = true;
+              continue;
+            }
+          }
+
+          // If chain was broken by a tampered/injected entry, skip all subsequent
+          // entries until we find one that reconnects the chain (which won't happen
+          // for injected entries since they can't produce valid HMACs)
+          if (chainBroken) {
+            console.warn(`[WAL] Skipping entry ${entry.entryId} seq=${entry.sequenceNumber} after chain break`);
+            continue;
           }
 
           if (commitSet.has(entry.entryId)) {
@@ -372,6 +465,7 @@ export class FileWalProvider implements IWalProvider {
           }
           partitionEntries.push(entry);
           this.entryIndex.set(entry.entryId, entry);
+          expectedPrevHash = entry.integrityHash;
 
           const currentLatest = this.latestSeqNums.get(partitionIndex) ?? -1n;
           if (entry.sequenceNumber > currentLatest) {
@@ -383,6 +477,14 @@ export class FileWalProvider implements IWalProvider {
       }
 
       this.entries.set(partitionIndex, partitionEntries);
+      // Set chain head for future appends
+      if (partitionEntries.length > 0) {
+        this.lastHash.set(partitionIndex, partitionEntries[partitionEntries.length - 1].integrityHash);
+      }
+
+      if (chainBroken) {
+        console.warn(`[WAL] Chain integrity violation detected in partition ${partitionIndex} — injected entries were rejected`);
+      }
     } else {
       this.entries.set(partitionIndex, []);
     }
@@ -413,16 +515,19 @@ export class FileWalProvider implements IWalProvider {
   }
 
   async append(
-    entry: Omit<WalEntry, 'entryId' | 'committed' | 'integrityHash'>,
+    entry: Omit<WalEntry, 'entryId' | 'committed' | 'integrityHash' | 'prevIntegrityHash'>,
   ): Promise<string> {
     await this.ensureInitialized(entry.partitionIndex);
+    const secret = await this.ensureHmacSecret();
 
     const entryId = generateEntryId(entry);
-    const integrityHash = computeWalIntegrityHash(entry);
+    const prevIntegrityHash = this.lastHash.get(entry.partitionIndex) ?? WAL_CHAIN_GENESIS;
+    const integrityHash = computeWalIntegrityHash({ ...entry, prevIntegrityHash }, secret);
 
     const fullEntry: WalEntry = {
       ...entry,
       entryId,
+      prevIntegrityHash,
       integrityHash,
       committed: false,
     };
@@ -438,6 +543,7 @@ export class FileWalProvider implements IWalProvider {
     }
     partitionEntries.push(fullEntry);
     this.entryIndex.set(entryId, fullEntry);
+    this.lastHash.set(entry.partitionIndex, integrityHash);
 
     const currentLatest = this.latestSeqNums.get(entry.partitionIndex) ?? -1n;
     if (entry.sequenceNumber > currentLatest) {
@@ -499,6 +605,15 @@ export class FileWalProvider implements IWalProvider {
     }
     this.entries.set(partitionIndex, kept);
 
+    // Update chain head and sequence tracker to the last kept entry (or reset)
+    if (kept.length > 0) {
+      this.lastHash.set(partitionIndex, kept[kept.length - 1].integrityHash);
+      this.latestSeqNums.set(partitionIndex, kept[kept.length - 1].sequenceNumber);
+    } else {
+      this.lastHash.delete(partitionIndex);
+      this.latestSeqNums.delete(partitionIndex);
+    }
+
     // Rewrite the WAL file with only kept entries + their commit markers
     const fs = await import('fs');
     const path = await import('path');
@@ -530,10 +645,15 @@ export class FileWalProvider implements IWalProvider {
   }
 
   async close(): Promise<void> {
-    // File handles are opened/closed per operation, nothing to clean up
+    // Zero the HMAC secret from memory
+    if (this.hmacSecret) {
+      this.hmacSecret.fill(0);
+      this.hmacSecret = undefined;
+    }
     this.entries.clear();
     this.entryIndex.clear();
     this.latestSeqNums.clear();
+    this.lastHash.clear();
     this.initialized.clear();
   }
 }

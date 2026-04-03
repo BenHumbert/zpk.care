@@ -537,6 +537,67 @@
     }, 5000);
   }
 
+  async function updateCostEstimate() {
+    var el = document.getElementById('rx-cost-estimate');
+    if (!el) {
+      // Create the estimate container if it doesn't exist
+      var writeResult = document.getElementById('rx-write-result');
+      if (writeResult) {
+        var div = document.createElement('div');
+        div.id = 'rx-cost-estimate';
+        div.style.cssText = 'margin:12px 0;padding:12px;border-radius:8px;background:var(--bg-card,#1a1a2e);border:1px solid var(--border,#333)';
+        writeResult.parentNode.insertBefore(div, writeResult);
+        el = div;
+      } else return;
+    }
+
+    var ndcHash = $('#rx-med-select').value || ($('#rx-ndc-manual') ? $('#rx-ndc-manual').value.trim() : '');
+    var memberWalletId = $('#rx-patient-select') ? $('#rx-patient-select').value : '';
+    var quantity = parseInt($('#rx-quantity') ? $('#rx-quantity').value : '30') || 30;
+
+    if (!ndcHash) { el.innerHTML = ''; return; }
+
+    el.innerHTML = '<div style="color:var(--text-muted);font-size:12px">Estimating cost...</div>';
+
+    try {
+      var est = await API.estimateCost({
+        ndcHash: ndcHash,
+        walletId: memberWalletId || undefined,
+        quantity: quantity,
+      });
+
+      if (!est || !est.covered) {
+        el.innerHTML = '<div style="color:var(--red,#f85149)">Not covered: ' + esc(est ? est.reason : 'Drug not found') + '</div>';
+        return;
+      }
+
+      el.innerHTML =
+        '<div style="font-size:13px;font-weight:600;margin-bottom:8px">Cost Estimate — ' + esc(est.drugName) + '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px">' +
+          '<div style="padding:8px;background:var(--bg-surface,#222);border-radius:6px;text-align:center">' +
+            '<div style="color:var(--text-muted);margin-bottom:4px">Drug Cost (NADAC)</div>' +
+            '<div style="font-size:16px;font-weight:700;font-family:var(--font-mono)">$' + (est.ingredientCostCents / 100).toFixed(2) + '</div>' +
+            '<div style="color:var(--text-muted);margin-top:2px">$' + est.nadacPerUnit.toFixed(4) + '/unit x ' + est.quantity + '</div>' +
+          '</div>' +
+          '<div style="padding:8px;background:var(--bg-surface,#222);border-radius:6px;text-align:center">' +
+            '<div style="color:var(--text-muted);margin-bottom:4px">Member Pays</div>' +
+            '<div style="font-size:16px;font-weight:700;color:var(--accent-blue,#58a6ff);font-family:var(--font-mono)">$' + (est.memberPayCents / 100).toFixed(2) + '</div>' +
+            '<div style="color:var(--text-muted);margin-top:2px">Tier ' + est.tierLevel + ' copay</div>' +
+          '</div>' +
+          '<div style="padding:8px;background:var(--bg-surface,#222);border-radius:6px;text-align:center">' +
+            '<div style="color:var(--text-muted);margin-bottom:4px">Employer Pays</div>' +
+            '<div style="font-size:16px;font-weight:700;color:var(--green,#3fb950);font-family:var(--font-mono)">$' + (est.employerPayCents / 100).toFixed(2) + '</div>' +
+            '<div style="color:var(--text-muted);margin-top:2px">Plan covers remainder</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="margin-top:8px;font-size:11px;color:var(--text-muted)">' +
+          'Total: $' + (est.totalCostCents / 100).toFixed(2) + ' (NADAC $' + (est.ingredientCostCents / 100).toFixed(2) + ' + dispensing $' + (est.dispensingFeeCents / 100).toFixed(2) + ')' +
+        '</div>';
+    } catch (err) {
+      el.innerHTML = '<div style="color:var(--text-muted);font-size:12px">Cost estimate unavailable</div>';
+    }
+  }
+
   async function loadPrescriptionHistory() {
     var container = $('#rx-table-container');
     if (!container) return;
@@ -1050,11 +1111,14 @@
     }
   }
 
+  var _sendingMessage = false;
   async function sendThreadMessage() {
     if (!msgActiveThread) return;
+    if (_sendingMessage) return; // prevent double-send from Enter + click
     var input = $('#msg-input-text');
     var body = input.value.trim();
     if (!body) return;
+    _sendingMessage = true;
 
     try {
       await API.sendMessage(
@@ -1068,6 +1132,8 @@
       if (idx >= 0) openThread(idx);
     } catch (err) {
       toast('Send failed: ' + err.message, 'error');
+    } finally {
+      _sendingMessage = false;
     }
   }
 
@@ -1076,6 +1142,8 @@
     var body = $('#msg-compose-body').value.trim();
     if (!recipient) { toast('Recipient wallet ID is required', 'error'); return; }
     if (!body) { toast('Message body is required', 'error'); return; }
+    if (_sendingMessage) return; // prevent double-send
+    _sendingMessage = true;
 
     try {
       await API.sendMessage(
@@ -1089,6 +1157,8 @@
       loadMessaging();
     } catch (err) {
       toast('Send failed: ' + err.message, 'error');
+    } finally {
+      _sendingMessage = false;
     }
   }
 
@@ -1527,8 +1597,14 @@
     // Rx med select vs manual
     var rxMedSel = $('#rx-med-select');
     var rxNdcManual = $('#rx-ndc-manual');
-    if (rxMedSel) rxMedSel.addEventListener('change', function () { if (rxMedSel.value) rxNdcManual.value = ''; });
-    if (rxNdcManual) rxNdcManual.addEventListener('input', function () { if (rxNdcManual.value.trim()) rxMedSel.value = ''; });
+    if (rxMedSel) rxMedSel.addEventListener('change', function () { if (rxMedSel.value) rxNdcManual.value = ''; updateCostEstimate(); });
+    if (rxNdcManual) rxNdcManual.addEventListener('input', function () { if (rxNdcManual.value.trim()) rxMedSel.value = ''; updateCostEstimate(); });
+
+    // Cost estimate on patient/drug/quantity change
+    var rxPatientSel = $('#rx-patient-select');
+    var rxQtyInput = $('#rx-quantity');
+    if (rxPatientSel) rxPatientSel.addEventListener('change', updateCostEstimate);
+    if (rxQtyInput) rxQtyInput.addEventListener('change', updateCostEstimate);
 
     // Rx write button
     var rxWriteBtn = $('#rx-write-btn');

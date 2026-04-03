@@ -39,6 +39,8 @@ export interface RecoveryResult {
   oldWalletId: string;
   /** Domain tag from the recovery card */
   domainTag: number;
+  /** Plan ID hash from recovery card (for accumulator limit resolution) */
+  planIdHash: string;
 }
 
 /** Result of preparing a new wallet */
@@ -59,6 +61,8 @@ export interface MigrationRequest {
   employeeIdHash: string;
   /** Group ID hash from the recovery card (plan lookup) */
   groupIdHash: string;
+  /** Plan ID hash from the recovery card (accumulator limit resolution) */
+  planIdHash: string;
   /** The old wallet ID being migrated from */
   oldWalletId: string;
   /** The new wallet ID being migrated to */
@@ -127,6 +131,7 @@ export class WalletMigrationService {
       oldEnrollmentKey,
       oldWalletId: oldWalletId.toString(),
       domainTag: card.domainTag,
+      planIdHash: card.planIdHash ?? '',
     };
   }
 
@@ -228,6 +233,7 @@ export class WalletMigrationService {
       tokenIdHash: card.tokenIdHash,
       employeeIdHash: card.employeeIdHash,
       groupIdHash: card.groupIdHash,
+      planIdHash: card.planIdHash ?? '',
       oldWalletId: card.walletId,
       newWalletId,
       domainTag: card.domainTag,

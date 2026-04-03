@@ -129,6 +129,7 @@ export function registerInteractiveRoutes(
         familyId: params.familyId,
         relationship: params.relationship,
         employeeId: params.employeeId,
+        publicKeyHex: params.publicKeyHex ? String(params.publicKeyHex) : undefined,
       });
 
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });

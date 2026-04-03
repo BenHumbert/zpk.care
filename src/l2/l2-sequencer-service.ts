@@ -298,6 +298,7 @@ export class L2SequencerService {
         sequenceNumber: this.nextSequenceNumber,
         walletId: output.walletId.toString(),
         proofJson: l2Stringify(proof),
+        claimEntryData: metadata ? (metadata as unknown as Record<string, unknown>) : undefined,
         stateSnapshot: {
           registryRoot: this.currentRegistryRoot.toString(),
           lifecycleRoot: this.currentLifecycleRoot.toString(),
@@ -440,6 +441,7 @@ export class L2SequencerService {
           therapeuticClass: metadata.therapeuticClass,
           daysSupply: metadata.daysSupply,
           fillNumber: metadata.fillNumber,
+          planIdHash: metadata.planIdHash,
         },
       );
       receipt.claimLeafIndex = claimEntry.leafIndex;
@@ -1629,8 +1631,8 @@ export class L2SequencerService {
         timestamp: Date.now(),
       });
     }
-    if (walEntryId) await this.walProvider!.commit(walEntryId);
     const deleted = this.planStore.delete(planId);
+    if (walEntryId) await this.walProvider!.commit(walEntryId);
     return deleted;
   }
 
@@ -1930,15 +1932,28 @@ export class L2SequencerService {
    * @param walletId — the member wallet ID to reconstruct for
    * @returns Reconstructed accumulator totals in cents, or null if no claims found
    */
-  reconstructAccumulator(walletId: string): {
+  reconstructAccumulator(walletId: string, planIdHash?: string): {
     deductiblePaidCents: bigint;
     oopPaidCents: bigint;
     benefitUsedCents: bigint;
     claimCount: number;
+    totalClaimCount: number;
   } | null {
-    const claims = this.claimAccumulator.getClaimsByMember(walletId);
+    const allClaims = this.claimAccumulator.getClaimsByMember(walletId);
+    if (allClaims.length === 0) return null;
+
+    // Filter by plan if specified.
+    // NOTE: Claims recorded before planIdHash was added have metadata.planIdHash === undefined
+    // and will be EXCLUDED from plan-filtered queries. This is correct — those claims have no
+    // plan association. Callers who need all claims regardless of plan should omit planIdHash.
+    const claims = planIdHash
+      ? allClaims.filter(c => c.metadata.planIdHash === planIdHash)
+      : allClaims;
     if (claims.length === 0) return null;
 
+    // Replay claims in order with per-step clamping to match circuit semantics.
+    // The circuit uses max(0, old - amount) on reversals, so raw subtraction
+    // can produce negative values that diverge from the credential's state.
     let deductiblePaidCents = 0n;
     let oopPaidCents = 0n;
     let benefitUsedCents = 0n;
@@ -1954,10 +1969,10 @@ export class L2SequencerService {
         benefitUsedCents += planPay;
         deductiblePaidCents += deductibleCredit;
       } else if (claim.leaf.operationType === '2') {
-        // Reversal — subtract
-        oopPaidCents -= patientPay;
-        benefitUsedCents -= planPay;
-        deductiblePaidCents -= deductibleCredit;
+        // Reversal — subtract with clamping (matches circuit's greaterThanOrEqual: max(0, old - amount))
+        oopPaidCents = oopPaidCents >= patientPay ? oopPaidCents - patientPay : 0n;
+        benefitUsedCents = benefitUsedCents >= planPay ? benefitUsedCents - planPay : 0n;
+        deductiblePaidCents = deductiblePaidCents >= deductibleCredit ? deductiblePaidCents - deductibleCredit : 0n;
       }
     }
 
@@ -1966,6 +1981,7 @@ export class L2SequencerService {
       oopPaidCents,
       benefitUsedCents,
       claimCount: claims.length,
+      totalClaimCount: allClaims.length,
     };
   }
 
@@ -2868,6 +2884,35 @@ export class L2SequencerService {
         }
 
         // Mark as committed in the WAL
+        await this.walProvider.commit(entry.entryId);
+      } else if (entry.type === 'proof' && !entry.receiptData && entry.claimEntryData) {
+        // Proof WAL entry without receipt but with claim metadata —
+        // replay claim into accumulator so it's not lost on crash recovery.
+        const meta = entry.claimEntryData as unknown as ClaimSubmissionMetadata;
+        if (meta.memberWalletId && meta.ndcHash) {
+          this.claimAccumulator.appendClaim(
+            {
+              memberWalletId: meta.memberWalletId,
+              ndcHash: meta.ndcHash,
+              pharmacyWalletId: meta.pharmacyWalletId ?? '0',
+              prescriberWalletId: meta.prescriberWalletId ?? '0',
+              dateOfService: meta.dateOfService ?? '0',
+              patientPayCents: meta.patientPayCents ?? '0',
+              planPayCents: meta.planPayCents ?? '0',
+              operationType: meta.operationType ?? '1',
+              deductibleCreditCents: meta.deductibleCreditCents ?? '0',
+            },
+            {
+              receiptId: `WAL-RECOVERY-${entry.entryId}`,
+              timestamp: entry.timestamp ?? Date.now(),
+              ndc: meta.ndc,
+              brandName: meta.brandName,
+              tierLevel: meta.tierLevel,
+              planIdHash: meta.planIdHash,
+            },
+          );
+          replayed++;
+        }
         await this.walProvider.commit(entry.entryId);
       }
       // Plan WAL recovery

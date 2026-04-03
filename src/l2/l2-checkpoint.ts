@@ -113,6 +113,14 @@ export interface L2SequencerState {
   /** Serialized message store state for crash recovery */
   messageStoreState?: import('./message-store-types.js').MessageStoreState;
 
+  // ── Admin Registry state (optional — present when admin keys have been registered) ──
+
+  /** Admin key registry + blacklist for crash recovery */
+  adminRegistryState?: {
+    keys: Array<{ nodeId: string; publicKeyHex: string; admittedBy: string; reason: string; timestamp: number }>;
+    blacklist: string[];
+  };
+
   // ── Provider Registry state (optional — present when providers have been credentialed) ──
 
   /** Serialized provider registry state for crash recovery */

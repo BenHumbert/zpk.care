@@ -59,7 +59,7 @@
 
   function esc(s) {
     if (!s) return '';
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
   // VULNERABILITY: Messages use base64 (prescriber) or AES-GCM with ephemeral keys
@@ -584,31 +584,46 @@
       var acc = await RPC.reconstructAccumulator(walletId);
       if (!acc) { container.innerHTML = '<div class="empty-state">No claims data yet</div>'; return; }
       planSpendCache = acc;
-      var dedPaid = Number(acc.deductibleCreditCents || acc.totalDeductibleCredit || 0);
-      var oopPaid = Number(acc.patientPayCents || acc.totalPatientPay || 0);
-      var planPaid = Number(acc.planPayCents || acc.totalPlanPay || 0);
-      var dedMax = 150000; // $1500
-      var oopMax = 500000; // $5000
-      var dedPct = Math.min(100, (dedPaid / dedMax * 100));
-      var oopPct = Math.min(100, (oopPaid / oopMax * 100));
+      var dedPaid = Number(acc.deductiblePaidCents || acc.deductibleCreditCents || acc.totalDeductibleCredit || 0);
+      var oopPaid = Number(acc.oopPaidCents || acc.patientPayCents || acc.totalPatientPay || 0);
+      var planPaid = Number(acc.benefitUsedCents || acc.planPayCents || acc.totalPlanPay || 0);
+
+      // Fetch real plan limits from sequencer (falls back to defaults if unavailable)
+      var dedMax = 150000; // default $1500
+      var oopMax = 500000; // default $5000
+      var benefitMax = 0;  // default unlimited
+      if (planIdHash) {
+        try {
+          var limits = await RPC.getPlanLimits(planIdHash);
+          if (limits) {
+            dedMax = limits.deductibleAmountCents != null ? Number(limits.deductibleAmountCents) : dedMax;
+            oopMax = limits.oopMaxCents != null ? Number(limits.oopMaxCents) : oopMax;
+            benefitMax = limits.annualBenefitMaxCents != null ? Number(limits.annualBenefitMaxCents) : 0;
+          }
+        } catch { /* plan limits unavailable — use defaults */ }
+      }
+
+      var dedPct = dedMax > 0 ? Math.min(100, (dedPaid / dedMax * 100)) : 0;
+      var oopPct = oopMax > 0 ? Math.min(100, (oopPaid / oopMax * 100)) : 0;
 
       container.innerHTML =
         '<div class="spend-row">' +
         '<div class="spend-item">' +
           '<div class="spend-label">Deductible</div>' +
           '<div class="spend-amounts"><span class="spend-current">' + fmtCents(dedPaid) + '</span>' +
-          '<span class="spend-max">of ' + fmtCents(dedMax) + '</span></div>' +
-          '<div class="progress-bar"><div class="progress-fill ' + progressClass(dedPct) + '" style="width:' + dedPct + '%"></div></div>' +
+          (dedMax > 0 ? '<span class="spend-max">of ' + fmtCents(dedMax) + '</span>' : '') + '</div>' +
+          (dedMax > 0 ? '<div class="progress-bar"><div class="progress-fill ' + progressClass(dedPct) + '" style="width:' + dedPct + '%"></div></div>' : '') +
         '</div>' +
         '<div class="spend-item">' +
           '<div class="spend-label">Out-of-Pocket</div>' +
           '<div class="spend-amounts"><span class="spend-current">' + fmtCents(oopPaid) + '</span>' +
-          '<span class="spend-max">of ' + fmtCents(oopMax) + '</span></div>' +
-          '<div class="progress-bar"><div class="progress-fill ' + progressClass(oopPct) + '" style="width:' + oopPct + '%"></div></div>' +
+          (oopMax > 0 ? '<span class="spend-max">of ' + fmtCents(oopMax) + '</span>' : '') + '</div>' +
+          (oopMax > 0 ? '<div class="progress-bar"><div class="progress-fill ' + progressClass(oopPct) + '" style="width:' + oopPct + '%"></div></div>' : '') +
         '</div>' +
         '<div class="spend-item">' +
           '<div class="spend-label">Plan Benefit Used</div>' +
-          '<div class="spend-amounts"><span class="spend-current">' + fmtCents(planPaid) + '</span></div>' +
+          '<div class="spend-amounts"><span class="spend-current">' + fmtCents(planPaid) + '</span>' +
+          (benefitMax > 0 ? '<span class="spend-max">of ' + fmtCents(benefitMax) + '</span>' : '') + '</div>' +
         '</div>' +
         '</div>';
     } catch {
@@ -840,18 +855,25 @@
       (hasMore ? '<button onclick="window._formNext()" style="cursor:pointer">Next &raquo;</button>' : '') +
       '</span></div>';
 
+    var supply = 30; // default supply for cost display
     var html = paginationHtml +
       '<table class="data-table"><thead><tr>' +
-      '<th>Drug</th><th>Generic</th><th>Strength</th><th>Tier</th><th>Copay</th><th>Form</th><th>Route</th><th>Supply</th><th>PA</th></tr></thead><tbody>';
+      '<th>Drug</th><th>Strength</th><th>Tier</th><th>NADAC (' + supply + '-day)</th><th>You Pay</th><th>Employer Pays</th><th>Form</th><th>Supply</th><th>PA</th></tr></thead><tbody>';
     drugs.forEach(function (d) {
+      var nadacCost = d.nadacPerUnit != null ? (d.nadacPerUnit * supply).toFixed(2) : '--';
+      var youPay = d.copayAmount != null ? (d.copayAmount / 100).toFixed(2) : '--';
+      var totalCents = d.nadacPerUnit != null ? Math.round(d.nadacPerUnit * supply * 100) : 0;
+      var employerPay = totalCents > 0 && d.copayAmount != null
+        ? (Math.max(0, totalCents - d.copayAmount) / 100).toFixed(2)
+        : '--';
       html += '<tr>' +
         '<td><strong>' + esc(d.brandName || d.genericName || '--') + '</strong></td>' +
-        '<td>' + esc(d.genericName || '--') + '</td>' +
         '<td>' + esc(d.strength || '--') + '</td>' +
         '<td>' + tierBadge(d.tierLevel) + '</td>' +
-        '<td class="mono">$' + (d.copayAmount != null ? (d.copayAmount / 100).toFixed(2) : '--') + '</td>' +
+        '<td class="mono">$' + nadacCost + '</td>' +
+        '<td class="mono" style="color:var(--accent-blue,#58a6ff)">$' + youPay + '</td>' +
+        '<td class="mono" style="color:var(--green,#3fb950)">$' + employerPay + '</td>' +
         '<td>' + esc(d.dosageForm || '--') + '</td>' +
-        '<td>' + esc(d.route || '--') + '</td>' +
         '<td class="mono">' + (d.maxDaySupply || '--') + 'd</td>' +
         '<td>' + (d.requiresPriorAuth ? '<span class="badge badge-warning">PA</span>' : '--') + '</td></tr>';
     });
@@ -888,16 +910,31 @@
       var acc = await RPC.reconstructAccumulator(walletId);
       if (!acc) { accEl.innerHTML = '<div class="empty-state">No claims data yet</div>'; return; }
       planSpendCache = acc;
-      var dedPaid = Number(acc.deductibleCreditCents || acc.totalDeductibleCredit || 0);
-      var oopPaid = Number(acc.patientPayCents || acc.totalPatientPay || 0);
-      var planPaid = Number(acc.planPayCents || acc.totalPlanPay || 0);
+      var dedPaid = Number(acc.deductiblePaidCents || acc.deductibleCreditCents || acc.totalDeductibleCredit || 0);
+      var oopPaid = Number(acc.oopPaidCents || acc.patientPayCents || acc.totalPatientPay || 0);
+      var planPaid = Number(acc.benefitUsedCents || acc.planPayCents || acc.totalPlanPay || 0);
       var claimCount = acc.claimCount || acc.totalClaims || 0;
+
+      // Fetch plan limits for context
+      var dedLabel = fmtCents(dedPaid);
+      var oopLabel = fmtCents(oopPaid);
+      var benefitLabel = fmtCents(planPaid);
+      if (planIdHash) {
+        try {
+          var limits = await RPC.getPlanLimits(planIdHash);
+          if (limits) {
+            if (limits.deductibleAmountCents) dedLabel += ' of ' + fmtCents(limits.deductibleAmountCents);
+            if (limits.oopMaxCents) oopLabel += ' of ' + fmtCents(limits.oopMaxCents);
+            if (limits.annualBenefitMaxCents) benefitLabel += ' of ' + fmtCents(limits.annualBenefitMaxCents);
+          }
+        } catch { /* plan limits unavailable */ }
+      }
 
       accEl.innerHTML =
         '<div class="stats-grid">' +
-        statCard('Deductible Used', fmtCents(dedPaid)) +
-        statCard('Out-of-Pocket', fmtCents(oopPaid)) +
-        statCard('Plan Benefit', fmtCents(planPaid)) +
+        statCard('Deductible Used', dedLabel) +
+        statCard('Out-of-Pocket', oopLabel) +
+        statCard('Plan Benefit', benefitLabel) +
         statCard('Total Claims', claimCount) +
         '</div>';
     } catch {
@@ -1074,170 +1111,156 @@
   };
 
   // ══════════════════════════════════════════════════════
-  //  MESSAGES
+  //  MESSAGES (contact-list + thread + inline reply)
   // ══════════════════════════════════════════════════════
+  var msgContacts = [];
+  var msgActiveThread = null;
+  var _sendingMsg = false;
+
   async function loadMessages() {
-    var container = $('msg-content');
-    container.innerHTML = '<div class="loading">Loading messages...</div>';
+    var listEl = $('msg-contacts-list');
+    if (!listEl) return;
+    listEl.innerHTML = '<div class="loading">Loading...</div>';
+
     try {
       var msgs = await RPC.getMessagesByWallet(walletId);
       if (!Array.isArray(msgs)) msgs = [];
       messagesCache = msgs;
-      renderMessageTab(currentMsgTab);
+
+      // Build contacts from unique threads/wallets (merge sent + received)
+      var contactMap = {};
+      msgs.forEach(function (entry) {
+        var m = entry.message || entry;
+        var p = entry.payload || {};
+        var peer = m.senderWalletId === walletId ? m.recipientWalletId : m.senderWalletId;
+        var key = m.threadIdHash || peer || 'unknown';
+        if (!contactMap[key]) {
+          var peerName = shortHash(peer);
+          providersCache.forEach(function (prov) { if (prov.walletId === peer) peerName = prov.displayName || peerName; });
+          contactMap[key] = { wallet: peer, threadId: m.threadIdHash, messages: [], lastTime: 0, name: peerName };
+        }
+        contactMap[key].messages.push(entry);
+        var t = p.timestamp || entry.timestamp || 0;
+        if (t > contactMap[key].lastTime) contactMap[key].lastTime = t;
+      });
+
+      msgContacts = Object.values(contactMap).sort(function (a, b) { return b.lastTime - a.lastTime; });
+
+      if (msgContacts.length === 0) {
+        listEl.innerHTML = '<div class="empty-state" style="padding:24px">No conversations yet</div>';
+        return;
+      }
+
+      listEl.innerHTML = msgContacts.map(function (c, i) {
+        var preview = '';
+        if (c.messages.length > 0) {
+          var lastEntry = c.messages[c.messages.length - 1];
+          var lp = lastEntry.payload || {};
+          preview = decodePayload(lp.ciphertext, lp.iv);
+        }
+        return '<div class="msg-contact-item" data-idx="' + i + '" style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border,#333);display:flex;gap:10px;align-items:center">' +
+          '<div style="width:36px;height:36px;border-radius:50%;background:var(--accent-blue,#58a6ff);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;flex-shrink:0">' + esc(c.name.slice(0, 2).toUpperCase()) + '</div>' +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center">' +
+              '<span style="font-weight:600;font-size:13px">' + esc(c.name) + '</span>' +
+              '<span style="font-size:10px;color:var(--text-muted)">' + (c.lastTime ? fmtTime(c.lastTime) : '') + '</span>' +
+            '</div>' +
+            '<div style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + c.messages.length + ' msg &middot; ' + esc(preview.slice(0, 40)) + '</div>' +
+          '</div></div>';
+      }).join('');
+
+      listEl.querySelectorAll('.msg-contact-item').forEach(function (item) {
+        item.addEventListener('click', function () { openMsgThread(parseInt(item.dataset.idx)); });
+      });
     } catch (e) {
-      container.innerHTML = '<div class="empty-state">Messages unavailable: ' + esc(e.message) + '</div>';
+      listEl.innerHTML = '<div class="empty-state">Messages unavailable: ' + esc(e.message) + '</div>';
     }
   }
 
-  function renderMessageTab(tab) {
-    currentMsgTab = tab;
-    qsa('.msg-tab').forEach(function (t) { t.classList.remove('active'); });
-    var activeTab = qs('.msg-tab[data-msgtab="' + tab + '"]');
-    if (activeTab) activeTab.classList.add('active');
+  async function openMsgThread(idx) {
+    var contact = msgContacts[idx];
+    if (!contact) return;
+    msgActiveThread = contact;
 
-    var container = $('msg-content');
-    switch (tab) {
-      case 'inbox': renderInbox(); break;
-      case 'sent': renderSent(); break;
-      case 'system': renderSystemLog(); break;
-    }
-  }
+    // Highlight
+    qsa('.msg-contact-item').forEach(function (item, i) {
+      item.style.background = (i === idx) ? 'var(--bg-surface,#222)' : '';
+    });
 
-  function renderInbox() {
-    var container = $('msg-content');
-    var inbox = messagesCache.filter(function (m) {
-      var msg = m.message || m;
-      return msg.recipientWalletId === walletId;
-    });
-    if (!inbox.length) {
-      container.innerHTML = '<div class="empty-state">No messages received</div>';
-      return;
-    }
-    // Group by thread
-    var threads = {};
-    inbox.forEach(function (m) {
-      var msg = m.message || m;
-      var tid = msg.threadIdHash || 'unknown';
-      if (!threads[tid]) threads[tid] = [];
-      threads[tid].push(m);
-    });
-    var html = '';
-    Object.keys(threads).forEach(function (tid) {
-      var msgs = threads[tid];
-      var last = msgs[msgs.length - 1];
-      var msg = last.message || last;
-      var payload = last.payload || {};
-      var peer = msg.senderWalletId || '--';
-      // Find provider name
-      var peerName = shortHash(peer);
-      providersCache.forEach(function (p) {
-        if (p.walletId === peer) peerName = p.displayName || peerName;
-      });
-      var previewText = decodePayload(payload.ciphertext, payload.iv);
-      html += '<div class="msg-item" onclick="window._showThread(\'' + esc(tid) + '\')">' +
-        '<div class="msg-item-header">' +
-          '<span class="msg-item-peer">' + esc(peerName) + '</span>' +
-          '<span class="msg-item-time">' + fmtTime(payload.timestamp || last.timestamp) + '</span>' +
-        '</div>' +
-        '<div class="msg-item-preview">' + msgs.length + ' message' + (msgs.length > 1 ? 's' : '') + ' &middot; ' + esc(previewText) + '</div></div>';
-    });
-    container.innerHTML = html;
-  }
+    $('msg-conv-header').textContent = contact.name;
+    $('msg-conv-input').style.display = '';
 
-  function renderSent() {
-    var container = $('msg-content');
-    var sent = messagesCache.filter(function (m) {
-      var msg = m.message || m;
-      return msg.senderWalletId === walletId;
-    });
-    if (!sent.length) {
-      container.innerHTML = '<div class="empty-state">No messages sent</div>';
-      return;
-    }
-    var html = '';
-    sent.forEach(function (m) {
-      var msg = m.message || m;
-      var payload = m.payload || {};
-      var peer = msg.recipientWalletId || '--';
-      var peerName = shortHash(peer);
-      providersCache.forEach(function (p) {
-        if (p.walletId === peer) peerName = p.displayName || peerName;
-      });
-      var sentPreview = decodePayload(payload.ciphertext, payload.iv);
-      html += '<div class="msg-item">' +
-        '<div class="msg-item-header">' +
-          '<span class="msg-item-peer">To: ' + esc(peerName) + '</span>' +
-          '<span class="msg-item-time">' + fmtTime(payload.timestamp || m.timestamp) + '</span>' +
-        '</div>' +
-        '<div class="msg-item-preview">' + esc(sentPreview) + '</div></div>';
-    });
-    container.innerHTML = html;
-  }
+    var messagesEl = $('msg-conv-messages');
+    messagesEl.innerHTML = '<div class="loading">Loading...</div>';
 
-  function renderSystemLog() {
-    var container = $('msg-content');
-    if (!systemLog.length) {
-      container.innerHTML = '<div class="empty-state">No system activity</div>';
-      return;
-    }
-    var html = '';
-    systemLog.slice(0, 50).forEach(function (ev) {
-      var typeColors = {
-        enrollment: 'var(--green)', pcp_assign: 'var(--blue)', pcp_remove: 'var(--yellow)',
-        access_grant: 'var(--teal)', message_sent: 'var(--accent)', nfc_backup: 'var(--orange)',
-        restore: 'var(--green)', attestation: 'var(--teal)',
-      };
-      var color = typeColors[ev.type] || 'var(--text-muted)';
-      html += '<div class="msg-bubble system">' +
-        '<div style="display:flex;gap:8px;align-items:center">' +
-          '<span style="width:8px;height:8px;border-radius:50%;background:' + color + ';flex-shrink:0"></span>' +
-          '<strong style="font-size:11px;text-transform:uppercase">' + esc(ev.type || 'event') + '</strong>' +
-        '</div>' +
-        '<div style="margin-top:4px">' + esc(ev.summary) + '</div>' +
-        (ev.detail ? '<div style="font-size:10px;color:var(--text-muted);margin-top:2px">' + esc(ev.detail) + '</div>' : '') +
-        '<div class="msg-bubble-time">' + fmtDate(ev.timestamp) + '</div></div>';
-    });
-    container.innerHTML = html;
-  }
-
-  window._showThread = async function (threadHash) {
-    var container = $('msg-content');
-    container.innerHTML = '<div class="loading">Loading thread...</div>';
     try {
-      var msgs = await RPC.getMessagesByThread(threadHash);
-      if (!Array.isArray(msgs)) msgs = [];
-      if (!msgs.length) { container.innerHTML = '<div class="empty-state">Thread empty</div>'; return; }
+      var messages;
+      if (contact.threadId) {
+        messages = await RPC.getMessagesByThread(contact.threadId);
+        if (!Array.isArray(messages)) messages = [];
+      } else {
+        messages = contact.messages || [];
+      }
 
-      var html = '<div style="margin-bottom:12px"><button class="btn btn-sm" onclick="window._backToInbox()">Back to Inbox</button></div>';
-      msgs.forEach(function (m) {
-        var msg = m.message || m;
-        var payload = m.payload || {};
-        var isSent = msg.senderWalletId === walletId;
-        var peerName = shortHash(isSent ? msg.recipientWalletId : msg.senderWalletId);
-        providersCache.forEach(function (p) {
-          if (p.walletId === (isSent ? msg.recipientWalletId : msg.senderWalletId)) peerName = p.displayName || peerName;
-        });
+      if (messages.length === 0) {
+        messagesEl.innerHTML = '<div class="empty-state">No messages</div>';
+        return;
+      }
 
-        var msgBody = decodePayload(payload.ciphertext, payload.iv);
-        html += '<div class="msg-bubble ' + (isSent ? 'sent' : 'received') + '">' +
-          '<div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">' +
-          (isSent ? 'You' : esc(peerName)) + '</div>' +
-          '<div>' + esc(msgBody) + '</div>' +
-          '<div class="msg-bubble-time">' + fmtTime(payload.timestamp || m.timestamp) + '</div></div>';
-      });
-      container.innerHTML = html;
+      messagesEl.innerHTML = messages.map(function (entry) {
+        var m = entry.message || entry;
+        var p = entry.payload || {};
+        var isSent = m.senderWalletId === walletId;
+        var body = decodePayload(p.ciphertext, p.iv);
+        return '<div class="msg-bubble ' + (isSent ? 'sent' : 'received') + '" style="max-width:75%;margin:6px 0;padding:10px 14px;border-radius:16px;' +
+          (isSent ? 'margin-left:auto;background:var(--accent-blue,#58a6ff);color:#fff' : 'margin-right:auto;background:var(--bg-surface,#222)') + '">' +
+          '<div style="font-size:10px;opacity:0.7;margin-bottom:4px">' + (isSent ? 'You' : esc(contact.name)) + '</div>' +
+          '<div>' + esc(body) + '</div>' +
+          '<div style="font-size:9px;opacity:0.5;margin-top:4px;text-align:right">' + fmtTime(p.timestamp || entry.timestamp) + '</div></div>';
+      }).join('');
+
+      messagesEl.scrollTop = messagesEl.scrollHeight;
     } catch (e) {
-      container.innerHTML = '<div class="empty-state">Error: ' + esc(e.message) + '</div>';
+      messagesEl.innerHTML = '<div class="empty-state">Error: ' + esc(e.message) + '</div>';
     }
-  };
+  }
 
-  window._backToInbox = function () { renderMessageTab('inbox'); };
+  async function sendMsgInThread() {
+    if (!msgActiveThread) return;
+    if (_sendingMsg) return;
+    var input = $('msg-input-text');
+    var body = input.value.trim();
+    if (!body) return;
+    _sendingMsg = true;
+
+    try {
+      var sorted = [walletId, msgActiveThread.wallet].sort();
+      var threadSeed = sorted.join(':');
+      var threadBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(threadSeed));
+      var threadIdHash = msgActiveThread.threadId || BigInt('0x' + bytesToHex(new Uint8Array(threadBuf)).slice(0, 62)).toString();
+
+      await RPC.storeMessage(
+        { messageCommitment: '0', recipientWalletId: msgActiveThread.wallet, senderWalletId: walletId, messageType: '5', threadIdHash: threadIdHash },
+        { ciphertext: btoa(body), iv: '0', tag: '0', timestamp: Date.now() }
+      );
+      input.value = '';
+      toast('Message sent', 'success');
+      var idx = msgContacts.indexOf(msgActiveThread);
+      if (idx >= 0) openMsgThread(idx);
+    } catch (e) {
+      toast('Send failed: ' + e.message, 'error');
+    } finally {
+      _sendingMsg = false;
+    }
+  }
 
   // ── Compose ────────────────────────────────────────
   async function sendMessage() {
     var recipient = $('compose-recipient').value.trim();
     var body = $('compose-body').value.trim();
     if (!recipient || !body) { toast('Recipient and message required', 'error'); return; }
+    if (_sendingMsg) return;
+    _sendingMsg = true;
 
     try {
       // VULNERABILITY: Using base64 encoding as placeholder — NOT real encryption.
@@ -1282,6 +1305,8 @@
       loadMessages();
     } catch (e) {
       toast('Send failed: ' + e.message, 'error');
+    } finally {
+      _sendingMsg = false;
     }
   }
 
@@ -1674,13 +1699,6 @@
     $('provider-search').addEventListener('input', function () { renderProviders(providersCache); });
     $('provider-refresh').addEventListener('click', loadProviders);
 
-    // Message tabs
-    qsa('.msg-tab').forEach(function (tab) {
-      tab.addEventListener('click', function () {
-        renderMessageTab(this.getAttribute('data-msgtab'));
-      });
-    });
-
     // Compose
     $('msg-compose-btn').addEventListener('click', function () {
       $('compose-overlay').classList.remove('hidden');
@@ -1689,6 +1707,12 @@
       $('compose-overlay').classList.add('hidden');
     });
     $('compose-send').addEventListener('click', sendMessage);
+
+    // Inline thread reply
+    var msgSendBtn = $('msg-send-btn');
+    if (msgSendBtn) msgSendBtn.addEventListener('click', sendMsgInThread);
+    var msgInputText = $('msg-input-text');
+    if (msgInputText) msgInputText.addEventListener('keypress', function (e) { if (e.key === 'Enter') sendMsgInThread(); });
 
     // Boot
     boot();

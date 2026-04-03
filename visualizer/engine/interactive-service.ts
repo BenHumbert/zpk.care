@@ -487,6 +487,8 @@ export class AdjudicationService {
   private reportingService = new ReportingService();
   private credentialProgramVk: string | null = null;
   private credentialProgramVkHash: Field | null = null;
+  /** VK commitment — Poseidon.hash of all 10 ZkProgram VK hashes. Software identity. */
+  vkCommitment: string | null = null;
   // Deterministic seed ensures attestation keypair survives restarts (session tokens stay valid)
   private attestationAuthority = new SequencerAttestationAuthority(
     Buffer.from('zkpcare-attestation-authority-seed'),
@@ -753,7 +755,10 @@ export class AdjudicationService {
     this.delegationRegistry = new DelegationRegistry();
     this.keyRegistry = new KeyRegistry();
 
-    // Register encryption keys for prescribers (wallet indices 0-9)
+    // Register encryption keys for prescribers (wallet indices 0-9).
+    // NOTE: Seed entities store full keypairs (public + private) because the sequencer
+    // generates eScript messages on their behalf. When prescriber/pharmacy Nautilus apps
+    // register independently, they should use the publicKeyHex pattern (device-only private key).
     for (let i = 0; i < PRESCRIBERS.length; i++) {
       const kp = deriveEncryptionKeyPair(PRESCRIBERS[i].enrollmentKey);
       this.encryptionKeys.set(i, kp);
@@ -955,21 +960,24 @@ export class AdjudicationService {
     this.emit('info', 'compile', 'Compiling 10 ZkPrograms into prover/verifier key pairs...');
     this.emit('info', 'compile', 'This is a one-time cost — cached for all subsequent proofs.');
 
+    const vkHashes: Field[] = [];
+
     const programs = [
-      { name: 'ProofGateProgram (3 methods)', fn: () => ProofGateProgram.compile() },
-      { name: 'EligibilityProgram', fn: () => EligibilityProgram.compile() },
-      { name: 'AccessControlProgram (2 methods)', fn: () => AccessControlProgram.compile() },
-      { name: 'MessagingProgram (2 methods)', fn: () => MessagingProgram.compile() },
-      { name: 'PrescriptionProgram (2 methods)', fn: () => PrescriptionProgram.compile() },
-      { name: 'AccumulatorFulfillmentProgram (2 methods)', fn: () => AccumulatorFulfillmentProgram.compile() },
-      { name: 'PcpVerificationProgram', fn: () => PcpVerificationProgram.compile() },
+      { name: 'ProofGateProgram (3 methods)', fn: async () => { const r = await ProofGateProgram.compile(); vkHashes.push(Field(r.verificationKey.hash)); } },
+      { name: 'EligibilityProgram', fn: async () => { const r = await EligibilityProgram.compile(); vkHashes.push(Field(r.verificationKey.hash)); } },
+      { name: 'AccessControlProgram (2 methods)', fn: async () => { const r = await AccessControlProgram.compile(); vkHashes.push(Field(r.verificationKey.hash)); } },
+      { name: 'MessagingProgram (2 methods)', fn: async () => { const r = await MessagingProgram.compile(); vkHashes.push(Field(r.verificationKey.hash)); } },
+      { name: 'PrescriptionProgram (2 methods)', fn: async () => { const r = await PrescriptionProgram.compile(); vkHashes.push(Field(r.verificationKey.hash)); } },
+      { name: 'AccumulatorFulfillmentProgram (2 methods)', fn: async () => { const r = await AccumulatorFulfillmentProgram.compile(); vkHashes.push(Field(r.verificationKey.hash)); } },
+      { name: 'PcpVerificationProgram', fn: async () => { const r = await PcpVerificationProgram.compile(); vkHashes.push(Field(r.verificationKey.hash)); } },
       { name: 'CredentialProgram (3 methods)', fn: async () => {
         const result = await CredentialProgram.compile();
         this.credentialProgramVk = JSON.stringify(result.verificationKey);
         this.credentialProgramVkHash = Field(result.verificationKey.hash);
+        vkHashes.push(this.credentialProgramVkHash);
       } },
-      { name: 'StateTransitionProgram (2 methods)', fn: () => StateTransitionProgram.compile() },
-      { name: 'BatchProgram (3 methods)', fn: () => BatchProgram.compile() },
+      { name: 'StateTransitionProgram (2 methods)', fn: async () => { const r = await StateTransitionProgram.compile(); vkHashes.push(Field(r.verificationKey.hash)); } },
+      { name: 'BatchProgram (3 methods)', fn: async () => { const r = await BatchProgram.compile(); vkHashes.push(Field(r.verificationKey.hash)); } },
     ];
 
     const compileStart = performance.now();
@@ -985,6 +993,10 @@ export class AdjudicationService {
       this.emit('compile', 'compile', `[${i + 1}/${programs.length}] ${prog.name} compiled`, 'complete', elapsed);
       this.emitMemory('compile');
     }
+
+    // Compute VK commitment — Poseidon hash of all 10 VK hashes
+    this.vkCommitment = Poseidon.hash(vkHashes).toString();
+    this.emit('info', 'compile', `VK commitment: ${this.vkCommitment.slice(0, 24)}…`);
 
     const totalMs = performance.now() - compileStart;
     this.emit('timing', 'compile', `All 10 programs compiled in ${(totalMs / 1000).toFixed(1)}s`, undefined, totalMs);
@@ -1526,6 +1538,7 @@ export class AdjudicationService {
     familyId?: string;
     relationship?: string;
     employeeId?: string;
+    publicKeyHex?: string;     // X25519 public key from member's device (private key never leaves device)
   }): Promise<Record<string, unknown>> {
     if (!this.compiled) throw new Error('Programs not compiled yet — wait for ZkProgram compilation to finish');
 
@@ -1623,11 +1636,19 @@ export class AdjudicationService {
     const groupId = opts.groupId || 'ACME-CORP';
     const network = PLAN_NETWORKS[planId] || { prescriberIndices: [], pharmacyIndices: [] };
 
-    // Register encryption key
-    const encKp = deriveEncryptionKeyPair(opts.walletId); // deterministic from walletId
-    this.encryptionKeys.set(walletIndex, encKp);
-    const { pubKeyX, pubKeyY } = publicKeyToFields(encKp.publicKey);
-    this.keyRegistry.registerKey(BigInt(walletIndex), walletId, pubKeyX, pubKeyY);
+    // Register encryption public key (provided by member's device — private key never leaves device)
+    if (opts.publicKeyHex) {
+      // Validate: must be exactly 64 hex chars (32 bytes = X25519 public key)
+      if (!/^[0-9a-f]{64}$/i.test(opts.publicKeyHex)) {
+        this.emit('error', 'register', `Invalid publicKeyHex (expected 64 hex chars, got ${opts.publicKeyHex.length}) — skipping key registration`);
+      } else {
+        const devicePublicKey = Buffer.from(opts.publicKeyHex, 'hex');
+        const { pubKeyX, pubKeyY } = publicKeyToFields(devicePublicKey);
+        this.keyRegistry.registerKey(BigInt(walletIndex), walletId, pubKeyX, pubKeyY);
+        // Store public key only — sequencer cannot derive the private key or shared secrets
+        this.encryptionKeys.set(walletIndex, { publicKey: devicePublicKey, privateKey: Buffer.alloc(0) });
+      }
+    }
 
     // Store enrolled member state
     const enrolled: EnrolledMember = {
@@ -2347,7 +2368,7 @@ export class AdjudicationService {
     const pharmacyKeys = this.encryptionKeys.get(10 + opts.pharmacyIndex);
     let eScriptContentHash: Field;
     let eScriptEncrypted: { ciphertext: Buffer; iv: Buffer; tag: Buffer } | null = null;
-    if (prescriberKeys && pharmacyKeys) {
+    if (prescriberKeys && pharmacyKeys && prescriberKeys.privateKey.length > 0) {
       const sharedSecret = deriveSharedSecret(prescriberKeys.privateKey, pharmacyKeys.publicKey);
       eScriptEncrypted = encryptMessage(eScriptPlaintext, sharedSecret);
       eScriptContentHash = computeContentHash(eScriptEncrypted.ciphertext, eScriptEncrypted.iv, eScriptEncrypted.tag);
@@ -3010,6 +3031,7 @@ export class AdjudicationService {
       tierLevel: medication.formularyEntry.tierLevel,
       daysSupply: 30,
       deductibleCreditCents: proofOutput.deductibleCreditCents || '0',
+      planIdHash: hashString(enrolled.planId).toString(),
     };
 
     // Submit wallet update to L2 (accumulator/forest change → new inventory root)
@@ -3425,6 +3447,29 @@ export class AdjudicationService {
     // Mark the fill as reversed
     fillToReverse.reversed = true;
 
+    // Submit reversal to L2 so the claim accumulator tracks it
+    const reversalClaimMeta: import('../../src/l2/l2-types.js').ClaimSubmissionMetadata = {
+      ndcHash: hashString(medication.ndc).toString(),
+      memberWalletId: enrolled.walletId.toBigInt().toString(),
+      pharmacyWalletId: pharmacyWalletId.toBigInt().toString(),
+      prescriberWalletId: this.prescriberWalletIds.get(rxState.prescriberIndex)!.toBigInt().toString(),
+      dateOfService: new Date().toISOString().replace(/[-:T]/g, '').slice(0, 8),
+      patientPayCents: String(origPatientPay),
+      planPayCents: String(origPlanPay),
+      operationType: '2', // reversal
+      ndc: medication.ndc,
+      brandName: medication.brandName,
+      tierLevel: medication.formularyEntry.tierLevel,
+      daysSupply: 30,
+      deductibleCreditCents: String(origDeductibleCredit),
+      planIdHash: hashString(enrolled.planId).toString(),
+    };
+    try {
+      await this.updateCredentialAndSubmitToL2(enrolled, 'reversal', reversalClaimMeta);
+    } catch (revSubmitErr: unknown) {
+      this.emit('warn', 'reversal', `L2 submission failed (local state updated): ${revSubmitErr instanceof Error ? revSubmitErr.message : String(revSubmitErr)}`);
+    }
+
     this.emit('memory', 'reversal', `Memory: ${Math.round(process.memoryUsage().rss / 1024 / 1024)} MB RSS`);
 
     // Emit results
@@ -3535,7 +3580,7 @@ export class AdjudicationService {
     const senderKeys = senderKeyIndex !== null ? this.encryptionKeys.get(senderKeyIndex) : null;
     const recipientKeys = recipientKeyIndex !== null ? this.encryptionKeys.get(recipientKeyIndex) : null;
 
-    if (senderKeys && recipientKeys) {
+    if (senderKeys && recipientKeys && senderKeys.privateKey.length > 0) {
       const sharedSecret = deriveSharedSecret(senderKeys.privateKey, recipientKeys.publicKey);
       const encrypted = encryptMessage(fullText, sharedSecret);
       this.encryptedPayloads.set(index.toString(), {
@@ -3679,6 +3724,7 @@ export class AdjudicationService {
     const senderKeys = this.encryptionKeys.get(sender.keyIndex);
     const recipientKeys = this.encryptionKeys.get(recipient.keyIndex);
     if (!senderKeys || !recipientKeys) throw new Error('Encryption keys not found');
+    if (senderKeys.privateKey.length === 0) throw new Error('Cannot encrypt on sequencer — sender private key is device-only. Encrypt on the sender\'s device before submitting.');
 
     const sharedSecret = deriveSharedSecret(senderKeys.privateKey, recipientKeys.publicKey);
     const encrypted = encryptMessage(plaintext, sharedSecret);
@@ -3816,10 +3862,10 @@ export class AdjudicationService {
     // Decrypt using stored key indices
     const senderKeys = this.encryptionKeys.get(payload.senderKeyIndex);
     const recipientKeys = this.encryptionKeys.get(payload.recipientKeyIndex);
-    if (!senderKeys || !recipientKeys) {
+    if (!senderKeys || !recipientKeys || senderKeys.privateKey.length === 0 || recipientKeys.privateKey.length === 0) {
       return {
-        subject: '[Encryption keys unavailable]',
-        body: '[Cannot decrypt — keys not found]',
+        subject: '[Encrypted — decrypt on device]',
+        body: '[Cannot decrypt on sequencer — private key is device-only]',
         threadId: payload.threadId,
         timestamp: payload.timestamp,
       };

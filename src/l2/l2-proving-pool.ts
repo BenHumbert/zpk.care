@@ -431,6 +431,9 @@ export class ProvingPool {
       this.handleWorkerExit(handle, code, signal);
     });
 
+    // Suppress EPIPE errors during shutdown (worker may exit before IPC send completes)
+    child.on('error', () => {});
+
     // Capture worker stderr — forward to consumers instead of suppressing
     child.stderr?.on('data', (chunk: Buffer) => {
       const text = chunk.toString().trim();

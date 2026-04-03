@@ -61,7 +61,8 @@ const partitionIndex = parseInt(env.ZKTRIDENT_PARTITION_INDEX ?? '0', 10);
 const seedPeers = env.ZKTRIDENT_SEED_PEERS
   ? env.ZKTRIDENT_SEED_PEERS.split(',').map((s) => s.trim()).filter(Boolean)
   : [];
-const adminToken = env.ZKTRIDENT_ADMIN_TOKEN;
+const unsecureMode = env.ZKTRIDENT_UNSECURE === 'true';
+const adminToken = unsecureMode ? (env.ZKTRIDENT_ADMIN_TOKEN ?? 'admin123') : env.ZKTRIDENT_ADMIN_TOKEN;
 const gossipSecret = env.ZKTRIDENT_GOSSIP_SECRET;
 const checkpointDir = env.ZKTRIDENT_CHECKPOINT_DIR ?? './l2-data';
 const maxCheckpoints = parseInt(env.ZKTRIDENT_MAX_CHECKPOINTS ?? '10', 10);
@@ -105,6 +106,7 @@ const rpcOptions: Partial<L2RpcServerOptions> = {
   maxSseConnections,
   allowedOrigins,
   ...(adminToken ? { adminToken } : {}),
+  ...(unsecureMode ? { unsecureMode: true } : {}),
   ...(hasDashboard ? { dashboardDir } : {}),
 };
 
@@ -249,6 +251,14 @@ async function main(): Promise<void> {
   const rpcServer = new L2RpcServer(node, rpcOptions);
   await rpcServer.start();
 
+  // Wire admin registry into checkpoint persistence
+  node.setAdminRegistryProvider(() => rpcServer.getAdminRegistryState());
+  if (node._checkpointAdminRegistryState) {
+    rpcServer.restoreAdminRegistryState(node._checkpointAdminRegistryState);
+    node._checkpointAdminRegistryState = null;
+    console.log('  [security] Admin registry restored from checkpoint (%d keys)', rpcServer.getAdminKeyRegistry().size);
+  }
+
   // Provider credentialing + formulary publishing is handled by the Insurer node.
   // The Leviathan is pure infrastructure — no seed data injection.
 
@@ -386,6 +396,14 @@ async function main(): Promise<void> {
       interactiveReady = true;
       console.log('  [interactive] ZkPrograms compiled — full proof generation available');
 
+      // Set VK commitment on the RPC server AND peer network for software identity verification
+      if (interactiveService.vkCommitment) {
+        rpcServer.setVkCommitment(interactiveService.vkCommitment);
+        const peerNet = node.getPeerNetwork?.();
+        if (peerNet) peerNet.setVkCommitment(interactiveService.vkCommitment);
+        console.log('  [security] VK commitment set: %s…', interactiveService.vkCommitment.slice(0, 24));
+      }
+
       // Open all dashboards in browser when ready
       if (env.ZKTRIDENT_OPEN_BROWSERS !== '0') {
         const urls = [
@@ -454,6 +472,9 @@ async function main(): Promise<void> {
     replicaServers.push(replicaRpc);
     console.log('  [replica] %s started on port %d (seed: %s)', replicaId, replicaPort, sequencerUrl);
   }
+
+  // Wait for replicas to initialize their peer networks before connecting
+  await new Promise(resolve => setTimeout(resolve, 1000));
 
   // Connect sequencer to replicas so it knows about them
   if (!node.getPeerNetwork()) {
@@ -561,7 +582,8 @@ async function main(): Promise<void> {
   console.log('');
   console.log('  ── Boot Phase 1: Insurer (credentialing authority) ──');
   spawnEntity('insurer', 'start-insurer-nautilus.ts', 4004, {
-    ZKTRIDENT_ADMIN_TOKEN: adminToken ?? 'admin123',
+    ...(adminToken ? { ZKTRIDENT_ADMIN_TOKEN: adminToken } : {}),
+    ...(unsecureMode ? { ZKTRIDENT_UNSECURE: 'true' } : {}),
   });
 
   // Phase 2: Wait for insurer to become ready (providers credentialed + formulary published)
@@ -581,18 +603,21 @@ async function main(): Promise<void> {
   // Will poll l2_getProvider to confirm credentialing before ready
   spawnEntity('prescriber', 'start-prescriber-nautilus.ts', 4002, {
     ZKTRIDENT_SEED_PRESCRIBER: '0',
+    ...(adminToken ? { ZKTRIDENT_ADMIN_TOKEN: adminToken } : {}),
   });
 
   // Pharmacy (port 4003) — uses seed identity index 0
   // Will poll l2_getProvider to confirm credentialing before ready
   spawnEntity('pharmacy', 'start-pharmacy-nautilus.ts', 4003, {
     ZKTRIDENT_SEED_PHARMACY: '0',
+    ...(adminToken ? { ZKTRIDENT_ADMIN_TOKEN: adminToken } : {}),
   });
 
   // Employer (port 4005) — needs employer ID + insurer URL
   spawnEntity('employer', 'start-employer-nautilus.ts', 4005, {
     ZKTRIDENT_EMPLOYER_ID: env.ZKTRIDENT_EMPLOYER_ID ?? 'ACME-001',
-    ZKTRIDENT_ADMIN_TOKEN: adminToken ?? 'admin123',
+    ...(adminToken ? { ZKTRIDENT_ADMIN_TOKEN: adminToken } : {}),
+    ...(unsecureMode ? { ZKTRIDENT_UNSECURE: 'true' } : {}),
     ZKTRIDENT_INSURER_URL: `http://localhost:4004`,
   });
 
@@ -600,6 +625,7 @@ async function main(): Promise<void> {
   // Pass ZKTRIDENT_MEMBER_PIN through so local state can be unlocked for onboarding
   spawnEntity('member', 'start-member-nautilus.ts', 4001, {
     ...(env.ZKTRIDENT_MEMBER_PIN ? { ZKTRIDENT_PIN: env.ZKTRIDENT_MEMBER_PIN } : {}),
+    ...(adminToken ? { ZKTRIDENT_ADMIN_TOKEN: adminToken } : {}),
     ZKTRIDENT_INSURER_URL: `http://localhost:4004`,
     ZKTRIDENT_EMPLOYER_URL: `http://localhost:4005`,
   });
@@ -651,6 +677,7 @@ async function main(): Promise<void> {
     console.log('  Seed peers:    %s', seedPeers.join(', '));
   }
   console.log('  Checkpoint:    %s (max %d)', checkpointDir, maxCheckpoints);
+  console.log('  Security:      %s', unsecureMode ? 'UNSECURE MODE (admin123 shared token)' : 'Ed25519 per-node identity');
   console.log('  Admin token:   %s', adminToken ? 'configured' : 'NONE (admin RPC disabled)');
   console.log('  Gossip secret: %s', gossipSecret ? 'configured' : 'NONE (unauthenticated gossip)');
   console.log('');

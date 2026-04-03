@@ -18,7 +18,7 @@ import fs from 'fs';
 import path from 'path';
 import http from 'http';
 import type { IncomingMessage, ServerResponse } from 'http';
-import { timingSafeEqual } from 'crypto';
+import { timingSafeEqual, createHash, createPublicKey, verify } from 'crypto';
 import { Field } from 'o1js';
 import { WalletState } from '../wallets/wallet-state.js';
 import { StateTransitionProof } from '../engine/state-transition.js';
@@ -105,8 +105,12 @@ export interface L2RpcServerOptions {
   maxBodyBytes: number;
   /** Whether to enable SSE event streaming. Default true. */
   enableSSE: boolean;
-  /** Bearer token for admin RPC methods. When set, admin methods require Authorization header. */
+  /** Bearer token for admin RPC methods (unsecure mode only). When set, admin methods require Authorization header. */
   adminToken?: string;
+  /** Authorized admin node public keys: Map<nodeId, publicKeyHex>. When set, admin methods require Ed25519 signature. */
+  adminKeys?: Map<string, string>;
+  /** Whether to use unsecure mode (shared Bearer token instead of Ed25519 signatures). */
+  unsecureMode?: boolean;
   /** Allowed CORS origins. Default ['http://localhost', 'http://127.0.0.1']. Set to ['*'] for open access. */
   allowedOrigins?: string[];
   /** Maximum concurrent SSE connections. Default 100. */
@@ -175,7 +179,7 @@ export class L2RpcServer {
     this.entityProofPoolStatusFn = fn;
   }
 
-  /** Admin-only RPC methods that require bearer token authentication */
+  /** Admin-only RPC methods that require authentication (Ed25519 signature or Bearer token) */
   private static readonly ADMIN_METHODS = new Set([
     'l2_forceBatch',
     'l2_storeFormulary',
@@ -188,6 +192,8 @@ export class L2RpcServer {
     'l2_gossipRelay',
     'l2_recordFill',
     'l2_publishPlanOverlay',
+    'l2_revokeAdminKey',
+    'l2_approveAdmission',
   ]);
 
   // M9 fix: SSE replay buffer for chain events (ring buffer, max 256)
@@ -221,6 +227,9 @@ export class L2RpcServer {
     this.node = node;
     this.options = { ...DEFAULT_RPC_SERVER_OPTIONS, ...options };
     this.dashboardDir = this.options.dashboardDir ?? null;
+
+    // Initialize admin key registry from options
+    this.initAdminKeys();
 
     // Bridge L2Node events to SSE clients
     this.eventHandler = (event: L2ChainEvent) => {
@@ -623,12 +632,30 @@ export class L2RpcServer {
         'Invalid JSON-RPC 2.0 request');
     }
 
-    // Admin auth gate — require bearer token for privileged methods
-    // No token configured = dev mode (open access)
-    if (L2RpcServer.ADMIN_METHODS.has(rpcReq.method) && this.options.adminToken) {
-      const authHeader = req.headers['authorization'] ?? '';
-      if (!L2RpcServer.safeEquals(authHeader, `Bearer ${this.options.adminToken}`)) {
-        return this.sendRpcError(res, rpcReq.id, RPC_UNAUTHORIZED, 'Unauthorized');
+    // Admin auth gate — Ed25519 signature (secure) or Bearer token (unsecure)
+    // l2_registerAdminKey is special: requires auth UNLESS this is genesis (no keys exist yet)
+    const needsAuth = L2RpcServer.ADMIN_METHODS.has(rpcReq.method)
+      || (rpcReq.method === 'l2_registerAdminKey' && this.adminKeyRegistry.size > 0);
+    if (needsAuth) {
+      if (this.options.unsecureMode || !this.adminKeyRegistry.size) {
+        // Unsecure mode: legacy Bearer token check
+        if (this.options.adminToken) {
+          const authHeader = req.headers['authorization'] ?? '';
+          if (!L2RpcServer.safeEquals(authHeader, `Bearer ${this.options.adminToken}`)) {
+            return this.sendRpcError(res, rpcReq.id, RPC_UNAUTHORIZED, 'Unauthorized');
+          }
+        }
+      } else {
+        // Secure mode: Ed25519 signature required
+        const sigResult = this.verifyAdminSignature(req, rpcReq.method, rpcReq.params ?? {});
+        if (!sigResult.valid) {
+          return this.sendRpcError(res, rpcReq.id, RPC_UNAUTHORIZED, 'Unauthorized — valid Ed25519 admin signature required');
+        }
+        // Inject verified signer identity into params for downstream handlers
+        if (!rpcReq.params) rpcReq.params = {};
+        (rpcReq.params as any)._verifiedNodeId = sigResult.nodeId;
+        // Log the admin action with attribution
+        console.log(`  [admin] ${rpcReq.method} by ${sigResult.nodeId} at ${new Date().toISOString()}`);
       }
     }
 
@@ -725,8 +752,233 @@ export class L2RpcServer {
         }
       }
 
-      case 'l2_getStatus':
-        return this.node.getStatus();
+      // ── Admin Key Management + Quorum Admission ──
+
+      // l2_registerAdminKey — genesis-only direct registration (backward compat + bootstrap)
+      case 'l2_registerAdminKey': {
+        const nodeId = params.nodeId as string;
+        const publicKeyHex = params.publicKeyHex as string;
+        const reason = params.reason as string;
+        if (!nodeId || !publicKeyHex || !reason) {
+          throw new Error('Missing nodeId, publicKeyHex, or reason');
+        }
+        if (publicKeyHex.length !== 64) {
+          throw new Error('publicKeyHex must be 32 bytes (64 hex chars)');
+        }
+        if (this.blacklistedNodes.has(nodeId) || this.blacklistedPublicKeys.has(publicKeyHex)) {
+          throw new Error(`Node ${nodeId} is blacklisted`);
+        }
+        // Genesis bootstrap: only works when no admin keys exist yet
+        if (this.adminKeyRegistry.size === 0) {
+          const genesisKey = process.env.ZKTRIDENT_GENESIS_ADMIN_KEY;
+          if (!genesisKey && !this.options.unsecureMode) {
+            throw new Error('ZKTRIDENT_GENESIS_ADMIN_KEY must be set for first admin key registration in secure mode');
+          }
+          if (genesisKey && publicKeyHex !== genesisKey) {
+            throw new Error('First admin key must match ZKTRIDENT_GENESIS_ADMIN_KEY');
+          }
+          this.adminKeyRegistry.set(nodeId, {
+            publicKeyHex,
+            admittedBy: 'genesis-bootstrap',
+            reason,
+            timestamp: Date.now(),
+          });
+          console.log(`  [admin] Genesis admin key registered: ${nodeId} (${publicKeyHex.slice(0, 16)}…)`);
+          return { registered: true, nodeId, genesis: true };
+        }
+        // Non-genesis in unsecure mode: direct registration (backward compat)
+        if (this.options.unsecureMode) {
+          const admittedBy = params.admittedBy as string ?? 'admin';
+          this.adminKeyRegistry.set(nodeId, {
+            publicKeyHex,
+            admittedBy,
+            reason,
+            timestamp: Date.now(),
+          });
+          console.log(`  [admin] Admin key registered (unsecure): ${nodeId} by ${admittedBy} — ${reason}`);
+          return { registered: true, nodeId, genesis: false };
+        }
+        // Non-genesis in secure mode: must use l2_requestAdmission + l2_approveAdmission
+        throw new Error('Post-genesis admin registration requires quorum admission — use l2_requestAdmission');
+      }
+
+      // l2_requestAdmission — new node requests to join the network (no auth required)
+      case 'l2_requestAdmission': {
+        const nodeId = params.nodeId as string;
+        const publicKeyHex = params.publicKeyHex as string;
+        if (!nodeId || !publicKeyHex) {
+          throw new Error('Missing nodeId or publicKeyHex');
+        }
+        if (publicKeyHex.length !== 64) {
+          throw new Error('publicKeyHex must be 32 bytes (64 hex chars)');
+        }
+        if (this.blacklistedNodes.has(nodeId) || this.blacklistedPublicKeys.has(publicKeyHex)) {
+          throw new Error(`Node ${nodeId} is blacklisted`);
+        }
+        if (this.adminKeyRegistry.has(nodeId)) {
+          return { status: 'already_admitted', nodeId };
+        }
+        if (this.pendingAdmissions.has(nodeId)) {
+          const pending = this.pendingAdmissions.get(nodeId)!;
+          return {
+            status: 'pending',
+            nodeId,
+            approvals: pending.approvals.size,
+            required: this.getAdmissionThreshold(),
+          };
+        }
+        // Enforce capacity limit + sweep stale entries (24h TTL)
+        const MAX_PENDING = 100;
+        const TTL_MS = 24 * 60 * 60 * 1000;
+        const now = Date.now();
+        for (const [pid, pentry] of this.pendingAdmissions) {
+          if (now - pentry.requestedAt > TTL_MS) this.pendingAdmissions.delete(pid);
+        }
+        if (this.pendingAdmissions.size >= MAX_PENDING) {
+          throw new Error('Too many pending admissions — try again later');
+        }
+        this.pendingAdmissions.set(nodeId, {
+          nodeId,
+          publicKeyHex,
+          requestedAt: now,
+          approvals: new Map(),
+        });
+        console.log(`  [admission] Admission requested: ${nodeId} (${publicKeyHex.slice(0, 16)}…)`);
+        return {
+          status: 'pending',
+          nodeId,
+          approvals: 0,
+          required: this.getAdmissionThreshold(),
+        };
+      }
+
+      // l2_approveAdmission — existing admin approves a pending admission (auth required)
+      case 'l2_approveAdmission': {
+        const targetNodeId = params.nodeId as string;
+        const reason = params.reason as string;
+        if (!targetNodeId || !reason) {
+          throw new Error('Missing nodeId or reason');
+        }
+        if (this.blacklistedNodes.has(targetNodeId)) {
+          this.pendingAdmissions.delete(targetNodeId); // Clean stale pending
+          throw new Error(`Node ${targetNodeId} is blacklisted — cannot approve`);
+        }
+        const pendingCheck = this.pendingAdmissions.get(targetNodeId);
+        if (pendingCheck && this.blacklistedPublicKeys.has(pendingCheck.publicKeyHex)) {
+          this.pendingAdmissions.delete(targetNodeId);
+          throw new Error(`Node ${targetNodeId} public key is blacklisted — cannot approve`);
+        }
+        const pending = this.pendingAdmissions.get(targetNodeId);
+        if (!pending) {
+          throw new Error(`No pending admission for ${targetNodeId}`);
+        }
+        // Determine approver identity — injected by auth gate in secure mode
+        const approverNodeId = (params as any)._verifiedNodeId as string ?? 'admin';
+
+        // Record the approval with reason string
+        pending.approvals.set(approverNodeId, {
+          approverNodeId,
+          reason,
+          timestamp: Date.now(),
+        });
+
+        const threshold = this.getAdmissionThreshold();
+        console.log(`  [admission] ${targetNodeId} approved by ${approverNodeId}: "${reason}" (${pending.approvals.size}/${threshold})`);
+
+        // Filter out approvals from admins that have since been revoked
+        for (const [approverId] of pending.approvals) {
+          if (approverId !== 'admin' && !this.adminKeyRegistry.has(approverId)) {
+            pending.approvals.delete(approverId);
+          }
+        }
+
+        // Check if quorum is reached (with valid approvals only)
+        if (pending.approvals.size >= threshold) {
+          // Build the approval history
+          const approvalHistory: { approverNodeId: string; reason: string; timestamp: number }[] = [];
+          for (const [, approval] of pending.approvals) {
+            approvalHistory.push(approval);
+          }
+
+          // Admit the node
+          this.adminKeyRegistry.set(targetNodeId, {
+            publicKeyHex: pending.publicKeyHex,
+            admittedBy: approvalHistory.map(a => a.approverNodeId).join(','),
+            reason: approvalHistory.map(a => `${a.approverNodeId}: "${a.reason}"`).join('; '),
+            timestamp: Date.now(),
+          });
+          this.pendingAdmissions.delete(targetNodeId);
+
+          console.log(`  [admission] ✓ ${targetNodeId} ADMITTED — quorum reached (${pending.approvals.size}/${threshold})`);
+
+          return {
+            status: 'admitted',
+            nodeId: targetNodeId,
+            approvals: pending.approvals.size,
+            required: threshold,
+            approvalHistory,
+          };
+        }
+
+        return {
+          status: 'pending',
+          nodeId: targetNodeId,
+          approvals: pending.approvals.size,
+          required: threshold,
+        };
+      }
+
+      // l2_getPendingAdmissions — list all pending admission requests
+      case 'l2_getPendingAdmissions': {
+        const pending: Record<string, unknown>[] = [];
+        for (const [, entry] of this.pendingAdmissions) {
+          const approvals: Record<string, unknown>[] = [];
+          for (const [, a] of entry.approvals) approvals.push(a);
+          pending.push({
+            nodeId: entry.nodeId,
+            publicKeyHex: entry.publicKeyHex,
+            requestedAt: entry.requestedAt,
+            approvals,
+            required: this.getAdmissionThreshold(),
+          });
+        }
+        return pending;
+      }
+
+      case 'l2_getAdminKeys': {
+        const keys: Record<string, unknown>[] = [];
+        for (const [nid, entry] of this.adminKeyRegistry) {
+          keys.push({ nodeId: nid, ...entry });
+        }
+        return keys;
+      }
+
+      case 'l2_revokeAdminKey': {
+        const targetNodeId = params.nodeId as string;
+        const revokeReason = params.reason as string;
+        const blacklist = params.blacklist as boolean ?? false;
+        if (!targetNodeId) throw new Error('Missing nodeId');
+        if (!revokeReason) throw new Error('Missing reason — revocation requires justification');
+        // Capture publicKeyHex before deleting for blacklist
+        const revokedEntry = this.adminKeyRegistry.get(targetNodeId);
+        const revokedPending = this.pendingAdmissions.get(targetNodeId);
+        const existed = this.adminKeyRegistry.delete(targetNodeId);
+        this.pendingAdmissions.delete(targetNodeId); // Clean any pending admission
+        if (blacklist) {
+          this.blacklistedNodes.add(targetNodeId);
+          const pubKey = revokedEntry?.publicKeyHex ?? revokedPending?.publicKeyHex;
+          if (pubKey) this.blacklistedPublicKeys.add(pubKey);
+        }
+        if (existed) {
+          console.log(`  [admin] Admin key revoked: ${targetNodeId} — ${revokeReason}${blacklist ? ' (BLACKLISTED)' : ''}`);
+        }
+        return { revoked: existed, nodeId: targetNodeId, blacklisted: blacklist };
+      }
+
+      case 'l2_getStatus': {
+        const status = this.node.getStatus();
+        return { ...status, vkCommitment: this.vkCommitment };
+      }
 
       case 'l2_getHealth': {
         const mem = process.memoryUsage();
@@ -969,6 +1221,25 @@ export class L2RpcServer {
         return this.node.getSequencer().getPlans();
       }
 
+      case 'l2_getPlanLimits': {
+        const planId = params.planId;
+        if (typeof planId !== 'string') throw new Error('Missing planId parameter');
+        const plan = this.node.getSequencer().getPlan(planId);
+        if (!plan) return null;
+        return {
+          planId: plan.planId,
+          name: plan.name,
+          coverageType: plan.coverageType,
+          copayAmountCents: plan.copayAmountCents,
+          deductibleAmountCents: plan.deductibleAmountCents,
+          oopMaxCents: plan.oopMaxCents,
+          annualBenefitMaxCents: plan.annualBenefitMaxCents,
+          familyDeductibleAmountCents: plan.familyDeductibleAmountCents,
+          familyOopMaxCents: plan.familyOopMaxCents,
+          familyAnnualBenefitMaxCents: plan.familyAnnualBenefitMaxCents,
+        };
+      }
+
       case 'l2_deletePlan': {
         const planId = params.planId;
         if (typeof planId !== 'string') throw new Error('Missing planId parameter');
@@ -1008,6 +1279,111 @@ export class L2RpcServer {
         const result = this.node.getSequencer().getFormularyService().checkCoverage(planIdHash, ndcHash);
         if (!result) throw new Error(`Drug not found: ${ndcHash}`);
         return result;
+      }
+
+      case 'l2_estimateCost': {
+        const estNdcHash = params.ndcHash;
+        const estPlanId = params.planId;
+        const estWalletId = params.walletId;
+        const estQuantity = typeof params.quantity === 'number' ? params.quantity : 30;
+        const estDispensingFeeCents = typeof params.dispensingFeeCents === 'number' ? params.dispensingFeeCents : 300;
+        if (typeof estNdcHash !== 'string') throw new Error('Missing ndcHash parameter');
+
+        const seq = this.node.getSequencer();
+        const fSvc = seq.getFormularyService();
+
+        // Look up drug in formulary
+        const drug = fSvc.getDrug(estNdcHash);
+        if (!drug) throw new Error(`Drug not found: ${estNdcHash}`);
+
+        // Get plan-specific coverage if planId provided
+        let copayAmountCents = drug.defaultCopay;
+        let tierLevel = drug.defaultTier;
+        if (typeof estPlanId === 'string') {
+          const coverage = fSvc.checkCoverage(estPlanId, estNdcHash);
+          if (coverage && coverage.covered) {
+            copayAmountCents = coverage.copayAmount;
+            tierLevel = coverage.tierLevel;
+          } else if (coverage && !coverage.covered) {
+            return {
+              covered: false,
+              drugName: drug.genericName || drug.brandName || drug.description,
+              ndcHash: estNdcHash,
+              reason: 'Drug excluded from this plan',
+            };
+          }
+        }
+
+        // Compute total cost
+        const ingredientCostCents = Math.round(drug.nadacPerUnit * estQuantity * 100);
+        const totalCostCents = ingredientCostCents + estDispensingFeeCents;
+
+        // Estimate member/employer split using accumulator if walletId provided
+        let memberPayCents = Math.min(totalCostCents, copayAmountCents);
+        let employerPayCents = totalCostCents - memberPayCents;
+
+        if (typeof estWalletId === 'string') {
+          const accum = seq.reconstructAccumulator(estWalletId);
+          if (accum) {
+            // Get plan limits from planStore (authoritative source) — not from caller params
+            let deductibleAmountCents = 0;
+            let oopMaxCents = 0;
+            let annualBenefitMaxCents = 0;
+            if (typeof estPlanId === 'string') {
+              const planConfig = seq.getPlan(estPlanId);
+              if (planConfig) {
+                deductibleAmountCents = planConfig.deductibleAmountCents ?? 0;
+                oopMaxCents = planConfig.oopMaxCents ?? 0;
+                annualBenefitMaxCents = planConfig.annualBenefitMaxCents ?? 0;
+              }
+            }
+            const deductiblePaidCents = Number(accum.deductiblePaidCents);
+            const oopPaidCents = Number(accum.oopPaidCents);
+            const benefitUsedCents = Number(accum.benefitUsedCents);
+
+            // Deductible phase
+            const inDeductiblePhase = deductibleAmountCents > 0 && deductiblePaidCents < deductibleAmountCents;
+            const remainingDeductible = inDeductiblePhase ? deductibleAmountCents - deductiblePaidCents : 0;
+            const deductiblePay = Math.min(totalCostCents, remainingDeductible);
+            const afterDeductible = totalCostCents - deductiblePay;
+            const copayOnRemainder = Math.min(afterDeductible, copayAmountCents);
+            const normalPay = Math.min(totalCostCents, copayAmountCents);
+            const basePay = inDeductiblePhase ? deductiblePay + copayOnRemainder : normalPay;
+
+            // Benefit max
+            let basePlanPay = totalCostCents - basePay;
+            if (annualBenefitMaxCents > 0) {
+              const remainingBenefit = Math.max(0, annualBenefitMaxCents - benefitUsedCents);
+              if (basePlanPay > remainingBenefit) basePlanPay = remainingBenefit;
+            }
+            let patientPay = totalCostCents - basePlanPay;
+
+            // OOPM cap
+            if (oopMaxCents > 0) {
+              const remainingOopm = Math.max(0, oopMaxCents - oopPaidCents);
+              if (patientPay > remainingOopm) patientPay = remainingOopm;
+            }
+
+            memberPayCents = patientPay;
+            employerPayCents = totalCostCents - patientPay;
+          }
+        }
+
+        return {
+          covered: true,
+          drugName: drug.genericName || drug.brandName || drug.description,
+          ndcHash: estNdcHash,
+          classification: drug.classification,
+          tierLevel,
+          nadacPerUnit: drug.nadacPerUnit,
+          quantity: estQuantity,
+          ingredientCostCents,
+          dispensingFeeCents: estDispensingFeeCents,
+          totalCostCents,
+          copayAmountCents,
+          memberPayCents,
+          employerPayCents,
+        };
       }
 
       case 'l2_publishPlanOverlay': {
@@ -1141,7 +1517,7 @@ export class L2RpcServer {
 
         const fillEntry = fillSeq.recordFill(
           fillLeaf,
-          { receiptId: `FILL-${Date.now()}`, timestamp: Date.now(), ndc: params.ndc as string, brandName: params.brandName as string, daysSupply: params.daysSupply as number, fillNumber: params.fillNumber as number, ingredientCostCents: fillIngredient, dispensingFeeCents: fillDispFee, totalDrugCostCents: fillTotalDrug, quantityDispensed: fillQty },
+          { receiptId: `FILL-${Date.now()}`, timestamp: Date.now(), ndc: params.ndc as string, brandName: params.brandName as string, daysSupply: params.daysSupply as number, fillNumber: params.fillNumber as number, ingredientCostCents: fillIngredient, dispensingFeeCents: fillDispFee, totalDrugCostCents: fillTotalDrug, quantityDispensed: fillQty, planIdHash: params.planIdHash as string | undefined },
         );
 
         // Detect if this was a duplicate (leaf count didn't change)
@@ -1579,7 +1955,9 @@ export class L2RpcServer {
         if (typeof walletId !== 'string') {
           throw new Error('Missing or invalid walletId parameter');
         }
-        return this.node.getSequencer().reconstructAccumulator(walletId);
+        const planFilter = typeof params.planIdHash === 'string' && params.planIdHash.length > 0
+          ? params.planIdHash : undefined;
+        return this.node.getSequencer().reconstructAccumulator(walletId, planFilter);
       }
 
       // ── NFC Attestation ──
@@ -1649,14 +2027,22 @@ export class L2RpcServer {
 
       case 'l2_getPeerInfo': {
         const seq = this.node.getSequencer();
+        const nodeId = this.peerNetwork?.getConfig().nodeId
+          ?? (this.node as any).nodeId
+          ?? (this.node as any).options?.nodeId
+          ?? 'unknown';
+        const nodeRole = this.peerNetwork?.getConfig().role
+          ?? (this.node as any).role
+          ?? 'sequencer';
         const peerInfo: PeerInfo = {
-          peerId: this.peerNetwork?.getConfig().nodeId ?? 'unknown',
+          peerId: nodeId,
           url: '', // Caller knows the URL they connected to
-          role: this.peerNetwork?.getConfig().role ?? 'sequencer',
+          role: nodeRole,
           status: 'connected',
           lastSeen: Date.now(),
           latestSequenceNumber: seq.getLatestSequenceNumber(),
           latestBatchNumber: seq.getLatestBatchNumber(),
+          ...(this.vkCommitment ? { vkCommitment: this.vkCommitment } : {}),
         };
         return peerInfo;
       }
@@ -1997,6 +2383,39 @@ export class L2RpcServer {
 
   // ─── Auth Helpers ──────────────────────────────────
 
+  /** Admitted admin entry — a fully admitted node with voting rights */
+  static readonly ADMIN_ENTRY_VERSION = 1;
+
+  /** Runtime admin key registry — initialized from options, mutable at runtime for admissions */
+  private adminKeyRegistry: Map<string, { publicKeyHex: string; admittedBy: string; reason: string; timestamp: number }> = new Map();
+
+  /** Pending admission requests — awaiting quorum approval */
+  private pendingAdmissions: Map<string, {
+    nodeId: string;
+    publicKeyHex: string;
+    requestedAt: number;
+    approvals: Map<string, { approverNodeId: string; reason: string; timestamp: number }>;
+  }> = new Map();
+
+  /** Blacklisted node IDs — permanently rejected */
+  private blacklistedNodes: Set<string> = new Set();
+  /** Blacklisted public keys — prevents re-registration under a different nodeId */
+  private blacklistedPublicKeys: Set<string> = new Set();
+
+  /** Initialize admin key registry from options */
+  private initAdminKeys(): void {
+    if (this.options.adminKeys) {
+      for (const [nodeId, pubKeyHex] of this.options.adminKeys) {
+        this.adminKeyRegistry.set(nodeId, {
+          publicKeyHex: pubKeyHex,
+          admittedBy: 'genesis',
+          reason: 'Genesis admin key',
+          timestamp: Date.now(),
+        });
+      }
+    }
+  }
+
   /** Constant-time comparison of two strings (prevents timing side-channel). */
   private static safeEquals(a: string, b: string): boolean {
     const bufA = Buffer.from(a);
@@ -2005,11 +2424,127 @@ export class L2RpcServer {
     return timingSafeEqual(bufA, bufB);
   }
 
-  /** Check admin bearer token for non-RPC endpoints. No token configured = allow (dev mode). */
+  /**
+   * Verify an Ed25519-signed admin request.
+   *
+   * Header format: `X-Admin-Signature: <nodeId>:<timestamp>:<signature_hex>`
+   * The signature covers: `method|paramsHash|timestamp`
+   * Replay window: 30 seconds.
+   */
+  private verifyAdminSignature(req: IncomingMessage, method: string, params: Record<string, unknown>): { valid: boolean; nodeId?: string } {
+    const sigHeader = req.headers['x-admin-signature'] as string | undefined;
+    if (!sigHeader) return { valid: false };
+
+    const parts = sigHeader.split(':');
+    if (parts.length < 3) return { valid: false };
+
+    const nodeId = parts[0];
+    const timestamp = parts[1];
+    const signatureHex = parts.slice(2).join(':'); // signature may contain colons in hex
+
+    // Check replay window (30 seconds)
+    const ts = parseInt(timestamp, 10);
+    if (isNaN(ts) || Math.abs(Date.now() - ts) > 30_000) return { valid: false };
+
+    // Look up the node's public key
+    const entry = this.adminKeyRegistry.get(nodeId);
+    if (!entry) return { valid: false };
+
+    // Verify Ed25519 signature
+    const paramsHash = createHash('sha256').update(JSON.stringify(params)).digest('hex');
+    const message = `${method}|${paramsHash}|${timestamp}`;
+
+    try {
+      const pubKeyDer = Buffer.from(
+        '302a300506032b6570032100' + entry.publicKeyHex,
+        'hex',
+      );
+      const pubKey = createPublicKey({ key: pubKeyDer, format: 'der', type: 'spki' });
+      const isValid = verify(null, Buffer.from(message), pubKey, Buffer.from(signatureHex, 'hex'));
+      return { valid: isValid, nodeId: isValid ? nodeId : undefined };
+    } catch {
+      return { valid: false };
+    }
+  }
+
+  /** Check admin auth — Ed25519 signature in secure mode, Bearer token in unsecure mode. */
   private checkAdminAuth(req: IncomingMessage): boolean {
-    if (!this.options.adminToken) return true; // Dev mode — no token = open access
-    const authHeader = req.headers['authorization'] ?? '';
-    return L2RpcServer.safeEquals(authHeader, `Bearer ${this.options.adminToken}`);
+    // Unsecure mode — use legacy Bearer token
+    if (this.options.unsecureMode || !this.adminKeyRegistry.size) {
+      if (!this.options.adminToken) return true; // Dev mode — no token = open access
+      const authHeader = req.headers['authorization'] ?? '';
+      return L2RpcServer.safeEquals(authHeader, `Bearer ${this.options.adminToken}`);
+    }
+    // Secure mode — verify Ed25519 signature (non-RPC endpoints use a generic method check)
+    const result = this.verifyAdminSignature(req, 'admin-endpoint', {});
+    return result.valid;
+  }
+
+  /** Get the admin key registry (for status/debug endpoints) */
+  getAdminKeyRegistry(): Map<string, { publicKeyHex: string; admittedBy: string; reason: string; timestamp: number }> {
+    return this.adminKeyRegistry;
+  }
+
+  // ─── Admission Helpers ──────────────────────────────
+
+  /** BFT quorum threshold: 2N/3+1 of existing admin nodes. Minimum 1. */
+  private getAdmissionThreshold(): number {
+    const n = this.adminKeyRegistry.size;
+    if (n <= 1) return 1; // Single node can admit the next one
+    return Math.floor((2 * n) / 3) + 1;
+  }
+
+  /** Get the admin key registry for checkpoint persistence */
+  getAdminRegistryState(): {
+    keys: Array<{ nodeId: string; publicKeyHex: string; admittedBy: string; reason: string; timestamp: number }>;
+    blacklist: string[];
+    blacklistedKeys: string[];
+  } {
+    const keys: Array<{ nodeId: string; publicKeyHex: string; admittedBy: string; reason: string; timestamp: number }> = [];
+    for (const [nid, entry] of this.adminKeyRegistry) {
+      keys.push({ nodeId: nid, ...entry });
+    }
+    return { keys, blacklist: [...this.blacklistedNodes], blacklistedKeys: [...this.blacklistedPublicKeys] };
+  }
+
+  /** Restore admin key registry from checkpoint */
+  restoreAdminRegistryState(state: {
+    keys: Array<{ nodeId: string; publicKeyHex: string; admittedBy: string; reason: string; timestamp: number }>;
+    blacklist: string[];
+    blacklistedKeys?: string[];
+  }): void {
+    this.adminKeyRegistry.clear();
+    for (const entry of state.keys) {
+      this.adminKeyRegistry.set(entry.nodeId, {
+        publicKeyHex: entry.publicKeyHex,
+        admittedBy: entry.admittedBy,
+        reason: entry.reason,
+        timestamp: entry.timestamp,
+      });
+    }
+    this.blacklistedNodes.clear();
+    for (const nid of state.blacklist) {
+      this.blacklistedNodes.add(nid);
+    }
+    this.blacklistedPublicKeys.clear();
+    for (const pk of state.blacklistedKeys ?? []) {
+      this.blacklistedPublicKeys.add(pk);
+    }
+  }
+
+  // ─── VK Commitment ──────────────────────────────────
+
+  /** VK commitment — Poseidon.hash of all ZkProgram VK hashes. Set after compilation. */
+  private vkCommitment: string | null = null;
+
+  /** Set the VK commitment after ZkProgram compilation. Used for software identity verification. */
+  setVkCommitment(commitment: string): void {
+    this.vkCommitment = commitment;
+  }
+
+  /** Get the current VK commitment. */
+  getVkCommitment(): string | null {
+    return this.vkCommitment;
   }
 
   // ─── Rate Limiting ──────────────────────────────────

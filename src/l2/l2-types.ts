@@ -257,6 +257,8 @@ export interface ClaimSubmissionMetadata {
   deductibleCreditCents?: string;
   /** DEA schedule (0=non-controlled, 2-5=schedule II-V) */
   deaSchedule?: number;
+  /** Benefit plan ID hash (for plan-filtered accumulator reconstruction) */
+  planIdHash?: string;
 }
 
 // ─── L2 Chain State Query ────────────────────────────────────

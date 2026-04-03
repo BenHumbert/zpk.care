@@ -139,6 +139,7 @@ function makeRecoveryCard(
   const tokenIdHash = hashString('TOKEN-001').toString();
   const employeeIdHash = hashString('EMP-12345').toString();
   const groupIdHash = hashString('ACME-CORP-001');
+  const planIdHash = hashString('PLAN-GOLD-2026').toString();
   const walletId = deriveMemberWalletId(local, enrollmentKey, groupIdHash);
 
   return exportRecoveryCard(
@@ -149,6 +150,7 @@ function makeRecoveryCard(
     tokenIdHash,
     employeeIdHash,
     groupIdHash.toString(),
+    planIdHash,
   );
 }
 
@@ -281,11 +283,32 @@ describe('Recovery Card v2', () => {
     expect(card.employeeIdHash).not.toBe('0');
     expect(card.groupIdHash).not.toBe('');
     expect(card.groupIdHash).not.toBe('0');
+    expect(card.planIdHash).not.toBe('');
+    expect(card.planIdHash).not.toBe('0');
 
     // Hash fields should be valid Poseidon hash strings (large integers)
     expect(BigInt(card.tokenIdHash)).toBeGreaterThan(0n);
     expect(BigInt(card.employeeIdHash)).toBeGreaterThan(0n);
     expect(BigInt(card.groupIdHash)).toBeGreaterThan(0n);
+    expect(BigInt(card.planIdHash)).toBeGreaterThan(0n);
+  });
+
+  test('recoverFromCard returns planIdHash from card', () => {
+    const card = makeRecoveryCard(TEST_ENROLLMENT_KEY, TEST_PIN, TEST_MEMBER);
+    const result = WalletMigrationService.recoverFromCard(card, TEST_PIN, TEST_MEMBER);
+    expect(result.planIdHash).toBe(card.planIdHash);
+  });
+
+  test('backward compat: old v2 card without planIdHash', () => {
+    const card = makeRecoveryCard(TEST_ENROLLMENT_KEY, TEST_PIN, TEST_MEMBER);
+    // Simulate an old v2 card by removing planIdHash
+    delete (card as any).planIdHash;
+    const result = WalletMigrationService.recoverFromCard(card, TEST_PIN, TEST_MEMBER);
+    expect(result.planIdHash).toBe('');
+    // buildMigrationRequest should also handle it gracefully
+    const mockProof = { toJSON: () => ({}) } as any;
+    const request = WalletMigrationService.buildMigrationRequest(mockProof, card, '999');
+    expect(request.planIdHash).toBe('');
   });
 });
 
@@ -406,12 +429,14 @@ describe('Accumulator Reconstruction', () => {
       patientPayCents: '1000',
       planPayCents: '5000',
       deductibleCreditCents: '1000',
+      dateOfService: '20260115',
     }));
     await sequencer.submitProof(proof2, makeClaimMetadata({
       memberWalletId: WALLET_A.toString(),
       patientPayCents: '2000',
       planPayCents: '3000',
       deductibleCreditCents: '500',
+      dateOfService: '20260116',
     }));
 
     const result = sequencer.reconstructAccumulator(WALLET_A.toString());
@@ -475,13 +500,14 @@ describe('Accumulator Reconstruction', () => {
       });
 
       if (i < 2) {
-        // Two fulfillments: 1000/5000/800 each
+        // Two fulfillments: 1000/5000/800 each (different dates to avoid dedup)
         await sequencer.submitProof(proof, makeClaimMetadata({
           memberWalletId: WALLET_A.toString(),
           patientPayCents: '1000',
           planPayCents: '5000',
           operationType: '1',
           deductibleCreditCents: '800',
+          dateOfService: `2026011${5 + i}`,
         }));
       } else {
         // One reversal: 500/2000/400
@@ -740,6 +766,7 @@ describe('WalletMigrationService', () => {
     expect(request.tokenIdHash).toBe(card.tokenIdHash);
     expect(request.employeeIdHash).toBe(card.employeeIdHash);
     expect(request.groupIdHash).toBe(card.groupIdHash);
+    expect(request.planIdHash).toBe(card.planIdHash);
     expect(request.oldWalletId).toBe(card.walletId);
     expect(request.newWalletId).toBe('222');
     expect(request.domainTag).toBe(0);
@@ -994,12 +1021,14 @@ describe('L2SequencerService Integration — deductibleCreditCents + reconstruct
       patientPayCents: '1500',
       planPayCents: '4500',
       deductibleCreditCents: '1500',
+      dateOfService: '20260115',
     }));
     await sequencer.submitProof(proof2, makeClaimMetadata({
       memberWalletId: WALLET_A.toString(),
       patientPayCents: '2000',
       planPayCents: '6000',
       deductibleCreditCents: '1000',
+      dateOfService: '20260116',
     }));
 
     const result = sequencer.reconstructAccumulator(WALLET_A.toString());
@@ -1164,6 +1193,7 @@ describe('Migration E2E Flow', () => {
     const tokenIdHash = hashString('TOKEN-E2E-001').toString();
     const employeeIdHash = hashString('EMP-12345').toString();
     const groupIdHash = e2eGroupIdHash.toString();
+    const planIdHash = hashString('PLAN-GOLD-2026').toString();
 
     const recoveryCard = exportRecoveryCard(
       TEST_ENROLLMENT_KEY,
@@ -1173,6 +1203,7 @@ describe('Migration E2E Flow', () => {
       tokenIdHash,
       employeeIdHash,
       groupIdHash,
+      planIdHash,
     );
 
     expect(isRecoveryCard(recoveryCard)).toBe(true);
@@ -1294,6 +1325,7 @@ describe('Migration E2E Flow', () => {
   test('recovery card + migration preserves insurer identification hashes', () => {
     // Export recovery card with specific hashes
     const traceGroupIdHash = hashString('ACME-TRACE-001');
+    const tracePlanIdHash = hashString('PLAN-TRACE-001').toString();
     const oldWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, traceGroupIdHash);
     const tokenIdHash = hashString('TOKEN-TRACE-001').toString();
     const employeeIdHash = hashString('EMP-TRACE-001').toString();
@@ -1307,12 +1339,14 @@ describe('Migration E2E Flow', () => {
       tokenIdHash,
       employeeIdHash,
       groupIdHash,
+      tracePlanIdHash,
     );
 
     // Verify the card preserves all hash fields
     expect(card.tokenIdHash).toBe(tokenIdHash);
     expect(card.employeeIdHash).toBe(employeeIdHash);
     expect(card.groupIdHash).toBe(groupIdHash);
+    expect(card.planIdHash).toBe(tracePlanIdHash);
     expect(card.walletId).toBe(oldWalletId.toString());
 
     // A migration request built from this card would carry those hashes
@@ -1326,5 +1360,6 @@ describe('Migration E2E Flow', () => {
     expect(request.tokenIdHash).toBe(tokenIdHash);
     expect(request.employeeIdHash).toBe(employeeIdHash);
     expect(request.groupIdHash).toBe(groupIdHash);
+    expect(request.planIdHash).toBe(tracePlanIdHash);
   });
 });

@@ -24,6 +24,7 @@ import type { PcpAssignmentLocalData } from '../../eligibility/pcp-assignment-da
 import { MerkleForest, ForestDomain } from '../../zkp/merkle-forest.js';
 import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY } from '../../credentials/credential-data.js';
 import { buildNfcIdentityRecord, fitsOnTag } from '../nfc-identity.js';
+import { deriveEncryptionKeyPair } from '../../messaging/encryption.js';
 import { MemberNode } from '../member-node.js';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
 import type { RouteRegistration } from '../nautilus-app-types.js';
@@ -304,6 +305,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
               tokenId: data.onboarding.tokenId,
               role: 'member',
               groupId: data.onboarding.tokenData?.groupId ?? null,
+              planId: data.onboarding.tokenData?.planId ?? null,
             }),
           });
           insurerNotified = resp.ok;
@@ -446,6 +448,18 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       let adjudicationRegistered = false;
       if (data.preimageFields) {
         try {
+          // Derive encryption public key from enrollment key (private key stays on device)
+          let publicKeyHex: string | undefined;
+          const localState = server.getLocalState();
+          if (localState.hasEnrollmentKey()) {
+            publicKeyHex = localState.useEnrollmentKey((key) => {
+              const kp = deriveEncryptionKeyPair(key);
+              const hex = kp.publicKey.toString('hex');
+              kp.privateKey.fill(0); // scrub private key immediately
+              return hex;
+            });
+          }
+
           const seqUrlClean = server.getConfig().sequencerUrl.replace(/\/+$/, '');
           const regResp = await fetch(`${seqUrlClean}/interactive/register-member`, {
             method: 'POST',
@@ -456,6 +470,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
               displayName: server.getConfig().displayName || 'Member',
               groupId: data.onboarding?.tokenData?.groupId,
               planId: data.onboarding?.tokenData?.planId,
+              publicKeyHex,
             }),
           });
           adjudicationRegistered = regResp.ok;

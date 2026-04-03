@@ -12,6 +12,7 @@
  *   const status = await client.getStatus();
  *   const disconnect = client.connectEvents((event) => console.log(event));
  */
+import { createHash, createPrivateKey, sign } from 'crypto';
 import http from 'http';
 import https from 'https';
 import type { StateTransitionProof } from '../engine/state-transition.js';
@@ -37,8 +38,12 @@ export interface L2ClientOptions {
   maxRetries: number;
   /** Base delay for exponential backoff in ms. Default 1000. */
   retryBaseDelayMs: number;
-  /** Bearer token for admin RPC methods. When set, sent as Authorization header on all requests. */
+  /** Bearer token for admin RPC methods (unsecure mode). When set, sent as Authorization header on all requests. */
   adminToken?: string;
+  /** Ed25519 private key hex for signing admin requests (secure mode). */
+  adminPrivateKeyHex?: string;
+  /** Node ID for admin request attribution. */
+  adminNodeId?: string;
 }
 
 /** Default client options (sequencerUrl must be provided) */
@@ -172,6 +177,51 @@ export class L2Client {
     return this.rpcCall('l2_deletePlan', { planId });
   }
 
+  /** Get plan limits only (lightweight — no formulary NDCs or network lists) */
+  async getPlanLimits(planId: string): Promise<{
+    planId: string;
+    name: string;
+    coverageType: number;
+    copayAmountCents: number;
+    deductibleAmountCents: number;
+    oopMaxCents: number;
+    annualBenefitMaxCents: number;
+    familyDeductibleAmountCents: number;
+    familyOopMaxCents: number;
+    familyAnnualBenefitMaxCents: number;
+  } | null> {
+    return this.rpcCall('l2_getPlanLimits', { planId });
+  }
+
+  /** Estimate cost for a drug — returns member pay, employer pay, and full pricing breakdown */
+  async estimateCost(params: {
+    ndcHash: string;
+    planId?: string;
+    walletId?: string;
+    quantity?: number;
+    dispensingFeeCents?: number;
+    deductibleAmountCents?: number;
+    oopMaxCents?: number;
+    annualBenefitMaxCents?: number;
+  }): Promise<{
+    covered: boolean;
+    drugName: string;
+    ndcHash: string;
+    classification?: string;
+    tierLevel?: number;
+    nadacPerUnit?: number;
+    quantity?: number;
+    ingredientCostCents?: number;
+    dispensingFeeCents?: number;
+    totalCostCents?: number;
+    copayAmountCents?: number;
+    memberPayCents?: number;
+    employerPayCents?: number;
+    reason?: string;
+  }> {
+    return this.rpcCall('l2_estimateCost', params as unknown as Record<string, unknown>);
+  }
+
   // ─── Claim Accumulator Queries ──────────────────────────
 
   /** Get all claims for a member wallet ID */
@@ -246,13 +296,16 @@ export class L2Client {
    *
    * @returns Reconstructed totals, or null if no claims found for this wallet
    */
-  async reconstructAccumulator(walletId: string): Promise<{
+  async reconstructAccumulator(walletId: string, planIdHash?: string): Promise<{
     deductiblePaidCents: bigint;
     oopPaidCents: bigint;
     benefitUsedCents: bigint;
     claimCount: number;
+    totalClaimCount: number;
   } | null> {
-    return this.rpcCall('l2_reconstructAccumulator', { walletId });
+    const rpcParams: Record<string, string> = { walletId };
+    if (planIdHash) rpcParams.planIdHash = planIdHash;
+    return this.rpcCall('l2_reconstructAccumulator', rpcParams);
   }
 
   // ─── PCP Assignments ───────────────────────────────────
@@ -561,7 +614,19 @@ export class L2Client {
 
     const body = l2Stringify(rpcReq);
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (this.options.adminToken) {
+    if (this.options.adminPrivateKeyHex && this.options.adminNodeId) {
+      // Secure mode: sign the request with Ed25519
+      const timestamp = String(Date.now());
+      const paramsHash = createHash('sha256').update(JSON.stringify(params ?? {})).digest('hex');
+      const message = `${method}|${paramsHash}|${timestamp}`;
+      const pkDer = Buffer.from(
+        '302e020100300506032b657004220420' + this.options.adminPrivateKeyHex,
+        'hex',
+      );
+      const privateKey = createPrivateKey({ key: pkDer, format: 'der', type: 'pkcs8' });
+      const signature = sign(null, Buffer.from(message), privateKey);
+      headers['X-Admin-Signature'] = `${this.options.adminNodeId}:${timestamp}:${signature.toString('hex')}`;
+    } else if (this.options.adminToken) {
       headers['Authorization'] = `Bearer ${this.options.adminToken}`;
     }
     const resBody = await this.httpRequest('/rpc', {

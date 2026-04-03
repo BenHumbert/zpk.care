@@ -9,7 +9,9 @@ export const SCOPE_READ = Field(1);
 export const SCOPE_WRITE = Field(2);
 /** Pickup access — pick up prescriptions at pharmacy */
 export const SCOPE_PICKUP = Field(4);
-/** Full access — READ + WRITE + PICKUP (1 | 2 | 4 = 7) */
+/** Messaging access — initiate and receive encrypted messages (requires explicit opt-in) */
+export const SCOPE_MESSAGING = Field(8);
+/** Full access — READ + WRITE + PICKUP (1 | 2 | 4 = 7). Does NOT include MESSAGING — messaging requires explicit consent. */
 export const SCOPE_ALL = Field(7);
 
 // ─── Relationship Constants ─────────────────────────────────

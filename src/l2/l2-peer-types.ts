@@ -53,6 +53,8 @@ export interface PeerInfo {
   latestSequenceNumber: bigint;
   /** Highest settled batch number, or null if none */
   latestBatchNumber: bigint | null;
+  /** VK commitment — Poseidon.hash of all ZkProgram verification key hashes. Software identity. */
+  vkCommitment?: string;
 }
 
 // ─── Gossip Message Types ────────────────────────────────
@@ -73,7 +75,8 @@ export type GossipMessageType =
   | 'leader:promotion'    // Leviathan leader promotion (failover)
   | 'quorum:propose'      // Leader proposes WAL entry for quorum consensus
   | 'quorum:vote'         // Peer votes (ack + Ed25519 signature)
-  | 'quorum:certificate'; // Leader broadcasts completed quorum certificate
+  | 'quorum:certificate'  // Leader broadcasts completed quorum certificate
+  | 'admin:eviction';     // Node evicted due to equivocation evidence
 
 // ─── Gossip Payloads ─────────────────────────────────────
 
@@ -196,6 +199,37 @@ export interface PeerAnnouncePayload {
   knownPeers: string[];
 }
 
+/**
+ * EquivocationEvidence — cryptographic proof that a node signed two
+ * conflicting messages for the same sequence/context.
+ *
+ * Two GossipMessages from the same senderId with the same messageId prefix
+ * (type + senderId + sequence) but different payloads = equivocation.
+ * Either message alone is valid; together they prove misbehavior.
+ */
+export interface EquivocationEvidence {
+  /** The equivocating node's ID */
+  nodeId: string;
+  /** First conflicting message */
+  messageA: { messageId: string; type: GossipMessageType; timestamp: number; payloadHash: string };
+  /** Second conflicting message (different payload, same context) */
+  messageB: { messageId: string; type: GossipMessageType; timestamp: number; payloadHash: string };
+  /** Node that detected the equivocation */
+  detectedBy: string;
+  /** When the equivocation was detected */
+  detectedAt: number;
+}
+
+/** Payload for admin:eviction gossip messages */
+export interface EvictionPayload {
+  /** The evicted node's ID */
+  evictedNodeId: string;
+  /** Why the node was evicted */
+  reason: string;
+  /** Equivocation evidence (if eviction was due to equivocation) */
+  evidence?: EquivocationEvidence;
+}
+
 /** Union of all gossip payload types */
 export type GossipPayload =
   | ProofAcceptedPayload
@@ -207,6 +241,7 @@ export type GossipPayload =
   | PlanDeletedPayload
   | FormularyUpdatedPayload
   | PeerAnnouncePayload
+  | EvictionPayload
   | L2SequencerState         // For state:snapshot (IBD)
   | LeaderHeartbeatPayload   // For leader:heartbeat (leviathan)
   | LeaderPromotionPayload   // For leader:promotion (leviathan)
@@ -296,10 +331,18 @@ export interface PeerNetworkConfig {
   announceIntervalMs: number;
   /** Whether to request full state sync on first peer connection */
   syncOnConnect: boolean;
-  /** Shared secret for HMAC-SHA256 gossip authentication (optional) */
+  /** Shared secret for HMAC-SHA256 gossip authentication (optional, unsecure mode fallback) */
   gossipSecret?: string;
   /** Bearer token for admin RPC methods on peer nodes. Passed to L2Client for authenticated calls. */
   adminToken?: string;
+  /** Expected VK commitment — peers with a different commitment are rejected (software identity). */
+  vkCommitment?: string;
+  /** Ed25519 private key hex for signing gossip messages (secure mode). 64 hex chars = 32 bytes. */
+  gossipPrivateKeyHex?: string;
+  /** Ed25519 public key hex for this node's gossip identity. 64 hex chars = 32 bytes. */
+  gossipPublicKeyHex?: string;
+  /** Map of peerId → Ed25519 public key hex. Used to verify gossip signatures from known peers. */
+  gossipPeerPublicKeys?: Map<string, string>;
 }
 
 /** Default peer network configuration */
