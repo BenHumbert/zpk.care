@@ -339,3 +339,102 @@ export interface BenefitPlanConfig {
   createdAt: number;
   updatedAt: number;
 }
+
+// ─── Employer Attestation ─────────────────────────────────
+
+/** Employer application status lifecycle */
+export type EmployerApplicationStatus =
+  | 'submitted'         // Employer submitted application
+  | 'under_review'      // Insurer is reviewing
+  | 'needs_documents'   // CP 575 / verification documents required
+  | 'approved'          // Insurer approved, awaiting agreement signing
+  | 'signed'            // Both parties signed, attestation registered
+  | 'active'            // Employer node is live
+  | 'denied'            // Insurer denied
+  | 'suspended';        // Insurer suspended active employer
+
+/** EmployerApplication — submitted by employer via marketplace */
+export interface EmployerApplication {
+  applicationId: string;
+  employerId: string;
+  companyName: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhone?: string;
+  ein?: string;
+  state: string;
+  industry?: string;
+  selectedPlanIds: string[];
+  effectiveDate: string;
+  enrollmentCap: number;
+  publicKeyHex: string;
+  submittedAt: number;
+  status: EmployerApplicationStatus;
+  reviewedAt?: number;
+  approvedAt?: number;
+  denialReason?: string;
+  /** CP 575 document UUID (stored as PDF in stateDir/employer-documents/) */
+  cp575DocumentId?: string;
+  /** Number of document resubmission attempts (max 3) */
+  resubmissionCount?: number;
+  /** ERISA plan type */
+  planType?: 'erisa' | 'government' | 'church' | 'other';
+  /** Timestamp when signer reviewed the agreement (scrolled to bottom) */
+  reviewedAgreementAt?: number;
+}
+
+/** AgreementTerms — structured data from which the DOCX agreement is generated */
+export interface AgreementTerms {
+  agreementId: string;
+  applicationId: string;
+  employerId: string;
+  companyName: string;
+  selectedPlans: Array<{
+    planId: string;
+    planName: string;
+    copayAmountCents: number;
+    deductibleAmountCents: number;
+    oopMaxCents: number;
+    annualBenefitMaxCents: number;
+  }>;
+  effectiveDate: string;
+  enrollmentCap: number;
+  insurerName: string;
+  termsVersion: string;
+  generatedAt: number;
+}
+
+/** EmployerAttestation — registered on sequencer, proves the agreement.
+ *
+ * Phase D: bumped from v1 to v2 to introduce a monotonic `attestationSeq`.
+ * The first attestation for any employerId MUST have seq=0. Each subsequent
+ * registration (renewal, plan change, key rotation) MUST have seq exactly one
+ * greater than the existing attestation's seq. Both Ed25519 signatures are
+ * computed over a canonical message that INCLUDES the seq, so an attacker
+ * cannot bump seq without forging both signatures.
+ */
+export interface EmployerAttestation {
+  v: 2;
+  employerId: string;
+  publicKeyHex: string;
+  authorizedPlanIds: string[];
+  enrollmentCap: number;
+  agreementCommitment: string;
+  documentHash: string;
+  effectiveDate: string;
+  employerSignature: string;
+  insurerSignature: string;
+  insurerPublicKeyHex: string;
+  ts: number;
+  applicationId: string;
+  /** Monotonic sequence (Phase D). 0 for first registration; +1 per renewal. */
+  attestationSeq: number;
+  /** Signer's full legal name (included in Ed25519 signed payload) */
+  signerName: string;
+  /** Signer's corporate title (included in Ed25519 signed payload) */
+  signerTitle: string;
+  /** Ed25519-signed verification certificate (opaque — no PII) */
+  verificationCert?: string;
+  /** Re-verification deadline (Unix seconds) */
+  verificationExpiry?: number;
+}

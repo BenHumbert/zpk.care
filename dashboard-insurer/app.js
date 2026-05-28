@@ -1056,10 +1056,111 @@
   var selectedGroup = null;
   var rosterData = null;
 
+  var _appsPollTimer = null;
   function loadEmployersPage() {
+    loadMarketplaceApplications();
     loadRosterData();
     var refreshBtn = $('emp-refresh-btn');
     if (refreshBtn) refreshBtn.onclick = loadRosterData;
+    var appsRefreshBtn = $('apps-refresh-btn');
+    if (appsRefreshBtn) appsRefreshBtn.onclick = loadMarketplaceApplications;
+    // Auto-poll every 10s so insurer sees doc uploads + status changes in real time
+    if (_appsPollTimer) clearInterval(_appsPollTimer);
+    _appsPollTimer = setInterval(function() {
+      if (currentTab === 'employers') loadMarketplaceApplications();
+      else { clearInterval(_appsPollTimer); _appsPollTimer = null; }
+    }, 10000);
+  }
+
+  async function loadMarketplaceApplications() {
+    var body = $('marketplace-apps-body');
+    if (!body) return;
+    body.innerHTML = '<div class="loading">Loading applications...</div>';
+    try {
+      var apps = await API.getEmployerApplications();
+      var list = Array.isArray(apps) ? apps : (apps.data || apps);
+      if (!list || list.length === 0) {
+        body.innerHTML = '<div class="empty-state">No marketplace applications yet.</div>';
+        return;
+      }
+      body.innerHTML = '<table class="data-table"><thead><tr>' +
+        '<th>Company</th><th>EIN</th><th>Plans</th><th>Cap</th><th>Status</th><th>Submitted</th><th>Document</th><th>Actions</th></tr></thead><tbody>' +
+        list.map(function(a) {
+          var statusColor = { submitted: 'yellow', under_review: 'yellow', needs_documents: 'orange', approved: 'blue', signed: 'green', active: 'green', denied: 'red' };
+          var docStatus = a.cp575DocumentId
+            ? '<span class="badge green" style="font-size:10px">CP 575 on file</span>'
+            : '<span class="badge orange" style="font-size:10px">Not uploaded</span>';
+          return '<tr>' +
+            '<td><strong>' + esc(a.companyName) + '</strong><br><span style="font-size:11px;color:var(--text-muted)">' + esc(a.employerId) + '</span></td>' +
+            '<td class="mono">' + esc(a.ein || '--') + '</td>' +
+            '<td>' + (a.selectedPlanIds || []).map(function(p) { return '<span class="badge badge-sm">' + esc(p) + '</span>'; }).join(' ') + '</td>' +
+            '<td>' + esc(a.enrollmentCap) + '</td>' +
+            '<td><span class="badge ' + (statusColor[a.status] || 'yellow') + '">' + esc(a.status) + '</span></td>' +
+            '<td style="font-size:11px">' + new Date(a.submittedAt).toLocaleDateString() + '</td>' +
+            '<td>' + docStatus + '</td>' +
+            '<td class="actions-cell">' + renderAppActions(a) + '</td>' +
+          '</tr>';
+        }).join('') +
+        '</tbody></table>';
+    } catch (e) {
+      body.innerHTML = '<div class="form-result error">Failed to load applications: ' + esc(e.message) + '</div>';
+    }
+  }
+
+  function renderAppActions(a) {
+    var id = a.applicationId;
+    var hasDoc = !!a.cp575DocumentId;
+    var reviewLink = hasDoc ? '<a href="/marketplace/api/document/' + esc(id) + '" target="_blank" class="btn btn-sm" style="margin-right:4px" title="Review uploaded CP 575">Review PDF</a>' : '';
+
+    if (a.status === 'submitted' || a.status === 'under_review' || a.status === 'needs_documents') {
+      if (hasDoc) {
+        // Document uploaded — prominent review + approve flow
+        return '<div style="display:flex;flex-direction:column;gap:6px">' +
+          '<div style="display:flex;gap:4px">' +
+            reviewLink +
+            '<button class="btn btn-sm btn-primary" onclick="App.approveApp(\'' + esc(id) + '\')">Approve</button>' +
+          '</div>' +
+          '<div style="display:flex;gap:4px">' +
+            '<button class="btn btn-sm" onclick="App.requestDocs(\'' + esc(id) + '\')">Request Resubmission</button>' +
+            '<button class="btn btn-sm btn-danger" onclick="App.denyApp(\'' + esc(id) + '\')">Deny</button>' +
+          '</div>' +
+        '</div>';
+      } else {
+        // No document yet
+        return '<button class="btn btn-sm" onclick="App.requestDocs(\'' + esc(id) + '\')">Request Docs</button> ' +
+          '<button class="btn btn-sm btn-danger" onclick="App.denyApp(\'' + esc(id) + '\')">Deny</button>';
+      }
+    }
+    if (a.status === 'approved') return '<span class="badge blue">Approved — awaiting employer signature</span>';
+    if (a.status === 'signed' || a.status === 'active') return '<span class="badge green">' + esc(a.status) + '</span>';
+    if (a.status === 'denied') return '<span class="badge red">Denied</span>';
+    return '';
+  }
+
+  async function approveApp(appId) {
+    try {
+      await API.approveEmployerApplication(appId);
+      toast('Application approved', 'success');
+      loadMarketplaceApplications();
+    } catch (e) { toast('Approve failed: ' + e.message, 'error'); }
+  }
+
+  async function denyApp(appId) {
+    var reason = prompt('Denial reason:');
+    if (!reason) return;
+    try {
+      await API.denyEmployerApplication(appId, reason);
+      toast('Application denied', 'info');
+      loadMarketplaceApplications();
+    } catch (e) { toast('Deny failed: ' + e.message, 'error'); }
+  }
+
+  async function requestDocs(appId) {
+    try {
+      await API.requestEmployerDocuments(appId);
+      toast('Documents requested from employer', 'success');
+      loadMarketplaceApplications();
+    } catch (e) { toast('Request failed: ' + e.message, 'error'); }
   }
 
   async function loadRosterData() {
@@ -1382,7 +1483,7 @@
       btns.push('<button class="btn btn-sm btn-danger" onclick="App.denyApp(\'' + esc(app.applicationId) + '\')">Deny</button>');
     }
     if (app.status === 'verified' || app.status === 'pending') {
-      btns.push('<button class="btn btn-sm btn-primary" onclick="App.approveApp(\'' + esc(app.applicationId) + '\')">Approve</button>');
+      btns.push('<button class="btn btn-sm btn-primary" onclick="App.approveCredentialingApp(\'' + esc(app.applicationId) + '\')">Approve</button>');
     }
     return btns.join(' ') || '--';
   }
@@ -2015,6 +2116,9 @@
   window.App = {
     removeFormularyEntry: removeFormularyEntry,
     selectGroup: selectGroup,
+    approveApp: approveApp,
+    denyApp: denyApp,
+    requestDocs: requestDocs,
     suspendProvider: async function (wid) {
       if (!confirm('Suspend provider ' + wid.slice(0, 16) + '...?')) return;
       try { await API.suspendProvider(wid); toast('Provider suspended', 'success'); loadProviderRegistry(); }
@@ -2029,7 +2133,7 @@
       try { await API.verifyApplication(appId); toast('Application verified', 'success'); loadCredentialingApps(); }
       catch (e) { toast('Failed: ' + e.message, 'error'); }
     },
-    approveApp: async function (appId) {
+    approveCredentialingApp: async function (appId) {
       var walletId = prompt('Enter provider wallet ID to credential:');
       if (!walletId) return;
       try { await API.approveApplication(appId, walletId); toast('Application approved & credentialed', 'success'); loadCredentialingApps(); loadProviderRegistry(); }

@@ -28,6 +28,7 @@ import { fileURLToPath } from 'url';
 import { NautilusAppServer } from './nautilus-app-server.js';
 import type { NautilusAppConfig } from './nautilus-app-types.js';
 import { buildInsurerRoutes } from './routes/insurer-routes.js';
+import { buildMarketplaceRoutes, buildEmployerAdminRoutes } from './routes/marketplace-routes.js';
 import { InsurerNode } from './insurer-node.js';
 
 // ─── Environment ─────────────────────────────────────────────
@@ -58,6 +59,12 @@ if (fs.existsSync(path.join(dashboardDir, 'index.html'))) {
   config.dashboardDir = dashboardDir;
 }
 
+// Auto-detect marketplace dashboard directory
+const marketplaceDir = path.resolve(thisDir, '..', '..', 'dashboard-marketplace');
+if (fs.existsSync(path.join(marketplaceDir, 'index.html'))) {
+  config.marketplaceDashboardDir = marketplaceDir;
+}
+
 // ─── Main ────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -69,14 +76,17 @@ async function main(): Promise<void> {
 
   const server = new NautilusAppServer(config);
 
-  // Register insurer routes
+  // Register insurer routes + marketplace + employer admin
   server.registerRoutes(buildInsurerRoutes(server));
+  server.registerRoutes(buildMarketplaceRoutes(server));
+  server.registerRoutes(buildEmployerAdminRoutes(server));
 
   // Insurer has no wallet, no PIN — create node directly
   const node = new InsurerNode({
     role: 'insurer',
     sequencerUrl: config.sequencerUrl,
     displayName: config.displayName,
+    clientOptions: config.adminToken ? { adminToken: config.adminToken } : undefined,
   });
   server.setEntityNode(node);
   server.setOnboardingPhase('credentialing' as any);
@@ -225,6 +235,11 @@ async function main(): Promise<void> {
     stopping = true;
     console.log('');
     console.log('  [%s] Shutting down gracefully...', signal);
+    // Phase C: kill any tenant employer nodes + HR Tools the orchestrator spawned
+    try {
+      const { shutdownAllTenants } = await import('./employer-orchestrator.js');
+      shutdownAllTenants();
+    } catch { /* orchestrator module may not be loaded — ignore */ }
     await server.stop();
     console.log('  [shutdown] Server stopped');
     process.exit(0);

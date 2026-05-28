@@ -84,14 +84,15 @@ describe('Claim Accumulator Types', () => {
     }
   });
 
-  test('computeClaimLeafHash matches manual Poseidon.hash of 9 fields', () => {
+  test('computeClaimLeafHash matches manual Poseidon.hash of 9 fields (dateOfService hashed)', () => {
     const leaf = makeLeaf();
+    const dateHash = Poseidon.hash([Field(BigInt(leaf.dateOfService))]);
     const expected = Poseidon.hash([
       Field(BigInt(leaf.memberWalletId)),
       Field(BigInt(leaf.ndcHash)),
       Field(BigInt(leaf.pharmacyWalletId)),
       Field(BigInt(leaf.prescriberWalletId)),
-      Field(BigInt(leaf.dateOfService)),
+      dateHash,
       Field(BigInt(leaf.patientPayCents)),
       Field(BigInt(leaf.planPayCents)),
       Field(BigInt(leaf.operationType)),

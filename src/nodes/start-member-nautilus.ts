@@ -21,7 +21,17 @@
  *   ZKTRIDENT_PROVER_URL       — Proof delegation URL (optional)
  *   ZKTRIDENT_PROVER_API_KEY   — Prover API key (optional)
  *   ZKTRIDENT_INSURER_URL      — Insurer Nautilus URL for enrollment (optional)
- *   ZKTRIDENT_EMPLOYER_URL     — Employer Nautilus URL for enrollment confirmation (optional)
+ *   ZKTRIDENT_EMPLOYER_URL     — Employer Nautilus URL for enrollment
+ *                                confirmation callback (transitional).
+ *                                As of Phase A, this is NOT propagated by the
+ *                                leviathan boot script; the member node runs
+ *                                without an employer URL by default and the
+ *                                enrollment confirmation callback is skipped
+ *                                with an explanatory log line. Phase C will
+ *                                replace this env var with a dynamic lookup
+ *                                on the sequencer's tenant registry. Setting
+ *                                this env var manually is still honored for
+ *                                single-tenant deployments.
  *   ZKTRIDENT_PIN              — PIN for encrypted state (for CI/testing; stdin if not set)
  *
  * Usage:
@@ -60,6 +70,7 @@ const config: NautilusAppConfig = {
   proverApiKey: env.ZKTRIDENT_PROVER_API_KEY,
   insurerUrl: env.ZKTRIDENT_INSURER_URL,
   employerUrl: env.ZKTRIDENT_EMPLOYER_URL,
+  adminToken: env.ZKTRIDENT_ADMIN_TOKEN,
 };
 
 // Auto-detect dashboard directory

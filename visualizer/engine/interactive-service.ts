@@ -6245,7 +6245,6 @@ export class AdjudicationService {
           state: m.state,
           zip: m.zip,
           genderCode: m.localData.genderCode,
-          enrollmentKey: m.enrollmentKey,
         })),
         prescribers: PRESCRIBERS.map((p, i) => ({
           index: i,

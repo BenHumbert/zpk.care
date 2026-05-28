@@ -68,12 +68,16 @@ export interface NautilusAppConfig {
   insurerUrl?: string;
   /** Employer Nautilus URL for enrollment confirmation (optional) */
   employerUrl?: string;
-  /** Admin token for insurer-specific admin methods */
+  /** Admin token for admin methods (unsecure mode / backward compat) */
   adminToken?: string;
+  /** Authorized client Ed25519 public keys: Map<clientId, publicKeyHex>. When set, admin routes require Ed25519 signature. */
+  authorizedClientKeys?: Map<string, string>;
   /** Display name for logging */
   displayName?: string;
   /** Directory containing static dashboard files (index.html, etc.) */
   dashboardDir?: string;
+  /** Directory containing marketplace dashboard (served at /marketplace/) */
+  marketplaceDashboardDir?: string;
 }
 
 // ─── Route Registration ────────────────────────────────────────

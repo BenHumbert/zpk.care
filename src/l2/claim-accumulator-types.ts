@@ -37,7 +37,7 @@ export interface ClaimLeaf {
   pharmacyWalletId: string;
   /** Prescriber wallet ID (Poseidon hash) */
   prescriberWalletId: string;
-  /** Date of service as CCYYMMDD numeric */
+  /** Date of service — Poseidon hash of CCYYMMDD (opaque in Merkle leaf) */
   dateOfService: string;
   /** Patient pay in cents (from ZK proof output) */
   patientPayCents: string;
@@ -52,14 +52,22 @@ export interface ClaimLeaf {
 /**
  * Compute the Poseidon hash of a ClaimLeaf (9 Fields → 1 hash).
  * This hash is stored as the leaf value in the MerkleTree.
+ *
+ * dateOfService is hashed through Poseidon before inclusion so that
+ * the CCYYMMDD value is not directly readable from the Merkle leaf.
+ * The plaintext date is preserved in ClaimMetadata for queries.
+ *
+ * BREAKING: Pre-existing claim leaves will produce different hashes.
+ * Existing checkpoints must be discarded on upgrade (clean-break, pre-production).
  */
 export function computeClaimLeafHash(leaf: ClaimLeaf): Field {
+  const dateHash = Poseidon.hash([Field(BigInt(leaf.dateOfService))]);
   return Poseidon.hash([
     Field(BigInt(leaf.memberWalletId)),
     Field(BigInt(leaf.ndcHash)),
     Field(BigInt(leaf.pharmacyWalletId)),
     Field(BigInt(leaf.prescriberWalletId)),
-    Field(BigInt(leaf.dateOfService)),
+    dateHash,
     Field(BigInt(leaf.patientPayCents)),
     Field(BigInt(leaf.planPayCents)),
     Field(BigInt(leaf.operationType)),
@@ -80,6 +88,8 @@ export interface ClaimMetadata {
   receiptId: string;
   /** Timestamp when the claim was accepted */
   timestamp: number;
+  /** Date of service as plaintext CCYYMMDD (for filtering/sorting/display) */
+  dateOfService?: string;
   /** Plaintext 11-digit NDC code (verifiable: hashString(ndc) == ndcHash) */
   ndc?: string;
   /** Drug brand or generic name */

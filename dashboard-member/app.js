@@ -231,12 +231,62 @@
   }
 
   // ══════════════════════════════════════════════════════
+  //  EJECT — full local state reset
+  // ══════════════════════════════════════════════════════
+  async function ejectMember() {
+    if (!confirm(
+      'This will permanently erase all enrollment data on this device — ' +
+      'including your wallet, enrollment key, and any saved credentials.\n\n' +
+      'You will need a NEW enrollment token from your employer to start over.\n\n' +
+      'This cannot be undone unless you have an NFC backup card.\n\nContinue?'
+    )) return;
+
+    try {
+      var resp = await fetch(location.origin + '/onboarding/eject', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      });
+      var data = await resp.json();
+      if (!data.ok) throw new Error(data.error || 'Eject failed');
+    } catch (e) {
+      // If the server eject fails (e.g. state already locked), still clear frontend state
+      console.warn('[eject] Server eject failed:', e.message, '— clearing frontend anyway');
+    }
+
+    // Clear all browser state regardless of server result
+    Object.values(LS).forEach(function (k) { lsRemove(k); });
+    walletId = '';
+    enrollmentKey = '';
+    if (pollTimer) clearInterval(pollTimer);
+    RPC.disconnectSSE();
+    onboardStep = 0;
+    onboardState = {
+      pin: '', tokenId: '', enrollPIN: '', cardholderId: '', firstName: '', lastName: '', dob: '',
+      enrollmentKey: '', walletId: '', preimageFields: null,
+      statusMessage: '', error: '',
+    };
+    toast('All enrollment data erased. Starting fresh.', 'info');
+    showScreen('landing-screen');
+  }
+
+  /** Render a "Start Over" link for the bottom of onboarding steps */
+  function ejectLink() {
+    return '<div style="text-align:center;margin-top:24px;padding-top:12px;border-top:1px solid var(--border)">' +
+      '<a href="#" id="ob-eject" style="font-size:12px;color:var(--red);text-decoration:none;opacity:0.7">' +
+      'Having trouble? Start over from the beginning</a></div>';
+  }
+
+  function wireEjectLink() {
+    var el = $('ob-eject');
+    if (el) el.addEventListener('click', function(e) { e.preventDefault(); ejectMember(); });
+  }
+
+  // ══════════════════════════════════════════════════════
   //  ONBOARDING (7-step enrollment ceremony)
   // ══════════════════════════════════════════════════════
   var ONBOARD_TOTAL_STEPS = 7;
   var onboardStep = 0;
   var onboardState = {
-    pin: '', tokenId: '', cardholderId: '', firstName: '', lastName: '', dob: '',
+    pin: '', tokenId: '', enrollPIN: '', cardholderId: '', firstName: '', lastName: '', dob: '',
     enrollmentKey: '', walletId: '', preimageFields: null,
     statusMessage: '', error: '',
   };
@@ -274,20 +324,25 @@
         });
         break;
 
-      case 1: // Token
+      case 1: // Token + Enrollment PIN
         body.innerHTML =
-          '<div class="onboard-title">Enrollment Token</div>' +
-          '<div class="onboard-desc">Enter the enrollment token provided by your employer.</div>' +
-          '<div class="form-group"><label>Token ID</label>' +
-          '<input class="form-input mono" id="ob-token" placeholder="e.g. TOK-ABC-123" value="' + esc(onboardState.tokenId) + '"></div>' +
+          '<div class="onboard-title">Enrollment Credentials</div>' +
+          '<div class="onboard-desc">Enter the enrollment code from your employer portal and the 8-digit PIN sent to your phone via SMS. These were provided through separate channels for security.</div>' +
+          '<div class="form-group"><label>Enrollment Code</label>' +
+          '<input class="form-input mono" id="ob-token" placeholder="e.g. TOKEN-1776172084733-0" value="' + esc(onboardState.tokenId) + '"></div>' +
+          '<div class="form-group"><label>8-Digit PIN (from SMS)</label>' +
+          '<input class="form-input mono" id="ob-enroll-pin" type="text" inputmode="numeric" maxlength="8" placeholder="e.g. 12345678" value="' + esc(onboardState.enrollPIN || '') + '"></div>' +
           '<div class="form-actions">' +
           '<button class="btn" id="ob-back">Back</button>' +
           '<button class="btn btn-primary" id="ob-next">Next</button></div>';
         $('ob-back').addEventListener('click', function () { onboardStep = 0; renderOnboardStep(); });
         $('ob-next').addEventListener('click', async function () {
           var v = $('ob-token').value.trim();
-          if (!v) { toast('Token ID required', 'error'); return; }
+          var pin = $('ob-enroll-pin').value.trim();
+          if (!v) { toast('Enrollment code is required', 'error'); return; }
+          if (!pin || pin.length < 4) { toast('Enter the 8-digit PIN from your SMS', 'error'); return; }
           onboardState.tokenId = v;
+          onboardState.enrollPIN = pin;
           try {
             await fetch(location.origin + '/onboarding/accept-token', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -392,6 +447,14 @@
         });
         break;
     }
+
+    // Append "Start Over" eject link to every step except the completion screen.
+    // On the completion screen, eject doesn't make sense — the wallet is already on-chain.
+    if (onboardStep < 6) {
+      var body = $('onboard-body');
+      if (body) body.insertAdjacentHTML('beforeend', ejectLink());
+      wireEjectLink();
+    }
   }
 
   async function generateKeyAndWallet() {
@@ -406,6 +469,7 @@
 
       // Step 2: Derive wallet via server-side Poseidon hashing (PHI sent to local device only)
       if ($('ob-keygen-msg')) $('ob-keygen-msg').textContent = 'Deriving wallet ID (Poseidon hash)...';
+      var today = new Date().toISOString().split('T')[0];
       var deriveRes = await fetch(location.origin + '/onboarding/derive-wallet', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -413,6 +477,14 @@
           dateOfBirth: onboardState.dob,
           firstName: onboardState.firstName,
           lastName: onboardState.lastName,
+          consentRecord: {
+            phiDescription: 'Health insurance claim adjudication data including drug identity, cost amounts, and accumulator balances',
+            disclosingParty: 'Member',
+            receivingParty: 'Adjuda-GATOR Network (zkTrident sequencer)',
+            purpose: 'Zero-knowledge proof generation for pharmacy benefit claim adjudication and drug utilization verification',
+            expiration: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            signatureDate: today,
+          },
         }),
       }).then(function (r) { return r.json(); });
       if (!deriveRes.ok) throw new Error(deriveRes.error || 'Wallet derivation failed');
@@ -440,7 +512,7 @@
       if ($('ob-enroll-msg')) $('ob-enroll-msg').textContent = onboardState.statusMessage;
       var enrollRes = await fetch(location.origin + '/onboarding/enroll', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ tokenPIN: onboardState.enrollPIN || undefined }),
       }).then(function (r) { return r.json(); });
       if (!enrollRes.ok) throw new Error(enrollRes.error || 'Enrollment failed');
 
@@ -1239,10 +1311,8 @@
       var threadBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(threadSeed));
       var threadIdHash = msgActiveThread.threadId || BigInt('0x' + bytesToHex(new Uint8Array(threadBuf)).slice(0, 62)).toString();
 
-      await RPC.storeMessage(
-        { messageCommitment: '0', recipientWalletId: msgActiveThread.wallet, senderWalletId: walletId, messageType: '5', threadIdHash: threadIdHash },
-        { ciphertext: btoa(body), iv: '0', tag: '0', timestamp: Date.now() }
-      );
+      // Send via server-side encryption endpoint (enrollment key on server, not in browser)
+      await RPC.sendEncryptedMessage(msgActiveThread.wallet, body);
       input.value = '';
       toast('Message sent', 'success');
       var idx = msgContacts.indexOf(msgActiveThread);
@@ -1263,38 +1333,8 @@
     _sendingMsg = true;
 
     try {
-      // VULNERABILITY: Using base64 encoding as placeholder — NOT real encryption.
-      // TODO: Implement proper E2E encryption with X25519 key exchange (ECDH shared secret)
-      // so that only sender + recipient can decrypt. The sequencer must NEVER see plaintext.
-      var ciphertext = btoa(body);
-      var timestamp = Date.now();
-
-      // Compute thread ID hash (sorted wallet pair — simplified hash for web)
-      var sorted = [walletId, recipient].sort();
-      var threadSeed = sorted.join(':');
-      var threadBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(threadSeed));
-      var threadIdHash = BigInt('0x' + bytesToHex(new Uint8Array(threadBuf)).slice(0, 62)).toString();
-
-      // Compute message commitment
-      var commitSeed = walletId + ':' + recipient + ':' + timestamp;
-      var commitBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(commitSeed));
-      var messageCommitment = BigInt('0x' + bytesToHex(new Uint8Array(commitBuf)).slice(0, 62)).toString();
-
-      var message = {
-        messageCommitment: messageCommitment,
-        senderWalletId: walletId,
-        recipientWalletId: recipient,
-        messageType: '1', // Clinical
-        threadIdHash: threadIdHash,
-      };
-      var payload = {
-        ciphertext: ciphertext,
-        iv: '0',
-        tag: '0',
-        timestamp: timestamp,
-      };
-
-      await RPC.storeMessage(message, payload);
+      // Send via server-side encryption endpoint (enrollment key on server, not in browser)
+      await RPC.sendEncryptedMessage(recipient, body);
 
       // Close compose, log, refresh
       $('compose-overlay').classList.add('hidden');
@@ -1537,14 +1577,9 @@
     });
 
     $('settings-logout-btn').addEventListener('click', function () {
-      if (!confirm('This will clear all local state including your wallet and enrollment key. This cannot be undone unless you have a backup. Continue?')) return;
-      Object.values(LS).forEach(function (k) { lsRemove(k); });
-      walletId = '';
-      enrollmentKey = '';
-      if (pollTimer) clearInterval(pollTimer);
-      RPC.disconnectSSE();
-      showScreen('landing-screen');
-      toast('Local state cleared', 'info');
+      // Use the same ejectMember() flow that the onboarding "Start Over" link uses —
+      // it calls the server to destroy the encrypted state file AND clears the frontend.
+      ejectMember();
     });
   }
 

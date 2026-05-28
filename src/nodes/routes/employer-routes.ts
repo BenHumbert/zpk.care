@@ -33,17 +33,18 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
         return server.sendResponse(res, 409, false, undefined, 'Already configured');
       }
 
-      const b = body as { employerId?: string; insurerUrl?: string } | undefined;
+      const b = body as { employerId?: string } | undefined;
       if (!b?.employerId) {
         return server.sendResponse(res, 400, false, undefined, 'Missing employerId');
       }
 
+      // SSRF fix: insurerUrl must come from server config, never from request body
       const node = new EmployerNode({
         role: 'employer',
         sequencerUrl: server.getConfig().sequencerUrl,
         displayName: server.getConfig().displayName,
         employerId: b.employerId,
-        insurerUrl: b.insurerUrl,
+        insurerUrl: (server.getConfig() as any).insurerUrl ?? null,
         clientOptions: server.getConfig().adminToken ? { adminToken: server.getConfig().adminToken } : undefined,
       });
       server.setEntityNode(node);
@@ -106,7 +107,10 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
     handler: async (_req, res) => {
       const node = server.getEntityNode() as EmployerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
-      server.sendResponse(res, 200, true, node.listGroups());
+      // Phase F1: return groups with inlined utilization stats so the HR Tool
+      // Group Selection Screen and the Employer Dashboard Groups tab can both
+      // populate from one call without N+1 follow-up requests.
+      server.sendResponse(res, 200, true, node.listGroupsWithStats());
     },
   });
 
@@ -119,6 +123,20 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
       const group = node.getGroup(params.groupId);
       if (!group) return server.sendResponse(res, 404, false, undefined, 'Group not found');
       server.sendResponse(res, 200, true, group);
+    },
+  });
+
+  // Phase F1: dedicated stats endpoint. The HR Tool calls this before
+  // initiating an import to check remainingSlots against the CSV row count.
+  routes.push({
+    method: 'GET',
+    path: '/groups/:groupId/stats',
+    handler: async (_req, res, params) => {
+      const node = server.getEntityNode() as EmployerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
+      const stats = node.getGroupStats(params.groupId);
+      if (!stats) return server.sendResponse(res, 404, false, undefined, 'Group not found');
+      server.sendResponse(res, 200, true, stats);
     },
   });
 
@@ -157,15 +175,15 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
 
       const b = body as {
         groupId?: string;
-        employeeId?: string;
-        familyId?: string;
+        employeeIdHash?: string;
+        familyIdHash?: string;
         validUntil?: string;
         tokenId?: string;
       } | undefined;
-      if (!b?.groupId || !b?.employeeId || !b?.validUntil) {
-        return server.sendResponse(res, 400, false, undefined, 'Missing groupId, employeeId, or validUntil');
+      if (!b?.groupId || !b?.employeeIdHash || !b?.validUntil) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing groupId, employeeIdHash, or validUntil');
       }
-      const familyId = b.familyId || b.employeeId;
+      const familyIdHash = b.familyIdHash || b.employeeIdHash;
       // Accept ISO date (2026-12-31) or CCYYMMDD (20261231)
       let validUntil = b.validUntil!;
       if (validUntil.includes('-')) {
@@ -173,11 +191,11 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
       }
 
       try {
-        const result = node.generateToken(b.groupId, b.employeeId, familyId, validUntil, b.tokenId);
+        const result = node.generateToken(b.groupId, b.employeeIdHash, familyIdHash, validUntil, b.tokenId);
         server.sendResponse(res, 201, true, {
           tokenId: result.tokenId,
           tokenIdHash: result.token.tokenIdHash.toString(),
-          groupId: b.groupId,
+          groupIdHash: result.token.groupIdHash.toString(),
           validUntil: b.validUntil,
         });
       } catch (err: unknown) {
@@ -199,9 +217,9 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
       server.sendResponse(res, 200, true, {
         tokenId: params.tokenId,
         status: record.status,
-        groupId: record.localData.groupId,
-        planId: record.localData.planId,
-        validUntil: record.localData.validUntil.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'),
+        groupIdHash: record.groupIdHash,
+        planIdHash: record.planIdHash,
+        validUntil: record.validUntil.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'),
         consumedByWalletId: record.consumedByWalletId ?? null,
         consumedAt: record.consumedAt ?? null,
       });
@@ -225,15 +243,55 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
     },
   });
 
+  // Set PIN hash on a token — called by HR Tool after token generation
+  routes.push({
+    method: 'POST',
+    path: '/tokens/:tokenId/set-pin-hash',
+    adminOnly: true,
+    handler: async (_req, res, params, _query, body) => {
+      const node = server.getEntityNode() as EmployerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
+      const b = body as { tokenPinHash?: string } | undefined;
+      if (!b?.tokenPinHash) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing tokenPinHash');
+      }
+      try {
+        node.setTokenPinHash(params.tokenId, b.tokenPinHash);
+        server.sendResponse(res, 200, true, { tokenId: params.tokenId, pinHashSet: true });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        server.sendResponse(res, 409, false, undefined, msg);
+      }
+    },
+  });
+
   routes.push({
     method: 'POST',
     path: '/tokens/:tokenId/validate',
     handler: async (_req, res, params, _query, body) => {
       const node = server.getEntityNode() as EmployerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
-      const b = body as { currentDate?: string } | undefined;
-      const date = b?.currentDate ?? new Date().toISOString().replace(/\D/g, '').slice(0, 8);
-      server.sendResponse(res, 200, true, node.validateToken(params.tokenId, date));
+      const date = new Date().toISOString().replace(/\D/g, '').slice(0, 8);
+      const b = body as { tokenPinHash?: string } | undefined;
+
+      // Server-side PIN enforcement
+      const record = node.getTokenRecord(params.tokenId);
+
+      // Guard 1: If token has a PIN hash, require it in the request
+      if (record?.tokenPinHash && !b?.tokenPinHash) {
+        return server.sendResponse(res, 400, false, undefined, 'Enrollment PIN required for this token');
+      }
+
+      // Guard 2: If caller provides a PIN hash but the token doesn't have one set,
+      // reject — this is an orphan token where set-pin-hash failed
+      if (b?.tokenPinHash && record && !record.tokenPinHash) {
+        return server.sendResponse(res, 409, false, undefined, 'Token PIN hash not yet set — retry enrollment code generation');
+      }
+
+      const result = b?.tokenPinHash
+        ? node.validateTokenWithPin(params.tokenId, date, b.tokenPinHash)
+        : node.validateToken(params.tokenId, date);
+      server.sendResponse(res, 200, true, result);
     },
   });
 
@@ -266,6 +324,7 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
   routes.push({
     method: 'POST',
     path: '/enrollment/confirm',
+    adminOnly: true,
     handler: async (_req, res, _params, _query, body) => {
       const node = server.getEntityNode() as EmployerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
@@ -291,6 +350,7 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
   routes.push({
     method: 'GET',
     path: '/roster',
+    adminOnly: true,
     handler: async (_req, res, _params, query) => {
       const node = server.getEntityNode() as EmployerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
@@ -310,6 +370,7 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
   routes.push({
     method: 'GET',
     path: '/roster/:employeeIdHash',
+    adminOnly: true,
     handler: async (_req, res, params) => {
       const node = server.getEntityNode() as EmployerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
@@ -431,6 +492,47 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
   // ══════════════════════════════════════════════════════════
   //  AVAILABLE PLANS (from sequencer plan store)
   // ══════════════════════════════════════════════════════════
+
+  // Phase 3.3: Expose current attestation status so the dashboard can show a banner.
+  // Not admin-gated — this is purely read-only status for the employer's own node.
+  routes.push({
+    method: 'GET',
+    path: '/attestation',
+    handler: async (_req, res) => {
+      const node = server.getEntityNode() as EmployerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
+      const att = node.getAttestation();
+      if (!att) {
+        return server.sendResponse(res, 200, true, { loaded: false, authorizedPlanIds: [], enrollmentCap: null, effectiveDate: null });
+      }
+      server.sendResponse(res, 200, true, {
+        loaded: true,
+        authorizedPlanIds: att.authorizedPlanIds || [],
+        enrollmentCap: att.enrollmentCap,
+        effectiveDate: att.effectiveDate,
+        employerId: att.employerId,
+      });
+    },
+  });
+
+  // Phase 3.3: Force the employer node to refresh its attestation from the sequencer.
+  // Eliminates the 60s polling race condition after the marketplace ceremony completes.
+  // adminOnly because it triggers an outbound RPC to the sequencer.
+  routes.push({
+    method: 'POST',
+    path: '/attestation/refresh',
+    adminOnly: true,
+    handler: async (_req, res) => {
+      const node = server.getEntityNode() as EmployerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
+      const result = await node.refreshAttestationFromSequencer();
+      if (result.loaded) {
+        server.sendResponse(res, 200, true, { loaded: true, authorizedPlanIds: result.authorizedPlanIds });
+      } else {
+        server.sendResponse(res, 200, true, { loaded: false, authorizedPlanIds: [], reason: result.reason || 'No attestation found' });
+      }
+    },
+  });
 
   routes.push({
     method: 'GET',

@@ -36,6 +36,46 @@ export function buildPrescriberRoutes(
 ): RouteRegistration[] {
   const routes: RouteRegistration[] = [];
 
+  // ── E2E Encryption Helper (shared across all eScript routes) ──
+  // Fetches recipient pubkey (async), then encrypts inside useEnrollmentKey (sync).
+  // Fails closed for eScript messages — throws if encryption unavailable.
+  async function encryptEScript(recipientWalletId: string, plaintext: string): Promise<{ ciphertext: string; iv: string; tag: string }> {
+    const localState = server.getLocalState();
+    if (!localState.hasEnrollmentKey()) {
+      throw new Error('Cannot send eScript: enrollment key not available');
+    }
+    const { deriveEncryptionKeyPair, deriveSharedSecret, encryptMessage } = await import('../../messaging/encryption.js');
+    const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+
+    // Step 1 (async): fetch recipient's X25519 encryption public key from sequencer
+    let recipientPubKeyHex: string | null = null;
+    try {
+      const keyResp = await fetch(`${seqUrl}/rpc`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getEncryptionKey', params: { walletId: recipientWalletId } }),
+      });
+      const keyJson = await keyResp.json() as any;
+      recipientPubKeyHex = keyJson.result?.encryptionPublicKeyHex ?? null;
+    } catch { /* sequencer unreachable */ }
+
+    if (!recipientPubKeyHex) {
+      throw new Error('Cannot send eScript: recipient encryption key not registered');
+    }
+
+    // Step 2 (sync inside callback): derive ECDH shared secret + AES-256-GCM encrypt
+    const recipientPubKey = Buffer.from(recipientPubKeyHex, 'hex');
+    return localState.useEnrollmentKey((enrollmentKey) => {
+      const senderKp = deriveEncryptionKeyPair(enrollmentKey);
+      const shared = deriveSharedSecret(senderKp.privateKey, recipientPubKey);
+      const encrypted = encryptMessage(plaintext, shared);
+      return {
+        ciphertext: encrypted.ciphertext.toString('hex'),
+        iv: encrypted.iv.toString('hex'),
+        tag: encrypted.tag.toString('hex'),
+      };
+    });
+  }
+
   // Track PCP assignments locally (prescriber → member mappings)
   const pcpPatients: Map<string, { memberWalletId: string; effectiveDate: string; specialty: string }> = new Map();
 
@@ -233,13 +273,16 @@ export function buildPrescriberRoutes(
       server.setEntityNode(node);
 
       // Notify insurer (non-blocking)
+      // SSRF fix: insurerUrl must come from server config, never from request body
+      const insurerUrl = server.getConfig().insurerUrl || null;
       let insurerNotified = false;
-      if (b?.insurerUrl) {
+      if (insurerUrl) {
         try {
+          const iUrl = (insurerUrl as string).replace(/\/+$/, '');
           const enrollHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
           const adminToken = server.getConfig().adminToken;
           if (adminToken) enrollHeaders['Authorization'] = `Bearer ${adminToken}`;
-          const resp = await fetch(`${b.insurerUrl}/enrollment/process`, {
+          const resp = await fetch(`${iUrl}/enrollment/process`, {
             method: 'POST',
             headers: enrollHeaders,
             body: JSON.stringify({ walletId: data.walletId, tokenId: data.onboarding.tokenId, role: 'prescriber' }),
@@ -436,12 +479,12 @@ export function buildPrescriberRoutes(
 
       // Serialize the prescription as the message payload
       const rxJson = JSON.stringify(prescription);
-      const rxHex = Buffer.from(rxJson, 'utf8').toString('hex');
       const threadIdHash = hashString(`rx-${rxId}`);
       const messageCommitment = Poseidon.hash([Field(BigInt(walletId)), Field(Date.now())]).toString();
 
       try {
-        // Send to pharmacy
+        // Send to pharmacy (E2E encrypted — fails closed if encryption unavailable)
+        const pharmacyPayload = await encryptEScript(b.pharmacyWalletId, rxJson);
         const pharmacyMsg = await node.storeMessage(
           {
             messageCommitment: messageCommitment,
@@ -450,15 +493,11 @@ export function buildPrescriberRoutes(
             messageType: '3', // eScript
             threadIdHash: threadIdHash,
           },
-          {
-            ciphertext: rxHex,
-            iv: '00',
-            tag: '00',
-            timestamp: Date.now(),
-          },
+          { ...pharmacyPayload, timestamp: Date.now() },
         );
 
-        // Also notify the member
+        // Also notify the member (encrypted separately for the member)
+        const memberPayload = await encryptEScript(b.memberWalletId, rxJson);
         await node.storeMessage(
           {
             messageCommitment: messageCommitment,
@@ -467,12 +506,7 @@ export function buildPrescriberRoutes(
             messageType: '3',
             threadIdHash: threadIdHash,
           },
-          {
-            ciphertext: rxHex,
-            iv: '00',
-            tag: '00',
-            timestamp: Date.now(),
-          },
+          { ...memberPayload, timestamp: Date.now() },
         );
 
         server.sendResponse(res, 200, true, {
@@ -548,18 +582,19 @@ export function buildPrescriberRoutes(
       };
 
       const rxJson = JSON.stringify(prescription);
-      const rxHex = Buffer.from(rxJson, 'utf8').toString('hex');
       const threadIdHash = hashString(`rx-${rxId}`).toString();
       const messageCommitment = Poseidon.hash([Field(BigInt(walletId)), Field(Date.now())]).toString();
 
       try {
+        const pharmPayload2 = await encryptEScript(b.pharmacyWalletId!, rxJson);
         await node.storeMessage(
           { messageCommitment, senderWalletId: walletId, recipientWalletId: b.pharmacyWalletId!, messageType: '3', threadIdHash },
-          { ciphertext: rxHex, iv: '00', tag: '00', timestamp: Date.now() },
+          { ...pharmPayload2, timestamp: Date.now() },
         );
+        const memberPayload2 = await encryptEScript(b.memberWalletId!, rxJson);
         await node.storeMessage(
           { messageCommitment, senderWalletId: walletId, recipientWalletId: b.memberWalletId!, messageType: '3', threadIdHash },
-          { ciphertext: rxHex, iv: '00', tag: '00', timestamp: Date.now() },
+          { ...memberPayload2, timestamp: Date.now() },
         );
       } catch (err) {
         return server.sendResponse(res, 500, false, undefined,
@@ -1239,6 +1274,12 @@ export function buildPrescriberRoutes(
                   type: 'prescriber',
                   npi: String(prescriber.localData.prescriberId),
                   specialty: prescriber.specialty,
+                  encryptionPublicKeyHex: (() => {
+                    try {
+                      const { deriveEncryptionKeyPair } = require('../../messaging/encryption.js');
+                      return deriveEncryptionKeyPair(prescriber.enrollmentKey).publicKey.toString('hex');
+                    } catch { return undefined; }
+                  })(),
                 },
               }),
             });

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" href="logo.png">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HR Tool — zkpCare</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <header class="header">
+    <div class="header-left">
+      <img src="logo.png" alt="zkpCare" class="brand-logo-img">
+      <div class="brand-text">
+        <span class="logo">HR Tool</span>
+        <span class="logo-sub">PII-Safe Enrollment Management</span>
+      </div>
+    </div>
+    <nav class="nav" id="main-nav" role="navigation" aria-label="Main navigation">
+      <a href="#groups" class="nav-link" data-tab="groups" role="tab">Groups</a>
+      <a href="#dashboard" class="nav-link" data-tab="dashboard" role="tab">Dashboard</a>
+      <a href="#import" class="nav-link" data-tab="import" role="tab">Import</a>
+      <a href="#employees" class="nav-link" data-tab="employees" role="tab">Employees</a>
+      <a href="#tokens" class="nav-link" data-tab="tokens" role="tab">Enrollment Codes</a>
+      <a href="#reconcile" class="nav-link" data-tab="reconcile" role="tab">Reconcile</a>
+      <a href="#settings" class="nav-link" data-tab="settings" role="tab">Settings</a>
+    </nav>
+    <div class="header-right">
+      <span class="security-badge" title="All PII stays on this machine. Only Poseidon hashes are transmitted.">
+        <span class="lock-icon">&#x1f512;</span>
+        <span class="security-label">Local Only</span>
+      </span>
+      <span class="connection-status" id="connection-status">
+        <span class="status-dot disconnected" id="status-dot"></span>
+        <span class="status-label" id="status-label">Disconnected</span>
+      </span>
+    </div>
+  </header>
+
+  <!-- Unlock overlay (shown until passphrase entered).
+       Phase F3: single passphrase unlocks the workspace for THIS employer
+       node. Group selection happens AFTER unlock on the Groups tab. -->
+  <div class="unlock-overlay" id="unlock-overlay">
+    <div class="unlock-card">
+      <img src="logo.png" alt="zkpCare" class="unlock-logo">
+      <h2>HR Tool</h2>
+      <p class="unlock-desc">Enter your workspace passphrase. First time? A new encrypted workspace will be created.</p>
+      <div class="form-group">
+        <label for="unlock-passphrase">Passphrase</label>
+        <input type="password" id="unlock-passphrase" placeholder="Minimum 8 characters" autofocus>
+        <span class="field-error" id="unlock-error"></span>
+      </div>
+      <button class="btn primary full-width" id="btn-unlock">Unlock</button>
+      <div class="unlock-hint" style="margin-top:12px;font-size:12px;color:var(--text-muted);text-align:center">
+        Groups are created in the Employer Dashboard.<br>
+        This tool imports employees into existing groups.
+      </div>
+    </div>
+  </div>
+
+  <main class="main hidden" id="app" role="main">
+    <!-- Pages rendered by app.js -->
+  </main>
+
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

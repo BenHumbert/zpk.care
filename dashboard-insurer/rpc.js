@@ -18,7 +18,7 @@ const API = (() => {
   }
   function getAdminToken() { return adminToken; }
   // Restore admin token from localStorage, fall back to bootstrap default
-  try { adminToken = localStorage.getItem('zkt_insurer_admin_token') || 'admin123'; } catch { adminToken = 'admin123'; }
+  try { adminToken = localStorage.getItem('zkt_insurer_admin_token') || ''; } catch { adminToken = ''; }
 
   // Strip __bigint__:NNN prefixes from serialized BigInt values
   function stripBigints(obj) {
@@ -228,6 +228,20 @@ const API = (() => {
     try { await getHealth(); return true; } catch { return false; }
   }
 
+  // ── Marketplace Employer Applications ──
+  async function getEmployerApplications() {
+    return request('GET', '/employer-applications', undefined, true);
+  }
+  async function approveEmployerApplication(appId) {
+    return request('POST', '/employer-applications/' + encodeURIComponent(appId) + '/approve', {}, true);
+  }
+  async function denyEmployerApplication(appId, reason) {
+    return request('POST', '/employer-applications/' + encodeURIComponent(appId) + '/deny', { reason: reason }, true);
+  }
+  async function requestEmployerDocuments(appId) {
+    return request('POST', '/employer-applications/' + encodeURIComponent(appId) + '/request-documents', {}, true);
+  }
+
   return {
     setBaseUrl, setAdminToken, getAdminToken,
     getOnboardingStatus, getHealth,
@@ -245,6 +259,7 @@ const API = (() => {
     getPlans, getPlan, createPlan, updatePlan, deletePlan, publishPlan,
     getFormulary, publishFormulary,
     getMessagesByWallet, getMessagesByThread, getMessageStoreStatus,
+    getEmployerApplications, approveEmployerApplication, denyEmployerApplication, requestEmployerDocuments,
     connectSSE, disconnectSSE, onConnectionChange, checkConnection,
   };
 })();

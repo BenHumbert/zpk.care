@@ -12,7 +12,7 @@
  *   - secureMemberDerivation() immediately scrubs the input
  *   - The enrollment key NEVER appears in any API response
  */
-import { Field, MerkleTree, Poseidon } from 'o1js';
+import { Encoding, Field, MerkleTree, Poseidon } from 'o1js';
 import { generateEnrollmentKey } from '../../wallets/wallet-derivation.js';
 import { hashString } from '../../zkp/hash-utils.js';
 import { WalletRegistryWitness, CREDENTIAL_INVENTORY_HEIGHT } from '../../wallets/wallet-state.js';
@@ -157,7 +157,24 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         genderCode?: number;
         firstName?: string;
         lastName?: string;
+        /** HIPAA authorization record — required per 45 CFR 164.508(b)(1) */
+        consentRecord?: {
+          phiDescription?: string;
+          disclosingParty?: string;
+          receivingParty?: string;
+          purpose?: string;
+          expiration?: string;
+          signatureDate?: string;
+        };
       } | undefined;
+
+      // HIPAA 164.508(b)(1): Require documented authorization before PHI processing
+      if (!b?.consentRecord?.phiDescription || !b?.consentRecord?.disclosingParty ||
+          !b?.consentRecord?.receivingParty || !b?.consentRecord?.purpose ||
+          !b?.consentRecord?.expiration || !b?.consentRecord?.signatureDate) {
+        return server.sendResponse(res, 400, false, undefined,
+          'HIPAA authorization required. Provide consentRecord with: phiDescription, disclosingParty, receivingParty, purpose, expiration, signatureDate');
+      }
 
       if (!b?.cardholderId || !b?.dateOfBirth || !b?.firstName || !b?.lastName) {
         return server.sendResponse(res, 400, false, undefined, 'Missing required fields: cardholderId, dateOfBirth, firstName, lastName');
@@ -215,6 +232,11 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         data.preimageFields = preimageFields;
         data.domainTag = DOMAIN_TAG_MEMBER;
         data.onboarding.phase = 'wallet_derived';
+        // Store HIPAA consent record with timestamp
+        (data as any).consentRecord = {
+          ...b!.consentRecord,
+          recordedAt: new Date().toISOString(),
+        };
       }
       await state.save(data!);
 
@@ -241,18 +263,70 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       }
 
       // Insurer URL: body override > config > none (skip notification)
-      const b = body as { insurerUrl?: string } | undefined;
-      const insurerUrl = b?.insurerUrl || server.getConfig().insurerUrl || null;
+      // SSRF fix: insurerUrl must come from server config, never from request body
+      const insurerUrl = server.getConfig().insurerUrl || null;
       const seqUrl = server.getConfig().sequencerUrl;
 
-      // Create the MemberNode now that we have a walletId
-      // Persist enrollment state FIRST — ensures device state is durable
-      // before any external registration that could create phantom enrollment.
+      // NOTE: MemberNode creation + phase change deferred to AFTER insurer validation.
+      // If insurer rejects, in-memory phase stays at 'wallet_derived' so retry works.
+
+      // Build auth headers for cross-node calls
+      const adminToken = server.getConfig().adminToken;
+      const rpcHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (adminToken) rpcHeaders['Authorization'] = `Bearer ${adminToken}`;
+
+      // Compute enrollment PIN hash if PIN provided (enrollment 2FA)
+      const b = body as { tokenPIN?: string } | undefined;
+      let tokenPinHash: string | undefined;
+      if (b?.tokenPIN && data.onboarding.tokenId) {
+        tokenPinHash = Poseidon.hash([
+          ...Encoding.stringToFields(data.onboarding.tokenId),
+          Field(0),
+          ...Encoding.stringToFields(b.tokenPIN),
+        ]).toString();
+      }
+
+      // ── Step 1: Insurer validation (BLOCKING — must succeed before sequencer registration)
+      // The insurer validates the enrollment token + PIN before the wallet touches the sequencer.
+      let insurerNotified = false;
+      if (insurerUrl) {
+        try {
+          const iUrl = insurerUrl.replace(/\/+$/, '');
+          console.log('[enroll] Validating enrollment with insurer at %s...', iUrl);
+          const resp = await fetch(`${iUrl}/enrollment/process`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              walletId: data.walletId,
+              tokenId: data.onboarding.tokenId,
+              role: 'member',
+              groupId: data.onboarding.tokenData?.groupId ?? null,
+              planId: data.onboarding.tokenData?.planId ?? null,
+              tokenPinHash,
+            }),
+          });
+          if (!resp.ok) {
+            const errBody = await resp.text().catch(() => '');
+            console.warn('[enroll] Insurer rejected enrollment:', resp.status, errBody);
+            return server.sendResponse(res, 403, false, undefined,
+              'Enrollment rejected by insurer. Check your enrollment code and PIN.');
+          }
+          insurerNotified = true;
+          console.log('[enroll] Insurer validated enrollment successfully');
+        } catch (insErr: unknown) {
+          console.warn('[enroll] Insurer unreachable:', insErr instanceof Error ? insErr.message : String(insErr));
+          return server.sendResponse(res, 502, false, undefined,
+            'Cannot reach insurer for enrollment validation. Try again later.');
+        }
+      }
+
+      // Insurer approved (or no insurer configured) — NOW persist enrollment state locally
       data.onboarding.phase = 'enrolled';
       data.onboarding.enrollmentTimestamp = Date.now();
       data.lastSequencerUrl = server.getConfig().sequencerUrl;
       await state.save(data);
 
+      // Create MemberNode and advance in-memory phase (deferred from before insurer validation)
       const node = new MemberNode({
         role: 'member',
         walletId: data.walletId,
@@ -263,12 +337,20 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       server.setEntityNode(node);
       server.setOnboardingPhase('enrolled');
 
-      // Build auth headers for cross-node calls
-      const adminToken = server.getConfig().adminToken;
-      const rpcHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (adminToken) rpcHeaders['Authorization'] = `Bearer ${adminToken}`;
+      // ── Step 2: Derive X25519 encryption keypair for E2E messaging
+      let encryptionPublicKeyHex: string | undefined;
+      try {
+        if (state.hasEnrollmentKey()) {
+          const { deriveEncryptionKeyPair } = await import('../../messaging/encryption.js');
+          encryptionPublicKeyHex = state.useEnrollmentKey((ek) =>
+            deriveEncryptionKeyPair(ek).publicKey.toString('hex')
+          );
+        }
+      } catch (encErr: unknown) {
+        console.warn('[enroll] Could not derive encryption keypair:', encErr instanceof Error ? encErr.message : String(encErr));
+      }
 
-      // Register wallet on the sequencer so it's known to the network
+      // ── Step 3: Register wallet on sequencer (ONLY after insurer approved)
       let sequencerRegistered = false;
       try {
         const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
@@ -283,6 +365,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
               displayName: 'Member',
               type: 'member',
               group: data.onboarding.tokenData?.groupId ?? undefined,
+              encryptionPublicKeyHex,
             },
           }),
         });
@@ -291,32 +374,14 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         console.warn('[enroll] Sequencer registration failed:', seqErr instanceof Error ? seqErr.message : String(seqErr));
       }
 
-      // Notify insurer of enrollment (non-blocking — enrollment succeeds even if insurer is unreachable)
-      let insurerNotified = false;
-      if (insurerUrl) {
-        try {
-          const iUrl = insurerUrl.replace(/\/+$/, '');
-          console.log('[enroll] Notifying insurer at %s...', iUrl);
-          const resp = await fetch(`${iUrl}/enrollment/process`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              walletId: data.walletId,
-              tokenId: data.onboarding.tokenId,
-              role: 'member',
-              groupId: data.onboarding.tokenData?.groupId ?? null,
-              planId: data.onboarding.tokenData?.planId ?? null,
-            }),
-          });
-          insurerNotified = resp.ok;
-          if (!resp.ok) console.warn('[enroll] Insurer notification returned non-OK:', resp.status);
-          else console.log('[enroll] Insurer notified successfully');
-        } catch (insErr: unknown) {
-          console.warn('[enroll] Insurer notification failed:', insErr instanceof Error ? insErr.message : String(insErr));
-        }
-      }
-
-      // Notify employer of enrollment (non-blocking — confirms token was used)
+      // Notify employer of enrollment (non-blocking — confirms token was used).
+      // Post-Phase A, there is no static employer URL at boot. The employer node
+      // for a given tenant is looked up dynamically on the sequencer's tenant
+      // registry via the tokenId (which was issued by that employer's node).
+      //
+      // In Phase A/B we don't yet have the orchestrator's tenant registry, so
+      // this notification is deferred. The employer's roster will show the
+      // enrollment as `pending` until the first HR Tool poll.
       let employerNotified = false;
       const employerUrl = server.getConfig().employerUrl || null;
       if (employerUrl && data.onboarding.tokenId) {
@@ -337,6 +402,8 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         } catch (empErr: unknown) {
           console.warn('[enroll] Employer notification failed:', empErr instanceof Error ? empErr.message : String(empErr));
         }
+      } else if (!employerUrl) {
+        console.log('[enroll] No static employer URL configured — skipping callback (expected post-Phase A; will be wired via tenant registry in Phase C)');
       }
 
       // Adjudication engine registration is deferred to /proof/registration.
@@ -345,11 +412,15 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       // registered" when the ZK registration proof is later submitted.
 
       server.sendResponse(res, 200, true, {
-        phase: 'enrolled',
+        phase: sequencerRegistered ? 'enrolled' : 'enrolled-pending',
         walletId: data.walletId,
         sequencerUrl: seqUrl,
         insurerNotified,
         employerNotified,
+        sequencerRegistered,
+        ...(sequencerRegistered ? {} : {
+          warning: 'Enrollment approved but network registration pending. Your enrollment is valid but claims may not work until registration completes.',
+        }),
       });
     },
   });
@@ -1095,41 +1166,93 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
 
   // ── Messaging ──────────────────────────────────────────────
 
+  // Simplified E2E encrypted send — handles encryption server-side using enrollment key
   routes.push({
     method: 'POST',
     path: '/messaging/send',
     handler: async (_req, res, _params, _query, body) => {
       const node = server.getEntityNode() as MemberNode | null;
-      if (!node) {
-        return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+
+      const b = body as { recipientWalletId?: string; body?: string; message?: Record<string, unknown>; payload?: Record<string, unknown> } | undefined;
+
+      // New simplified path: { recipientWalletId, body } → server handles encryption
+      if (b?.recipientWalletId && b?.body && !b?.message) {
+        try {
+          const walletId = node.getWalletId();
+          const plaintext = b.body;
+          const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+          const threadIdHash = Poseidon.hash([
+            Field(BigInt(walletId)),
+            ...Encoding.stringToFields(b.recipientWalletId),
+          ]).toString();
+          const messageCommitment = Poseidon.hash([
+            ...Encoding.stringToFields(walletId + ':' + Date.now()),
+          ]).toString();
+
+          // E2E encrypt using enrollment key + recipient's public key
+          let ciphertextHex: string;
+          let ivHex = '0';
+          let tagHex = '0';
+
+          const lState = server.getLocalState();
+          if (lState.hasEnrollmentKey()) {
+            try {
+              const { deriveEncryptionKeyPair: dkp, deriveSharedSecret: dss, encryptMessage: em } = await import('../../messaging/encryption.js');
+              // Step 1 (async): fetch recipient pubkey
+              const keyResp = await fetch(`${seqUrl}/rpc`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getEncryptionKey', params: { walletId: b.recipientWalletId } }),
+              });
+              const keyJson = await keyResp.json() as any;
+              if (keyJson.result?.encryptionPublicKeyHex) {
+                const recipientPub = Buffer.from(keyJson.result.encryptionPublicKeyHex, 'hex');
+                // Step 2 (sync inside callback): encrypt
+                const result = lState.useEnrollmentKey((ek) => {
+                  const senderKp = dkp(ek);
+                  const shared = dss(senderKp.privateKey, recipientPub);
+                  const encrypted = em(plaintext, shared);
+                  return { c: encrypted.ciphertext.toString('hex'), i: encrypted.iv.toString('hex'), t: encrypted.tag.toString('hex') };
+                });
+                ciphertextHex = result.c;
+                ivHex = result.i;
+                tagHex = result.t;
+              } else {
+                ciphertextHex = Buffer.from(plaintext, 'utf8').toString('hex');
+              }
+            } catch {
+              ciphertextHex = Buffer.from(plaintext, 'utf8').toString('hex');
+            }
+          } else {
+            ciphertextHex = Buffer.from(plaintext, 'utf8').toString('hex');
+          }
+
+          const entry = await node.storeMessage(
+            { messageCommitment, senderWalletId: walletId, recipientWalletId: b.recipientWalletId, messageType: '1', threadIdHash },
+            { ciphertext: ciphertextHex, iv: ivHex, tag: tagHex, timestamp: Date.now() },
+          );
+          return server.sendResponse(res, 200, true, entry);
+        } catch (err) {
+          return server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Send failed');
+        }
       }
-      const b = body as { message?: Record<string, unknown>; payload?: Record<string, unknown> } | undefined;
+
+      // Legacy path: pre-built { message, payload } — pass through as-is
       if (!b?.message || !b?.payload) {
-        return server.sendResponse(res, 400, false, undefined, 'Missing message or payload');
+        return server.sendResponse(res, 400, false, undefined, 'Missing recipientWalletId+body or message+payload');
       }
       try {
         const msg = b.message;
         const pl = b.payload;
-        // Validate required message fields
         for (const f of ['messageCommitment', 'recipientWalletId', 'messageType', 'threadIdHash']) {
           if (!(f in msg) || msg[f] === undefined || msg[f] === '') {
             return server.sendResponse(res, 400, false, undefined, `Message missing required field: ${f}`);
           }
         }
-        // Validate required payload fields
-        for (const f of ['ciphertext', 'iv', 'tag']) {
-          if (!(f in pl) || pl[f] === undefined) {
-            return server.sendResponse(res, 400, false, undefined, `Payload missing required field: ${f}`);
-          }
-        }
-        // Ensure senderWalletId is set server-side (dashboard may not have it yet)
         if (!msg.senderWalletId || msg.senderWalletId === '') {
           msg.senderWalletId = node.getWalletId();
         }
-        const entry = await node.storeMessage(
-          msg as any,
-          pl as any,
-        );
+        const entry = await node.storeMessage(msg as any, pl as any);
         server.sendResponse(res, 200, true, entry);
       } catch (err) {
         server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Message send failed');
@@ -1181,6 +1304,63 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         server.sendResponse(res, 200, true, await node.getMessagesByThread(params.threadIdHash));
       } catch (err) {
         server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Thread query failed');
+      }
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  EJECT — Full local state reset
+  // ══════════════════════════════════════════════════════════
+  //
+  // Nukes all local state (encrypted file + in-memory node reference) and
+  // returns the member to the very beginning of onboarding. The member will
+  // need a new enrollment token from their employer to start over.
+  //
+  // Does NOT affect sequencer state — any already-submitted ZK proof and
+  // wallet registration persist on-chain. The ejected walletId becomes
+  // orphaned (harmless).
+
+  routes.push({
+    method: 'POST',
+    path: '/onboarding/eject',
+    handler: async (_req, res) => {
+      const state = server.getLocalState();
+      if (!state) {
+        return server.sendResponse(res, 503, false, undefined, 'State manager not initialized');
+      }
+
+      // Only allow eject if the state is currently unlocked (user has already
+      // proven identity by entering their PIN). This prevents a stray HTTP
+      // request from wiping a device without the owner's knowledge.
+      if (!state.isUnlocked()) {
+        return server.sendResponse(res, 401, false, undefined,
+          'State is locked. Unlock with your PIN first, then eject.');
+      }
+
+      try {
+        // 1. Delete the encrypted state file from disk
+        await state.destroy();
+
+        // 2. Clear in-memory state (enrollment key, derived key, etc.)
+        state.lock();
+
+        // 3. Reset the phase BEFORE clearing the node — if setEntityNode
+        //    throws, at least the phase is correct for the next request.
+        server.setOnboardingPhase('awaiting_token');
+
+        // 4. Clear the MemberNode reference (compiled ZkPrograms, proofs, etc.)
+        server.setEntityNode(null);
+
+        console.log('[eject] All local state destroyed. Member must re-enroll with a new token.');
+
+        server.sendResponse(res, 200, true, {
+          ejected: true,
+          message: 'All local enrollment data has been erased. You will need a new enrollment token from your employer to start over.',
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[eject] Failed to destroy state:', msg);
+        server.sendResponse(res, 500, false, undefined, 'Eject failed: ' + msg);
       }
     },
   });

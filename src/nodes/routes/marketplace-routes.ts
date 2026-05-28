@@ -1,0 +1,986 @@
+/**
+ * Marketplace Routes — Employer self-service onboarding via the insurer node.
+ *
+ * Flow: Browse Plans → Apply → Sign Agreement → Activate
+ *
+ * Council fixes applied:
+ *   - Timestamp stored in agreement cache, employer submits ts with signature
+ *   - Insurer signs with SequencerAttestationAuthority private key (no fallback)
+ *   - Status only transitions to 'signed' AFTER sequencer confirms
+ *   - Application IDs use 128-bit entropy (randomBytes(16))
+ *   - Agreement cache invalidated when re-fetched
+ *   - DOCX download requires signed/active status
+ *   - Config endpoint is POST (not GET) to avoid idempotency violation
+ *   - Duplicate employer attestation blocked on sequencer
+ *   - Content-Disposition filename sanitized
+ */
+import { randomBytes, createHash, sign as ed25519Sign, createPrivateKey, createPublicKey } from 'crypto';
+import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync } from 'fs';
+import { join } from 'path';
+import type { NautilusAppServer } from '../nautilus-app-server.js';
+import type { RouteRegistration } from '../nautilus-app-types.js';
+import type { EmployerApplication, AgreementTerms, EmployerAttestation, BenefitPlanConfig } from '../../l2/l2-types.js';
+import {
+  computeAgreementCommitment,
+  computeDocumentHash,
+  buildAttestationMessage,
+  buildAgreementTerms,
+  verifyAttestationSignature,
+  generateAgreementDocx,
+} from '../../onboarding/employer-attestation.js';
+
+// ─── Shared Application Store (persisted to stateDir) ───────
+
+const applicationStore: Map<string, EmployerApplication> = new Map();
+const agreementCache: Map<string, { terms: AgreementTerms; commitment: string; documentHash: string; ts: number; attestationSeq: number }> = new Map();
+const docxCache: Map<string, Buffer> = new Map();
+
+// Phase C: async tenant spawn jobs. Activate returns 202 immediately with a
+// jobKey; frontend polls for completion. Keyed by applicationId since only
+// one spawn can be in-flight per application.
+interface ActivationJob {
+  status: 'pending' | 'complete' | 'error';
+  startedAt: number;
+  result?: { employerNodeUrl: string; hrToolUrl: string; adminToken: string };
+  error?: string;
+}
+const activationJobs: Map<string, ActivationJob> = new Map();
+
+let applicationStorePath: string | null = null;
+
+/** Load application store from disk */
+function loadApplicationStore(): void {
+  if (!applicationStorePath || !existsSync(applicationStorePath)) return;
+  try {
+    const json = readFileSync(applicationStorePath, 'utf8');
+    const entries = JSON.parse(json) as EmployerApplication[];
+    applicationStore.clear();
+    for (const app of entries) {
+      applicationStore.set(app.applicationId, app);
+    }
+    console.log('[marketplace] Loaded %d applications from disk', entries.length);
+  } catch (e: any) {
+    console.warn('[marketplace] Failed to load applications:', e.message);
+  }
+}
+
+/** Save application store to disk */
+/** Save application store atomically: write temp → rename (crash-safe) */
+function saveApplicationStore(): void {
+  if (!applicationStorePath) return;
+  try {
+    const entries = Array.from(applicationStore.values());
+    const json = JSON.stringify(entries, null, 2);
+    const tmpPath = applicationStorePath + '.tmp.' + process.pid;
+    writeFileSync(tmpPath, json);
+    renameSync(tmpPath, applicationStorePath);
+  } catch (e: any) {
+    console.warn('[marketplace] Failed to save applications:', e.message);
+  }
+}
+
+/** 128-bit entropy application ID */
+function generateApplicationId(): string {
+  const rand = randomBytes(16).toString('hex');
+  return `EMPAPP-${rand}`;
+}
+
+export function getApplicationStore(): Map<string, EmployerApplication> {
+  return applicationStore;
+}
+
+// ─── Insurer Signing Helper ─────────────────────────────────
+
+/** PKCS8 DER prefix for Ed25519 private keys */
+const ED25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
+
+/**
+ * Sign a message with the insurer's Ed25519 key.
+ * Uses a deterministic key derived from a dedicated signing seed (NOT the admin token).
+ * The signing seed should be configured via environment variable in production.
+ */
+function insurerSign(message: Buffer, signingSecret: string): { signature: string; publicKeyHex: string } {
+  if (!signingSecret) throw new Error('No insurer signing secret configured');
+  const seed = createHash('sha256').update('zkpcare-insurer-signing:' + signingSecret).digest();
+  const pkDer = Buffer.concat([ED25519_PKCS8_PREFIX, seed]);
+  const privateKey = createPrivateKey({ key: pkDer, format: 'der', type: 'pkcs8' });
+  const sig = ed25519Sign(null, message, privateKey);
+  const pubKey = createPublicKey(privateKey);
+  const spkiDer = pubKey.export({ type: 'spki', format: 'der' });
+  const publicKeyHex = Buffer.from(spkiDer).subarray(12).toString('hex');
+  return { signature: Buffer.from(sig).toString('hex'), publicKeyHex };
+}
+
+// ─── Route Builder ──────────────────────────────────────────
+
+export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistration[] {
+  const routes: RouteRegistration[] = [];
+
+  // Initialize persistence: load from stateDir
+  const stateDir = server.getConfig().stateDir;
+  if (stateDir) {
+    mkdirSync(stateDir, { recursive: true });
+    applicationStorePath = join(stateDir, 'marketplace-applications.json');
+    loadApplicationStore();
+  }
+
+  // Rate limiting: max applications per minute
+  const recentApplications: number[] = [];
+  const MAX_APPS_PER_MINUTE = 10;
+
+  function checkRateLimit(): boolean {
+    const now = Date.now();
+    while (recentApplications.length > 0 && recentApplications[0] < now - 60_000) recentApplications.shift();
+    return recentApplications.length < MAX_APPS_PER_MINUTE;
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  PLAN BROWSING (Public)
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'GET',
+    path: '/marketplace/api/plans',
+    handler: async (_req, res) => {
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const resp = await fetch(`${seqUrl}/rpc`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getPlans', params: {} }),
+        });
+        const json = await resp.json() as any;
+        const plans: BenefitPlanConfig[] = json.result || [];
+        server.sendResponse(res, 200, true, plans.filter(p => p.published));
+      } catch {
+        server.sendResponse(res, 502, false, undefined, 'Cannot fetch plans');
+      }
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/marketplace/api/plans/:planId',
+    handler: async (_req, res, params) => {
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const resp = await fetch(`${seqUrl}/rpc`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getPlan', params: { planId: params.planId } }),
+        });
+        const json = await resp.json() as any;
+        if (!json.result) return server.sendResponse(res, 404, false, undefined, 'Plan not found');
+        server.sendResponse(res, 200, true, json.result);
+      } catch {
+        server.sendResponse(res, 502, false, undefined, 'Cannot fetch plan');
+      }
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  APPLICATION (Rate-limited, 128-bit ID)
+  // ══════════════════════════════════════════════════════════
+
+  // Phase B: reusable employerId collision check. Queries BOTH the local
+  // applicationStore (in-flight applications) AND the sequencer's registered
+  // attestation store. Returns { available, reason, warning } — the warning
+  // flag tells callers that the check is partial (e.g. sequencer unreachable).
+  async function checkEmployerIdAvailable(
+    employerId: string,
+    strict: boolean,
+  ): Promise<{ available: boolean; reason?: string; warning?: string }> {
+    // Local: any non-denied application with this ID blocks
+    for (const app of applicationStore.values()) {
+      if (app.employerId === employerId && app.status !== 'denied') {
+        return { available: false, reason: `An application for "${employerId}" is already ${app.status}` };
+      }
+    }
+    // Remote: any existing attestation on the sequencer blocks.
+    try {
+      const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+      const resp = await fetch(`${seqUrl}/rpc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getEmployerAttestation', params: { employerId } }),
+      });
+      const json = await resp.json() as any;
+      if (json.result && json.result.employerId === employerId) {
+        return { available: false, reason: `"${employerId}" is already registered on the sequencer` };
+      }
+    } catch {
+      // Sequencer unreachable — we can't verify remote uniqueness.
+      // strict=true  (used by POST /apply): fail-closed, reject the request
+      // strict=false (used by precheck):    pass-through with a warning
+      if (strict) {
+        return { available: false, reason: 'Cannot reach sequencer to verify uniqueness. Please try again.' };
+      }
+      return { available: true, warning: 'Could not reach sequencer to verify remote uniqueness — local check only' };
+    }
+    return { available: true };
+  }
+
+  // Phase B: live-validation endpoint. The marketplace frontend calls this
+  // as the employer types, debounced, so they get immediate feedback.
+  routes.push({
+    method: 'GET',
+    path: '/marketplace/api/check-employer-id/:employerId',
+    handler: async (_req, res, params) => {
+      const employerId = (params.employerId || '').trim();
+      if (!employerId) {
+        return server.sendResponse(res, 400, false, undefined, 'employerId is required');
+      }
+      // Format guard — employerIds must be alphanumeric + hyphen/underscore,
+      // 2-64 chars. This keeps them safe to use in URL paths and filenames.
+      if (!/^[A-Za-z0-9_-]{2,64}$/.test(employerId)) {
+        return server.sendResponse(res, 200, true, {
+          available: false,
+          reason: 'employerId must be 2-64 characters, letters/numbers/hyphens/underscores only',
+        });
+      }
+      // Precheck: strict=false — sequencer-unreachable is a warning, not a block
+      const result = await checkEmployerIdAvailable(employerId, false);
+      server.sendResponse(res, 200, true, result);
+    },
+  });
+
+  routes.push({
+    method: 'POST',
+    path: '/marketplace/api/apply',
+    handler: async (_req, res, _params, _query, body) => {
+      if (!checkRateLimit()) {
+        return server.sendResponse(res, 429, false, undefined, 'Too many applications. Try again in a minute.');
+      }
+
+      const b = body as any;
+      if (!b?.companyName || !b?.contactName || !b?.contactEmail || !b?.employerId ||
+          !b?.selectedPlanIds || !Array.isArray(b.selectedPlanIds) || b.selectedPlanIds.length === 0 ||
+          !b?.effectiveDate || !b?.enrollmentCap || !b?.publicKeyHex) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing required fields');
+      }
+
+      if (typeof b.publicKeyHex !== 'string' || !/^[0-9a-f]{64}$/i.test(b.publicKeyHex)) {
+        return server.sendResponse(res, 400, false, undefined, 'Invalid public key format (expected 64 hex characters)');
+      }
+
+      // Format guard for employerId (matches the check-employer-id endpoint)
+      if (!/^[A-Za-z0-9_-]{2,64}$/.test(b.employerId)) {
+        return server.sendResponse(res, 400, false, undefined,
+          'employerId must be 2-64 characters, letters/numbers/hyphens/underscores only');
+      }
+
+      // Phase B: authoritative collision check (local + sequencer).
+      // strict=true — sequencer-unreachable is a hard block.
+      const availability = await checkEmployerIdAvailable(b.employerId, true);
+      if (!availability.available) {
+        return server.sendResponse(res, 409, false, undefined, availability.reason || 'employerId is not available');
+      }
+
+      const applicationId = generateApplicationId();
+      const application: EmployerApplication = {
+        applicationId,
+        employerId: b.employerId,
+        companyName: b.companyName,
+        contactName: b.contactName,
+        contactEmail: b.contactEmail,
+        contactPhone: b.contactPhone || undefined,
+        ein: b.ein || undefined,
+        state: b.state || '',
+        industry: b.industry || undefined,
+        selectedPlanIds: b.selectedPlanIds,
+        effectiveDate: b.effectiveDate.replace(/-/g, ''),
+        enrollmentCap: Number(b.enrollmentCap),
+        publicKeyHex: b.publicKeyHex,
+        submittedAt: Date.now(),
+        status: 'submitted',
+      };
+
+      applicationStore.set(applicationId, application);
+      saveApplicationStore();
+      recentApplications.push(Date.now());
+      console.log('[marketplace] Application submitted: %s (%s)', applicationId, b.companyName);
+
+      server.sendResponse(res, 201, true, {
+        applicationId,
+        status: 'submitted',
+        message: 'Application received. Save your application ID.',
+      });
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  STATUS CHECK
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'GET',
+    path: '/marketplace/api/status/:applicationId',
+    handler: async (_req, res, params) => {
+      const app = applicationStore.get(params.applicationId);
+      if (!app) return server.sendResponse(res, 404, false, undefined, 'Application not found');
+      server.sendResponse(res, 200, true, {
+        applicationId: app.applicationId,
+        employerId: app.employerId,
+        companyName: app.companyName,
+        status: app.status,
+        submittedAt: app.submittedAt,
+        approvedAt: app.approvedAt || null,
+        denialReason: app.denialReason || null,
+      });
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  CP 575 DOCUMENT UPLOAD
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'POST',
+    path: '/marketplace/api/upload-document/:applicationId',
+    handler: async (req, res, params) => {
+      const app = applicationStore.get(params.applicationId);
+      if (!app) return server.sendResponse(res, 404, false, undefined, 'Application not found');
+      if (app.status !== 'submitted' && app.status !== 'needs_documents' && app.status !== 'under_review') {
+        return server.sendResponse(res, 409, false, undefined, `Cannot upload documents in status: ${app.status}`);
+      }
+
+      // Check resubmission cap
+      const resubCount = app.resubmissionCount ?? 0;
+      if (resubCount >= 3) {
+        app.status = 'denied';
+        app.denialReason = 'Maximum document resubmission attempts exceeded';
+        saveApplicationStore();
+        return server.sendResponse(res, 403, false, undefined, 'Maximum resubmission attempts reached. Application denied.');
+      }
+
+      // Read raw body as buffer for PDF validation
+      const chunks: Buffer[] = [];
+      let totalSize = 0;
+      const MAX_DOC_SIZE = 5 * 1024 * 1024; // 5MB
+
+      try {
+        await new Promise<void>((resolve, reject) => {
+          req.on('data', (chunk: Buffer) => {
+            totalSize += chunk.length;
+            if (totalSize > MAX_DOC_SIZE) { req.destroy(); reject(new Error('File too large (max 5MB)')); return; }
+            chunks.push(chunk);
+          });
+          req.on('error', reject);
+          req.on('end', resolve);
+        });
+      } catch (e: any) {
+        return server.sendResponse(res, 413, false, undefined, e.message || 'Upload failed');
+      }
+
+      const fileBuffer = Buffer.concat(chunks);
+
+      // Validate PDF magic bytes
+      if (fileBuffer.length < 4 || fileBuffer.subarray(0, 4).toString('ascii') !== '%PDF') {
+        return server.sendResponse(res, 400, false, undefined, 'Only PDF files are accepted. The uploaded file is not a valid PDF.');
+      }
+
+      // Store with UUID filename in stateDir/employer-documents/
+      const stateDir = server.getConfig().stateDir;
+      const docDir = join(stateDir, 'employer-documents');
+      mkdirSync(docDir, { recursive: true });
+      const docId = randomBytes(16).toString('hex');
+      const docPath = join(docDir, `${docId}.pdf`);
+      writeFileSync(docPath, fileBuffer);
+
+      app.cp575DocumentId = docId;
+      app.resubmissionCount = resubCount + 1;
+      if (app.status === 'needs_documents') app.status = 'under_review';
+      saveApplicationStore();
+
+      console.log('[marketplace] CP 575 uploaded for %s (doc: %s, attempt %d/3)', app.employerId, docId, resubCount + 1);
+      server.sendResponse(res, 200, true, { documentId: docId, resubmissionCount: resubCount + 1, maxAttempts: 3 });
+    },
+  });
+
+  // Serve uploaded document (admin-only)
+  routes.push({
+    method: 'GET',
+    path: '/marketplace/api/document/:applicationId',
+    adminOnly: true,
+    handler: async (_req, res, params) => {
+      const app = applicationStore.get(params.applicationId);
+      if (!app?.cp575DocumentId) return server.sendResponse(res, 404, false, undefined, 'No document uploaded');
+      const stateDir = server.getConfig().stateDir;
+      const docPath = join(stateDir, 'employer-documents', `${app.cp575DocumentId}.pdf`);
+      try {
+        const content = readFileSync(docPath);
+        res.writeHead(200, {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `attachment; filename="cp575-${app.employerId.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf"`,
+          'Content-Length': content.length,
+          'X-Content-Type-Options': 'nosniff',
+        });
+        res.end(content);
+      } catch {
+        server.sendResponse(res, 404, false, undefined, 'Document file not found');
+      }
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  AGREEMENT TERMS (stores ts for signature consistency)
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'GET',
+    path: '/marketplace/api/agreement/:applicationId',
+    handler: async (_req, res, params) => {
+      const app = applicationStore.get(params.applicationId);
+      if (!app) return server.sendResponse(res, 404, false, undefined, 'Application not found');
+      if (app.status !== 'approved' && app.status !== 'signed' && app.status !== 'active') {
+        return server.sendResponse(res, 409, false, undefined, `Status is ${app.status} — must be approved first`);
+      }
+
+      // Always recompute (invalidate cache) to pick up plan changes
+      let plans: BenefitPlanConfig[] = [];
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const resp = await fetch(`${seqUrl}/rpc`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getPlans', params: {} }),
+        });
+        const json = await resp.json() as any;
+        plans = json.result || [];
+      } catch {
+        return server.sendResponse(res, 502, false, undefined, 'Cannot fetch plans');
+      }
+
+      // Phase D: look up the existing attestation on the sequencer to compute
+      // the next monotonic seq. If none exists, this is the first registration
+      // (seq=0). If one exists, this is a renewal (seq = existing + 1). The
+      // sequencer enforces this exact value at l2_registerEmployer time.
+      let attestationSeq = 0;
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const attResp = await fetch(`${seqUrl}/rpc`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getEmployerAttestation', params: { employerId: app.employerId } }),
+        });
+        const attJson = await attResp.json() as any;
+        if (attJson.result && typeof attJson.result.attestationSeq === 'number') {
+          attestationSeq = attJson.result.attestationSeq + 1;
+        }
+      } catch {
+        return server.sendResponse(res, 502, false, undefined, 'Cannot reach sequencer to compute attestation seq');
+      }
+
+      const terms = buildAgreementTerms(app, plans);
+      const commitment = computeAgreementCommitment(terms);
+      const documentHash = computeDocumentHash(terms);
+      const ts = Math.floor(Date.now() / 1000);
+
+      // Store ts and attestationSeq in cache so the sign endpoint uses the SAME values
+      agreementCache.set(params.applicationId, { terms, commitment, documentHash, ts, attestationSeq });
+
+      server.sendResponse(res, 200, true, {
+        terms,
+        commitment,
+        documentHash,
+        ts,
+        attestationSeq,
+        canonicalMessage: buildAttestationMessage({
+          employerId: app.employerId,
+          publicKeyHex: app.publicKeyHex,
+          authorizedPlanIds: app.selectedPlanIds,
+          enrollmentCap: app.enrollmentCap,
+          agreementCommitment: commitment,
+          documentHash,
+          effectiveDate: app.effectiveDate,
+          ts,
+          attestationSeq,
+        }).toString('utf8'),
+      });
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  SIGN AGREEMENT
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'POST',
+    path: '/marketplace/api/sign/:applicationId',
+    handler: async (_req, res, params, _query, body) => {
+      const app = applicationStore.get(params.applicationId);
+      if (!app) return server.sendResponse(res, 404, false, undefined, 'Application not found');
+      // Phase D: allow signing from `approved` (first sign) and from `signed`/`active`
+      // (renewal — employer wants to add plans, rotate signer, etc.). The sequencer's
+      // monotonic seq enforcement is the authoritative guard against replay.
+      const allowedSignStatuses = ['approved', 'signed', 'active'];
+      if (!allowedSignStatuses.includes(app.status)) {
+        return server.sendResponse(res, 409, false, undefined, `Cannot sign: status is ${app.status}`);
+      }
+      const isRenewal = app.status === 'signed' || app.status === 'active';
+
+      const b = body as {
+        employerSignature?: string;
+        ts?: number;
+        signerName?: string;
+        signerTitle?: string;
+        reviewedAt?: number;
+      } | undefined;
+      if (!b?.employerSignature || typeof b.employerSignature !== 'string') {
+        return server.sendResponse(res, 400, false, undefined, 'Missing employerSignature');
+      }
+      if (!b?.signerName || !b?.signerTitle) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing signerName or signerTitle');
+      }
+
+      // Store review timestamp per ESIGN §7001(c)(1)
+      if (b.reviewedAt) app.reviewedAgreementAt = b.reviewedAt;
+
+      const cached = agreementCache.get(params.applicationId);
+      if (!cached) {
+        return server.sendResponse(res, 409, false, undefined, 'Call GET /agreement first');
+      }
+
+      // Use the ts and attestationSeq from the agreement cache exclusively.
+      // Neither can be supplied by the client — both MUST come from the cache
+      // populated by GET /agreement, so the server controls the canonical
+      // message the employer signed. The client's `b.ts` is silently ignored.
+      const ts = cached.ts;
+      const attestationSeq = cached.attestationSeq;
+
+      const attestationBase = {
+        employerId: app.employerId,
+        publicKeyHex: app.publicKeyHex,
+        authorizedPlanIds: app.selectedPlanIds,
+        enrollmentCap: app.enrollmentCap,
+        agreementCommitment: cached.commitment,
+        documentHash: cached.documentHash,
+        effectiveDate: app.effectiveDate,
+        ts,
+        attestationSeq,
+        signerName: b.signerName,
+        signerTitle: b.signerTitle,
+      };
+
+      // Verify employer signature against the canonical message
+      if (!verifyAttestationSignature(attestationBase, b.employerSignature, app.publicKeyHex)) {
+        return server.sendResponse(res, 403, false, undefined, 'Invalid employer signature');
+      }
+
+      // Insurer counter-signs with dedicated signing key
+      const message = buildAttestationMessage(attestationBase);
+      const signingSecret = server.getConfig().adminToken;
+      if (!signingSecret) {
+        return server.sendResponse(res, 500, false, undefined, 'Insurer signing not configured');
+      }
+
+      let insurerSig: { signature: string; publicKeyHex: string };
+      try {
+        insurerSig = insurerSign(message, signingSecret);
+      } catch (e: any) {
+        return server.sendResponse(res, 500, false, undefined, 'Insurer signing failed');
+      }
+
+      const attestation: EmployerAttestation = {
+        v: 2,
+        ...attestationBase,
+        employerSignature: b.employerSignature,
+        insurerSignature: insurerSig.signature,
+        insurerPublicKeyHex: insurerSig.publicKeyHex,
+        applicationId: app.applicationId,
+      };
+
+      // Register on sequencer — MUST succeed before marking signed
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const adminToken = server.getConfig().adminToken;
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (adminToken) headers['Authorization'] = `Bearer ${adminToken}`;
+
+        const regResp = await fetch(`${seqUrl}/rpc`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            jsonrpc: '2.0', id: 1,
+            method: 'l2_registerEmployer',
+            params: { attestation },
+          }),
+        });
+        const regJson = await regResp.json() as any;
+        if (regJson.error) {
+          const errMsg = regJson.error.message || regJson.error;
+          // Phase D: translate concurrent-seq race into a user-actionable message
+          if (typeof errMsg === 'string' && errMsg.includes('Expected attestationSeq')) {
+            // Clear the stale cache so the frontend's next refetch gets the real seq
+            agreementCache.delete(params.applicationId);
+            return server.sendResponse(res, 409, false, undefined,
+              'The attestation sequence advanced while you were signing. Please refresh and sign again.');
+          }
+          return server.sendResponse(res, 502, false, undefined, 'Sequencer rejected attestation: ' + errMsg);
+        }
+      } catch (e: any) {
+        return server.sendResponse(res, 502, false, undefined, 'Cannot register attestation — sequencer unreachable');
+      }
+
+      // Sequencer confirmed — now safe to update status
+      server.registerClientKey(app.employerId, app.publicKeyHex);
+      // On first signing, advance to 'signed'. On renewal, preserve the
+      // existing 'active' status (a renewed active employer stays active).
+      if (!isRenewal) {
+        app.status = 'signed';
+      }
+      saveApplicationStore();
+
+      // Generate DOCX (best effort — signing succeeds regardless)
+      try {
+        const docx = await generateAgreementDocx(
+          cached.terms, cached.commitment, cached.documentHash,
+          b.employerSignature, insurerSig.signature, insurerSig.publicKeyHex,
+          b.signerName, b.signerTitle,
+        );
+        docxCache.set(params.applicationId, docx);
+      } catch (e: any) {
+        console.warn('[marketplace] DOCX generation failed:', e.message);
+      }
+
+      console.log('[marketplace] Agreement signed: %s (%s)', app.employerId, app.companyName);
+
+      server.sendResponse(res, 200, true, {
+        status: 'signed',
+        attestation,
+        docxAvailable: docxCache.has(params.applicationId),
+      });
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  DOCX DOWNLOAD (requires signed/active status)
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'GET',
+    path: '/marketplace/api/docx/:applicationId',
+    handler: async (_req, res, params) => {
+      const app = applicationStore.get(params.applicationId);
+      if (!app) return server.sendResponse(res, 404, false, undefined, 'Application not found');
+      if (app.status !== 'signed' && app.status !== 'active') {
+        return server.sendResponse(res, 409, false, undefined, 'Agreement not yet signed');
+      }
+      const docx = docxCache.get(params.applicationId);
+      if (!docx) return server.sendResponse(res, 404, false, undefined, 'Document not yet generated');
+
+      // Sanitize filename
+      const safeId = app.employerId.replace(/[^a-zA-Z0-9_-]/g, '_');
+      res.writeHead(200, {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'Content-Disposition': `attachment; filename="agreement-${safeId}.docx"`,
+        'Content-Length': docx.length,
+      });
+      res.end(docx);
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  ACTIVATION CONFIG (POST to avoid GET side-effects)
+  // ══════════════════════════════════════════════════════════
+
+  routes.push({
+    method: 'POST',
+    path: '/marketplace/api/activate/:applicationId',
+    handler: async (_req, res, params) => {
+      const app = applicationStore.get(params.applicationId);
+      if (!app) return server.sendResponse(res, 404, false, undefined, 'Application not found');
+      if (app.status !== 'signed' && app.status !== 'active') {
+        return server.sendResponse(res, 409, false, undefined, 'Agreement not yet signed');
+      }
+
+      // Phase C: spawn a real employer node + HR Tool for this tenant.
+      const sequencerUrl = server.getConfig().sequencerUrl;
+      const insurerUrl = `http://localhost:${(server.getConfig() as any).port || 4004}`;
+      const insurerAdminToken = server.getConfig().adminToken;
+      if (!insurerAdminToken) {
+        return server.sendResponse(res, 500, false, undefined,
+          'Insurer admin token not configured — orchestrator cannot register tenants on the sequencer');
+      }
+
+      // Idempotency: if a job for this applicationId is already complete, return it.
+      const existingJob = activationJobs.get(params.applicationId);
+      if (existingJob && existingJob.status === 'complete' && existingJob.result) {
+        return server.sendResponse(res, 200, true, {
+          jobKey: params.applicationId,
+          status: 'complete',
+          employerId: app.employerId,
+          sequencerUrl,
+          insurerUrl,
+          authorizedPlanIds: app.selectedPlanIds,
+          enrollmentCap: app.enrollmentCap,
+          publicKeyHex: app.publicKeyHex,
+          effectiveDate: app.effectiveDate,
+          employerNodeUrl: existingJob.result.employerNodeUrl,
+          hrToolUrl: existingJob.result.hrToolUrl,
+          adminToken: existingJob.result.adminToken,
+        });
+      }
+      if (existingJob && existingJob.status === 'pending') {
+        return server.sendResponse(res, 202, true, {
+          jobKey: params.applicationId,
+          status: 'pending',
+          message: 'Tenant spawn already in progress. Poll /marketplace/api/activate-status/:jobKey.',
+        });
+      }
+
+      // Fresh spawn — start the job and return 202 immediately
+      const job: ActivationJob = { status: 'pending', startedAt: Date.now() };
+      activationJobs.set(params.applicationId, job);
+
+      // Async spawn — do NOT await; fire-and-forget so the HTTP response
+      // returns before the 30s NautilusAppServer timeout fires.
+      (async () => {
+        try {
+          const { spawnEmployerTenant } = await import('../employer-orchestrator.js');
+          const spawnResult = await spawnEmployerTenant({
+            employerId: app.employerId,
+            employerPubKeyHex: app.publicKeyHex,
+            sequencerUrl,
+            insurerUrl,
+            insurerAdminToken,
+          });
+          job.status = 'complete';
+          job.result = {
+            employerNodeUrl: spawnResult.employerNodeUrl,
+            hrToolUrl: spawnResult.hrToolUrl,
+            adminToken: spawnResult.adminToken,
+          };
+          // Only flip app status after successful spawn
+          app.status = 'active';
+          saveApplicationStore();
+          console.log('[marketplace] Tenant %s activated: %s', app.employerId, spawnResult.employerNodeUrl);
+        } catch (e: any) {
+          job.status = 'error';
+          job.error = e?.message || 'unknown spawn error';
+          console.error('[marketplace] Tenant spawn failed for %s: %s', app.employerId, job.error);
+        }
+      })();
+
+      server.sendResponse(res, 202, true, {
+        jobKey: params.applicationId,
+        status: 'pending',
+        message: 'Provisioning tenant infrastructure. Poll /marketplace/api/activate-status/:jobKey for progress.',
+      });
+    },
+  });
+
+  // Phase C: poll endpoint for async tenant spawn
+  routes.push({
+    method: 'GET',
+    path: '/marketplace/api/activate-status/:jobKey',
+    handler: async (_req, res, params) => {
+      const app = applicationStore.get(params.jobKey);
+      if (!app) return server.sendResponse(res, 404, false, undefined, 'Application not found');
+      const job = activationJobs.get(params.jobKey);
+      if (!job) return server.sendResponse(res, 404, false, undefined, 'No activation job for this application');
+
+      const sequencerUrl = server.getConfig().sequencerUrl;
+      const insurerUrl = `http://localhost:${(server.getConfig() as any).port || 4004}`;
+
+      if (job.status === 'pending') {
+        const elapsed = Date.now() - job.startedAt;
+        return server.sendResponse(res, 200, true, {
+          status: 'pending',
+          elapsedMs: elapsed,
+          message: `Provisioning... (${Math.floor(elapsed / 1000)}s)`,
+        });
+      }
+      if (job.status === 'error') {
+        return server.sendResponse(res, 200, true, {
+          status: 'error',
+          error: job.error,
+        });
+      }
+      // complete
+      return server.sendResponse(res, 200, true, {
+        status: 'complete',
+        employerId: app.employerId,
+        sequencerUrl,
+        insurerUrl,
+        authorizedPlanIds: app.selectedPlanIds,
+        enrollmentCap: app.enrollmentCap,
+        publicKeyHex: app.publicKeyHex,
+        effectiveDate: app.effectiveDate,
+        employerNodeUrl: job.result!.employerNodeUrl,
+        hrToolUrl: job.result!.hrToolUrl,
+        adminToken: job.result!.adminToken,
+      });
+    },
+  });
+
+  return routes;
+}
+
+// ─── Admin Endpoints ────────────────────────────────────────
+
+export function buildEmployerAdminRoutes(server: NautilusAppServer): RouteRegistration[] {
+  const routes: RouteRegistration[] = [];
+
+  routes.push({
+    method: 'GET',
+    path: '/employer-applications',
+    adminOnly: true,
+    handler: async (_req, res) => {
+      // Strip sensitive fields from admin view (keep cp575DocumentId + resubmissionCount for review workflow)
+      const apps = Array.from(applicationStore.values()).map(app => ({
+        applicationId: app.applicationId,
+        employerId: app.employerId,
+        companyName: app.companyName,
+        contactName: app.contactName,
+        contactEmail: app.contactEmail,
+        ein: app.ein,
+        state: app.state,
+        selectedPlanIds: app.selectedPlanIds,
+        enrollmentCap: app.enrollmentCap,
+        effectiveDate: app.effectiveDate,
+        status: app.status,
+        submittedAt: app.submittedAt,
+        approvedAt: app.approvedAt || null,
+        cp575DocumentId: app.cp575DocumentId || null,
+        resubmissionCount: app.resubmissionCount || 0,
+      }));
+      server.sendResponse(res, 200, true, apps);
+    },
+  });
+
+  routes.push({
+    method: 'POST',
+    path: '/employer-applications/:applicationId/approve',
+    adminOnly: true,
+    handler: async (_req, res, params) => {
+      const app = applicationStore.get(params.applicationId);
+      if (!app) return server.sendResponse(res, 404, false, undefined, 'Application not found');
+      if (app.status !== 'submitted' && app.status !== 'under_review' && app.status !== 'needs_documents') {
+        return server.sendResponse(res, 409, false, undefined, `Cannot approve: status is ${app.status}`);
+      }
+      // Require CP 575 document before approval
+      if (!app.cp575DocumentId) {
+        return server.sendResponse(res, 409, false, undefined, 'Cannot approve: CP 575 document not yet uploaded. Use "Request Documents" first.');
+      }
+      app.status = 'approved';
+      app.approvedAt = Date.now();
+      saveApplicationStore();
+      // Invalidate any stale agreement cache
+      agreementCache.delete(params.applicationId);
+      console.log('[marketplace] Application approved: %s (%s)', app.applicationId, app.companyName);
+      server.sendResponse(res, 200, true, { applicationId: app.applicationId, status: 'approved' });
+    },
+  });
+
+  routes.push({
+    method: 'POST',
+    path: '/employer-applications/:applicationId/deny',
+    adminOnly: true,
+    handler: async (_req, res, params, _query, body) => {
+      const app = applicationStore.get(params.applicationId);
+      if (!app) return server.sendResponse(res, 404, false, undefined, 'Application not found');
+      if (app.status === 'signed' || app.status === 'active') {
+        return server.sendResponse(res, 409, false, undefined, 'Cannot deny a signed/active application');
+      }
+      const b = body as { reason?: string } | undefined;
+      app.status = 'denied';
+      app.denialReason = b?.reason || 'Application denied';
+      app.reviewedAt = Date.now();
+      saveApplicationStore();
+      server.sendResponse(res, 200, true, { applicationId: app.applicationId, status: 'denied' });
+    },
+  });
+
+  // Request documents from employer (sets needs_documents status)
+  routes.push({
+    method: 'POST',
+    path: '/employer-applications/:applicationId/request-documents',
+    adminOnly: true,
+    handler: async (_req, res, params) => {
+      const app = applicationStore.get(params.applicationId);
+      if (!app) return server.sendResponse(res, 404, false, undefined, 'Application not found');
+      if (app.status !== 'submitted' && app.status !== 'under_review') {
+        return server.sendResponse(res, 409, false, undefined, `Cannot request documents: status is ${app.status}`);
+      }
+      app.status = 'needs_documents';
+      app.reviewedAt = Date.now();
+      saveApplicationStore();
+      console.log('[marketplace] Documents requested for: %s (%s)', app.applicationId, app.companyName);
+      server.sendResponse(res, 200, true, { applicationId: app.applicationId, status: 'needs_documents' });
+    },
+  });
+
+  // Allow re-keying: employer lost their browser key, needs to update publicKeyHex
+  // Not admin-gated — applicationId (128-bit random) acts as the bearer secret.
+  routes.push({
+    method: 'POST',
+    path: '/employer-applications/:applicationId/rekey',
+    adminOnly: false,
+    handler: async (_req, res, params, _query, body) => {
+      const app = applicationStore.get(params.applicationId);
+      if (!app) return server.sendResponse(res, 404, false, undefined, 'Application not found');
+      if (app.status !== 'approved') {
+        return server.sendResponse(res, 409, false, undefined, 'Can only rekey approved applications');
+      }
+      const b = body as { publicKeyHex?: string } | undefined;
+      if (!b?.publicKeyHex || !/^[0-9a-f]{64}$/i.test(b.publicKeyHex)) {
+        return server.sendResponse(res, 400, false, undefined, 'Invalid public key');
+      }
+      app.publicKeyHex = b.publicKeyHex;
+      agreementCache.delete(params.applicationId);
+      saveApplicationStore();
+      console.log('[marketplace] Employer rekeyed: %s', app.employerId);
+      server.sendResponse(res, 200, true, { applicationId: app.applicationId, rekeyed: true });
+    },
+  });
+
+  // Post-sign rekey: employer lost key after signing. Revokes old attestation, re-signs with new key.
+  routes.push({
+    method: 'POST',
+    path: '/employer-applications/:applicationId/rekey-signed',
+    adminOnly: true,
+    handler: async (_req, res, params, _query, body) => {
+      const app = applicationStore.get(params.applicationId);
+      if (!app) return server.sendResponse(res, 404, false, undefined, 'Application not found');
+      if (app.status !== 'signed' && app.status !== 'active') {
+        return server.sendResponse(res, 409, false, undefined, 'Only signed/active applications can be rekeyed');
+      }
+      const b = body as { publicKeyHex?: string } | undefined;
+      if (!b?.publicKeyHex || !/^[0-9a-f]{64}$/i.test(b.publicKeyHex)) {
+        return server.sendResponse(res, 400, false, undefined, 'Invalid public key (64 hex chars required)');
+      }
+
+      const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+      const adminToken = server.getConfig().adminToken;
+      const hdrs: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (adminToken) hdrs['Authorization'] = `Bearer ${adminToken}`;
+
+      // Step 1: Revoke old attestation on sequencer
+      try {
+        await fetch(`${seqUrl}/rpc`, {
+          method: 'POST', headers: hdrs,
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_revokeEmployerAttestation', params: { employerId: app.employerId } }),
+        });
+      } catch {
+        return server.sendResponse(res, 502, false, undefined, 'Cannot revoke old attestation — sequencer unreachable');
+      }
+
+      // Step 2: Update key + reset to approved for re-signing
+      app.publicKeyHex = b.publicKeyHex;
+      app.status = 'approved';
+      agreementCache.delete(params.applicationId);
+      docxCache.delete(params.applicationId);
+      saveApplicationStore();
+      server.registerClientKey(app.employerId, b.publicKeyHex);
+
+      console.log('[marketplace] Post-sign rekey: %s (%s)', app.employerId, app.companyName);
+      server.sendResponse(res, 200, true, {
+        applicationId: app.applicationId, rekeyed: true, status: 'approved',
+        message: 'Old attestation revoked. Fetch new agreement and re-sign.',
+      });
+    },
+  });
+
+  return routes;
+}

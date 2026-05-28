@@ -71,7 +71,7 @@ const enableSSE = (env.ZKTRIDENT_SSE ?? 'true') !== 'false';
 const maxSseConnections = parseInt(env.ZKTRIDENT_MAX_SSE ?? '100', 10);
 const allowedOrigins = env.ZKTRIDENT_CORS_ORIGINS
   ? env.ZKTRIDENT_CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
-  : ['*'];
+  : unsecureMode ? ['*'] : ['http://localhost', 'http://127.0.0.1'];
 
 // ─── Build Options ────────────────────────────────────────────
 
@@ -404,15 +404,16 @@ async function main(): Promise<void> {
         console.log('  [security] VK commitment set: %s…', interactiveService.vkCommitment.slice(0, 24));
       }
 
-      // Open all dashboards in browser when ready
+      // Open all boot-time dashboards in browser when ready.
+      // Employer node + HR Tool are spawned on-demand by marketplace activation
+      // and are NOT included here — they open via the marketplace activate screen.
       if (env.ZKTRIDENT_OPEN_BROWSERS !== '0') {
         const urls = [
           `http://localhost:${port}/`,      // Leviathan sequencer
           `http://localhost:4001/`,          // Member
           `http://localhost:4002/`,          // Prescriber
           `http://localhost:4003/`,          // Pharmacy
-          `http://localhost:4004/`,          // Insurer
-          `http://localhost:4005/`,          // Employer
+          `http://localhost:4004/`,          // Insurer (includes marketplace at /marketplace/)
           `http://localhost:8000/`,          // Explorer
         ];
         const { exec } = await import('child_process');
@@ -595,9 +596,9 @@ async function main(): Promise<void> {
     console.log('  [boot] Insurer health timeout — continuing with remaining entities');
   }
 
-  // Phase 3: Provider nodes + employer + member
+  // Phase 2: Provider nodes + member (employer + HR Tool are on-demand)
   console.log('');
-  console.log('  ── Boot Phase 2: Provider nodes + employer + member ──');
+  console.log('  ── Boot Phase 2: Provider nodes + member ──');
 
   // Prescriber (port 4002) — uses seed identity index 0 (Dr. Sarah Chen)
   // Will poll l2_getProvider to confirm credentialing before ready
@@ -613,22 +614,26 @@ async function main(): Promise<void> {
     ...(adminToken ? { ZKTRIDENT_ADMIN_TOKEN: adminToken } : {}),
   });
 
-  // Employer (port 4005) — needs employer ID + insurer URL
-  spawnEntity('employer', 'start-employer-nautilus.ts', 4005, {
-    ZKTRIDENT_EMPLOYER_ID: env.ZKTRIDENT_EMPLOYER_ID ?? 'ACME-001',
-    ...(adminToken ? { ZKTRIDENT_ADMIN_TOKEN: adminToken } : {}),
-    ...(unsecureMode ? { ZKTRIDENT_UNSECURE: 'true' } : {}),
-    ZKTRIDENT_INSURER_URL: `http://localhost:4004`,
-  });
+  // NOTE: Employer nodes and HR Tools are NOT spawned at boot time.
+  // They are spawned on-demand by the marketplace activation handler
+  // once an employer has completed the marketplace ceremony and received
+  // a signed EmployerAttestation from the sequencer. This ensures that
+  // every running employer node has a real, cryptographically-pinned
+  // identity — no hardcoded ACME-001 fallback.
+  //
+  // See: src/nodes/employer-orchestrator.ts (Phase C)
+  //      src/nodes/routes/marketplace-routes.ts activate handler
 
-  // Member (port 4001) — depends on employer tokens + insurer plan
-  // Pass ZKTRIDENT_MEMBER_PIN through so local state can be unlocked for onboarding
+  // Member (port 4001) — member onboarding portal, shared by all employees
+  // regardless of employer. The member's group binding comes from their
+  // enrollment token, not from environment variables.
   spawnEntity('member', 'start-member-nautilus.ts', 4001, {
     ...(env.ZKTRIDENT_MEMBER_PIN ? { ZKTRIDENT_PIN: env.ZKTRIDENT_MEMBER_PIN } : {}),
     ...(adminToken ? { ZKTRIDENT_ADMIN_TOKEN: adminToken } : {}),
     ZKTRIDENT_INSURER_URL: `http://localhost:4004`,
-    ZKTRIDENT_EMPLOYER_URL: `http://localhost:4005`,
   });
+
+  console.log('  [boot] Employer nodes + HR Tools: on-demand via marketplace activation (no boot-time spawn)');
 
   // Explorer (port 8000) — static file server + proxy to sequencer
   {
@@ -648,6 +653,11 @@ async function main(): Promise<void> {
       console.log('  [entity] explorer spawned (port 8000)');
     }
   }
+
+  // NOTE: HR Tool is NOT spawned at boot. Like the employer node, it is
+  // spawned on-demand by the marketplace activation handler, bound 1:1
+  // to its employer node via EMPLOYER_NODE_URL and pinned to a specific
+  // employerId + public key.
 
   // Auto-enrollment removed — members enroll manually via dashboard onboarding flow.
 

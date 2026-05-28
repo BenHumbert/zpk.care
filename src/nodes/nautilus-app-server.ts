@@ -24,6 +24,7 @@ import http from 'http';
 import https from 'https';
 import fs from 'fs';
 import path from 'path';
+import { timingSafeEqual, createHash, createPublicKey, verify as ed25519Verify } from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { EntityNodeBase } from './entity-node-base.js';
 import type { L2EventHandler, L2ChainEvent } from '../l2/l2-node.js';
@@ -97,8 +98,8 @@ export class NautilusAppServer {
 
   // ─── Entity Node ──────────────────────────────────────────
 
-  /** Set the entity node after onboarding completes */
-  setEntityNode(node: EntityNodeBase): void {
+  /** Set the entity node after onboarding completes, or null to clear (eject). */
+  setEntityNode(node: EntityNodeBase | null): void {
     // Disconnect previous SSE bridge if any
     if (this.eventDisconnect) {
       this.eventDisconnect();
@@ -107,7 +108,7 @@ export class NautilusAppServer {
     this.entityNode = node;
 
     // Bridge entity node SSE events to app SSE clients
-    if (this.config.enableSSE) {
+    if (node && this.config.enableSSE) {
       this.eventDisconnect = node.connectEvents((event: L2ChainEvent) => {
         this.broadcastSSE(event);
       });
@@ -136,6 +137,69 @@ export class NautilusAppServer {
   /** Get the app config */
   getConfig(): NautilusAppConfig {
     return this.config;
+  }
+
+  /**
+   * Check admin auth — Ed25519 signature (secure) or Bearer token (legacy).
+   *
+   * Secure mode: X-Admin-Signature header with clientId:timestamp:signature.
+   * Legacy mode: Authorization: Bearer <token>.
+   * No auth configured: reject (default-deny).
+   */
+  private checkNautilusAdminAuth(req: IncomingMessage, method: string, path: string): boolean {
+    // Ed25519 mode — verify signature against registered client keys
+    if (this.config.authorizedClientKeys?.size) {
+      const sigHeader = req.headers['x-admin-signature'] as string | undefined;
+      if (!sigHeader) return false;
+
+      const parts = sigHeader.split(':');
+      if (parts.length < 3) return false;
+
+      const clientId = parts[0];
+      const timestamp = parts[1];
+      const signatureHex = parts.slice(2).join(':');
+
+      // 30-second replay window
+      const ts = parseInt(timestamp, 10);
+      if (isNaN(ts) || Math.abs(Date.now() - ts) > 30_000) return false;
+
+      const pubKeyHex = this.config.authorizedClientKeys.get(clientId);
+      if (!pubKeyHex) return false;
+
+      // Include content hash if provided (X-Content-Hash header, set by client)
+      // This binds the signature to the request body, preventing replay with altered content
+      const contentHash = req.headers['x-content-hash'] as string ?? '';
+      const message = `${method}:${path}|${timestamp}|${contentHash}`;
+      try {
+        const pubKeyDer = Buffer.from('302a300506032b6570032100' + pubKeyHex, 'hex');
+        const pubKey = createPublicKey({ key: pubKeyDer, format: 'der', type: 'spki' });
+        return ed25519Verify(null, Buffer.from(message), pubKey, Buffer.from(signatureHex, 'hex'));
+      } catch {
+        return false;
+      }
+    }
+
+    // Bearer token mode (legacy / unsecure)
+    if (!this.config.adminToken) return false; // Default-deny
+    const authHeader = req.headers['authorization'] ?? '';
+    const expected = `Bearer ${this.config.adminToken}`;
+    const a = Buffer.from(authHeader);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(a, b);
+  }
+
+  /** Register a client's Ed25519 public key at runtime */
+  registerClientKey(clientId: string, publicKeyHex: string): void {
+    if (!this.config.authorizedClientKeys) {
+      this.config.authorizedClientKeys = new Map();
+    }
+    this.config.authorizedClientKeys.set(clientId, publicKeyHex);
+  }
+
+  /** Revoke a client's key */
+  revokeClientKey(clientId: string): boolean {
+    return this.config.authorizedClientKeys?.delete(clientId) ?? false;
   }
 
   // ─── Route Registration ───────────────────────────────────
@@ -255,7 +319,7 @@ export class NautilusAppServer {
     const corsOrigin = allowed.includes('*') ? '*' : (allowed.includes(origin) ? origin : 'null');
     res.setHeader('Access-Control-Allow-Origin', corsOrigin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Signature, X-Content-Hash');
 
     if (method === 'OPTIONS') {
       res.writeHead(204);
@@ -292,13 +356,9 @@ export class NautilusAppServer {
       const match = pathname.match(route.pattern);
       if (!match) continue;
 
-      // Admin auth check — always enforce for admin routes
+      // Admin auth check — Ed25519 signature (secure mode) or Bearer token (unsecure/legacy)
       if (route.adminOnly) {
-        if (!this.config.adminToken) {
-          return this.sendResponse(res, 403, false, undefined, 'Admin routes require adminToken configuration');
-        }
-        const authHeader = req.headers['authorization'];
-        if (authHeader !== `Bearer ${this.config.adminToken}`) {
+        if (!this.checkNautilusAdminAuth(req, method, pathname)) {
           return this.sendResponse(res, 401, false, undefined, 'Unauthorized');
         }
       }
@@ -310,8 +370,11 @@ export class NautilusAppServer {
       }
 
       // Parse body for POST/PUT/DELETE
+      // Skip JSON parsing for binary uploads (PDF, octet-stream) — route handlers read req directly.
       let body: unknown = undefined;
-      if (method === 'POST' || method === 'PUT' || method === 'DELETE') {
+      const contentType = req.headers['content-type'] ?? '';
+      const isBinaryUpload = contentType.startsWith('application/pdf') || contentType.startsWith('application/octet-stream') || contentType.startsWith('multipart/');
+      if ((method === 'POST' || method === 'PUT' || method === 'DELETE') && !isBinaryUpload) {
         try {
           const raw = await this.readBody(req);
           if (raw.length > 0) {
@@ -332,6 +395,27 @@ export class NautilusAppServer {
         }
       }
       return;
+    }
+
+    // ── Marketplace dashboard files (served at /marketplace/) ──
+    if (method === 'GET' && this.config.marketplaceDashboardDir && pathname.startsWith('/marketplace/')) {
+      const subPath = pathname.slice('/marketplace'.length);
+      const safePath = subPath === '/' || subPath === '' ? '/index.html' : subPath;
+      if (/^[/a-zA-Z0-9._-]+$/.test(safePath) && !safePath.includes('..')) {
+        const filePath = path.join(this.config.marketplaceDashboardDir, safePath);
+        try {
+          const content = fs.readFileSync(filePath);
+          const ext = path.extname(filePath).toLowerCase();
+          const mimeTypes: Record<string, string> = {
+            '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript',
+            '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml',
+            '.ico': 'image/x-icon',
+          };
+          res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+          res.end(content);
+          return;
+        } catch { /* file not found, fall through */ }
+      }
     }
 
     // ── Static dashboard files ──

@@ -66,6 +66,21 @@ if (!employerId) {
   console.error('  [FATAL] ZKTRIDENT_EMPLOYER_ID is required');
   process.exit(1);
 }
+// Phase A: mandatory Ed25519 public key pin. The employer node MUST know what
+// public key it is expected to operate under. When the attestation loads from
+// the sequencer, its publicKeyHex field is compared against this environment
+// variable; any mismatch is a fatal identity error and the process exits.
+const employerPubKeyHex = env.ZKTRIDENT_EMPLOYER_PUBKEY_HEX;
+if (!employerPubKeyHex) {
+  console.error('  [FATAL] ZKTRIDENT_EMPLOYER_PUBKEY_HEX is required');
+  console.error('          This must be the Ed25519 public key that signed the marketplace');
+  console.error('          agreement for this employerId. The orchestrator provides this.');
+  process.exit(1);
+}
+if (!/^[0-9a-f]{64}$/i.test(employerPubKeyHex)) {
+  console.error('  [FATAL] ZKTRIDENT_EMPLOYER_PUBKEY_HEX must be 64 hex characters (32 bytes)');
+  process.exit(1);
+}
 const insurerUrl = env.ZKTRIDENT_INSURER_URL;
 if (insurerUrl && !/^https?:\/\//.test(insurerUrl)) {
   console.error('  [FATAL] ZKTRIDENT_INSURER_URL must start with http:// or https://');
@@ -87,21 +102,98 @@ async function main(): Promise<void> {
   server.registerRoutes(buildEmployerRoutes(server));
 
   // Employer has no wallet, no PIN — create node directly
+  const adminToken = config.adminToken;
   const node = new EmployerNode({
     role: 'employer',
     sequencerUrl: config.sequencerUrl,
     displayName: config.displayName,
     employerId,
     insurerUrl,
+    clientOptions: adminToken ? { adminToken } : undefined,
   });
   server.setEntityNode(node);
-  server.setOnboardingPhase('ready');
+
+  // Phase A: Fail-closed by construction. The employer node always requires a
+  // valid attestation with a matching public key before it will serve any
+  // mutating operation. There is no "open mode" fallback.
+  node.setRequireAttestation(true);
 
   console.log('  [init] EmployerNode created (no wallet, token authority)');
-  console.log('  [init] Employer ID: %s', employerId);
+  console.log('  [init] Employer ID:  %s', employerId);
+  console.log('  [init] Pinned PubKey: %s…', employerPubKeyHex.slice(0, 16));
+  console.log('  [init] Attestation:  REQUIRED (fail-closed)');
   if (insurerUrl) {
-    console.log('  [init] Insurer URL: %s', insurerUrl);
+    console.log('  [init] Insurer URL:  %s', insurerUrl);
   }
+
+  // Load the employer attestation from the sequencer and verify its public key
+  // matches the pinned key. On mismatch, the process exits with a fatal error.
+  // On "not yet registered", retry with exponential backoff; this covers the
+  // race where the orchestrator spawns us right after l2_registerEmployer but
+  // before the sequencer's replication has fully settled.
+  async function loadAndVerifyAttestation(): Promise<'loaded' | 'not-found' | 'mismatch' | 'error'> {
+    try {
+      const seqUrl = config.sequencerUrl.replace(/\/+$/, '');
+      const attResp = await fetch(`${seqUrl}/rpc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_verifyEmployer', params: { employerId } }),
+      });
+      const attJson = await attResp.json() as any;
+      if (!attJson.result?.valid || !attJson.result?.attestation) {
+        return 'not-found';
+      }
+      const att = attJson.result.attestation;
+      // CRITICAL identity pin check — the attestation on the sequencer MUST
+      // have been signed by the key the orchestrator told us to expect.
+      if ((att.publicKeyHex || '').toLowerCase() !== employerPubKeyHex.toLowerCase()) {
+        console.error('  [FATAL] Attestation public key mismatch.');
+        console.error('          Expected: %s', employerPubKeyHex);
+        console.error('          Got:      %s', att.publicKeyHex);
+        console.error('          This process is pinned to a different identity.');
+        return 'mismatch';
+      }
+      node.setAttestation(att);
+      const plans = att.authorizedPlanIds || [];
+      console.log('  [init] Attestation loaded: %d authorized plan(s) — [%s]', plans.length, plans.join(', '));
+      return 'loaded';
+    } catch (e: any) {
+      console.warn('  [init] Sequencer unreachable: %s', e?.message || e);
+      return 'error';
+    }
+  }
+
+  // Retry with exponential backoff. The first attempt fires immediately
+  // (happy path: sequencer already has the attestation, 0ms added latency).
+  // Subsequent attempts sleep before firing, giving the orchestrator time
+  // to finish registering the attestation. Total wall budget on a cold path:
+  // 0 + 500 + 1000 + 2000 + 4000 + 8000 + 16000 = 31.5s across 7 attempts.
+  // Sized to cover: orchestrator spawn latency + sequencer replica gossip
+  // settling + in-flight proving lock contention on a slow CI box.
+  const retryDelays = [0, 500, 1000, 2000, 4000, 8000, 16000];
+  let finalStatus: 'loaded' | 'not-found' | 'error' = 'error';
+  for (let i = 0; i < retryDelays.length; i++) {
+    if (retryDelays[i] > 0) {
+      console.log('  [init] Retrying attestation load in %dms...', retryDelays[i]);
+      await new Promise(r => setTimeout(r, retryDelays[i]));
+    }
+    const status = await loadAndVerifyAttestation();
+    if (status === 'loaded') { finalStatus = 'loaded'; break; }
+    if (status === 'mismatch') {
+      // Key mismatch is a permanent, unrecoverable identity error
+      process.exit(1);
+    }
+    finalStatus = status;
+  }
+
+  if (finalStatus !== 'loaded') {
+    console.error('  [FATAL] Could not load a valid attestation for employerId=%s', employerId);
+    console.error('          The marketplace ceremony must have registered the attestation');
+    console.error('          on the sequencer BEFORE this process started. Aborting.');
+    process.exit(1);
+  }
+
+  server.setOnboardingPhase('ready');
 
   // ── Start Server ──
 

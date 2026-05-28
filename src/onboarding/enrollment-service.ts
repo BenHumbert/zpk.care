@@ -197,16 +197,18 @@ export class EnrollmentService {
    * @param walletId — the member's wallet ID (computed on their device)
    * @param tokenId — the enrollment token ID
    * @param currentDate — current date as CCYYMMDD string
+   * @param tokenPinHash — optional Poseidon(tokenId + PIN) for enrollment 2FA
    */
   processEnrollment(
     walletId: Field,
     tokenId: string,
     currentDate: string,
+    tokenPinHash?: string,
   ): EnrollmentResult {
     // ──── Phase 1: Validate (no mutations) ────────────────────
 
-    // 1. Validate token
-    const validation = this.tokenAuthority.validateToken(tokenId, currentDate);
+    // 1. Validate token (with PIN if required)
+    const validation = this.tokenAuthority.validateTokenWithPin(tokenId, currentDate, tokenPinHash);
     if (!validation.valid) {
       throw new Error(`Token validation failed: ${validation.reason}`);
     }

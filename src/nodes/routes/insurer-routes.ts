@@ -121,12 +121,180 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         groupId?: string;
         planId?: string;
         employerId?: string;
+        /** Poseidon(tokenId + PIN) — enrollment 2FA from member's device */
+        tokenPinHash?: string;
       } | undefined;
       if (!b?.walletId) {
         return server.sendResponse(res, 400, false, undefined, 'Missing walletId');
       }
 
-      // Verify the walletId exists on the sequencer (member must register there first)
+      // ── Step 1: Validate token+PIN with employer node (if tokenId provided) ──
+      // The employer node holds the TokenAuthority with PIN hashes.
+      // The insurer MUST verify before accepting enrollment.
+      //
+      // Employer node URL resolution priority:
+      //   1. Static config (legacy single-tenant or explicit override)
+      //   2. Sequencer tenant registry lookup via l2_getEmployerNode(employerId)
+      //      The member supplies employerId as a routing hint; the actual URL
+      //      comes from the sequencer's attestation-gated registry (trusted).
+      //
+      // SECURITY: we do NOT accept a body-supplied employerUrl (could point
+      // to a fake node). The member's employerId is only a lookup key into
+      // the trusted registry — Shannon analysis confirmed this is safe.
+      if (b.tokenId) {
+        // Resolve employer node URL. Priority:
+        //   1. Static config (legacy single-tenant deployments)
+        //   2. Direct lookup by employerId hint from the member (if provided)
+        //   3. Fan-out: query ALL registered employer nodes and ask each one
+        //      if it recognizes the token. O(N) in employer count — acceptable
+        //      at 1-100 tenants. The member's token ID is opaque and doesn't
+        //      encode which employer issued it, so fan-out is sometimes needed.
+        //
+        // SECURITY: the URL always comes from the sequencer's attestation-gated
+        // registry or the server config — never from the member's request body.
+
+        let employerUrl: string | null = (server.getConfig() as any).employerUrl || null;
+        let resolvedEmployerId: string | null = null;
+
+        // Direct lookup if member provided employerId as routing hint
+        if (!employerUrl && b.employerId) {
+          try {
+            const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+            const regResp = await fetch(`${seqUrl}/rpc`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                jsonrpc: '2.0', id: 1,
+                method: 'l2_getEmployerNode',
+                params: { employerId: b.employerId },
+              }),
+            });
+            const regJson = await regResp.json() as any;
+            if (regJson.result?.employerNodeUrl) {
+              employerUrl = regJson.result.employerNodeUrl;
+              resolvedEmployerId = b.employerId;
+              console.log('[enrollment] Resolved employer %s → %s (direct lookup)', b.employerId, employerUrl);
+            }
+          } catch (lookupErr: unknown) {
+            console.warn('[enrollment] Direct lookup failed for %s:', b.employerId,
+              lookupErr instanceof Error ? lookupErr.message : String(lookupErr));
+          }
+        }
+
+        // Fan-out: try all registered employer nodes if direct lookup failed.
+        // Each employer's TokenAuthority only knows its own tokens, so asking
+        // the wrong employer returns "not found" (safe, no cross-tenant leakage).
+        if (!employerUrl) {
+          try {
+            const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+            const listResp = await fetch(`${seqUrl}/rpc`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                jsonrpc: '2.0', id: 1,
+                method: 'l2_listEmployerNodes',
+                params: {},
+              }),
+            });
+            const listJson = await listResp.json() as any;
+            const nodes = Array.isArray(listJson.result) ? listJson.result : [];
+
+            if (nodes.length === 0) {
+              console.warn('[enrollment] Token %s presented but no employer nodes are registered on the sequencer', b.tokenId);
+              return server.sendResponse(res, 503, false, undefined,
+                'Cannot validate enrollment token — no employer nodes registered. ' +
+                'The employer must complete marketplace activation before employees can enroll.');
+            }
+
+            // Aggregate timeout: 20s total for the entire fan-out, regardless of N.
+            // Individual probes have 3s each but this outer deadline prevents runaway.
+            const fanoutDeadline = Date.now() + 20_000;
+            let pinRejectionReason: string | null = null;
+
+            for (const n of nodes) {
+              if (Date.now() > fanoutDeadline) {
+                console.warn('[enrollment] Fan-out deadline exceeded after probing some of %d employer nodes', nodes.length);
+                break;
+              }
+              try {
+                const probeResp = await fetch(`${n.employerNodeUrl.replace(/\/+$/, '')}/tokens/${encodeURIComponent(b.tokenId)}/validate`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ tokenPinHash: b.tokenPinHash }),
+                  signal: AbortSignal.timeout(3000),
+                });
+                const probeJson = await probeResp.json() as any;
+                const probeData = probeJson.data ?? probeJson;
+                if (probeData.valid) {
+                  // Found the right employer — token validated
+                  console.log('[enrollment] Token validated by employer %s (fan-out): %s', n.employerId, b.tokenId);
+                  resolvedEmployerId = n.employerId;
+                  employerUrl = '__already_validated__'; // sentinel — skip re-validation below
+                  break;
+                }
+                // Capture specific rejection reasons (e.g. wrong PIN) so the member
+                // gets a meaningful error instead of a generic "not recognized".
+                if (probeData.reason && !probeData.valid) {
+                  const reason = String(probeData.reason).toLowerCase();
+                  if (reason.includes('pin') || reason.includes('expired') || reason.includes('revoked')) {
+                    pinRejectionReason = probeData.reason;
+                    // The employer recognized the token but rejected it — stop probing.
+                    console.warn('[enrollment] Token recognized by %s but rejected: %s', n.employerId, probeData.reason);
+                    break;
+                  }
+                }
+              } catch {
+                // Employer node unreachable — skip, try next
+              }
+            }
+
+            if (pinRejectionReason && !employerUrl) {
+              return server.sendResponse(res, 403, false, undefined,
+                'Enrollment denied: ' + pinRejectionReason);
+            }
+
+            if (!employerUrl) {
+              console.warn('[enrollment] Token %s not recognized by any of %d employer nodes', b.tokenId, nodes.length);
+              return server.sendResponse(res, 403, false, undefined,
+                'Enrollment denied: token not recognized by any registered employer. ' +
+                'The employer may not have activated yet, or the token may be invalid.');
+            }
+          } catch (fanoutErr: unknown) {
+            console.warn('[enrollment] Fan-out lookup failed:', fanoutErr instanceof Error ? fanoutErr.message : String(fanoutErr));
+            return server.sendResponse(res, 502, false, undefined,
+              'Cannot validate enrollment token — sequencer unreachable for employer lookup');
+          }
+        }
+
+        // Validate with the resolved employer (skip if fan-out already validated)
+        if (employerUrl && employerUrl !== '__already_validated__') {
+          try {
+            const eUrl = employerUrl.replace(/\/+$/, '');
+            const valResp = await fetch(`${eUrl}/tokens/${encodeURIComponent(b.tokenId)}/validate`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ tokenPinHash: b.tokenPinHash }),
+            });
+            const valJson = await valResp.json() as any;
+            const valData = valJson.data ?? valJson;
+            if (!valData.valid) {
+              const reason = valData.reason || 'Token validation failed';
+              console.warn('[enrollment] Token validation failed: %s', reason);
+              return server.sendResponse(res, 403, false, undefined,
+                'Enrollment denied: ' + reason);
+            }
+            console.log('[enrollment] Token validated by employer node (%s): %s', resolvedEmployerId || 'static', b.tokenId);
+          } catch (valErr: unknown) {
+            console.warn('[enrollment] Could not validate token with employer node:', valErr instanceof Error ? valErr.message : String(valErr));
+            return server.sendResponse(res, 502, false, undefined,
+              'Cannot validate enrollment token — employer node unreachable');
+          }
+        }
+      }
+
+      // ── Step 2: Check sequencer for walletId (informational only, NOT a gate) ──
+      // The wallet is registered on the sequencer AFTER insurer approval (member-routes Step 3).
+      // This check is for observability — it does NOT block enrollment.
       const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
       let sequencerVerified = false;
       try {
@@ -142,17 +310,10 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         const json = await resp.json() as any;
         sequencerVerified = !!(json.result);
       } catch {
-        // Sequencer unreachable — allow enrollment anyway (insurer can re-verify later)
-        console.warn('[enrollment] Could not verify walletId on sequencer — accepting provisionally');
-        sequencerVerified = true;
+        console.warn('[enrollment] Could not check sequencer — continuing with enrollment');
       }
 
-      if (!sequencerVerified) {
-        return server.sendResponse(res, 400, false, undefined,
-          'walletId not found on sequencer — member must register with sequencer before enrolling with insurer');
-      }
-
-      // Record enrollment in in-memory roster for the insurer's view.
+      // ── Step 3: Record enrollment ──
       const enrollmentRecord = {
         walletId: b.walletId,
         tokenId: b.tokenId ?? null,
@@ -163,11 +324,16 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         enrolledAt: Date.now(),
       };
 
-      // Store in insurer's local enrollment registry (in-memory + persisted to state)
       const registry = (server as any).__enrollmentRegistry ??= new Map<string, typeof enrollmentRecord>();
+
+      // Prevent double-enrollment of the same wallet
+      if (registry.has(b.walletId)) {
+        return server.sendResponse(res, 409, false, undefined, 'Wallet already enrolled');
+      }
+
       registry.set(b.walletId, enrollmentRecord);
 
-      // Persist registry to local state so it survives restarts
+      // Persist registry to local state
       try {
         const localState = server.getLocalState();
         const stateData = localState.getState() as any;

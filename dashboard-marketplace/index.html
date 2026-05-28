@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" href="/marketplace/logo.png">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>zkpCare — Employer Marketplace</title>
+  <link rel="stylesheet" href="/marketplace/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <header class="header">
+    <div class="header-left">
+      <img src="/marketplace/logo.png" alt="zkpCare" class="brand-logo">
+      <div class="brand-text">
+        <span class="brand-name">zkpCare</span>
+        <span class="brand-sub">Employer Marketplace</span>
+      </div>
+    </div>
+    <nav class="nav" id="main-nav">
+      <a href="#browse" class="nav-link active" data-tab="browse">Plans</a>
+      <a href="#apply" class="nav-link" data-tab="apply">Apply</a>
+      <a href="#sign" class="nav-link" data-tab="sign">Agreement</a>
+      <a href="#activate" class="nav-link" data-tab="activate">Activate</a>
+    </nav>
+  </header>
+
+  <main class="main" id="app">
+    <!-- Screens rendered by app.js -->
+  </main>
+
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="/marketplace/app.js"></script>
+</body>
+</html>

@@ -242,7 +242,7 @@ export abstract class EntityNodeBase {
   protected toClaimViews(entries: ClaimAccumulatorEntry[]): EntityClaimView[] {
     return entries.map((entry) => ({
       leafIndex: entry.leafIndex,
-      dateOfService: entry.leaf.dateOfService,
+      dateOfService: entry.metadata.dateOfService ?? entry.leaf.dateOfService,
       patientPayCents: entry.leaf.patientPayCents,
       planPayCents: entry.leaf.planPayCents,
       operationType:

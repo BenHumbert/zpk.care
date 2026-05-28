@@ -47,6 +47,24 @@ export function registerInteractiveRoutes(
   service: AdjudicationService,
   nfcBridge?: NfcBridge,
 ): void {
+  // Tier 3 admin-only routes — destructive or privilege-escalating operations
+  const ADMIN_ROUTES = new Set([
+    '/interactive/approve-prior-auth',
+    '/interactive/deny-prior-auth',
+    '/interactive/terminate-member',
+    '/interactive/terminate-group',
+    '/interactive/decrypt-thread',
+    '/interactive/create-delegation',
+    '/interactive/update-formulary',
+    '/interactive/plan-year-rollover',
+    '/interactive/reset',
+  ]);
+
+  // Helper: register route with automatic admin gating for Tier 3 routes
+  function reg(method: string, path: string, handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>): void {
+    server.registerRoute(method, path, handler, ADMIN_ROUTES.has(path) ? { adminOnly: true } : undefined);
+  }
+
   // Console SSE clients
   const consoleSseClients: Set<ServerResponse> = new Set();
 
@@ -67,7 +85,7 @@ export function registerInteractiveRoutes(
   };
 
   // GET /interactive/console — SSE stream
-  server.registerRoute('GET', '/interactive/console', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/interactive/console', async (req: IncomingMessage, res: ServerResponse) => {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
@@ -84,7 +102,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /interactive/state
-  server.registerRoute('GET', '/interactive/state', async (_req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/interactive/state', async (_req: IncomingMessage, res: ServerResponse) => {
     try {
       const state = service.getState();
       res.writeHead(200, {
@@ -110,7 +128,7 @@ export function registerInteractiveRoutes(
   // POST /interactive/register-member — register an externally-enrolled member's proving context
   // Called by the member Nautilus node at enrollment completion so the adjudication engine
   // can generate proofs on behalf of the member. No seed data required.
-  server.registerRoute('POST', '/interactive/register-member', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/register-member', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -140,7 +158,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/enroll — kicks off enrollment, returns immediately
-  server.registerRoute('POST', '/interactive/enroll', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/enroll', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -188,7 +206,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /interactive/enroll-status?memberIndex=N — poll for enrollment result
-  server.registerRoute('GET', '/interactive/enroll-status', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/interactive/enroll-status', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const url = new URL(req.url ?? '', `http://${req.headers.host}`);
       const memberIndex = parseInt(url.searchParams.get('memberIndex') ?? '', 10);
@@ -226,7 +244,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/request-prior-auth
-  server.registerRoute('POST', '/interactive/request-prior-auth', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/request-prior-auth', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -255,7 +273,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/approve-prior-auth
-  server.registerRoute('POST', '/interactive/approve-prior-auth', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/approve-prior-auth', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -280,7 +298,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/deny-prior-auth
-  server.registerRoute('POST', '/interactive/deny-prior-auth', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/deny-prior-auth', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -304,7 +322,7 @@ export function registerInteractiveRoutes(
 
   // POST /interactive/resolve-indices — map walletIds/ndcHash to seed data indices
   // Used by entity Nautilus nodes to translate dashboard params into proof params.
-  server.registerRoute('POST', '/interactive/resolve-indices', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/resolve-indices', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -340,7 +358,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/prescribe
-  server.registerRoute('POST', '/interactive/prescribe', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/prescribe', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -380,7 +398,7 @@ export function registerInteractiveRoutes(
   const fillJobs = new Map<string, FillJob>();
   const FILL_JOB_TTL_MS = 5 * 60 * 1000; // Keep completed jobs for 5 minutes
 
-  server.registerRoute('POST', '/interactive/fill', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/fill', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -433,7 +451,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /interactive/fill-status?prescriptionId=X — poll for fill result
-  server.registerRoute('GET', '/interactive/fill-status', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/interactive/fill-status', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const url = new URL(req.url ?? '', `http://${req.headers.host}`);
       const prescriptionId = url.searchParams.get('prescriptionId') ?? '';
@@ -475,7 +493,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /interactive/prescriptions-by-pharmacy?pharmacyIndex=N — all prescriptions for a pharmacy
-  server.registerRoute('GET', '/interactive/prescriptions-by-pharmacy', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/interactive/prescriptions-by-pharmacy', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const url = new URL(req.url ?? '', `http://${req.headers.host}`);
       const pharmacyIndex = parseInt(url.searchParams.get('pharmacyIndex') ?? '0', 10);
@@ -488,7 +506,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/mark-filled — pharmacist marks prescription as physically prepared
-  server.registerRoute('POST', '/interactive/mark-filled', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/mark-filled', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -507,7 +525,7 @@ export function registerInteractiveRoutes(
   // POST /interactive/prescribe-and-fill — combined prescribe + fill for pharmacy PAID flow
   // Passes ndcHash directly, creates prescription, then fills it (async).
   // Accepts: { memberWalletId, ndcHash, prescriberWalletId?, pharmacyIndex?, quantity?, prescriberIndex? }
-  server.registerRoute('POST', '/interactive/prescribe-and-fill', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/prescribe-and-fill', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -599,7 +617,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/update-rx-status
-  server.registerRoute('POST', '/interactive/update-rx-status', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/update-rx-status', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -641,7 +659,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/reverse
-  server.registerRoute('POST', '/interactive/reverse', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/reverse', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -670,7 +688,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/assign-pcp
-  server.registerRoute('POST', '/interactive/assign-pcp', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/assign-pcp', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -696,7 +714,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /interactive/member-history
-  server.registerRoute('GET', '/interactive/member-history', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/interactive/member-history', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const url = new URL(req.url!, `http://${req.headers.host}`);
       const walletId = url.searchParams.get('walletId');
@@ -719,7 +737,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/enroll-family
-  server.registerRoute('POST', '/interactive/enroll-family', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/enroll-family', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -743,7 +761,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /interactive/family-history
-  server.registerRoute('GET', '/interactive/family-history', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/interactive/family-history', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const url = new URL(req.url!, `http://${req.headers.host}`);
       const walletId = url.searchParams.get('walletId');
@@ -766,7 +784,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/terminate-member
-  server.registerRoute('POST', '/interactive/terminate-member', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/terminate-member', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -792,7 +810,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/terminate-group
-  server.registerRoute('POST', '/interactive/terminate-group', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/terminate-group', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -818,7 +836,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/send-message
-  server.registerRoute('POST', '/interactive/send-message', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/send-message', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -841,7 +859,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/decrypt-thread — batch decrypt messages in a thread
-  server.registerRoute('POST', '/interactive/decrypt-thread', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/decrypt-thread', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -864,7 +882,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /interactive/threads — get conversation threads for a wallet
-  server.registerRoute('GET', '/interactive/threads', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/interactive/threads', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
       const walletId = url.searchParams.get('walletId');
@@ -887,7 +905,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/create-delegation
-  server.registerRoute('POST', '/interactive/create-delegation', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/create-delegation', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -916,7 +934,7 @@ export function registerInteractiveRoutes(
   const credentialJobs = new Map<string, { status: 'pending' | 'complete' | 'error'; result?: unknown; error?: string }>();
 
   // POST /interactive/generate-credential — kicks off, returns immediately
-  server.registerRoute('POST', '/interactive/generate-credential', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/generate-credential', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -963,7 +981,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /interactive/credential-status?walletId=X&proofType=Y — poll for credential result
-  server.registerRoute('GET', '/interactive/credential-status', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/interactive/credential-status', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const url = new URL(req.url ?? '', `http://${req.headers.host}`);
       const walletId = url.searchParams.get('walletId') ?? '';
@@ -1004,7 +1022,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/verify-credential
-  server.registerRoute('POST', '/interactive/verify-credential', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/verify-credential', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -1025,7 +1043,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/update-formulary
-  server.registerRoute('POST', '/interactive/update-formulary', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/update-formulary', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -1049,7 +1067,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/update-provider-network
-  server.registerRoute('POST', '/interactive/update-provider-network', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/update-provider-network', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -1073,7 +1091,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/plan-year-rollover
-  server.registerRoute('POST', '/interactive/plan-year-rollover', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/plan-year-rollover', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -1096,7 +1114,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /interactive/step-therapy-check
-  server.registerRoute('GET', '/interactive/step-therapy-check', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/interactive/step-therapy-check', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const url = new URL(req.url!, `http://${req.headers.host}`);
       const walletId = url.searchParams.get('memberWalletId');
@@ -1122,7 +1140,7 @@ export function registerInteractiveRoutes(
   // ─── L2 Chain Routes ──────────────────────────────────────
 
   // GET /interactive/l2-status
-  server.registerRoute('GET', '/interactive/l2-status', async (_req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/interactive/l2-status', async (_req: IncomingMessage, res: ServerResponse) => {
     const rawStatus = service.getL2Node().getStatus();
     const seq = service.getL2Node().getSequencer();
     // Sanitize bigints for JSON serialization
@@ -1163,7 +1181,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/force-batch
-  server.registerRoute('POST', '/interactive/force-batch', async (_req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/force-batch', async (_req: IncomingMessage, res: ServerResponse) => {
     try {
       const batch = await service.forceBatch();
       res.writeHead(200, {
@@ -1182,7 +1200,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/save-checkpoint
-  server.registerRoute('POST', '/interactive/save-checkpoint', async (_req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/save-checkpoint', async (_req: IncomingMessage, res: ServerResponse) => {
     try {
       const filename = await service.saveCheckpoint();
       res.writeHead(200, {
@@ -1197,7 +1215,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/retry-batch
-  server.registerRoute('POST', '/interactive/retry-batch', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/retry-batch', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const seq = service.getL2Node().getSequencer();
       // Auto-detect latest failed batch if no body provided
@@ -1224,7 +1242,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/simulate-batch-failure
-  server.registerRoute('POST', '/interactive/simulate-batch-failure', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/simulate-batch-failure', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const seq = service.getL2Node().getSequencer();
       // Auto-detect latest settled batch if no body provided
@@ -1252,7 +1270,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/reset
-  server.registerRoute('POST', '/interactive/reset', async (_req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/reset', async (_req: IncomingMessage, res: ServerResponse) => {
     service.reset();
     enrollmentJobs.clear();
     credentialJobs.clear();
@@ -1266,7 +1284,7 @@ export function registerInteractiveRoutes(
   // ─── Entity Node Dashboard Routes ────────────────────────
 
   // GET /node/state — session state + seed data for entity dashboards
-  server.registerRoute('GET', '/node/state', async (_req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/node/state', async (_req: IncomingMessage, res: ServerResponse) => {
     try {
       const state = service.getState();
 
@@ -1314,7 +1332,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /node/claims-by-member?walletId=X — claim history for a member
-  server.registerRoute('GET', '/node/claims-by-member', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/node/claims-by-member', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const url = new URL(req.url!, `http://${req.headers.host}`);
       const walletId = url.searchParams.get('walletId');
@@ -1339,7 +1357,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /node/claims-by-prescriber?walletId=X — claims by prescriber
-  server.registerRoute('GET', '/node/claims-by-prescriber', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/node/claims-by-prescriber', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const url = new URL(req.url!, `http://${req.headers.host}`);
       const walletId = url.searchParams.get('walletId');
@@ -1364,7 +1382,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /node/claims-by-pharmacy?walletId=X — claims by pharmacy
-  server.registerRoute('GET', '/node/claims-by-pharmacy', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/node/claims-by-pharmacy', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const url = new URL(req.url!, `http://${req.headers.host}`);
       const walletId = url.searchParams.get('walletId');
@@ -1389,7 +1407,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /node/claims-by-ndc?ndcHash=X — claims by drug
-  server.registerRoute('GET', '/node/claims-by-ndc', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/node/claims-by-ndc', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const url = new URL(req.url!, `http://${req.headers.host}`);
       const ndcHash = url.searchParams.get('ndcHash');
@@ -1414,7 +1432,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /node/receipts-by-wallet?walletId=X — receipts for a wallet
-  server.registerRoute('GET', '/node/receipts-by-wallet', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/node/receipts-by-wallet', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const url = new URL(req.url!, `http://${req.headers.host}`);
       const walletId = url.searchParams.get('walletId');
@@ -1439,7 +1457,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /node/dur?memberWalletId=X — cross-pharmacy DUR for a patient
-  server.registerRoute('GET', '/node/dur', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/node/dur', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const url = new URL(req.url!, `http://${req.headers.host}`);
       const memberWalletId = url.searchParams.get('memberWalletId');
@@ -1469,7 +1487,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /node/claim-proof?leafIndex=N — claim + Merkle proof
-  server.registerRoute('GET', '/node/claim-proof', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/node/claim-proof', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const url = new URL(req.url!, `http://${req.headers.host}`);
       const leafIndexStr = url.searchParams.get('leafIndex');
@@ -1495,7 +1513,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /node/formulary?planIdHash=X — formulary data for a plan
-  server.registerRoute('GET', '/node/formulary', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/node/formulary', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const url = new URL(req.url!, `http://${req.headers.host}`);
       const planIdHash = url.searchParams.get('planIdHash');
@@ -1520,7 +1538,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /node/all-receipts — all receipts (insurer view)
-  server.registerRoute('GET', '/node/all-receipts', async (_req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/node/all-receipts', async (_req: IncomingMessage, res: ServerResponse) => {
     try {
       const seq = service.getL2Node().getSequencer();
       const receipts = seq.getAllReceipts();
@@ -1537,7 +1555,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /node/all-batches — all batches (insurer view)
-  server.registerRoute('GET', '/node/all-batches', async (_req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/node/all-batches', async (_req: IncomingMessage, res: ServerResponse) => {
     try {
       const seq = service.getL2Node().getSequencer();
       const batches = seq.getAllBatches();
@@ -1554,7 +1572,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /node/audit-log — audit log (insurer view)
-  server.registerRoute('GET', '/node/audit-log', async (_req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/node/audit-log', async (_req: IncomingMessage, res: ServerResponse) => {
     try {
       const seq = service.getL2Node().getSequencer();
       const auditLog = seq.getAuditLog();
@@ -1581,7 +1599,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /node/chain-proof — latest chain proof
-  server.registerRoute('GET', '/node/chain-proof', async (_req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/node/chain-proof', async (_req: IncomingMessage, res: ServerResponse) => {
     try {
       const seq = service.getL2Node().getSequencer();
       const chainProofJson = seq.getLatestChainProofJson();
@@ -1605,7 +1623,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /node/chain-state — chain state (roots, counts)
-  server.registerRoute('GET', '/node/chain-state', async (_req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/node/chain-state', async (_req: IncomingMessage, res: ServerResponse) => {
     try {
       const seq = service.getL2Node().getSequencer();
       const chainState = {
@@ -1636,7 +1654,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /node/force-batch — force batch settlement
-  server.registerRoute('POST', '/node/force-batch', async (_req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/node/force-batch', async (_req: IncomingMessage, res: ServerResponse) => {
     try {
       const batch = await service.forceBatch();
       res.writeHead(200, {
@@ -1655,7 +1673,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /node/publish-formulary — publish formulary for a plan
-  server.registerRoute('POST', '/node/publish-formulary', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/node/publish-formulary', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
       const params = JSON.parse(body);
@@ -1789,7 +1807,7 @@ export function registerInteractiveRoutes(
     });
 
     // GET /interactive/nfc/events — SSE stream for NFC events
-    server.registerRoute('GET', '/interactive/nfc/events', async (_req: IncomingMessage, res: ServerResponse) => {
+    reg('GET', '/interactive/nfc/events', async (_req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -1807,7 +1825,7 @@ export function registerInteractiveRoutes(
 
     // POST /interactive/nfc/write — queue a write to the next NFC tag
     // Auto-upgrades to attestation format if an attestation exists for the walletId
-    server.registerRoute('POST', '/interactive/nfc/write', async (req: IncomingMessage, res: ServerResponse) => {
+    reg('POST', '/interactive/nfc/write', async (req: IncomingMessage, res: ServerResponse) => {
       try {
         const body = await readBody(req);
         const params = JSON.parse(body);
@@ -1851,7 +1869,7 @@ export function registerInteractiveRoutes(
     });
 
     // POST /interactive/nfc/cancel — cancel a pending write
-    server.registerRoute('POST', '/interactive/nfc/cancel', async (_req: IncomingMessage, res: ServerResponse) => {
+    reg('POST', '/interactive/nfc/cancel', async (_req: IncomingMessage, res: ServerResponse) => {
       nfcBridge.cancelWrite();
       res.writeHead(200, {
         'Content-Type': 'application/json',
@@ -1861,7 +1879,7 @@ export function registerInteractiveRoutes(
     });
 
     // GET /interactive/nfc/status — get current NFC bridge status
-    server.registerRoute('GET', '/interactive/nfc/status', async (_req: IncomingMessage, res: ServerResponse) => {
+    reg('GET', '/interactive/nfc/status', async (_req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(200, {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
@@ -1870,7 +1888,7 @@ export function registerInteractiveRoutes(
     });
 
     // GET /interactive/nfc/sequencer-pubkey — sequencer's Ed25519 public key for offline verification
-    server.registerRoute('GET', '/interactive/nfc/sequencer-pubkey', async (_req: IncomingMessage, res: ServerResponse) => {
+    reg('GET', '/interactive/nfc/sequencer-pubkey', async (_req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(200, {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
@@ -1882,7 +1900,7 @@ export function registerInteractiveRoutes(
   // ─── Provider Badge Routes ─────────────────────────────────
 
   // GET /interactive/badge/list — list all provider badges
-  server.registerRoute('GET', '/interactive/badge/list', async (_req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/interactive/badge/list', async (_req: IncomingMessage, res: ServerResponse) => {
     try {
       const badges = service.getAllProviderBadges().map(({ key, badge }) => ({
         key,
@@ -1900,7 +1918,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/badge/tap — simulate a single badge tap with real ZK proof
-  server.registerRoute('POST', '/interactive/badge/tap', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/badge/tap', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       if (badgeTapInProgress) {
         sendError(res, 429, 'Badge tap already in progress — please wait');
@@ -1938,7 +1956,7 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/badge/auto-tap — run auto-tap simulation for all providers
-  server.registerRoute('POST', '/interactive/badge/auto-tap', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('POST', '/interactive/badge/auto-tap', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       if (badgeTapInProgress) {
         sendError(res, 429, 'Badge tap already in progress — please wait');
@@ -1976,7 +1994,7 @@ export function registerInteractiveRoutes(
   });
 
   // GET /interactive/badge/:key — get a specific badge payload
-  server.registerRoute('GET', '/interactive/badge/', async (req: IncomingMessage, res: ServerResponse) => {
+  reg('GET', '/interactive/badge/', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       // Extract key from URL: /interactive/badge/prescriber-0
       const url = req.url ?? '';

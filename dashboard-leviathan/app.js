@@ -31,15 +31,19 @@
   var metricsFrameCount = 0;
 
   // ── Node Health Monitor ────────────────────────────────────
+  // Use the same hostname the browser is on to avoid cross-origin issues
+  var _baseHost = location.hostname || 'localhost';
+  // Boot-time nodes only. Employer nodes + HR Tools are spawned on-demand
+  // via marketplace activation and appear dynamically in the Tenants panel
+  // (loaded via l2_listEmployerNodes). See Phase C orchestrator.
   var NETWORK_NODES = [
-    { id: 'leviathan',  label: 'Leviathan',  port: 3030, url: 'http://localhost:3030',  healthPath: '/health' },
-    { id: 'member',     label: 'Member',     port: 4001, url: 'http://localhost:4001',  healthPath: '/health' },
-    { id: 'prescriber', label: 'Prescriber', port: 4002, url: 'http://localhost:4002',  healthPath: '/health' },
-    { id: 'pharmacy',   label: 'Pharmacy',   port: 4003, url: 'http://localhost:4003',  healthPath: '/health' },
-    { id: 'insurer',    label: 'Insurer',    port: 4004, url: 'http://localhost:4004',  healthPath: '/health' },
-    { id: 'employer',   label: 'Employer',   port: 4005, url: 'http://localhost:4005',  healthPath: '/health' },
-    { id: 'replica-1',  label: 'Replica-1',  port: 3031, url: 'http://localhost:3031',  healthPath: '/health' },
-    { id: 'replica-2',  label: 'Replica-2',  port: 3032, url: 'http://localhost:3032',  healthPath: '/health' },
+    { id: 'leviathan',  label: 'Leviathan',  port: 3030, url: 'http://' + _baseHost + ':3030',  healthPath: '/health' },
+    { id: 'member',     label: 'Member',     port: 4001, url: 'http://' + _baseHost + ':4001',  healthPath: '/health' },
+    { id: 'prescriber', label: 'Prescriber', port: 4002, url: 'http://' + _baseHost + ':4002',  healthPath: '/health' },
+    { id: 'pharmacy',   label: 'Pharmacy',   port: 4003, url: 'http://' + _baseHost + ':4003',  healthPath: '/health' },
+    { id: 'insurer',    label: 'Insurer',    port: 4004, url: 'http://' + _baseHost + ':4004',  healthPath: '/health' },
+    { id: 'replica-1',  label: 'Replica-1',  port: 3031, url: 'http://' + _baseHost + ':3031',  healthPath: '/health' },
+    { id: 'replica-2',  label: 'Replica-2',  port: 3032, url: 'http://' + _baseHost + ':3032',  healthPath: '/health' },
   ];
   var nodeHealthState = {}; // { nodeId: { alive, lastCheck, latencyMs, phase, error, detail } }
 
@@ -1480,7 +1484,7 @@
         '<span class="event-type">' + escHtml(ev.type || '--') + '</span>' +
         '<span class="event-data">' + escHtml(ev.from || '') +
         (ev.to ? ' → ' + escHtml(ev.to) : '') +
-        (ev.data ? ' | ' + (typeof ev.data === 'string' ? ev.data : JSON.stringify(ev.data)).slice(0, 60) : '') +
+        (ev.data ? ' | ' + escHtml((typeof ev.data === 'string' ? ev.data : JSON.stringify(ev.data)).slice(0, 60)) : '') +
         '</span></div>';
     });
     el.innerHTML = html;
@@ -1811,9 +1815,19 @@
     log.innerHTML = '';
     tokenDisplay.style.display = 'none';
 
-    var empUrl = $('setup-employer-url').value.trim() || 'http://localhost:4005';
+    // The legacy "full ceremony" assumed an always-on employer node at 4005.
+    // Post-Phase A, employer nodes are spawned on-demand by marketplace activation,
+    // so this wizard requires the operator to manually enter the active tenant URL.
+    var empUrl = $('setup-employer-url').value.trim();
+    if (!empUrl) {
+      demoLogStep(log, 'No employer URL provided. After Phase A, employer nodes are spawned on-demand by marketplace activation. Complete the marketplace flow first at http://localhost:4004/marketplace/, then paste the activated employer node URL here.', false);
+      fullBtn.disabled = false;
+      tokenBtn.disabled = false;
+      fullBtn.textContent = 'Run Full Ceremony';
+      return;
+    }
     var memUrl = $('setup-member-url').value.trim() || 'http://localhost:4001';
-    var adminToken = $('setup-admin-token').value.trim() || 'admin123';
+    var adminToken = $('setup-admin-token').value.trim() || '';
     var groupId = $('setup-group-id').value.trim() || 'GRP-001';
     var employeeId = $('setup-employee-id').value.trim() || 'EMP-001';
 
@@ -1828,7 +1842,6 @@
       var requiredNodes = [
         { id: 'leviathan', label: 'Leviathan (:3030)', why: 'sequencer — accepts proofs, builds batches' },
         { id: 'insurer', label: 'Insurer (:4004)', why: 'credentials providers, registers wallets' },
-        { id: 'employer', label: 'Employer (:4005)', why: 'generates enrollment tokens' },
         { id: 'member', label: 'Member (:4001)', why: 'receives tokens, submits enrollment proof' },
       ];
       var prefightFailed = false;

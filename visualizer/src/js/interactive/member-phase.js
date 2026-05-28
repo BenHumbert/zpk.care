@@ -173,7 +173,7 @@ export class MemberPhase {
       details.classList.remove('hidden');
       keySection.classList.remove('hidden');
       enrollSection.classList.remove('hidden');
-      keyDisplay.textContent = m.enrollmentKey;
+      keyDisplay.textContent = '(device-only — never transmitted)';
 
       if (this.app.isCompiled()) {
         btnEnroll.disabled = false;

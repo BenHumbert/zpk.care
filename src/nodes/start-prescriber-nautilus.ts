@@ -54,6 +54,7 @@ const config: NautilusAppConfig = {
   displayName: env.ZKTRIDENT_DISPLAY_NAME,
   proverUrl: env.ZKTRIDENT_PROVER_URL,
   proverApiKey: env.ZKTRIDENT_PROVER_API_KEY,
+  adminToken: env.ZKTRIDENT_ADMIN_TOKEN,
 };
 
 // Auto-detect dashboard directory

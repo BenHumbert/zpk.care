@@ -106,7 +106,6 @@
     switch (currentPage) {
       case 'overview': renderOverview(); break;
       case 'groups': renderGroups(); break;
-      case 'tokens': renderTokens(); break;
       case 'roster': renderRoster(); break;
       case 'messaging': renderMessaging(); break;
       case 'admin': renderAdmin(); break;
@@ -204,12 +203,65 @@
   // ==== GROUPS ====
   async function renderGroups() {
     app.innerHTML = '<div class="section-header"><div class="section-title">Groups</div><button class="btn primary" id="btn-show-create-group">Create Group</button></div>' +
+      '<div id="attestation-banner"></div>' +
       '<div id="create-group-form" style="display:none"></div>' +
       '<div class="panel"><div class="panel-header"><span class="panel-title">All Groups</span><button class="btn sm" id="btn-refresh-groups">Refresh</button></div><div class="panel-body no-pad" id="groups-table">' + loading() + '</div></div>';
 
     document.getElementById('btn-show-create-group').onclick = toggleCreateGroupForm;
     document.getElementById('btn-refresh-groups').onclick = loadGroupsTable;
+    loadAttestationBanner();
     loadGroupsTable();
+  }
+
+  // Phase 3.4: Fetch current attestation status and render a banner at the top of the Groups tab.
+  async function loadAttestationBanner() {
+    var banner = document.getElementById('attestation-banner');
+    if (!banner) return;
+    try {
+      var res = await API.getAttestation();
+      var data = res && res.data ? res.data : res;
+      if (data && data.loaded) {
+        var plans = (data.authorizedPlanIds || []).map(function(p) { return '<span class="badge primary">' + esc(p) + '</span>'; }).join(' ');
+        var eff = data.effectiveDate ? data.effectiveDate.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3') : 'n/a';
+        banner.innerHTML = '<div class="panel" style="margin-bottom:12px;border-left:3px solid #10b981"><div class="panel-body" style="padding:12px 16px">' +
+          '<div style="font-size:12px;color:#10b981;font-weight:600;margin-bottom:4px">MARKETPLACE ATTESTATION LOADED</div>' +
+          '<div style="font-size:13px">Authorized plans: ' + (plans || '<em>none</em>') + '</div>' +
+          '<div style="font-size:11px;color:#888;margin-top:4px">Effective: ' + esc(eff) + ' | Cap: ' + esc(String(data.enrollmentCap || 'n/a')) + ' members</div>' +
+          '</div></div>';
+      } else {
+        banner.innerHTML = '<div class="panel" style="margin-bottom:12px;border-left:3px solid #f59e0b"><div class="panel-body" style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px">' +
+          '<div>' +
+            '<div style="font-size:12px;color:#f59e0b;font-weight:600;margin-bottom:4px">WAITING FOR MARKETPLACE ATTESTATION</div>' +
+            '<div style="font-size:13px">No attestation loaded. Groups cannot be created yet. Complete the marketplace flow at <a href="http://localhost:4004/marketplace/" target="_blank">http://localhost:4004/marketplace/</a> first.</div>' +
+          '</div>' +
+          '<button class="btn sm" id="btn-refresh-attestation">Refresh Attestation</button>' +
+        '</div></div>';
+        var refreshBtn = document.getElementById('btn-refresh-attestation');
+        if (refreshBtn) refreshBtn.onclick = async function() {
+          refreshBtn.disabled = true;
+          refreshBtn.textContent = 'Refreshing...';
+          try {
+            var r = await API.refreshAttestation();
+            var d = r && r.data ? r.data : r;
+            if (d && d.loaded) {
+              toast('Attestation loaded (' + (d.authorizedPlanIds || []).length + ' plan(s))', 'success');
+              loadAttestationBanner();
+              loadGroupsTable();
+            } else {
+              toast('No attestation on sequencer: ' + (d && d.reason ? d.reason : 'unknown'), 'error');
+              refreshBtn.disabled = false;
+              refreshBtn.textContent = 'Refresh Attestation';
+            }
+          } catch (e) {
+            toast('Refresh failed: ' + e.message, 'error');
+            refreshBtn.disabled = false;
+            refreshBtn.textContent = 'Refresh Attestation';
+          }
+        };
+      }
+    } catch (e) {
+      banner.innerHTML = '';
+    }
   }
 
   async function toggleCreateGroupForm() {
@@ -296,16 +348,29 @@
         el.innerHTML = emptyState('No groups', 'Create a group to get started');
         return;
       }
-      el.innerHTML = '<div class="table-wrap"><table class="data-table"><thead><tr>' +
-        '<th>Group ID</th><th>Plan ID</th><th>Effective Date</th><th>Cap</th><th>Status</th><th>Actions</th></tr></thead><tbody>' +
+      el.innerHTML = '<div class="hint-banner" style="margin-bottom:12px;padding:10px 14px;background:var(--accent-light);border-left:3px solid var(--accent);font-size:13px;border-radius:var(--radius-sm)">' +
+        'To issue enrollment codes to employees, use the <strong>HR Tool</strong>. ' +
+        'The HR Tool is designed to handle PII safely — this dashboard intentionally does not generate tokens.' +
+        '</div>' +
+        '<div class="table-wrap"><table class="data-table"><thead><tr>' +
+        '<th>Group ID</th><th>Plan ID</th><th>Effective Date</th><th>Utilization</th><th>Status</th><th>Actions</th></tr></thead><tbody>' +
         groups.map(g => {
           const gid = g.groupId || g.id || '--';
           const status = g.status || g.state || 'active';
           const badgeClass = status === 'active' ? 'green' : status === 'terminated' ? 'red' : 'yellow';
+          // Phase F1: stats inlined in /groups response — show used/cap
+          const cap = g.enrollmentCap || 0;
+          const used = (g.enrolledCount || 0) + (g.pendingTokens || 0);
+          const isUnlimited = g.isUnlimited === true || cap === 0;
+          const capDisplay = isUnlimited
+            ? (used + ' (unlimited)')
+            : (used + ' / ' + cap);
+          const capPct = isUnlimited ? 0 : Math.round((used / cap) * 100);
+          const capColor = capPct >= 90 ? 'var(--red)' : capPct >= 70 ? 'var(--yellow)' : 'var(--text-primary)';
           return '<tr><td class="mono">' + esc(gid) + '</td>' +
             '<td class="mono">' + esc(g.planId || '--') + '</td>' +
             '<td>' + esc(fmtDateShort(g.effectiveDate)) + '</td>' +
-            '<td>' + esc(g.enrollmentCap || '--') + '</td>' +
+            '<td style="color:' + capColor + ';font-variant-numeric:tabular-nums">' + esc(capDisplay) + '</td>' +
             '<td><span class="badge ' + badgeClass + '">' + esc(status) + '</span></td>' +
             '<td class="actions-cell"><button class="btn sm danger btn-delete-group" data-gid="' + esc(gid) + '">Delete</button></td></tr>';
         }).join('') +
@@ -329,145 +394,10 @@
     }
   }
 
-  // ==== TOKENS ====
-  async function renderTokens() {
-    app.innerHTML = '<div class="section-header"><div class="section-title">Enrollment Tokens</div><button class="btn primary" id="btn-show-gen-token">Generate Token</button></div>' +
-      '<div id="gen-token-form" style="display:none"></div>' +
-      '<div class="panel" id="token-lookup-panel"><div class="panel-header"><span class="panel-title">Lookup Token</span></div><div class="panel-body">' +
-        '<div style="display:flex;gap:12px;align-items:flex-end">' +
-          '<div class="form-group" style="flex:1"><label for="tk-lookup-id">Token ID</label><input type="text" id="tk-lookup-id" placeholder="Enter token ID to look up"></div>' +
-          '<button class="btn" id="btn-lookup-token" style="margin-bottom:22px">Lookup</button>' +
-        '</div>' +
-        '<div id="tk-lookup-result"></div>' +
-      '</div></div>';
-
-    document.getElementById('btn-show-gen-token').onclick = toggleGenTokenForm;
-    document.getElementById('btn-lookup-token').onclick = doLookupToken;
-  }
-
-  function toggleGenTokenForm() {
-    const el = document.getElementById('gen-token-form');
-    if (el.style.display === 'none') {
-      el.style.display = 'block';
-      el.innerHTML = '<div class="panel"><div class="panel-header"><span class="panel-title">Generate Enrollment Token</span></div><div class="panel-body">' +
-        '<div class="form-grid">' +
-          formField('gt-groupId', 'Group ID', 'text', 'e.g. GRP-001') +
-          formField('gt-employeeId', 'Employee ID', 'text', 'e.g. EMP-001') +
-          formField('gt-familyId', 'Family ID', 'text', 'e.g. FAM-001 (optional)') +
-          formField('gt-validUntil', 'Valid Until', 'date', '') +
-          formField('gt-tokenId', 'Token ID (optional)', 'text', 'Auto-generated if blank') +
-        '</div>' +
-        '<div class="form-actions"><button class="btn primary" id="btn-gen-token">Generate</button><button class="btn" id="btn-cancel-gen-token">Cancel</button></div>' +
-        '</div></div>';
-      document.getElementById('btn-gen-token').onclick = doGenerateToken;
-      document.getElementById('btn-cancel-gen-token').onclick = () => { el.style.display = 'none'; };
-    } else {
-      el.style.display = 'none';
-    }
-  }
-
-  async function doGenerateToken() {
-    clearErrors('gt-groupId', 'gt-employeeId', 'gt-validUntil');
-    const groupId = val('gt-groupId');
-    const employeeId = val('gt-employeeId');
-    const familyId = val('gt-familyId');
-    const validUntil = val('gt-validUntil');
-    const tokenId = val('gt-tokenId');
-    let valid = true;
-
-    if (!groupId) { setErr('gt-groupId', 'Group ID is required'); valid = false; }
-    if (!employeeId) { setErr('gt-employeeId', 'Employee ID is required'); valid = false; }
-    if (!validUntil) { setErr('gt-validUntil', 'Valid Until is required'); valid = false; }
-    if (!valid) return;
-
-    const btn = document.getElementById('btn-gen-token');
-    btn.disabled = true;
-    btn.textContent = 'Generating...';
-    try {
-      const params = { groupId, employeeId, familyId: familyId || undefined, validUntil };
-      if (tokenId) params.tokenId = tokenId;
-      const result = await API.generateToken(params);
-      const tid = result.tokenId || result.id || JSON.stringify(result);
-      toast('Token generated: ' + tid, 'success');
-      document.getElementById('gen-token-form').style.display = 'none';
-      // Auto-populate lookup
-      const lookupInput = document.getElementById('tk-lookup-id');
-      if (lookupInput) {
-        lookupInput.value = tid;
-        doLookupToken();
-      }
-    } catch (e) {
-      toast('Failed to generate token: ' + e.message, 'error');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Generate';
-    }
-  }
-
-  async function doLookupToken() {
-    const tokenId = val('tk-lookup-id');
-    const resultEl = document.getElementById('tk-lookup-result');
-    if (!tokenId) {
-      resultEl.innerHTML = '<div class="error-banner">Enter a token ID</div>';
-      return;
-    }
-    resultEl.innerHTML = loading();
-    try {
-      const data = await API.getToken(tokenId);
-      resultEl.innerHTML = '<div style="margin-top:16px">' +
-        '<div class="detail-grid"><div>' +
-          detailRow('Token ID', data.tokenId || data.id || tokenId) +
-          detailRow('Group ID', data.groupId || '--') +
-          detailRow('Employee ID', data.employeeId || data.employeeIdHash || '--') +
-          detailRow('Family ID', data.familyId || data.familyIdHash || '--') +
-          detailRow('Valid Until', fmtDateShort(data.validUntil)) +
-          detailRow('Status', data.status || '--') +
-          detailRow('Wallet ID', data.consumedByWalletId || data.walletId || '--') +
-        '</div></div>' +
-        '<div class="form-actions" style="margin-top:16px">' +
-          '<button class="btn" id="btn-validate-tk">Validate</button>' +
-          '<button class="btn danger" id="btn-revoke-tk">Revoke</button>' +
-          '<button class="btn" id="btn-submit-tk">Submit to Insurer</button>' +
-          '<span id="tk-action-status"></span>' +
-        '</div></div>';
-      document.getElementById('btn-validate-tk').onclick = () => doTokenAction('validate', tokenId);
-      document.getElementById('btn-revoke-tk').onclick = () => doTokenAction('revoke', tokenId);
-      document.getElementById('btn-submit-tk').onclick = () => doTokenSubmit(tokenId);
-    } catch (e) {
-      resultEl.innerHTML = '<div class="error-banner">Token not found: ' + esc(e.message) + '</div>';
-    }
-  }
-
-  async function doTokenAction(action, tokenId) {
-    const statusEl = document.getElementById('tk-action-status');
-    if (statusEl) statusEl.innerHTML = '<span class="spinner"></span>';
-    try {
-      if (action === 'validate') {
-        const res = await API.validateToken(tokenId);
-        toast('Validation result: ' + (res.valid !== undefined ? (res.valid ? 'Valid' : 'Invalid') : JSON.stringify(res)), res.valid ? 'success' : 'info');
-      } else if (action === 'revoke') {
-        if (!confirm('Revoke token ' + tokenId + '?')) { if (statusEl) statusEl.innerHTML = ''; return; }
-        await API.revokeToken(tokenId);
-        toast('Token revoked: ' + tokenId, 'success');
-        doLookupToken();
-      }
-    } catch (e) {
-      toast('Action failed: ' + e.message, 'error');
-    }
-    if (statusEl) statusEl.innerHTML = '';
-  }
-
-  async function doTokenSubmit(tokenId) {
-    const walletId = prompt('Enter wallet ID to submit with:');
-    if (!walletId) return;
-    try {
-      await API.submitToken(tokenId, walletId);
-      toast('Token submitted to insurer', 'success');
-      doLookupToken();
-    } catch (e) {
-      toast('Submit failed: ' + e.message, 'error');
-    }
-  }
+  // ==== TOKENS ==== (Phase F2: removed — token generation is now HR Tool only.
+  // The HR Tool is a PII-safe workstation that hashes plaintext employee data
+  // with a per-group seed before calling the employer node's token endpoints.
+  // This dashboard never sees plaintext PII, so it cannot generate valid tokens.)
 
   // ==== ROSTER ====
   async function renderRoster() {
@@ -805,7 +735,7 @@
     // Admin token is restored from localStorage by rpc.js on load.
     // If not set, prompt user to enter it in the Admin/Settings section.
     if (!API.getAdminToken()) {
-      console.info('[employer] No admin token — set one in Settings for group/token operations');
+      console.info('[employer] No admin token — set one in Admin tab to manage groups');
     }
     checkConnection();
     initSSE();

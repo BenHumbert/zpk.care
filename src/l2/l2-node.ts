@@ -107,6 +107,10 @@ export interface L2NodeOptions {
   adminToken?: string;
   /** Shared secret for HMAC-SHA256 gossip authentication between peers. */
   gossipSecret?: string;
+  /** When true, replicas verify BatchProof from gossip before applying state.
+   *  Requires BatchProgram compilation at startup (~3-5 min, ~800MB).
+   *  Batches received before compilation completes are applied unverified. Default: false. */
+  verifyGossipBatches?: boolean;
 }
 
 /** Default options */
@@ -146,7 +150,13 @@ export type L2EventType =
   | 'pool:worker:completed'
   | 'pool:worker:crashed'
   | 'leader:promoted'
-  | 'leader:demoted';
+  | 'leader:demoted'
+  | 'employer:registered'
+  | 'employer:revoked'
+  | 'employer:node-registered'
+  | 'employer:node-deregistered'
+  | 'batch:rejected'
+  | 'node:error';
 
 /** Chain event with typed data payload */
 export interface L2ChainEvent {
@@ -238,6 +248,10 @@ export class L2Node {
     this.knownWallets.add(walletId);
   }
 
+  // Gossip batch verification (opt-in for replicas)
+  private batchVerificationKey: string | null = null;
+  private batchVerificationEnabled = false;
+
   // Peer network
   private peerNetwork: L2PeerNetwork | null = null;
   private nodeId: string;
@@ -266,6 +280,25 @@ export class L2Node {
     if (this.options.partitionConfig) {
       this.sequencer.setPartitionConfig(this.options.partitionConfig);
     }
+  }
+
+  // ─── Gossip Batch Verification ───────────────────────────
+
+  /**
+   * Compile BatchProgram for gossip verification (replicas only).
+   * After calling this, the replica will verify BatchProof from gossip
+   * before applying state changes. Takes ~3-5 min for compilation.
+   */
+  async enableBatchVerification(): Promise<void> {
+    const { BatchProgram } = await import('./batch-program.js');
+    const result = await BatchProgram.compile();
+    this.batchVerificationKey = result.verificationKey.data;
+    this.batchVerificationEnabled = true;
+  }
+
+  /** Whether gossip batch verification is active */
+  isBatchVerificationEnabled(): boolean {
+    return this.batchVerificationEnabled;
   }
 
   // ─── Proving Pool ──────────────────────────────────────
@@ -368,6 +401,17 @@ export class L2Node {
     // Connect to seed peers (fire-and-forget)
     if (this.options.seedPeers && this.options.seedPeers.length > 0) {
       this.initPeerNetwork().catch(() => {});
+    }
+
+    // Compile BatchProgram for gossip verification (replicas only, background)
+    if (this.role === 'replica' && this.options.verifyGossipBatches) {
+      this.enableBatchVerification().catch((err) => {
+        this.emit({
+          type: 'node:error',
+          timestamp: Date.now(),
+          data: { error: `BatchProgram compilation failed: ${err instanceof Error ? err.message : String(err)}` },
+        });
+      });
     }
   }
 
@@ -921,6 +965,26 @@ export class L2Node {
       case 'batch:built': {
         if (this.role !== 'replica') return;
         const payload = msg.payload as BatchBuiltPayload;
+
+        if (this.batchVerificationEnabled && payload.batch.batchProofJson) {
+          try {
+            const { BatchProof } = await import('./batch-program.js');
+            const batchProof = await BatchProof.fromJSON(JSON.parse(payload.batch.batchProofJson));
+            await batchProof.verify();
+          } catch (err) {
+            this.emit({
+              type: 'batch:rejected',
+              timestamp: Date.now(),
+              data: {
+                batchNumber: payload.batch.batchNumber.toString(),
+                reason: `BatchProof verification failed: ${err instanceof Error ? err.message : String(err)}`,
+                source: 'gossip',
+              },
+            });
+            return;
+          }
+        }
+
         this.sequencer.applyReplicatedBatch(
           payload.batch,
           payload.block,

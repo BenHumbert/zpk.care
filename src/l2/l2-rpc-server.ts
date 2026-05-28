@@ -17,6 +17,7 @@
 import fs from 'fs';
 import path from 'path';
 import http from 'http';
+import https from 'https';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { timingSafeEqual, createHash, createPublicKey, verify } from 'crypto';
 import { Field } from 'o1js';
@@ -91,6 +92,9 @@ export interface VizEntity {
   group?: string;
   specialty?: string;
   pharmacyType?: string;
+  /** X25519 encryption public key hex (64 chars = 32 bytes) for E2E messaging.
+   *  Derived from enrollment key. NOT wallet key material — ancillary encryption only. */
+  encryptionPublicKeyHex?: string;
 }
 
 // ─── Configuration ──────────────────────────────────────
@@ -117,6 +121,10 @@ export interface L2RpcServerOptions {
   maxSseConnections?: number;
   /** Max proof submissions per IP per minute. Default 60. Set to 0 to disable. */
   proofRateLimitPerMinute?: number;
+  /** TLS certificate file path (PEM). When set with tlsKey, enables HTTPS. */
+  tlsCert?: string;
+  /** TLS private key file path (PEM). When set with tlsCert, enables HTTPS. */
+  tlsKey?: string;
   /** Directory containing dashboard static files. When set, serves files at /. */
   dashboardDir?: string;
 }
@@ -166,7 +174,7 @@ export const RPC_UNAUTHORIZED = -32003;
 export class L2RpcServer {
   private node: L2Node | L2Leviathan;
   private options: L2RpcServerOptions;
-  private server: http.Server;
+  private server: http.Server | https.Server;
   private sseClients: Set<ServerResponse> = new Set();
   private eventHandler: L2EventHandler;
   private listening = false;
@@ -194,6 +202,10 @@ export class L2RpcServer {
     'l2_publishPlanOverlay',
     'l2_revokeAdminKey',
     'l2_approveAdmission',
+    'l2_registerEmployer',
+    'l2_revokeEmployerAttestation',
+    'l2_registerEmployerNode',
+    'l2_deregisterEmployerNode',
   ]);
 
   // M9 fix: SSE replay buffer for chain events (ring buffer, max 256)
@@ -240,14 +252,24 @@ export class L2RpcServer {
       this.node.on(this.eventHandler);
     }
 
-    this.server = http.createServer((req, res) => {
+    const requestHandler = (req: IncomingMessage, res: ServerResponse) => {
       this.handleRequest(req, res).catch(() => {
         if (!res.writableEnded) {
           res.writeHead(500);
           res.end('Internal Server Error');
         }
       });
-    });
+    };
+
+    // Create HTTP or HTTPS server based on TLS configuration
+    if (this.options.tlsCert && this.options.tlsKey) {
+      this.server = https.createServer({
+        cert: fs.readFileSync(this.options.tlsCert),
+        key: fs.readFileSync(this.options.tlsKey),
+      }, requestHandler);
+    } else {
+      this.server = http.createServer(requestHandler);
+    }
   }
 
   /** Programmatically seed entities into the entity registry (e.g. seed providers on startup) */
@@ -349,9 +371,16 @@ export class L2RpcServer {
     method: string,
     path: string,
     handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>,
+    options?: { adminOnly?: boolean },
   ): void {
     this.additionalRoutes.set(`${method.toUpperCase()}:${path}`, handler);
+    if (options?.adminOnly) {
+      this.adminGatedRoutes.add(`${method.toUpperCase()}:${path}`);
+    }
   }
+
+  /** Routes registered via registerRoute that require admin auth */
+  private adminGatedRoutes: Set<string> = new Set();
 
   /** Set the peer network for gossip relay and peer queries */
   setPeerNetwork(network: L2PeerNetwork): void {
@@ -379,7 +408,10 @@ export class L2RpcServer {
     const corsOrigin = allowed.includes('*') ? '*' : (allowed.includes(origin) ? origin : 'null');
     res.setHeader('Access-Control-Allow-Origin', corsOrigin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Signature');
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://localhost:* http://127.0.0.1:*; img-src 'self' data:");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
@@ -451,6 +483,12 @@ export class L2RpcServer {
     const routeKey = `${req.method}:${pathname}`;
     const customHandler = this.additionalRoutes.get(routeKey);
     if (customHandler) {
+      // Admin auth check for gated routes (Tier 3 interactive routes)
+      if (this.adminGatedRoutes.has(routeKey) && !this.checkAdminAuth(req)) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Unauthorized — admin auth required' }));
+        return;
+      }
       return customHandler(req, res);
     }
 
@@ -638,12 +676,13 @@ export class L2RpcServer {
       || (rpcReq.method === 'l2_registerAdminKey' && this.adminKeyRegistry.size > 0);
     if (needsAuth) {
       if (this.options.unsecureMode || !this.adminKeyRegistry.size) {
-        // Unsecure mode: legacy Bearer token check
-        if (this.options.adminToken) {
-          const authHeader = req.headers['authorization'] ?? '';
-          if (!L2RpcServer.safeEquals(authHeader, `Bearer ${this.options.adminToken}`)) {
-            return this.sendRpcError(res, rpcReq.id, RPC_UNAUTHORIZED, 'Unauthorized');
-          }
+        // Unsecure mode: legacy Bearer token check. Default-deny when no token configured.
+        if (!this.options.adminToken) {
+          return this.sendRpcError(res, rpcReq.id, RPC_UNAUTHORIZED, 'Unauthorized — no admin token configured');
+        }
+        const authHeader = req.headers['authorization'] ?? '';
+        if (!L2RpcServer.safeEquals(authHeader, `Bearer ${this.options.adminToken}`)) {
+          return this.sendRpcError(res, rpcReq.id, RPC_UNAUTHORIZED, 'Unauthorized');
         }
       } else {
         // Secure mode: Ed25519 signature required
@@ -1250,6 +1289,133 @@ export class L2RpcServer {
         return { success: deleted, planId };
       }
 
+      // ── Employer Attestation ──
+
+      case 'l2_registerEmployer': {
+        const att = params.attestation as import('./l2-types.js').EmployerAttestation | undefined;
+        if (!att || typeof att.employerId !== 'string' || typeof att.publicKeyHex !== 'string') {
+          throw new Error('Missing or invalid attestation parameter');
+        }
+        // Phase D: schema check — v2 attestations must carry a numeric seq
+        if (att.v !== 2 || typeof att.attestationSeq !== 'number' || !Number.isInteger(att.attestationSeq) || att.attestationSeq < 0) {
+          throw new Error('Invalid attestation: must be v2 with non-negative integer attestationSeq');
+        }
+
+        // Phase D: monotonic sequence enforcement
+        // - First registration MUST have seq=0
+        // - Subsequent registrations MUST have seq = existing.seq + 1 (no gaps, no replays)
+        const existing = this.node.getSequencer().getEmployerAttestation(att.employerId);
+        if (!existing) {
+          if (att.attestationSeq !== 0) {
+            throw new Error(`First registration for employerId=${att.employerId} must have attestationSeq=0, got ${att.attestationSeq}`);
+          }
+        } else {
+          const expected = (existing.attestationSeq ?? 0) + 1;
+          if (att.attestationSeq !== expected) {
+            throw new Error(`Expected attestationSeq=${expected} for employerId=${att.employerId}, got ${att.attestationSeq}`);
+          }
+        }
+
+        // Verify both signatures before accepting (signatures bind the seq via canonical message)
+        const { verifyEmployerSignature, verifyInsurerSignature } = await import('../onboarding/employer-attestation.js');
+        if (!verifyEmployerSignature(att)) throw new Error('Invalid employer signature');
+        if (!verifyInsurerSignature(att)) throw new Error('Invalid insurer signature');
+        this.node.getSequencer().storeEmployerAttestation(att);
+        this.node.emit({ type: 'employer:registered', timestamp: Date.now(), data: { employerId: att.employerId, attestationSeq: att.attestationSeq } });
+        return { success: true, employerId: att.employerId, attestationSeq: att.attestationSeq };
+      }
+
+      case 'l2_getEmployerAttestation': {
+        const employerId = params.employerId;
+        if (typeof employerId !== 'string') throw new Error('Missing employerId parameter');
+        return this.node.getSequencer().getEmployerAttestation(employerId);
+      }
+
+      case 'l2_getEmployerAttestations': {
+        return this.node.getSequencer().getEmployerAttestations();
+      }
+
+      case 'l2_revokeEmployerAttestation': {
+        const employerId = params.employerId;
+        if (typeof employerId !== 'string') throw new Error('Missing employerId parameter');
+        const existing = this.node.getSequencer().getEmployerAttestation(employerId);
+        if (!existing) throw new Error('No attestation found for employer');
+        // Remove from store — allows re-registration with new key
+        (this.node.getSequencer() as any).employerAttestationStore.delete(employerId);
+        this.node.emit({ type: 'employer:revoked', timestamp: Date.now(), data: { employerId } });
+        return { success: true, employerId };
+      }
+
+      case 'l2_verifyEmployer': {
+        const employerId = params.employerId;
+        if (typeof employerId !== 'string') throw new Error('Missing employerId parameter');
+        const att = this.node.getSequencer().getEmployerAttestation(employerId);
+        if (!att) return { valid: false, reason: 'No attestation found for employer' };
+        const { verifyEmployerSignature, verifyInsurerSignature } = await import('../onboarding/employer-attestation.js');
+        const empValid = verifyEmployerSignature(att);
+        const insValid = verifyInsurerSignature(att);
+        return { valid: empValid && insValid, attestation: att, employerSigValid: empValid, insurerSigValid: insValid };
+      }
+
+      // ── Employer Node Registry (Phase C) ──
+
+      case 'l2_registerEmployerNode': {
+        const employerId = params.employerId;
+        const employerNodeUrl = params.employerNodeUrl;
+        const hrToolUrl = params.hrToolUrl;
+        const pid = params.pid;
+        const adminTokenFingerprint = params.adminTokenFingerprint;
+        if (typeof employerId !== 'string' || typeof employerNodeUrl !== 'string' ||
+            typeof hrToolUrl !== 'string' || typeof pid !== 'number') {
+          throw new Error('Missing or invalid parameters: employerId, employerNodeUrl, hrToolUrl, pid are required');
+        }
+        // Must have an attestation first — cannot register a node for an
+        // employerId that has never signed an agreement
+        const att = this.node.getSequencer().getEmployerAttestation(employerId);
+        if (!att) {
+          throw new Error(`Cannot register employer node for "${employerId}": no attestation on sequencer`);
+        }
+        this.node.getSequencer().registerEmployerNode({
+          employerId,
+          employerNodeUrl,
+          hrToolUrl,
+          pid,
+          adminTokenFingerprint: typeof adminTokenFingerprint === 'string' ? adminTokenFingerprint : undefined,
+        });
+        this.node.emit({ type: 'employer:node-registered', timestamp: Date.now(), data: { employerId, employerNodeUrl, hrToolUrl, pid } });
+        return { success: true, employerId };
+      }
+
+      case 'l2_getEmployerNode': {
+        const employerId = params.employerId;
+        if (typeof employerId !== 'string') throw new Error('Missing employerId parameter');
+        return this.node.getSequencer().getEmployerNode(employerId);
+      }
+
+      case 'l2_listEmployerNodes': {
+        return this.node.getSequencer().listEmployerNodes();
+      }
+
+      case 'l2_deregisterEmployerNode': {
+        const employerId = params.employerId;
+        if (typeof employerId !== 'string') throw new Error('Missing employerId parameter');
+        const removed = this.node.getSequencer().deregisterEmployerNode(employerId);
+        if (removed) {
+          this.node.emit({ type: 'employer:node-deregistered', timestamp: Date.now(), data: { employerId } });
+        }
+        return { success: removed, employerId };
+      }
+
+      // ── Encryption Key Lookup (for E2E messaging) ──
+
+      case 'l2_getEncryptionKey': {
+        const walletId = params.walletId;
+        if (typeof walletId !== 'string') throw new Error('Missing walletId parameter');
+        const entity = this.entityRegistry.get(walletId);
+        if (!entity?.encryptionPublicKeyHex) return null;
+        return { walletId, encryptionPublicKeyHex: entity.encryptionPublicKeyHex };
+      }
+
       // ── Formulary Service (Option C — paginated queries) ──
 
       case 'l2_getFormularyCategories': {
@@ -1517,7 +1683,7 @@ export class L2RpcServer {
 
         const fillEntry = fillSeq.recordFill(
           fillLeaf,
-          { receiptId: `FILL-${Date.now()}`, timestamp: Date.now(), ndc: params.ndc as string, brandName: params.brandName as string, daysSupply: params.daysSupply as number, fillNumber: params.fillNumber as number, ingredientCostCents: fillIngredient, dispensingFeeCents: fillDispFee, totalDrugCostCents: fillTotalDrug, quantityDispensed: fillQty, planIdHash: params.planIdHash as string | undefined },
+          { receiptId: `FILL-${Date.now()}`, timestamp: Date.now(), dateOfService: fillDate, ndc: params.ndc as string, brandName: params.brandName as string, daysSupply: params.daysSupply as number, fillNumber: params.fillNumber as number, ingredientCostCents: fillIngredient, dispensingFeeCents: fillDispFee, totalDrugCostCents: fillTotalDrug, quantityDispensed: fillQty, planIdHash: params.planIdHash as string | undefined },
         );
 
         // Detect if this was a duplicate (leaf count didn't change)
@@ -1658,7 +1824,7 @@ export class L2RpcServer {
         if (!walletId || !displayName || !type) {
           throw new Error('Missing walletId, displayName, or type');
         }
-        // Viz registry (backward compat)
+        // Viz registry (backward compat) + encryption public key for E2E messaging
         this.entityRegistry.set(walletId, {
           walletId,
           displayName,
@@ -1666,6 +1832,7 @@ export class L2RpcServer {
           specialty: params.specialty as string | undefined,
           pharmacyType: params.pharmacyType as string | undefined,
           group: params.group as string | undefined,
+          encryptionPublicKeyHex: params.encryptionPublicKeyHex as string | undefined,
         });
         // Also credential into provider registry if prescriber/pharmacy
         if (type === 'prescriber' || type === 'pharmacy') {
@@ -2471,7 +2638,7 @@ export class L2RpcServer {
   private checkAdminAuth(req: IncomingMessage): boolean {
     // Unsecure mode — use legacy Bearer token
     if (this.options.unsecureMode || !this.adminKeyRegistry.size) {
-      if (!this.options.adminToken) return true; // Dev mode — no token = open access
+      if (!this.options.adminToken) return false; // Default-deny — no token configured = reject
       const authHeader = req.headers['authorization'] ?? '';
       return L2RpcServer.safeEquals(authHeader, `Bearer ${this.options.adminToken}`);
     }

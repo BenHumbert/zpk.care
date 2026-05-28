@@ -181,6 +181,30 @@ export class L2SequencerService {
   // Plan store — benefit plan configs indexed by planId
   private planStore: Map<string, BenefitPlanConfig> = new Map();
 
+  // Employer attestation store — attested employer agreements indexed by employerId
+  private employerAttestationStore: Map<string, import('./l2-types.js').EmployerAttestation> = new Map();
+
+  // Employer node registry (Phase C) — tracks live employer-node processes
+  // spawned on-demand by the marketplace orchestrator. Maps employerId to the
+  // orchestrator-assigned URLs so any subsystem (member, insurer, dashboard)
+  // can find the live tenant node dynamically. Entries are ephemeral and
+  // cleared on sequencer restart; the orchestrator re-registers on boot.
+  // `lastHeartbeatAt` is updated on re-register (keepalive). Entries older
+  // than the TTL are pruned on lookup; the orchestrator is expected to
+  // keepalive via `registerEmployerNode` every 60 seconds.
+  private employerNodeRegistry: Map<string, {
+    employerId: string;
+    employerNodeUrl: string;
+    hrToolUrl: string;
+    pid: number;
+    startedAt: number;
+    lastHeartbeatAt: number;
+    adminTokenFingerprint?: string;
+  }> = new Map();
+
+  /** TTL after which a tenant registry entry is considered stale and pruned. */
+  private static readonly EMPLOYER_NODE_TTL_MS = 5 * 60 * 1000;
+
   // Last-settled roots — safe recovery point matching L1 state.
   // Updated ONLY in markBatchSettled(). Used by restoreState() to
   // avoid root divergence when pending pool is discarded on crash recovery.
@@ -434,6 +458,7 @@ export class L2SequencerService {
         {
           receiptId,
           timestamp: receipt.acceptedAt,
+          dateOfService: metadata.dateOfService,
           ndc: metadata.ndc,
           brandName: metadata.brandName,
           tierLevel: metadata.tierLevel,
@@ -1636,6 +1661,95 @@ export class L2SequencerService {
     return deleted;
   }
 
+  // ─── Employer Attestation Store ────────────────────────
+
+  /** Store an employer attestation (sync — used by replication) */
+  storeEmployerAttestation(att: import('./l2-types.js').EmployerAttestation): void {
+    this.employerAttestationStore.set(att.employerId, att);
+  }
+
+  /** Get an employer attestation by employer ID */
+  getEmployerAttestation(employerId: string): import('./l2-types.js').EmployerAttestation | null {
+    return this.employerAttestationStore.get(employerId) ?? null;
+  }
+
+  /** Get all employer attestations */
+  getEmployerAttestations(): import('./l2-types.js').EmployerAttestation[] {
+    return Array.from(this.employerAttestationStore.values());
+  }
+
+  // ─── Employer Node Registry (Phase C) ──────────────────
+
+  /** Prune entries whose lastHeartbeatAt is older than the TTL. Called on
+   *  every lookup to passively clean up after orchestrator crashes. */
+  private pruneStaleEmployerNodes(): void {
+    const now = Date.now();
+    for (const [id, entry] of this.employerNodeRegistry.entries()) {
+      if (now - entry.lastHeartbeatAt > L2SequencerService.EMPLOYER_NODE_TTL_MS) {
+        this.employerNodeRegistry.delete(id);
+      }
+    }
+  }
+
+  /** Register a live employer-node tenant process. Also acts as a keepalive
+   *  when called repeatedly with the same employerId — updates lastHeartbeatAt
+   *  without resetting startedAt. The orchestrator should call this every 60s
+   *  to prevent TTL expiry. */
+  registerEmployerNode(entry: {
+    employerId: string;
+    employerNodeUrl: string;
+    hrToolUrl: string;
+    pid: number;
+    adminTokenFingerprint?: string;
+  }): void {
+    const now = Date.now();
+    const existing = this.employerNodeRegistry.get(entry.employerId);
+    this.employerNodeRegistry.set(entry.employerId, {
+      ...entry,
+      startedAt: existing?.startedAt ?? now,
+      lastHeartbeatAt: now,
+    });
+  }
+
+  /** Look up the live URLs for a given employerId, or null if not running. */
+  getEmployerNode(employerId: string): {
+    employerId: string;
+    employerNodeUrl: string;
+    hrToolUrl: string;
+    pid: number;
+    startedAt: number;
+    lastHeartbeatAt: number;
+    adminTokenFingerprint?: string;
+  } | null {
+    this.pruneStaleEmployerNodes();
+    return this.employerNodeRegistry.get(employerId) ?? null;
+  }
+
+  /** List all currently-registered tenant employer-node processes. */
+  listEmployerNodes(): Array<{
+    employerId: string;
+    employerNodeUrl: string;
+    hrToolUrl: string;
+    pid: number;
+    startedAt: number;
+    lastHeartbeatAt: number;
+  }> {
+    this.pruneStaleEmployerNodes();
+    return Array.from(this.employerNodeRegistry.values()).map(e => ({
+      employerId: e.employerId,
+      employerNodeUrl: e.employerNodeUrl,
+      hrToolUrl: e.hrToolUrl,
+      pid: e.pid,
+      startedAt: e.startedAt,
+      lastHeartbeatAt: e.lastHeartbeatAt,
+    }));
+  }
+
+  /** Remove a tenant from the registry (called on clean shutdown). */
+  deregisterEmployerNode(employerId: string): boolean {
+    return this.employerNodeRegistry.delete(employerId);
+  }
+
   // ─── Getters ────────────────────────────────────────────
 
   /** Current L2 registry root (may be ahead of L1) */
@@ -2572,6 +2686,11 @@ export class L2SequencerService {
       state.planStore = Object.fromEntries(this.planStore);
     }
 
+    // Include employer attestation store
+    if (this.employerAttestationStore.size > 0) {
+      (state as any).employerAttestations = Object.fromEntries(this.employerAttestationStore);
+    }
+
     // Include last-settled roots for crash recovery
     state.lastSettledRegistryRoot = this.lastSettledRegistryRoot.toString();
     state.lastSettledLifecycleRoot = this.lastSettledLifecycleRoot.toString();
@@ -2763,6 +2882,14 @@ export class L2SequencerService {
     if (state.planStore) {
       for (const [key, value] of Object.entries(state.planStore)) {
         this.planStore.set(key, value as BenefitPlanConfig);
+      }
+    }
+
+    // Restore employer attestation store
+    this.employerAttestationStore.clear();
+    if ((state as any).employerAttestations) {
+      for (const [key, value] of Object.entries((state as any).employerAttestations)) {
+        this.employerAttestationStore.set(key, value as import('./l2-types.js').EmployerAttestation);
       }
     }
 

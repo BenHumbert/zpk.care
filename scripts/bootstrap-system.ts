@@ -2,6 +2,17 @@
 /**
  * bootstrap-system.ts — Full System Bootstrap (Pre-Member Setup)
  *
+ * ===========================================================================
+ * DEPRECATED as of Phase A. This script assumes a boot-time employer node at
+ * port 4005 with a hardcoded ACME-001 identity. After Phase A, employer nodes
+ * are only spawned on-demand by the marketplace activation handler, with a
+ * real employerId + Ed25519 public key pin. Running this script will fail at
+ * Step 4 (createGroup) because there is no employer node at 4005 to talk to.
+ *
+ * This script is kept for reference only. To bootstrap a production system,
+ * use the marketplace flow at http://localhost:4004/marketplace/ instead.
+ * ===========================================================================
+ *
  * Starts the entire zkpCare network and performs all operational setup
  * so that a member can walk up and enroll immediately.
  *

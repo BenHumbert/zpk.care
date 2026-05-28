@@ -13,7 +13,7 @@
  * Runs on: employer HR backend server.
  */
 import { Field, Poseidon } from 'o1js';
-import { hashString, dateToField } from '../zkp/hash-utils.js';
+import { hashString } from '../zkp/hash-utils.js';
 import { TokenAuthority } from '../onboarding/token-authority.js';
 import type { TokenRecord, TokenValidationResult } from '../onboarding/token-authority.js';
 import type { GroupEnrollmentToken } from '../onboarding/group-enrollment-token.js';
@@ -38,12 +38,30 @@ export interface EmployerGroupRecord {
   createdAt: number;
 }
 
-/** Roster entry managed by the employer (pre-enrollment tracking) */
-export interface EmployerRosterEntry {
-  employeeId: string;
-  employeeIdHash: string;
+/** Phase F1: Computed stats for a group — used by HR Tool to gate imports. */
+export interface EmployerGroupStats {
   groupId: string;
-  familyId: string;
+  planId: string;
+  effectiveDate: string;
+  status: 'active' | 'terminated';
+  /** Cap from the group record. 0 means unlimited (check isUnlimited first). */
+  enrollmentCap: number;
+  /** True if enrollmentCap is 0 (unlimited). When true, remainingSlots is 0. */
+  isUnlimited: boolean;
+  enrolledCount: number;
+  pendingTokens: number;
+  terminatedCount: number;
+  totalTokens: number;
+  /** Slots remaining before the cap blocks new tokens. Always 0 if isUnlimited. */
+  remainingSlots: number;
+}
+
+/** Roster entry managed by the employer (pre-enrollment tracking).
+ * Contains ONLY opaque hashes — no plaintext PII.
+ * The HR Tool on the admin's machine holds the plaintext correlation table. */
+export interface EmployerRosterEntry {
+  employeeIdHash: string;
+  groupIdHash: string;
   familyIdHash: string;
   tokenId: string | null;
   walletId: string | null;
@@ -58,16 +76,71 @@ export class EmployerNode extends EntityNodeBase {
   private groups: Map<string, EmployerGroupRecord> = new Map();
   private roster: Map<string, EmployerRosterEntry> = new Map();
   private insurerUrl: string | null;
+  private employerId: string;
+  private sequencerUrl: string;
 
   /** Pseudo-walletId derived from employerId for messaging */
   private employerWalletId: string;
+
+  /** Employer attestation (loaded from sequencer on startup if available) */
+  private attestation: import('../l2/l2-types.js').EmployerAttestation | null = null;
 
   constructor(config: EmployerNodeConfig) {
     super({ ...config, role: 'employer' });
     this.tokenAuthority = new TokenAuthority(config.employerId);
     this.insurerUrl = config.insurerUrl ?? null;
-    // Derive a stable pseudo-walletId from employerId for messaging queries
+    this.employerId = config.employerId;
+    this.sequencerUrl = config.sequencerUrl;
     this.employerWalletId = Poseidon.hash([hashString(config.employerId)]).toString();
+  }
+
+  /** Refresh attestation from sequencer — returns true if a valid attestation was loaded.
+   *  Used by POST /attestation/refresh to let the employer force-sync after marketplace activation. */
+  async refreshAttestationFromSequencer(): Promise<{ loaded: boolean; authorizedPlanIds: string[]; reason?: string }> {
+    try {
+      const seqUrl = this.sequencerUrl.replace(/\/+$/, '');
+      const attResp = await fetch(`${seqUrl}/rpc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_verifyEmployer', params: { employerId: this.employerId } }),
+      });
+      const attJson = await attResp.json() as any;
+      if (attJson.result?.valid && attJson.result?.attestation) {
+        this.setAttestation(attJson.result.attestation);
+        return { loaded: true, authorizedPlanIds: attJson.result.attestation.authorizedPlanIds || [] };
+      }
+      return { loaded: false, authorizedPlanIds: [], reason: 'No attestation found on sequencer' };
+    } catch (e: any) {
+      return { loaded: false, authorizedPlanIds: [], reason: e?.message || 'Sequencer unreachable' };
+    }
+  }
+
+  /** Set the employer attestation (loaded from sequencer) */
+  setAttestation(att: import('../l2/l2-types.js').EmployerAttestation): void {
+    this.attestation = att;
+  }
+
+  /** Get the employer attestation */
+  getAttestation(): import('../l2/l2-types.js').EmployerAttestation | null {
+    return this.attestation;
+  }
+
+  /** Whether attestation is required for plan authorization (set via config) */
+  private requireAttestation = false;
+
+  /** Set whether attestation is required (fail-closed vs fail-open) */
+  setRequireAttestation(required: boolean): void {
+    this.requireAttestation = required;
+  }
+
+  /** Check if a plan is authorized by the attestation */
+  isPlanAuthorized(planId: string): boolean {
+    if (!this.attestation) {
+      // Fail-closed: in production mode we refuse everything without an attestation.
+      // The only path that reaches here without an attestation is legacy fail-open mode.
+      return !this.requireAttestation;
+    }
+    return this.attestation.authorizedPlanIds.includes(planId);
   }
 
   // ─── Group Management ──────────────────────────────────────
@@ -81,6 +154,20 @@ export class EmployerNode extends EntityNodeBase {
   ): EmployerGroupRecord {
     if (this.groups.has(groupId)) {
       throw new Error(`Group ${groupId} already exists`);
+    }
+
+    // Attestation enforcement (Phase A): ALWAYS require attestation in fail-closed mode.
+    if (this.requireAttestation && !this.attestation) {
+      throw new Error(
+        `Employer node is in fail-closed mode but has no attestation loaded. ` +
+        `createGroup refused. Complete the marketplace ceremony first.`,
+      );
+    }
+    if (this.attestation && !this.attestation.authorizedPlanIds.includes(planId)) {
+      throw new Error(
+        `Plan "${planId}" is not authorized for this employer. ` +
+        `Authorized plans: [${this.attestation.authorizedPlanIds.join(', ')}]`,
+      );
     }
 
     const record: EmployerGroupRecord = {
@@ -120,13 +207,74 @@ export class EmployerNode extends EntityNodeBase {
     return this.groups.get(groupId);
   }
 
+  /** Phase F1: Compute utilization stats for a group by counting roster entries.
+   *  Returns null if the group does not exist. Counts are derived from the
+   *  in-memory roster map — no persistence required.
+   *
+   *  Callers (HR Tool capacity check) should branch on `isUnlimited`:
+   *    if (!stats.isUnlimited && csvRowCount > stats.remainingSlots) { reject }
+   *
+   *  When `isUnlimited` is true, `remainingSlots` is 0 (not a real bound) — the
+   *  caller MUST check `isUnlimited` first before comparing remainingSlots. */
+  getGroupStats(groupId: string): EmployerGroupStats | null {
+    const group = this.groups.get(groupId);
+    if (!group) return null;
+
+    let enrolledCount = 0;
+    let pendingTokens = 0;
+    let terminatedCount = 0;
+    for (const entry of this.roster.values()) {
+      if (entry.groupIdHash !== group.groupIdHash) continue;
+      if (entry.status === 'enrolled') enrolledCount++;
+      else if (entry.status === 'pending') pendingTokens++;
+      else if (entry.status === 'terminated') terminatedCount++;
+    }
+    const totalTokens = enrolledCount + pendingTokens + terminatedCount;
+    // enrollmentCap === 0 means unlimited
+    const isUnlimited = group.enrollmentCap === 0;
+    const remainingSlots = isUnlimited
+      ? 0
+      : Math.max(0, group.enrollmentCap - enrolledCount - pendingTokens);
+
+    return {
+      groupId: group.groupId,
+      planId: group.planId,
+      effectiveDate: group.effectiveDate,
+      status: group.status,
+      enrollmentCap: group.enrollmentCap,
+      isUnlimited,
+      enrolledCount,
+      pendingTokens,
+      terminatedCount,
+      totalTokens,
+      remainingSlots,
+    };
+  }
+
+  /** Phase F1: Return all groups with their utilization stats inlined so
+   *  the HR Tool can populate the Group Selection Screen in one call. */
+  listGroupsWithStats(): EmployerGroupStats[] {
+    const out: EmployerGroupStats[] = [];
+    for (const gid of this.groups.keys()) {
+      const stats = this.getGroupStats(gid);
+      if (stats) out.push(stats);
+    }
+    return out;
+  }
+
   // ─── Token Management ──────────────────────────────────────
 
-  /** Generate an enrollment token for an employee */
+  /**
+   * Generate an enrollment token for an employee.
+   *
+   * Accepts pre-hashed identifiers only — the HR Tool on the admin's machine
+   * hashes plaintext PII with a groupSeed before calling this method.
+   * The employer node never sees plaintext employee IDs or family IDs.
+   */
   generateToken(
     groupId: string,
-    employeeId: string,
-    familyId: string,
+    employeeIdHash: string,
+    familyIdHash: string,
     validUntil: string,
     tokenId?: string,
   ): { token: GroupEnrollmentToken; tokenId: string } {
@@ -141,20 +289,16 @@ export class EmployerNode extends EntityNodeBase {
     const result = this.tokenAuthority.generateToken(
       groupId,
       group.planId,
-      employeeId,
-      familyId,
+      employeeIdHash,
+      familyIdHash,
       validUntil,
       tokenId,
     );
 
-    // Track on roster
-    const employeeIdHash = Poseidon.hash([hashString(employeeId)]).toString();
-    const familyIdHash = Poseidon.hash([hashString(familyId)]).toString();
+    // Track on roster — hash-only, no plaintext PII
     this.roster.set(employeeIdHash, {
-      employeeId,
       employeeIdHash,
-      groupId,
-      familyId,
+      groupIdHash: group.groupIdHash,
       familyIdHash,
       tokenId: result.tokenId,
       walletId: null,
@@ -170,14 +314,24 @@ export class EmployerNode extends EntityNodeBase {
     this.tokenAuthority.revokeToken(tokenId);
   }
 
+  /** Set the PIN hash on a token (called by HR Tool after token generation) */
+  setTokenPinHash(tokenId: string, tokenPinHash: string): void {
+    this.tokenAuthority.setTokenPinHash(tokenId, tokenPinHash);
+  }
+
   /** Get token status */
   getTokenRecord(tokenId: string): TokenRecord | undefined {
     return this.tokenAuthority.getTokenRecord(tokenId);
   }
 
-  /** Validate a token */
+  /** Validate a token (without PIN) */
   validateToken(tokenId: string, currentDate: string): TokenValidationResult {
     return this.tokenAuthority.validateToken(tokenId, currentDate);
+  }
+
+  /** Validate a token with PIN (enrollment 2FA) */
+  validateTokenWithPin(tokenId: string, currentDate: string, tokenPinHash?: string): TokenValidationResult {
+    return this.tokenAuthority.validateTokenWithPin(tokenId, currentDate, tokenPinHash);
   }
 
   /** Get total tokens managed */
@@ -217,19 +371,20 @@ export class EmployerNode extends EntityNodeBase {
         return { success: false, error: `Insurer returned ${resp.status}` };
       }
 
-      // Mark enrolled on roster
+      // Mark enrolled on roster and increment group count
       for (const entry of this.roster.values()) {
         if (entry.tokenId === tokenId) {
           entry.status = 'enrolled';
           entry.walletId = walletId;
+          // Find group by groupIdHash
+          for (const group of this.groups.values()) {
+            if (group.groupIdHash === entry.groupIdHash) {
+              group.enrolledCount++;
+              break;
+            }
+          }
           break;
         }
-      }
-
-      // Increment group enrolled count
-      const group = this.groups.get(record.localData.groupId);
-      if (group) {
-        group.enrolledCount++;
       }
 
       return { success: true };
@@ -263,10 +418,15 @@ export class EmployerNode extends EntityNodeBase {
         entry.walletId = walletId;
         // Only increment group count if not already enrolled (avoid double-count)
         if (!wasAlreadyEnrolled) {
-          const group = this.groups.get(entry.groupId);
-          if (group) group.enrolledCount++;
+          // Find group by groupIdHash match
+          for (const group of this.groups.values()) {
+            if (group.groupIdHash === entry.groupIdHash) {
+              group.enrolledCount++;
+              break;
+            }
+          }
         }
-        console.log('[employer] Enrollment confirmed: token=%s wallet=%s group=%s', tokenId, walletId.slice(0, 16), entry.groupId);
+        console.log('[employer] Enrollment confirmed: token=%s wallet=%s', tokenId, walletId.slice(0, 16));
         return { found: true };
       }
     }
@@ -299,7 +459,8 @@ export class EmployerNode extends EntityNodeBase {
   /**
    * Send a message via the sequencer message store.
    * Uses the employer's pseudo-walletId as sender.
-   * Payload is stored as hex-encoded plaintext (employer has no encryption keys).
+   * Encrypts with recipient's X25519 public key if available (E2E).
+   * Falls back to hex encoding for recipients without registered encryption keys.
    */
   async sendMessage(
     recipientWalletId: string,
@@ -307,11 +468,48 @@ export class EmployerNode extends EntityNodeBase {
     body: string,
   ): Promise<MessageStoreEntry> {
     const plaintext = JSON.stringify({ subject, body });
-    const ciphertextHex = Buffer.from(plaintext, 'utf8').toString('hex');
     const threadIdHash = Poseidon.hash([
       Field(BigInt(this.employerWalletId)),
       hashString(recipientWalletId + ':' + subject),
     ]).toString();
+
+    // Try E2E encryption: look up recipient's encryption key via direct fetch to sequencer
+    let ciphertextHex: string;
+    let ivHex = '00000000000000000000000000000000';
+    let tagHex = '00000000000000000000000000000000';
+    let ephemeralPublicKeyHex: string | undefined;
+
+    try {
+      // Fetch recipient's X25519 public key from sequencer (direct fetch — L2Client has no generic call())
+      const seqUrl = (this.client as any).options.sequencerUrl.replace(/\/+$/, '');
+      const keyResp = await fetch(`${seqUrl}/rpc`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getEncryptionKey', params: { walletId: recipientWalletId } }),
+      });
+      const keyJson = await keyResp.json() as any;
+
+      if (keyJson.result?.encryptionPublicKeyHex) {
+        // Employer has no enrollment key — use ephemeral X25519 keypair per message
+        const { generateKeyPairSync } = await import('crypto');
+        const { deriveSharedSecret, encryptMessage } = await import('../messaging/encryption.js');
+        const ephKp = generateKeyPairSync('x25519');
+        const ephPrivRaw = Buffer.from(ephKp.privateKey.export({ type: 'pkcs8', format: 'der' }).subarray(16));
+        const ephPubRaw = Buffer.from(ephKp.publicKey.export({ type: 'spki', format: 'der' }).subarray(12));
+        ephemeralPublicKeyHex = ephPubRaw.toString('hex');
+        const recipientPub = Buffer.from(keyJson.result.encryptionPublicKeyHex, 'hex');
+        const shared = deriveSharedSecret(ephPrivRaw, recipientPub);
+        const encrypted = encryptMessage(plaintext, shared);
+        ciphertextHex = encrypted.ciphertext.toString('hex');
+        ivHex = encrypted.iv.toString('hex');
+        tagHex = encrypted.tag.toString('hex');
+      } else {
+        // Recipient has no encryption key — admin messages are not ePHI, hex fallback is acceptable
+        ciphertextHex = Buffer.from(plaintext, 'utf8').toString('hex');
+      }
+    } catch {
+      ciphertextHex = Buffer.from(plaintext, 'utf8').toString('hex');
+    }
+
     const messageCommitment = Poseidon.hash([
       hashString(ciphertextHex.slice(0, 64)),
     ]).toString();
@@ -326,10 +524,12 @@ export class EmployerNode extends EntityNodeBase {
       },
       {
         ciphertext: ciphertextHex,
-        iv: '00000000000000000000000000000000',
-        tag: '00000000000000000000000000000000',
+        iv: ivHex,
+        tag: tagHex,
+        // Include ephemeral public key so recipient can compute ECDH shared secret
+        ephemeralPublicKeyHex: ephemeralPublicKeyHex ?? undefined,
         timestamp: Date.now(),
-      },
+      } as any,
     );
   }
 

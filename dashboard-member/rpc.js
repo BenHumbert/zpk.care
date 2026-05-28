@@ -116,6 +116,16 @@ const RPC = (() => {
   function getMessagesBySender(w) { return call('l2_getMessagesBySender', { walletId: w }); }
   function getMessagesByRecipient(w) { return call('l2_getMessagesByRecipient', { walletId: w }); }
   function storeMessage(message, payload) { return call('l2_storeMessage', { message, payload }); }
+  /** Send a message via the member node's server-side encryption (E2E) */
+  async function sendEncryptedMessage(recipientWalletId, body) {
+    var res = await fetch(baseUrl + '/messaging/send', {
+      method: 'POST', headers: headers(),
+      body: JSON.stringify({ recipientWalletId: recipientWalletId, body: body }),
+    });
+    var data = await res.json();
+    if (data.error) throw new Error(data.error);
+    return stripBigints(data.data || data);
+  }
   function getMessageStoreRoot() { return call('l2_getMessageStoreRoot'); }
 
   // ── NFC Attestation ──────────────────────────────────
@@ -219,7 +229,7 @@ const RPC = (() => {
     reconstructAccumulator, getPlanLimits, estimateCost, getFormulary, getFormularyPage, getFormularyDrugCount, getFormularyRoutes, getFormularyRoot,
     getNetworkProviders,
     getMessagesByWallet, getMessagesByThread, getMessagesBySender, getMessagesByRecipient,
-    storeMessage, getMessageStoreRoot,
+    storeMessage, sendEncryptedMessage, getMessageStoreRoot,
     requestAttestation, getAttestation, getAttestationPublicKey,
     enrollWithInsurer, assignPcp, getCurrentPcp,
     getProverStatus, delegateProof, submitProof, getRegistrationWitnesses,

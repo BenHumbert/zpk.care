@@ -353,18 +353,28 @@ export class L2QuorumService {
 
   /**
    * Verify a state certificate has valid majority signatures.
+   * Signer keys are looked up from the registered peer registry,
+   * not from the certificate itself — prevents self-forgery.
    */
   verifyStateCertificate(cert: StateCertificate): boolean {
     if (cert.signatures.length < this.config.quorumThreshold) return false;
 
-    // Verify the digest hash matches
     const expectedHash = computeStateDigestHash(cert.stateDigest);
     if (cert.stateDigestHash !== expectedHash) return false;
 
     let validCount = 0;
     for (const sig of cert.signatures) {
       try {
-        const publicKeyRaw = Buffer.from(sig.publicKeyHex, 'hex');
+        let registeredKeyHex: string | undefined;
+        if (sig.nodeId === this.getNodeId()) {
+          registeredKeyHex = this.config.publicKeyHex;
+        } else {
+          registeredKeyHex = this.config.peerPublicKeys.get(sig.nodeId);
+        }
+
+        if (!registeredKeyHex) continue;
+
+        const publicKeyRaw = Buffer.from(registeredKeyHex, 'hex');
         if (publicKeyRaw.length !== 32) continue;
 
         const publicKey = ed25519PublicKeyFromRaw(publicKeyRaw);

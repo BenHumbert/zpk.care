@@ -24,7 +24,7 @@ const API = (() => {
     return adminToken;
   }
   // Restore admin token from localStorage, fall back to bootstrap default
-  try { adminToken = localStorage.getItem('zkt_employer_admin_token') || 'admin123'; } catch { adminToken = 'admin123'; }
+  try { adminToken = localStorage.getItem('zkt_employer_admin_token') || ''; } catch { adminToken = ''; }
 
   // Strip __bigint__:NNN prefixes from serialized BigInt values
   function stripBigints(obj) {
@@ -113,27 +113,10 @@ const API = (() => {
     return request('DELETE', '/groups/' + encodeURIComponent(groupId), { terminationDate }, true);
   }
 
-  // ---- Tokens ----
-  function generateToken(params) {
-    return request('POST', '/tokens/generate', params, true);
-  }
-
-  function getToken(tokenId) {
-    return request('GET', '/tokens/' + encodeURIComponent(tokenId), undefined, true);
-  }
-
-  function revokeToken(tokenId) {
-    return request('POST', '/tokens/' + encodeURIComponent(tokenId) + '/revoke', {}, true);
-  }
-
-  function validateToken(tokenId, currentDate) {
-    const body = currentDate ? { currentDate } : {};
-    return request('POST', '/tokens/' + encodeURIComponent(tokenId) + '/validate', body);
-  }
-
-  function submitToken(tokenId, walletId) {
-    return request('POST', '/tokens/' + encodeURIComponent(tokenId) + '/submit', { walletId }, true);
-  }
+  // ---- Tokens ---- (Phase F2: removed from the dashboard API.
+  // Token generation is exclusive to the HR Tool because it requires the
+  // PII-safe hashing workflow. These endpoints still exist on the employer
+  // node backend — the HR Tool calls them directly via its proxy.)
 
   // ---- Roster ----
   function listRoster(status) {
@@ -160,6 +143,10 @@ const API = (() => {
 
   // ---- Available Plans (from insurer) ----
   function getAvailablePlans() { return request('GET', '/plans/available'); }
+
+  // ---- Attestation (Phase 3.3) ----
+  function getAttestation() { return request('GET', '/attestation'); }
+  function refreshAttestation() { return request('POST', '/attestation/refresh', {}, true); }
 
   // ---- Messaging ----
   function sendMessage(recipientWalletId, subject, body) {
@@ -242,15 +229,13 @@ const API = (() => {
     listGroups,
     getGroup,
     deleteGroup,
-    generateToken,
-    getToken,
-    revokeToken,
-    validateToken,
-    submitToken,
+    // generateToken/getToken/revokeToken/validateToken/submitToken removed (Phase F2)
     listRoster,
     getRosterEntry,
     terminateRosterEntry,
     getAvailablePlans,
+    getAttestation,
+    refreshAttestation,
     getChainState,
     getSequencerStatus,
     sendMessage,

@@ -326,11 +326,21 @@
     <!--  EMPLOYERS & GROUPS                                      -->
     <!-- ════════════════════════════════════════════════════════ -->
     <section class="page" id="page-employers">
+      <!-- Marketplace Applications -->
+      <div class="panel" id="marketplace-apps-panel" style="margin-bottom:20px">
+        <div class="panel-header">
+          <h3>Marketplace Applications</h3>
+          <button class="btn btn-sm" id="apps-refresh-btn">Refresh</button>
+        </div>
+        <div class="panel-body" id="marketplace-apps-body">
+          <div class="loading">Loading applications...</div>
+        </div>
+      </div>
       <div class="emp-layout">
         <!-- Employer List -->
         <div class="emp-list-panel">
           <div class="emp-list-header">
-            <h3>Employers</h3>
+            <h3>Enrolled Employers</h3>
             <button class="btn btn-sm" id="emp-refresh-btn">Refresh</button>
           </div>
           <div class="emp-list" id="emp-list">
@@ -582,6 +592,8 @@
                 <option value="tier-analysis">Tier Analysis</option>
                 <option value="therapeutic-class">Therapeutic Class</option>
                 <option value="time-series">Time Series</option>
+                <option value="prior-auth">Prior Authorization</option>
+                <option value="cross-tab">Cross-Tab Pivot</option>
               </select>
             </div>
             <div class="form-group">
