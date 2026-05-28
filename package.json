@@ -38,8 +38,8 @@
     "nft",
     "o1js"
   ],
-  "author": "",
-  "license": "ISC",
+  "author": "Ben Humbert",
+  "license": "Apache-2.0",
   "dependencies": {
     "docx": "^9.5.3",
     "o1js": "^2.13.0",
