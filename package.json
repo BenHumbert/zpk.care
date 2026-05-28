@@ -25,7 +25,6 @@
     "start:flowchart": "npx tsx visualizer/engine/flowchart-orchestrator.ts",
     "kill:ports": "node -e \"const{execSync:x}=require('child_process');[3030,3031,3032,4001,4002,4003,4004,4005,4040,5050,8000,8080].forEach(p=>{try{const o=x('netstat -ano',{encoding:'utf8'});const m=o.split('\\n').find(l=>l.includes(':'+p+' ')&&l.includes('LISTEN'));if(m){const pid=m.trim().split(/\\s+/).pop();if(pid&&pid!=='0'){console.log('Killing PID '+pid+' on port '+p);x('taskkill /F /PID '+pid)}}}catch{}});console.log('Done.')\"",
     "start:flowchart:clean": "npm run kill:ports && npx tsx visualizer/engine/flowchart-orchestrator.ts",
-    "start:patent-studio": "npx tsx patent-studio/server.ts",
     "bootstrap": "npx tsx scripts/bootstrap-system.ts",
     "clean:state": "node -e \"const{rmSync:r}=require('fs');['.l2-checkpoints','l2-data','nautilus-data','visualizer/.l2-checkpoints'].forEach(d=>{try{r(d,{recursive:true,force:true});console.log('Deleted '+d)}catch{}});console.log('State cleaned.')\"",
     "bootstrap:clean": "npm run kill:ports && npm run clean:state && npx tsx scripts/bootstrap-system.ts --skip-kill",
