@@ -46,6 +46,18 @@ pnpm-workspace.yaml
 # Nautilus local state
 nautilus-data/
 
+# HR Tool local state — contains employee PII correlation tables (encrypted, but local-only). NEVER commit.
+hr-tool-data/
+
+# Local runtime / scratch / tooling (not source)
+.caveman-install/
+.playwright/
+outputs/
+workspace/
+Substitutes and Replacements/
+tmp_thread.json
+*.tmp
+
 # Temp files
 ~$*
 C\357\200\272*
