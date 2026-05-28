@@ -22,6 +22,7 @@ nul
 # IDE
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 
@@ -41,6 +42,7 @@ patent_figures/
 documents/
 uspto_agent/
 patent-studio/
+visualizer/diagrams/shandong-distinction-analysis.md
 pnpm-workspace.yaml
 
 # Nautilus local state

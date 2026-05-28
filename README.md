@@ -120,9 +120,13 @@ tests/               Jest test suites
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** — the technical design, in depth
 - **[RUNNING.md](RUNNING.md)** — running it, ports, hardware, troubleshooting
 - **[SECURITY.md](SECURITY.md)** — known limitations and the path to hardening
+- **[PATENTS.md](PATENTS.md)** — patent stance: none held; released as a defensive publication
 
 ## License
 
 Apache License 2.0 — see **[LICENSE](LICENSE)** and **[NOTICE](NOTICE)**.
 You may use, modify, and sell products based on this work. Please honor the
 spirit described in [MISSION.md](MISSION.md): keep it fair.
+
+No patent encumbers this project — it is released as a defensive publication so
+the techniques stay free for everyone. See **[PATENTS.md](PATENTS.md)**.
