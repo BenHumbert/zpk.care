@@ -1,8 +1,8 @@
 # zpk.care
 
-> Prescription-drug benefits that put people first: private by design, fair by math, and free for everyone.
+> Fill your prescription without ever revealing your identity — on fully transparent drug plans that scale to millions of members.
 
-zpk.care is a complete, working system for processing pharmacy benefit claims where your personal and health information never leaves your own device. The network only ever sees scrambled cryptographic commitments, never your name, your diagnosis, or your medication history. The price you pay is computed by a zero-knowledge proof, so it cannot be quietly marked up by a middleman.
+zpk.care is a complete, working system for processing pharmacy benefit claims where your personal and health information never leaves your own device. The network only ever sees scrambled cryptographic commitments, never your name, your diagnosis, or your medication history. No need for a national switchboard, and no need for PBMs to store your PHI or PII.
 
 It is given to the world freely under the Apache License 2.0. Use it, build on it, even build a business on it. See the [Mission](#mission) for the spirit behind it.
 
@@ -19,9 +19,9 @@ It is given to the world freely under the Apache License 2.0. Use it, build on i
 
 ## Why it matters
 
-Today a prescription claim passes through middlemen who see every patient's identity and medication history, and price drugs through hidden rebates and markups. zpk.care removes that middle layer and hands the benefit back to the people in the system:
+Today a prescription claim passes through systems that see every patient's identity and medication history, and price drugs through hidden rebates and markups. zpk.care removes that risk and hands the benefit back to the people in the system:
 
-- **For patients.** Your health data stays on your phone. Most generic drugs cost $0. Your benefit works offline with a tap of an NFC card. You are never a row in a database waiting to be breached.
+- **For patients.** Your health data stays on your phone. Transparent plans are more accessable. Your benefit works offline with a tap of an NFC card. You are never a row in a database waiting to be breached.
 - **For pharmacies.** Paid the real cost of the drug plus a fair dispensing fee. No below-cost reimbursement, no surprise clawbacks.
 - **For employers and plans.** Lower, fully transparent administrative costs, with every claim independently verifiable. Almost nothing to breach, because no health data is stored.
 - **For everyone.** Rules enforced by mathematics, not trust. No spread pricing, no retained rebates, no hidden fees, because the system is built so they are not even possible.
@@ -57,28 +57,28 @@ The point of this project is not the dashboards or the website. It is the proof 
 
 **6. What never leaves the device.** On the phone: names, dates of birth, identifiers, the enrollment key, plaintext medication history. On the network: opaque wallet IDs (Poseidon hashes), state-transition and claim proofs, hash commitments, and encrypted payloads only. The privacy boundary is a property of the math, not a policy.
 
-**Why this enables the future we want to see.** When a system can only act on hashes and proofs, there is no central pile of records to steal, no opaque adjudication for a middleman to mark up, and no rule that can be silently changed without leaving a verifiable trace. Replicate this approach across every benefit category and "trust us, we'll be fair" gets replaced with "verify us, by math."
+**Why this enables the future we want to see.** When a system can only act on hashes and proofs, there is no central pile of records to steal, no opaque adjudication for hidden fees, and no rule that can be silently changed without leaving a verifiable trace. Replicate this approach across every benefit category and "trust us, we'll be fair" gets replaced with "verify us, by math."
 
 For the full technical design see [ARCHITECTURE.md](ARCHITECTURE.md). For the zero-knowledge proof system specifically — the file-by-file bundle, the recursive spine, and how the pieces interact at runtime — see [ZKP_OVERVIEW.md](ZKP_OVERVIEW.md); for the line-by-line proof reference see [ZKPROOFS.md](ZKPROOFS.md).
 
 ## Mission
 
-This technology exists to make people's lives a little easier.
+**Nobody should have their family's health data exposed and sold — and millions of people a year never got a say in it.**
 
-Medicine should be something people can get without surrendering their privacy, their dignity, or their savings to a middleman. zpk.care was built so the people who actually rely on this system, patients filling a prescription, pharmacists trying to serve their community, employers trying to care for their teams, are treated fairly instead of squeezed.
+That is why I built zpk.care. Today, prescription data is copied into central databases people never chose to be part of, then breached by people they will never meet. The worst of it is the national switchboard: the central hub every prescription claim flows through. Because it holds everyone's identity and medications in one place, it is a single point of catastrophic failure. zpk.care removes it — your information stays on your own device, the network only ever sees scrambled math, and there is no central pile of records to steal. No switchboard, no breach.
 
-It is given away freely on purpose. The more people who adopt and improve it, the more people it reaches, and the harder it becomes for anyone to lock away what should belong to everyone. There are no restrictions on commercial use.
+I also have to step away from this work. My son has a brain tumor and needs me, and I can't give this project the time it deserves. So I am giving it away for free: to give it the best possible chance to protect people, and to keep it from being locked away by any one corporation. There are no restrictions on commercial use.
 
 But openness comes with an ask. If you build on this work:
 
-- **Price around the value you genuinely add,** not around what people in need can be made to pay.
-- **Be transparent** that your product is built on free, open technology.
-- **Contribute improvements back** to the community when you can.
-- **Reach out.** Good-faith partners are welcome.
+- Price around the value you genuinely add, not around what people in need can be made to pay.
+- Be transparent that your product is built on free, open technology.
+- Contribute improvements back to the community when you can.
+- Reach out. Good-faith partners are welcome, and I would be glad to recognize those who honor this intent.
 
-This was not built to make anyone rich. It was built to help. If it makes even one person's situation a little easier, it will have been worth it.
+This was never built to make anyone rich. It was built to protect families like mine. If it protects yours too, it will have been worth it.
 
-*Use it well. Build something good with it. And keep it fair.*
+Use it well. Build something good with it. And keep it fair.
 
 ## Support this work
 
@@ -95,10 +95,23 @@ You can stand up the entire network (sequencer, all participant nodes, every das
 
 ### Prerequisites
 
-- Node.js 20 or newer
-- About 8 GB RAM (the system compiles real zero-knowledge circuits)
+- Node.js 20 or newer (runs TypeScript via `tsx` — no build step)
 - git
 - macOS, Linux, or Windows
+- A modern browser for the dashboards
+
+### Minimum hardware
+
+Running the full demo on one machine: **8 GB RAM, 4 cores** (16 GB / 8 cores is comfortable).
+
+Per node, if deployed separately:
+
+| Node | Min CPU | Min RAM |
+|------|:---:|:---:|
+| Leviathan sequencer | 8 cores | 16 GB |
+| All other nodes (member, prescriber, pharmacy, insurer, employer) | 2 cores | 8 GB |
+
+The sequencer does the heavy zero-knowledge work — proving runs inside it. The other nodes are light web servers; the 8 GB covers the one-time circuit compile during enrollment.
 
 ### Step by step
 
