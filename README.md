@@ -8,14 +8,32 @@ It is given to the world freely under the Apache License 2.0. Use it, build on i
 
 ## Table of contents
 
-1. [Why it matters](#why-it-matters)
-2. [How it works (in plain English)](#how-it-works-in-plain-english)
-3. [The ZK architecture (the underbelly)](#the-zk-architecture-the-underbelly)
-4. [Mission](#mission)
-5. [Support this work](#support-this-work)
+1. [Support this work](#support-this-work)
+2. [Why it matters](#why-it-matters)
+3. [How it works (in plain English)](#how-it-works-in-plain-english)
+4. [The ZK architecture (the underbelly)](#the-zk-architecture-the-underbelly)
+5. [Mission](#mission)
 6. [Getting started](#getting-started)
 7. [Documentation](#documentation)
 8. [License and patents](#license-and-patents)
+
+## Support this work
+
+zpk.care is free, and always will be. If it has helped you and you'd like to give back, here are two completely optional ways — either one is appreciated, and the best support of all is to use this to help someone.
+
+**Buy me a coffee**
+
+- Buy Me a Coffee: [your Buy Me a Coffee link]
+- Venmo: [@your-venmo]
+- BTC: [your BTC address]
+- ETH: [your ETH address]
+
+**Help Grant's treatment** — I am stepping away from this project to care for my son, Grant, who is being treated for a brain tumor. If you'd like to help our family:
+
+- Fundraiser: [your fundraiser link]
+- Venmo: [@your-venmo]
+- BTC: [your BTC address]
+- ETH: [your ETH address]
 
 ## Why it matters
 
@@ -79,15 +97,6 @@ But openness comes with an ask. If you build on this work:
 This was never built to make anyone rich. It was built to protect families like mine. If it protects yours too, it will have been worth it.
 
 Use it well. Build something good with it. And keep it fair.
-
-## Support this work
-
-zpk.care is free, and always will be. If it has helped you and you would like to give back, here are two completely optional ways:
-
-- **Buy me a coffee:** [your Buy Me a Coffee link here]
-- **Help Grant's treatment:** I am stepping back from this project to care for my son, Grant, who is undergoing treatment for a brain tumor. If you would like to help our family, you can contribute here: [your fundraiser link here]
-
-Either way, thank you. The best support of all is to use this to help someone.
 
 ## Getting started
 
