@@ -24,7 +24,7 @@ npm install
 ## Run (the one command)
 
 ```bash
-npm run start:leviathan:clean:100
+npm run start:leviathan:clean:100:unsecure
 ```
 
 This is the recommended way to start everything fresh. It:

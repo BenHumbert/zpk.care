@@ -23,40 +23,37 @@ zpk.care is free, and always will be. If it has helped you and you'd like to giv
 
 **Buy me a coffee**
 
-- Buy Me a Coffee: [your Buy Me a Coffee link]
-- Venmo: [@your-venmo]
-- BTC: [your BTC address]
-- ETH: [your ETH address]
+- Buy Me a Coffee: [https://buymeacoffee.com/benhumbert]
+- BTC: [bc1qh2ufj2lhgqq706txpm35h433nrhudvq0yts7yy]
+- ETH: [ben.humbert.eth]
 
-**Help Grant's treatment** — I am stepping away from this project to care for my son, Grant, who is being treated for a brain tumor. If you'd like to help our family:
+**Help Grant's Treatment** — I am stepping away from this project to care for my son, Grant, who is being treated for a pediatric brain tumor that is causing him to go blind. If you'd like to help our family:
 
-- Fundraiser: [your fundraiser link]
-- Venmo: [@your-venmo]
-- BTC: [your BTC address]
-- ETH: [your ETH address]
+- BTC: [bc1queyzjjgmd7qg7sq7attuz2mwjh7xcz4ddl3yht]
+- ETH: [0xB6b82bD1775657f97252982D136aA971220DbF64]
 
 ## Why it matters
 
 Today a prescription claim passes through systems that see every patient's identity and medication history, and price drugs through hidden rebates and markups. zpk.care removes that risk and hands the benefit back to the people in the system:
 
-- **For patients.** Your health data stays on your phone. Transparent plans are more accessable. Your benefit works offline with a tap of an NFC card. You are never a row in a database waiting to be breached.
+- **For patients.** Your health data stays on your phone/ at home. Transparent plans are more accessable. Your benefit works offline with a tap of an NFC card. You are never a row in a database waiting to be breached.
 - **For pharmacies.** Paid the real cost of the drug plus a fair dispensing fee. No below-cost reimbursement, no surprise clawbacks.
 - **For employers and plans.** Lower, fully transparent administrative costs, with every claim independently verifiable. Almost nothing to breach, because no health data is stored.
-- **For everyone.** Rules enforced by mathematics, not trust. No spread pricing, no retained rebates, no hidden fees, because the system is built so they are not even possible.
+- **For everyone.** Rules enforced by mathematics, not trust. Transparent plans only.
 
 *(These are the outcomes the system is designed to deliver. Real-world results depend on plan configuration.)*
 
 ## How it works (in plain English)
 
 1. **Enroll.** Your employer gives you an enrollment code with no personal information in it. On your phone you create a private secret that never leaves your device, which derives a scrambled "wallet" address. Your plan activates coverage against that address, knowing nothing about who you are.
-2. **Get a prescription.** Your prescriber sends an e-prescription into your phone's secure credential.
-3. **Fill it.** At the pharmacy the math runs on your device. It proves you are covered and calculates exactly what you owe, then outputs only two numbers: what you pay and what the plan pays. No name and no drug name ever leaves your phone.
+2. **Get a prescription.** Your prescriber sends an e-script to the pharmacy after connecting to them as your PCP.
+3. **Fill it.** At the pharmacy the it proves you are covered and calculates exactly what you owe, then outputs only two numbers: what you pay and what the plan pays. No name and no drug name ever leaves your phone.
 4. **Settle.** The network verifies the proof in milliseconds and settles payment with finality. The pharmacy is guaranteed fair payment and your deductible updates automatically.
 5. **Offline.** A tap of your NFC card proves your coverage in under a millisecond, even with no internet.
 
 ## The ZK architecture (the underbelly)
 
-The point of this project is not the dashboards or the website. It is the proof system underneath that makes private, fair claim adjudication possible at all. Here is how it actually works, end to end.
+The point of this project is not the dashboards or the website. It is the proof system underneath that makes private, fast, and secure prescription fills.
 
 **1. Wallets are math, not keys.** A wallet ID is `Poseidon.hash([domainTag, ...hashedIdentityFields, hash(enrollmentKey)])`. The enrollment key is a high-entropy secret created on the member's device and never transmitted. Domain tags separate roles (member, prescriber, pharmacy, representative) so identical identity data cannot collide across them. There is no traditional private key. Access is demonstrated by a zero-knowledge proof that you know the preimage.
 
@@ -71,7 +68,7 @@ The point of this project is not the dashboards or the website. It is the proof 
 
 **4. State lives in Merkle commitments.** The sequencer maintains a wallet registry plus a lifecycle tree (`EMPTY` to `REGISTERED` to `ELIGIBLE` to `ACTIVE` to `REVOKED`), a six-domain MerkleForest per credential (member, prescriber, pharmacy, medication, access-control, transaction), a 16M-leaf claim accumulator, a 1M-leaf encrypted message store, a provider registry, a 32K-drug formulary, and benefit plans. All checkpointed to disk and restored on restart.
 
-**5. The Leviathan is the trust layer.** A small set of partitioned sequencer nodes replicates state by epidemic gossip with deduplication. A 5-second heartbeat plus a 15-second timeout triggers deterministic failover, preventing split brain. Durability comes from a write-ahead log (fsync'd, crash-recoverable) plus quorum writes: a proof is not accepted until N/2+1 nodes log it and Ed25519-sign it. Batch proving is parallelized across a pool of child-process workers. There is no L1 settlement layer. The Leviathan network is the trust.
+**5. The Leviathan is the trust layer.** A small set of partitioned sequencer nodes replicates state by epidemic gossip with deduplication. A 5-second heartbeat plus a 15-second timeout triggers deterministic failover, preventing split brain. Durability comes from a write-ahead log (fsync'd, crash-recoverable) plus quorum writes: a proof is not accepted until N/2+1 nodes log it and Ed25519-sign it. Batch proving is parallelized across a pool of child-process workers.
 
 **6. What never leaves the device.** On the phone: names, dates of birth, identifiers, the enrollment key, plaintext medication history. On the network: opaque wallet IDs (Poseidon hashes), state-transition and claim proofs, hash commitments, and encrypted payloads only. The privacy boundary is a property of the math, not a policy.
 
@@ -83,9 +80,9 @@ For the full technical design see [ARCHITECTURE.md](ARCHITECTURE.md). For the ze
 
 **Nobody should have their family's health data exposed and sold — and millions of people a year never got a say in it.**
 
-That is why I built zpk.care. Today, prescription data is copied into central databases people never chose to be part of, then breached by people they will never meet. The worst of it is the national switchboard: the central hub every prescription claim flows through. Because it holds everyone's identity and medications in one place, it is a single point of catastrophic failure. zpk.care removes it — your information stays on your own device, the network only ever sees scrambled math, and there is no central pile of records to steal. No switchboard, no breach.
+That is why I built zpk.care. Today, prescription data is copied into central databases people never chose to be part of, then breached by people they will never meet.  Because it holds everyone's identity and medications in one place, it is a single point of catastrophic failure. zpk.care removes it — your information stays on your own device, the network only ever sees scrambled math, and there is no central pile of records to steal. No switchboard, no breach.
 
-I also have to step away from this work. My son has a brain tumor and needs me, and I can't give this project the time it deserves. So I am giving it away for free: to give it the best possible chance to protect people, and to keep it from being locked away by any one corporation. There are no restrictions on commercial use.
+I also have to step away from this work. My son has a brain tumor and needs my full attention, and I can't give this project the time it deserves. So I am giving it away for free: to give it the best possible chance to protect people, and to keep it from being locked away by any one corporation. There are no restrictions on commercial use.
 
 But openness comes with an ask. If you build on this work:
 
@@ -94,7 +91,7 @@ But openness comes with an ask. If you build on this work:
 - Contribute improvements back to the community when you can.
 - Reach out. Good-faith partners are welcome, and I would be glad to recognize those who honor this intent.
 
-This was never built to make anyone rich. It was built to protect families like mine. If it protects yours too, it will have been worth it.
+This was never built to make anyone rich. It was built to protect families like mine and allow claims to be affordable. If it protects yours too, it will have been worth it.
 
 Use it well. Build something good with it. And keep it fair.
 
@@ -111,7 +108,7 @@ You can stand up the entire network (sequencer, all participant nodes, every das
 
 ### Minimum hardware
 
-Running the full demo on one machine: **8 GB RAM, 4 cores** (16 GB / 8 cores is comfortable).
+Running the full demo on one machine: **64 GB RAM, 4 cores** (16 GB / 8 cores is comfortable).
 
 Per node, if deployed separately:
 
