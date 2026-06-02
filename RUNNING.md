@@ -9,7 +9,7 @@ How to install, run, and troubleshoot the system on a single machine.
 - **Node.js 20 or newer.** The project is ES-modules + TypeScript run directly
   through [`tsx`](https://github.com/privatenumber/tsx) — there is **no build
   step** required to run it.
-- **~8 GB RAM recommended.** The system compiles real zero-knowledge circuits
+- **~32 GB RAM recommended.** The system compiles real zero-knowledge circuits
   and runs a pool of prover worker processes. It will run with less, but with
   fewer workers and slower batching.
 - A modern browser for the dashboards.
