@@ -1,8 +1,9 @@
 # zpk.care
 
 > Fill your prescription without ever revealing your identity — on fully transparent drug plans that scale to millions of members.
+> Run a start up with 20 employees, $180k in equipment, and 1M members
 
-zpk.care is a complete, working system for processing pharmacy benefit claims where your personal and health information never leaves your own device. The network only ever sees scrambled cryptographic commitments, never your name, your diagnosis, or your medication history. No need for a national switchboard, and no need for PBMs to store your PHI or PII.
+zpk.care is a complete, working claim adjudication system for processing pharmacy benefit claims where your personal and health information never leaves your own device. The network only ever sees scrambled cryptographic commitments, never your name, your diagnosis, or your medication history. No need for a national switchboard, and no need for PBMs to store your PHI or PII.
 
 It is given to the world freely under the Apache License 2.0. Use it, build on it, even build a business on it. See the [Mission](#mission) for the spirit behind it.
 
@@ -27,19 +28,19 @@ zpk.care is free, and always will be. If it has helped you and you'd like to giv
 - BTC: [bc1qh2ufj2lhgqq706txpm35h433nrhudvq0yts7yy]
 - ETH: [ben.humbert.eth]
 
-**Help Grant's Treatment** — I am stepping away from this project to care for my son, Grant, who is being treated for a pediatric brain tumor that is causing him to go blind. If you'd like to help our family:
+**Help Grant's Treatment** — Grant was the reason I started this project, and now I am stepping away from this project to care for him as he is being treated for a pediatric brain tumor that is causing him to go blind. If you'd like to help our family:
 
 - BTC: [bc1queyzjjgmd7qg7sq7attuz2mwjh7xcz4ddl3yht]
 - ETH: [0xB6b82bD1775657f97252982D136aA971220DbF64]
 
 ## Why it matters
 
-Today a prescription claim passes through systems that see every patient's identity and medication history, and price drugs through hidden rebates and markups. zpk.care removes that risk and hands the benefit back to the people in the system:
+Today a prescription claim passes through systems that see every patient's identity and medication history, and price drugs through hidden rebates and markups.  Not to mention how much PHI and PII are needlessly stored on PBM servers. zpk.care removes that risk and hands the benefit back to the people in the system:
 
-- **For patients.** Your health data stays on your phone/ at home. Transparent plans are more accessable. Your benefit works offline with a tap of an NFC card. You are never a row in a database waiting to be breached.
-- **For pharmacies.** Paid the real cost of the drug plus a fair dispensing fee. No below-cost reimbursement, no surprise clawbacks.
-- **For employers and plans.** Lower, fully transparent administrative costs, with every claim independently verifiable. Almost nothing to breach, because no health data is stored.
-- **For everyone.** Rules enforced by mathematics, not trust. Transparent plans only.
+- **Members** Your health data stays on your phone/ at home. Transparent plans are more accessable. Your benefit works offline with a tap of an NFC card at the doctor and at the pharmacy. You are never a text stored row in a database waiting to be breached.
+- **Pharmacies** Fair or better dispensing fee. No below-cost reimbursement, no surprise clawbacks. Shorter wait times now that you dont have to read PII at PoS.
+- **Employers and Plans** Lower, fully transparent administrative costs, with every claim independently verifiable. Almost nothing to breach, because no health data is stored.
+- **Globally** Rules enforced by mathematics, not trust. Transparent plans only.
 
 *(These are the outcomes the system is designed to deliver. Real-world results depend on plan configuration.)*
 
@@ -64,7 +65,7 @@ The point of this project is not the dashboards or the website. It is the proof 
 - `EligibilityProgram`, `AccessControlProgram`, `PrescriptionProgram`, `FulfillmentProgram`, and `AccumulatorFulfillmentProgram` form the claim flow: coverage, formulary plus prior auth, script lifecycle, settlement, and deductible / out-of-pocket accumulation.
 - `BatchProgram` recursively folds many state-transition proofs into one batch proof. `ChainProgram` chains batches over time. These are what the sequencer produces and gossip-replicates.
 
-**3. Adjudication runs inside the proof.** Fulfillment circuits compute `patientPay = min(total, copay)` and `planPay = total - patientPay`. The accumulator-aware variant prioritizes out-of-pocket-max, then exhausted benefit, then remaining deductible, then copay. Because the math runs inside the proof, no party can quietly mark it up. The result is tamper-evident.
+**3. Adjudication runs inside the proof.** Fulfillment circuits compute `patientPay = min(total, copay)` and `planPay = total - patientPay`. The accumulator-aware variant prioritizes out-of-pocket-max, then exhausted benefit, then remaining deductible, then copay. Because the math runs inside the proof, any party can verify the calculations. The result is tamper-evident.
 
 **4. State lives in Merkle commitments.** The sequencer maintains a wallet registry plus a lifecycle tree (`EMPTY` to `REGISTERED` to `ELIGIBLE` to `ACTIVE` to `REVOKED`), a six-domain MerkleForest per credential (member, prescriber, pharmacy, medication, access-control, transaction), a 16M-leaf claim accumulator, a 1M-leaf encrypted message store, a provider registry, a 32K-drug formulary, and benefit plans. All checkpointed to disk and restored on restart.
 
@@ -80,7 +81,7 @@ For the full technical design see [ARCHITECTURE.md](ARCHITECTURE.md). For the ze
 
 **Nobody should have their family's health data exposed and sold — and millions of people a year never got a say in it.**
 
-That is why I built zpk.care. Today, prescription data is copied into central databases people never chose to be part of, then breached by people they will never meet.  Because it holds everyone's identity and medications in one place, it is a single point of catastrophic failure. zpk.care removes it — your information stays on your own device, the network only ever sees scrambled math, and there is no central pile of records to steal. No switchboard, no breach.
+That is why I built zpk.care. Today, prescription data is copied into centralized databases, then breached by all sorts of attacks.  Because it holds everyone's identity and medications in one place, it is a single point of catastrophic failure. zpk.care removes it — your information stays on your own device, the network only ever sees scrambled math, and there is no central pile of records to steal. No switchboard, no breach.
 
 I also have to step away from this work. My son has a brain tumor and needs my full attention, and I can't give this project the time it deserves. So I am giving it away for free: to give it the best possible chance to protect people, and to keep it from being locked away by any one corporation. There are no restrictions on commercial use.
 
@@ -91,7 +92,7 @@ But openness comes with an ask. If you build on this work:
 - Contribute improvements back to the community when you can.
 - Reach out. Good-faith partners are welcome, and I would be glad to recognize those who honor this intent.
 
-This was never built to make anyone rich. It was built to protect families like mine and allow claims to be affordable. If it protects yours too, it will have been worth it.
+This was never built to make anyone rich. It was built to protect families like mine and allow medications to be affordable. If it protects yours too, it will have been worth it.
 
 Use it well. Build something good with it. And keep it fair.
 
@@ -114,7 +115,7 @@ Per node, if deployed separately:
 
 | Node | Min CPU | Min RAM |
 |------|:---:|:---:|
-| Leviathan sequencer | 8 cores | 16 GB |
+| Leviathan sequencer | 8 cores | 32 GB |
 | All other nodes (member, prescriber, pharmacy, insurer, employer) | 2 cores | 8 GB |
 
 The sequencer does the heavy zero-knowledge work — proving runs inside it. The other nodes are light web servers; the 8 GB covers the one-time circuit compile during enrollment.
