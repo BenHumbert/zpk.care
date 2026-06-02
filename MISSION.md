@@ -1,5 +1,6 @@
-#Mission
-##Nobody should have their family's health data exposed and sold — and millions of people a year never got a say in it.
+# Mission
+
+**Nobody should have their family's health data exposed and sold — and millions of people a year never got a say in it.**
 
 That is why I built zpk.care. Today, prescription data is copied into centralized databases, then breached by all sorts of attacks. Because it holds everyone's identity and medications in one place, it is a single point of catastrophic failure. zpk.care removes it — your information stays on your own device, the network only ever sees scrambled math, and there is no central pile of records to steal. No switchboard, no breach.
 
@@ -7,10 +8,11 @@ I also have to step away from this work. My son has a brain tumor and needs my f
 
 But openness comes with an ask. If you build on this work:
 
-Price around the value you genuinely add, not around what people in need can be made to pay.
- - Be transparent that your product is built on free, open technology.
- - Contribute improvements back to the community when you can.
- - Reach out. Good-faith partners are welcome, and I would be glad to recognize those who honor this intent.
- - This was never built to make anyone rich. It was built to protect families like mine and allow medications to be affordable. If it protects yours too, it will have been worth it.
+- Price around the value you genuinely add, not around what people in need can be made to pay.
+- Be transparent that your product is built on free, open technology.
+- Contribute improvements back to the community when you can.
+- Reach out. Good-faith partners are welcome, and I would be glad to recognize those who honor this intent.
+
+This was never built to make anyone rich. It was built to protect families like mine and allow medications to be affordable. If it protects yours too, it will have been worth it.
 
 Use it well. Build something good with it. And keep it fair.
