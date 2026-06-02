@@ -1,4 +1,4 @@
-# zpk.care
+# zpk.care [Zero Patient Knowledge]
 
 > Fill your prescription without ever revealing your identity — on fully transparent drug plans that scale to millions of members.
 > $2.2T of like distributed AWS Spot compute power at 1M members
