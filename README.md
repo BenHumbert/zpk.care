@@ -1,9 +1,9 @@
 # zpk.care
 
 > Fill your prescription without ever revealing your identity — on fully transparent drug plans that scale to millions of members.
-> Run a start up with 20 employees, $180k in equipment, and 1M members
+> $2.2T of like distributed AWS Spot compute power at 1M members
 
-zpk.care is a complete, working claim adjudication system for processing pharmacy benefit claims where your personal and health information never leaves your own device. The network only ever sees scrambled cryptographic commitments, never your name, your diagnosis, or your medication history. No need for a national switchboard, and no need for PBMs to store your PHI or PII.
+zpk.care is a complete, working (with some bugs) claim adjudication system for processing pharmacy benefit claims where your personal and health information never leaves your own device. The network only ever sees scrambled cryptographic commitments, never your name, your diagnosis, or your medication history. No need for a national switchboard, and no need for PBMs to store your PHI or PII.
 
 It is given to the world freely under the Apache License 2.0. Use it, build on it, even build a business on it. See the [Mission](#mission) for the spirit behind it.
 
