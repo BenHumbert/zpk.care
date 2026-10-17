@@ -33,6 +33,41 @@ const RPC = (() => {
   function setInsurerUrl(url) { insurerUrl = url.replace(/\/+$/, ''); }
   function setProverUrl(url) { proverUrl = url.replace(/\/+$/, ''); }
 
+  /*
+   * A5: the device session, issued by /onboarding/unlock once it has verified the PIN.
+   *
+   * Held in memory only. sessionStorage would survive a tab reload, but it would also mean a
+   * token sitting in browser storage for an hour, and re-entering the PIN after a reload is the
+   * behaviour a locked device should have anyway.
+   *
+   * Sent to THIS origin only. deviceHeaders() is for the member node; anything addressed to the
+   * sequencer, the insurer or the prover uses plain headers, because handing this node's session
+   * to another party would be exactly the credential leak the item exists to stop.
+   */
+  let deviceSession = '';
+  function setDeviceSession(token) { deviceSession = token || ''; }
+  function hasDeviceSession() { return Boolean(deviceSession); }
+
+  /*
+   * A session lasts an hour. When one expires mid-use the node answers 401, and without this the
+   * app would show an unexplained failure and keep showing it. The app registers a handler that
+   * asks for the PIN again.
+   */
+  let onDeviceLocked = null;
+  function setDeviceLockedHandler(fn) { onDeviceLocked = fn; }
+  function noteDeviceLocked() {
+    deviceSession = '';
+    if (typeof onDeviceLocked === 'function') onDeviceLocked();
+  }
+
+  /** Headers for a request to the member node itself. */
+  function deviceHeaders() {
+    const h = { 'Content-Type': 'application/json' };
+    if (deviceSession) h['X-Device-Session'] = deviceSession;
+    return h;
+  }
+
+  /** Headers for a request to anyone else. Never carries the session. */
   function headers() { return { 'Content-Type': 'application/json' }; }
 
   // Normalize a value into a safe error message string (avoids "[object Object]")
@@ -67,9 +102,13 @@ const RPC = (() => {
   async function call(method, params) {
     rpcId++;
     const res = await fetch(baseUrl + '/rpc', {
-      method: 'POST', headers: headers(),
+      method: 'POST', headers: deviceHeaders(),
       body: JSON.stringify({ jsonrpc: '2.0', id: rpcId, method, params: params || {} }),
     });
+    if (res.status === 401) {
+      noteDeviceLocked();
+      throw new Error('This device is locked. Enter your PIN to continue.');
+    }
     if (!res.ok) {
       throw new Error('RPC request failed: HTTP ' + res.status);
     }
@@ -86,7 +125,9 @@ const RPC = (() => {
 
   // ── REST (health / insurer / prover) ────────────────
   async function getHealth() {
-    const res = await fetch(baseUrl + '/health', { headers: headers() });
+    // baseUrl is this origin unless a sequencer URL was configured; the session is only
+    // meaningful to this node and is ignored elsewhere.
+    const res = await fetch(baseUrl + '/health', { headers: deviceHeaders() });
     return res.json();
   }
 
@@ -145,7 +186,7 @@ const RPC = (() => {
   /** Send a message via the member node's server-side encryption (E2E) */
   async function sendEncryptedMessage(recipientWalletId, body) {
     var res = await fetch(baseUrl + '/messaging/send', {
-      method: 'POST', headers: headers(),
+      method: 'POST', headers: deviceHeaders(),
       body: JSON.stringify({ recipientWalletId: recipientWalletId, body: body }),
     });
     var data = await res.json();
@@ -167,7 +208,7 @@ const RPC = (() => {
   async function enrollWithInsurer(walletId, tokenId) {
     // Route through local Nautilus node instead of directly to insurer
     const res = await fetch(location.origin + '/onboarding/enroll', {
-      method: 'POST', headers: headers(),
+      method: 'POST', headers: deviceHeaders(),
       body: JSON.stringify({ walletId, tokenId }),
     });
     const json = await res.json();
@@ -195,13 +236,13 @@ const RPC = (() => {
   function assignPcp(prescriberWalletId) {
     var today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     return fetch(location.origin + '/pcp/assign', {
-      method: 'POST', headers: headers(),
+      method: 'POST', headers: deviceHeaders(),
       body: JSON.stringify({ pcpWalletId: prescriberWalletId, effectiveDate: today }),
     }).then(function(r) { return r.json(); }).then(function(j) { return j.data || j; });
   }
 
   function getCurrentPcp() {
-    return fetch(location.origin + '/pcp/current', { headers: headers() })
+    return fetch(location.origin + '/pcp/current', { headers: deviceHeaders() })
       .then(function(r) { return r.json(); }).then(function(j) { return j.data != null ? j.data : null; });
   }
 
@@ -248,6 +289,7 @@ const RPC = (() => {
   async function checkConnection() { try { await getHealth(); return true; } catch { return false; } }
 
   return {
+    setDeviceSession, hasDeviceSession, deviceHeaders, setDeviceLockedHandler,
     setBaseUrl, setInsurerUrl, setProverUrl,
     call, getHealth, getStatus, getChainState,
     getReceiptsByWallet, getReceipt,

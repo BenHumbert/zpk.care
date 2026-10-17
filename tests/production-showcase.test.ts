@@ -90,9 +90,28 @@ const amoxicillin = MEDICATIONS[4]; // Amoxicillin 500mg (NDC: 00185001001)
 
 interface HttpResult { status: number; body: unknown }
 
+/**
+ * A5 made every member-node route but unlock require a device session. A session is issued only
+ * by the unlock *route*, because the route is what verifies the PIN; unlocking the local state
+ * object directly, as the setup below does, does not produce one. So the member node is unlocked
+ * over HTTP as well, exactly as the member app does at startup.
+ *
+ * Keyed by port because a session belongs to one device and this suite runs several nodes.
+ */
+const deviceSessions = new Map<number, string>();
+
+async function unlockDevice(port: number, pin: string): Promise<void> {
+  const res = await post(port, '/onboarding/unlock', { pin });
+  const token = (res.body as { data?: { deviceSession?: string } })?.data?.deviceSession;
+  if (token) deviceSessions.set(port, token);
+}
+
 function httpRequest(port: number, method: string, urlPath: string, body?: unknown, headers?: Record<string, string>): Promise<HttpResult> {
   return new Promise((resolve, reject) => {
     const payload = body ? JSON.stringify(body) : undefined;
+    const session = deviceSessions.get(port);
+    if (session) headers = { 'X-Device-Session': session, ...(headers ?? {}) };
+
     const req = http.request(
       {
         hostname: '127.0.0.1', port, path: urlPath, method,
@@ -269,6 +288,7 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
     ]);
     insurerPort = insurerApp.getPort();
     memberPort = memberApp.getPort();
+    await unlockDevice(memberPort, TEST_PIN);
     prescriberPort = prescriberApp.getPort();
     pharmacyPort = pharmacyApp.getPort();
   }, 30_000);

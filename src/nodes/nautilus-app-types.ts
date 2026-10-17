@@ -120,6 +120,16 @@ export interface RouteRegistration {
   handler: RouteHandler;
   /** If true, requires Bearer token authentication */
   adminOnly?: boolean;
+  /**
+   * If true, requires a device session — phase A item A5, findings A-7 and MEM-H1.
+   *
+   * The member node had 31 routes and **none** of them authenticated anything. The session is
+   * issued by `/onboarding/unlock`, which since item A4 actually verifies the PIN, so holding one
+   * means "someone proved this device's PIN in this process's lifetime". That is the strongest
+   * claim a device can make about its own user without asking for the PIN on every request, which
+   * would mean the browser keeping the PIN — a worse answer.
+   */
+  deviceOnly?: boolean;
 }
 
 // ─── API Response Types ────────────────────────────────────────

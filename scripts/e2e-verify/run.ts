@@ -69,6 +69,17 @@ const bearer = { Authorization: `Bearer ${ADMIN}` };
  * there is the result we want.
  */
 const httpAdmin = makeHttp(trace, { headers: bearer });
+
+/*
+ * A5: the member node's routes now require a device session, issued by /onboarding/unlock once
+ * it has verified the PIN. `mem()` carries it. Two member endpoints stay open and are reached
+ * with the bare client on purpose: /onboarding/status, which a readiness poll needs before any
+ * session exists, and /onboarding/unlock itself.
+ */
+let memSession = '';
+const mem = (method: string, urlPath: string, body?: unknown) =>
+  http(method, `${MEM}${urlPath}`, body,
+    memSession ? { 'X-Device-Session': memSession } : {});
 const quietAdmin = makeHttp(new Trace(path.join(OUT, 'polls')), { headers: bearer });
 const RUN = Date.now().toString(36).toUpperCase();
 
@@ -263,33 +274,38 @@ async function main() {
   if (ph0 && ph0 !== 'awaiting_token' && ph0 !== 'locked') {
     trace.note(`member device holds an earlier member (phase ${ph0}); ejecting it first`);
     // A4: eject needs the PIN, proved at the moment of erasing.
+    // Bare on purpose: eject authorises on the PIN, not a session, and this runs before
+    // any unlock has happened.
     await http('POST', `${MEM}/onboarding/eject`, { pin: MEMBER.memberPin });
   }
   const unl = await http('POST', `${MEM}/onboarding/unlock`, { pin: MEMBER.memberPin });
   trace.check('Device state unlocked', unl.status < 300, '2xx', unl.json);
-  const acc = await http('POST', `${MEM}/onboarding/accept-token`, { tokenId: myToken.tokenId });
+  memSession = unwrap(unl.json)?.deviceSession ?? '';
+  trace.check('Device session issued on unlock', Boolean(memSession), 'a token', memSession ? 'issued' : unl.json);
+  trace.secret('member device session', memSession);
+  const acc = await mem('POST', '/onboarding/accept-token', { tokenId: myToken.tokenId });
   trace.check('Enrollment code accepted', acc.status < 300, '2xx', acc.json);
-  const gk = await http('POST', `${MEM}/onboarding/generate-key`, {});
+  const gk = await mem('POST', '/onboarding/generate-key', {});
   trace.check('Enrollment key generated and not returned', gk.status < 300 && !JSON.stringify(gk.json).match(/[A-Za-z0-9_-]{40,}/), 'no key in response', gk.json);
   const today = new Date().toISOString().slice(0, 10);
-  const dw = await http('POST', `${MEM}/onboarding/derive-wallet`, {
+  const dw = await mem('POST', '/onboarding/derive-wallet', {
     cardholderId: MEMBER.employeeId, dateOfBirth: MEMBER.dob, firstName: MEMBER.firstName, lastName: MEMBER.lastName,
     consentRecord: { phiDescription: 'Claim adjudication data', disclosingParty: 'Member', receivingParty: 'zpk.care network', purpose: 'E2E verification', expiration: '2027-12-31', signatureDate: today },
   });
   const walletId = unwrap(dw.json)?.walletId as string;
   trace.check('Wallet derived on the device', !!walletId, 'walletId', dw.json);
   results.memberWalletId = walletId;
-  const en = await http('POST', `${MEM}/onboarding/enroll`, { tokenPIN: myToken.tokenPIN });
+  const en = await mem('POST', '/onboarding/enroll', { tokenPIN: myToken.tokenPIN });
   trace.check('Insurer accepted the enrollment', en.status < 300 && unwrap(en.json)?.insurerNotified !== false, 'insurerNotified', en.json);
 
   trace.begin('member', 'Compile the circuit and prove registration (real ZK proof)');
   const tc = Date.now();
-  const comp = await http('POST', `${MEM}/onboarding/compile`, {});
+  const comp = await mem('POST', '/onboarding/compile', {});
   if (comp.status === 504) trace.note('compile outlasted the 30 s HTTP timeout; polling status instead of retrying');
   await poll(quiet, `${MEM}/onboarding/status`, j => ['ready', 'registered', 'registering'].includes(unwrap(j)?.phase), 600_000, 3000);
   results.memberCompileMs = Date.now() - tc;
   const tr = Date.now();
-  const reg = await http('POST', `${MEM}/proof/registration`, {});
+  const reg = await mem('POST', '/proof/registration', {});
   if (reg.status === 504) trace.note('registration proof outlasted the 30 s HTTP timeout; polling receipts');
   const regDone = await poll(quiet, `${MEM}/onboarding/status`, () => true, 1, 1);
   for (let t = Date.now(); Date.now() - t < 900_000;) {
@@ -303,7 +319,7 @@ async function main() {
   const recList = receipts.result?.receipts ?? receipts.result ?? [];
   trace.check('Sequencer issued a receipt for the registration proof', Array.isArray(recList) && recList.length > 0, '≥1 receipt', recList?.length ?? receipts);
   trace.note(`member node status after registration: ${JSON.stringify(unwrap(regDone.json))?.slice(0, 200)}`);
-  const timings = await http('GET', `${MEM}/proof-timings`);
+  const timings = await mem('GET', '/proof-timings');
   results.memberProofTimings = unwrap(timings.json);
 
   // ── 7. Open the device state and recompute the wallet ID ────

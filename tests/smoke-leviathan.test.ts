@@ -64,6 +64,20 @@ interface HttpResult {
   body: unknown;
 }
 
+/**
+ * A5 made every member-node route but unlock require a device session. These helpers attach the
+ * session for the port that issued it, so the smoke flow drives onboarding the way the app does.
+ * Keyed by port because the suite runs several nodes at once and a session is per device.
+ */
+const deviceSessions = new Map<number, string>();
+
+/** Unlock over HTTP and remember the session, which is what a member app does at startup. */
+async function unlockDevice(port: number, pin: string): Promise<void> {
+  const res = await post(port, '/onboarding/unlock', { pin });
+  const token = (res.body as { data?: { deviceSession?: string } })?.data?.deviceSession;
+  if (token) deviceSessions.set(port, token);
+}
+
 function httpRequest(
   port: number,
   method: string,
@@ -73,6 +87,11 @@ function httpRequest(
 ): Promise<HttpResult> {
   return new Promise((resolve, reject) => {
     const payload = body ? JSON.stringify(body) : undefined;
+    const session = deviceSessions.get(port);
+    const withSession: Record<string, string> = session
+      ? { 'X-Device-Session': session, ...(headers ?? {}) }
+      : { ...(headers ?? {}) };
+    headers = withSession;
     const req = http.request(
       {
         hostname: '127.0.0.1',
@@ -227,6 +246,18 @@ describe('Smoke — L2Node + 4 Nautilus Apps (HTTP routes)', () => {
     memberPort = memberApp.getPort();
     prescriberPort = prescriberApp.getPort();
     pharmacyPort = pharmacyApp.getPort();
+
+    /*
+     * A5: the member node's routes require a device session. createNautilusApp unlocks the
+     * local state object directly, which the starters also do, but a session is only issued by
+     * the unlock *route* — that is the point, since the route is what verifies the PIN. So the
+     * flow below unlocks over HTTP, exactly as the member app does at startup.
+     *
+     * Only the member node is affected: provider and insurer nodes have no unlock route and no
+     * device session, and their routes are not deviceOnly. That is a real remaining gap, owned
+     * by item B4 (providers authenticate with a FIDO2 authenticator).
+     */
+    await unlockDevice(memberPort, TEST_PIN);
   }, 30_000);
 
   // ── Teardown ───────────────────────────────────────────

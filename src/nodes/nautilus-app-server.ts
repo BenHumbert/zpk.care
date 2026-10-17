@@ -40,7 +40,7 @@ import http from 'http';
 import https from 'https';
 import fs from 'fs';
 import path from 'path';
-import { timingSafeEqual, createHash, createPublicKey, verify as ed25519Verify } from 'crypto';
+import { timingSafeEqual, createHash, createPublicKey, verify as ed25519Verify, randomBytes } from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { EntityNodeBase } from './entity-node-base.js';
 import type { L2EventHandler, L2ChainEvent } from '../l2/l2-node.js';
@@ -71,6 +71,7 @@ interface CompiledRoute {
   paramNames: string[];
   handler: RouteHandler;
   adminOnly: boolean;
+  deviceOnly: boolean;
 }
 
 /** Compile a path like '/drugs/medication/:ndcHash' into a regex */
@@ -86,6 +87,7 @@ function compileRoute(reg: RouteRegistration): CompiledRoute {
     paramNames,
     handler: reg.handler,
     adminOnly: reg.adminOnly ?? false,
+    deviceOnly: reg.deviceOnly ?? false,
   };
 }
 
@@ -215,6 +217,61 @@ export class NautilusAppServer {
       this.config.authorizedClientKeys = new Map();
     }
     this.config.authorizedClientKeys.set(clientId, publicKeyHex);
+  }
+
+  // ─── Device session (A5) ──────────────────────────────────
+
+  /*
+   * The member node had 31 routes and none of them authenticated anything, which is MEM-H1 and
+   * the local half of A-7. Anything that could reach the port could read the member's drug
+   * history, send messages as them, assign their doctor or read their receipts.
+   *
+   * A device session is the answer rather than a per-request PIN. Since item A4, unlocking
+   * actually verifies the PIN, so a session issued at unlock carries a real claim: someone proved
+   * this device's PIN during this process's life. Requiring the PIN on every request would mean
+   * the browser holding the PIN, which is strictly worse.
+   *
+   * What this is **not**. It is a local session on a loopback-bound node, so it defends the member
+   * against software on their own machine and against anything that slips past the bind, not
+   * against someone holding the unlocked phone. It also says nothing to the *sequencer*: the
+   * sequencer's own open reads are A-2, and item D1 is what fixes those.
+   */
+  private deviceSession: { token: string; expiresAt: number } | null = null;
+
+  /** How long a session lasts without being renewed. */
+  private static readonly DEVICE_SESSION_TTL_MS = 60 * 60_000;
+
+  /** Issue a session. Called only after the PIN has been verified. */
+  issueDeviceSession(): { token: string; expiresInMs: number } {
+    const token = randomBytes(32).toString('base64url');
+    const ttl = NautilusAppServer.DEVICE_SESSION_TTL_MS;
+    this.deviceSession = { token, expiresAt: Date.now() + ttl };
+    return { token, expiresInMs: ttl };
+  }
+
+  /** Drop the session. Called when the device locks or is ejected. */
+  clearDeviceSession(): void {
+    this.deviceSession = null;
+  }
+
+  /** Whether a request carries this device's current session. */
+  checkDeviceAuth(req: IncomingMessage): boolean {
+    const session = this.deviceSession;
+    if (!session) return false;
+    if (Date.now() > session.expiresAt) {
+      this.deviceSession = null;
+      return false;
+    }
+    const header = (req.headers['x-device-session'] as string | undefined) ?? '';
+    const presented = header || (() => {
+      const auth = (req.headers['authorization'] as string | undefined) ?? '';
+      return auth.startsWith('Device ') ? auth.slice('Device '.length) : '';
+    })();
+    if (!presented) return false;
+    const a = Buffer.from(presented);
+    const b = Buffer.from(session.token);
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(a, b);
   }
 
   /**
@@ -362,11 +419,11 @@ export class NautilusAppServer {
     // ── Built-in routes ──
 
     if (pathname === '/health' && method === 'GET') {
-      return this.handleHealth(res);
+      return this.handleHealth(req, res);
     }
 
     if (pathname === '/onboarding/status' && method === 'GET') {
-      return this.handleOnboardingStatus(res);
+      return this.handleOnboardingStatus(req, res);
     }
 
     if (pathname === '/events' && method === 'GET') {
@@ -392,6 +449,15 @@ export class NautilusAppServer {
       if (route.adminOnly) {
         if (!this.checkNautilusAdminAuth(req, method, pathname)) {
           return this.sendResponse(res, 401, false, undefined, 'Unauthorized');
+        }
+      }
+
+      // A5: device session. Admin auth also satisfies it, so an operator tool with the node's
+      // own credential is not locked out of its own routes.
+      if (route.deviceOnly && !this.checkDeviceAuth(req)) {
+        if (!this.checkNautilusAdminAuth(req, method, pathname)) {
+          return this.sendResponse(res, 401, false, undefined,
+            'This device is locked. Unlock with your PIN to obtain a device session.');
         }
       }
 
@@ -476,12 +542,34 @@ export class NautilusAppServer {
 
   // ─── Built-in Endpoints ───────────────────────────────────
 
-  private handleHealth(res: ServerResponse): void {
+  /*
+   * `/health` and `/onboarding/status` stay open, because a readiness probe and the app's own
+   * onboarding screen both need them before any session exists. What changes (A5, MEM-H1) is that
+   * they no longer hand out the member's **wallet ID**, or the enrollment token, to a caller that
+   * has proved nothing.
+   *
+   * The wallet ID was the first link in a drive-by chain: `GET /health` gave it up, and the
+   * sequencer's open reads turned it into the member's drug history, costs and message metadata.
+   * A2 narrowed the proxy that made that reachable from a web page, but the identifier itself was
+   * still free, and the sequencer's reads are still open until item D1.
+   *
+   * Both endpoints now disclose identity **only to a request carrying this device's session**, so
+   * the member's own app sees everything it did before and an unauthenticated caller learns the
+   * role, the phase and the uptime — enough to answer "is this node up and how far through
+   * onboarding is it", which is all a probe needs.
+   */
+  private handleHealth(req: IncomingMessage, res: ServerResponse): void {
+    const identified = this.checkDeviceAuth(req) || this.checkNautilusAdminAuth(req, 'GET', '/health');
     const health: NautilusHealthResponse = {
       role: this.config.role,
       phase: this.onboardingPhase,
       sequencerConnected: this.entityNode !== null,
-      walletId: this.entityNode?.getWalletId(),
+      // Same source as /onboarding/status. These disagreed before: health read the entity node
+      // while status read local state, so a device that had derived a wallet but not yet built
+      // its node reported one and not the other.
+      ...(identified
+        ? { walletId: this.localState.getState()?.walletId ?? this.entityNode?.getWalletId() }
+        : {}),
       displayName: this.config.displayName,
       uptime: this.startTime > 0 ? Date.now() - this.startTime : 0,
       tls: this.tls,
@@ -492,8 +580,21 @@ export class NautilusAppServer {
     this.sendResponse(res, 200, true, health);
   }
 
-  private handleOnboardingStatus(res: ServerResponse): void {
+  private handleOnboardingStatus(req: IncomingMessage, res: ServerResponse): void {
     const state = this.localState.getState();
+    const identified = this.checkDeviceAuth(req)
+      || this.checkNautilusAdminAuth(req, 'GET', '/onboarding/status');
+
+    if (!identified) {
+      // Phase only. `state.onboarding` carries `tokenData` with the enrollment token, group and
+      // plan, which is the employer linkage rule I6 exists to prevent leaking.
+      return this.sendResponse(res, 200, true, {
+        phase: this.onboardingPhase,
+        onboarding: { phase: state?.onboarding?.phase ?? this.onboardingPhase },
+        role: this.config.role,
+      });
+    }
+
     this.sendResponse(res, 200, true, {
       phase: this.onboardingPhase,
       onboarding: state?.onboarding ?? { phase: this.onboardingPhase },

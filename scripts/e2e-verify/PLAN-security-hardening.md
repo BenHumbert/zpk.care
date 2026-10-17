@@ -286,6 +286,77 @@ LAN address refuses; an allowlisted browser origin is echoed back exactly; a for
 header at all; a node's `/rpc` is refused. A port that is not listening is reported as skipped, never
 as a pass, because a closed port proves nothing about the policy it would have applied.
 
+**A5 implementation record.** Done 2026-10-17.
+
+*The shape of the problem.* The member node had 29 routes and **none of them authenticated
+anything**. Anything that could reach the port could read the member's drug history and receipts,
+send messages as them, assign their doctor, or mint their NFC identity payload. `GET /health`
+additionally handed out the wallet ID, and `/onboarding/status` handed out the wallet ID plus the
+enrollment token, group and plan. That identifier is the first link in the chain the audit
+described: read it here, then ask the sequencer for that wallet's claims.
+
+*A device session, not a per-request PIN.* The session is issued by `/onboarding/unlock`, which
+since item A4 actually verifies the PIN against the encrypted state, so holding one means somebody
+proved this device's PIN during this process's life. Requiring the PIN on every request would mean
+the browser keeping the PIN, which is strictly worse. 27 of 29 routes now carry `deviceOnly`.
+
+*The two that do not, and why.* `/onboarding/unlock` is open because it is what issues the
+session. `/onboarding/eject` authorises on the **PIN** instead, which is strictly stronger than
+holding a session a PIN once produced; requiring both would mean a member who knows their PIN
+cannot wipe a device whose session expired without unlocking first, which is a two-step for no
+gain. An admin credential also satisfies `deviceOnly`, so an operator tool is not locked out of
+the node it administers.
+
+*Conditional disclosure rather than a new route.* `/health` and `/onboarding/status` stay open,
+because a readiness probe and the app's own pre-unlock onboarding screen both need them before any
+session exists. What changed is that they disclose identity **only** to a request carrying the
+session. An unauthenticated caller gets the role, the phase and the uptime — enough to answer "is
+this node up and how far through onboarding is it", which is all a probe needs. This also fixed an
+inconsistency: health read the wallet ID from the entity node while status read it from local
+state, so a device that had derived a wallet but not yet built its node reported one and not the
+other.
+
+*The app needed real work, not just a header.* Three things, and the second is the one that would
+have made the product look broken:
+
+- Same-origin requests carry the session; requests to the sequencer, insurer or prover
+  deliberately do **not**, because handing this node's session to another party is the credential
+  leak the item exists to prevent. The cross-origin NFC write was left on plain headers for
+  exactly that reason.
+- **The app reloaded straight into the dashboard** on the strength of a wallet ID in
+  `localStorage`, which is not a credential and never was — anyone with the browser profile had
+  it. After this change every request from that state would have returned 401 and the app would
+  have looked dead. The reload path now asks for the PIN, which is what a locked device should do.
+- A session lasts an hour, so one can expire mid-use. The node answers 401 and the app now asks
+  for the PIN again rather than showing an unexplained failure forever.
+
+*What this is not, stated so nobody reads more into it.* It is a local session on a loopback-bound
+node, so it defends the member against software on their own machine and against anything that
+slips past the bind. It does not defend against a person holding the unlocked phone. And it says
+nothing to the **sequencer**, whose own reads remain open: that is A-2, and item D1 is the fix.
+**The provider and insurer nodes are still fully open** — they have no unlock route and so no
+session, and their credential story is a FIDO2 authenticator under item B4. That is a real
+remaining gap and it is recorded here rather than implied to be closed.
+
+*Four test suites had to learn the session, which is itself the proof the gate is real.*
+`key-custody`, `smoke-leviathan`, `smoke-e2e` and `production-showcase` all drive member
+onboarding over HTTP and all started failing with 401s. Each now unlocks over HTTP and carries the
+token, exactly as the app does. Both e2e harnesses gained a `mem()` wrapper that attaches it, with
+`/onboarding/status`, `/onboarding/unlock` and `/onboarding/eject` deliberately called bare.
+
+*Acceptance test.* `tests/device-session.test.ts`, 34 tests. Every route family is probed without a
+session and must refuse; the session then opens them; a wrong session, and a session from another
+device, are refused; unlocking again rotates the token and the old one stops working; the open
+endpoints disclose nothing to a caller that proved nothing and everything to the device; an
+operator bearer works but **still cannot produce the wallet ID while the device is locked**,
+because identity lives behind the PIN and not behind the authorisation check; and eject takes the
+PIN rather than a session. The last test is structural: it reads the route table and asserts that
+the only routes without `deviceOnly` are unlock and eject, so a new route added without the flag
+fails here instead of shipping open.
+
+*Regression baselines, all matched exactly after the suites were taught the session:*
+`smoke-leviathan` 14 of 46, `smoke-e2e` 32 of 65.
+
 **A11 implementation record.** Done 2026-10-17.
 
 *Six routes, one Set.* `interactive-routes.ts` already had a `reg()` helper that applies

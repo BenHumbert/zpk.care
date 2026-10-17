@@ -68,18 +68,36 @@ async function makeTempDir(prefix: string): Promise<string> {
 
 interface HttpResult { status: number; body: unknown }
 
+/**
+ * A5 made every member route but unlock require a device session, so these tests obtain one the
+ * way the app does and carry it. `deviceSession` is set by the describes that need it.
+ */
+let deviceSession = '';
+
+/** Unlock over HTTP and keep the session, which is what the member app does at startup. */
+async function obtainDeviceSession(port: number): Promise<void> {
+  const res = await request(port, 'POST', '/onboarding/unlock', { pin: TEST_PIN });
+  const data = (res.body as { data?: { deviceSession?: string } }).data;
+  deviceSession = data?.deviceSession ?? '';
+  expect(deviceSession.length).toBeGreaterThan(0);
+}
+
 function request(port: number, method: string, urlPath: string, body?: unknown): Promise<HttpResult> {
   return new Promise((resolve, reject) => {
     const payload = body === undefined ? undefined : JSON.stringify(body);
+    const headers: Record<string, string> = {};
+    if (payload) {
+      headers['Content-Type'] = 'application/json';
+      headers['Content-Length'] = String(Buffer.byteLength(payload));
+    }
+    if (deviceSession) headers['X-Device-Session'] = deviceSession;
     const req = http.request(
       {
         hostname: '127.0.0.1', port, path: urlPath, method,
         // No keep-alive: a pooled socket on the global agent keeps the event loop open and
         // leaves jest hanging after the assertions have all passed.
         agent: false,
-        headers: payload
-          ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
-          : {},
+        headers,
       },
       (res) => {
         let data = '';
@@ -173,6 +191,9 @@ describe('generate-key ignores a key supplied by the caller', () => {
     server.registerRoutes(buildMemberRoutes(server));
     await server.start();
     port = server.getPort();
+    // A5: the member routes require a device session; get one the way the app does.
+    deviceSession = '';
+    await obtainDeviceSession(port);
   });
 
   afterAll(async () => { await server.stop(); });
@@ -290,6 +311,9 @@ describe('a device can set its own key in-process, and the wallet follows it', (
     server.registerRoutes(buildMemberRoutes(server));
     await server.start();
     port = server.getPort();
+    // A5: the member routes require a device session; get one the way the app does.
+    deviceSession = '';
+    await obtainDeviceSession(port);
   });
 
   afterAll(async () => { await server.stop(); });

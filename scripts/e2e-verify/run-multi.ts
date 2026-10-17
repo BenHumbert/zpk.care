@@ -162,28 +162,40 @@ type Person = { key: string; employer: string; port: number; employeeId: string;
 async function enrollMember(p: Person, token: { tokenId: string; tokenPIN: string }, groupId: string) {
   const { t, http } = lane(`member-${p.key}`);
   const MEM = `http://localhost:${p.port}`;
+  /*
+   * A5: this device's routes require a session, issued by unlock once it has verified the PIN.
+   * `mem()` carries it. /onboarding/status and /onboarding/unlock stay open, and eject
+   * authorises on the PIN rather than a session, so those three are called bare.
+   */
+  let memSession = '';
+  const mem = (method: string, urlPath: string, body?: unknown) =>
+    http(method, `${MEM}${urlPath}`, body,
+      memSession ? { 'X-Device-Session': memSession } : {});
   const stateDir = p.port === 4001 ? path.join(REPO, 'nautilus-data') : path.join(DEVICES, `member-${p.port}`);
   t.begin(`member ${p.key}`, `Enroll ${p.firstName} ${p.lastName} on device :${p.port}`);
   t.secret('device PIN', p.pin);
   const ph0 = unwrap((await http('GET', `${MEM}/onboarding/status`)).json)?.phase;
   // A4: eject needs the PIN, proved at the moment of erasing.
   if (ph0 && ph0 !== 'awaiting_token' && ph0 !== 'locked') await http('POST', `${MEM}/onboarding/eject`, { pin: p.pin });
-  t.check('Device unlocked', (await http('POST', `${MEM}/onboarding/unlock`, { pin: p.pin })).status < 300, '2xx', 'unlock');
-  t.check('Code accepted', (await http('POST', `${MEM}/onboarding/accept-token`, { tokenId: token.tokenId })).status < 300, '2xx', 'accept-token');
-  t.check('Enrollment key generated on the device', (await http('POST', `${MEM}/onboarding/generate-key`, {})).status < 300, '2xx', 'generate-key');
+  const unl = await http('POST', `${MEM}/onboarding/unlock`, { pin: p.pin });
+  t.check('Device unlocked', unl.status < 300, '2xx', 'unlock');
+  memSession = unwrap(unl.json)?.deviceSession ?? '';
+  t.check('Device session issued on unlock', Boolean(memSession), 'a token', memSession ? 'issued' : unl.json);
+  t.check('Code accepted', (await mem('POST', '/onboarding/accept-token', { tokenId: token.tokenId })).status < 300, '2xx', 'accept-token');
+  t.check('Enrollment key generated on the device', (await mem('POST', '/onboarding/generate-key', {})).status < 300, '2xx', 'generate-key');
   const today = new Date().toISOString().slice(0, 10);
-  const dw = await http('POST', `${MEM}/onboarding/derive-wallet`, {
+  const dw = await mem('POST', '/onboarding/derive-wallet', {
     cardholderId: p.employeeId, dateOfBirth: p.dob, firstName: p.firstName, lastName: p.lastName,
     consentRecord: { phiDescription: 'Claim adjudication data', disclosingParty: 'Member', receivingParty: 'zpk.care network', purpose: 'E2E verification', expiration: '2027-12-31', signatureDate: today },
   });
   const walletId = unwrap(dw.json)?.walletId as string;
   t.check('Wallet derived', !!walletId, 'walletId', dw.json);
-  const en = await http('POST', `${MEM}/onboarding/enroll`, { tokenPIN: token.tokenPIN });
+  const en = await mem('POST', '/onboarding/enroll', { tokenPIN: token.tokenPIN });
   t.check('Insurer accepted the enrollment', en.status < 300, '2xx', en.json);
   const t0 = Date.now();
-  await http('POST', `${MEM}/onboarding/compile`, {});
+  await mem('POST', '/onboarding/compile', {});
   await poll(quiet, `${MEM}/onboarding/status`, j => unwrap(j)?.phase === 'ready', 600_000, 3000);
-  const reg = await http('POST', `${MEM}/proof/registration`, {});
+  const reg = await mem('POST', '/proof/registration', {});
   // The route may outlast the 30 s HTTP timeout; wait for the receipt and the adjudication registration.
   let registered = false;
   for (const start = Date.now(); Date.now() - start < 900_000;) {

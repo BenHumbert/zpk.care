@@ -95,7 +95,15 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
           }
           throw err;
         }
-        return server.sendResponse(res, 200, true, { unlocked: true, alreadyUnlocked: true });
+        // A fresh session even when already unlocked: the PIN was just proved, and the caller
+        // may be a new client that has none.
+        const session = server.issueDeviceSession();
+        return server.sendResponse(res, 200, true, {
+          unlocked: true,
+          alreadyUnlocked: true,
+          deviceSession: session.token,
+          expiresInMs: session.expiresInMs,
+        });
       }
 
       try {
@@ -111,7 +119,14 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
           };
           await state.save(initialState);
         }
-        server.sendResponse(res, 200, true, { unlocked: true });
+        // A5: the session the rest of this node's routes require. Issued only here, and only
+        // after unlock() has verified the PIN against the encrypted state (A4).
+        const session = server.issueDeviceSession();
+        server.sendResponse(res, 200, true, {
+          unlocked: true,
+          deviceSession: session.token,
+          expiresInMs: session.expiresInMs,
+        });
       } catch (err: unknown) {
         /*
          * A4: a failed unlock leaves the device locked, and the failure is counted.
@@ -136,6 +151,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'POST',
     path: '/onboarding/accept-token',
+    deviceOnly: true,
     handler: async (_req, res, _params, _query, body) => {
       if (server.getOnboardingPhase() !== 'awaiting_token') {
         return server.sendResponse(res, 409, false, undefined, `Cannot accept token in phase: ${server.getOnboardingPhase()}`);
@@ -169,6 +185,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'POST',
     path: '/onboarding/generate-key',
+    deviceOnly: true,
     handler: async (_req, res, _params, _query, body) => {
       if (server.getOnboardingPhase() !== 'token_received') {
         return server.sendResponse(res, 409, false, undefined, `Cannot generate key in phase: ${server.getOnboardingPhase()}`);
@@ -209,6 +226,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'POST',
     path: '/onboarding/derive-wallet',
+    deviceOnly: true,
     handler: async (_req, res, _params, _query, body) => {
       if (server.getOnboardingPhase() !== 'key_generated') {
         return server.sendResponse(res, 409, false, undefined, `Cannot derive wallet in phase: ${server.getOnboardingPhase()}`);
@@ -314,6 +332,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'POST',
     path: '/onboarding/enroll',
+    deviceOnly: true,
     handler: async (_req, res, _params, _query, body) => {
       if (server.getOnboardingPhase() !== 'wallet_derived') {
         return server.sendResponse(res, 409, false, undefined, `Cannot enroll in phase: ${server.getOnboardingPhase()}`);
@@ -493,6 +512,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'POST',
     path: '/onboarding/compile',
+    deviceOnly: true,
     handler: async (_req, res, _params, _query, _body) => {
       if (server.getOnboardingPhase() !== 'enrolled') {
         return server.sendResponse(res, 409, false, undefined, `Cannot compile in phase: ${server.getOnboardingPhase()}`);
@@ -524,6 +544,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'POST',
     path: '/proof/registration',
+    deviceOnly: true,
     handler: async (_req, res, _params, _query, _body) => {
       if (server.getOnboardingPhase() !== 'ready') {
         return server.sendResponse(res, 409, false, undefined, `Cannot generate proof in phase: ${server.getOnboardingPhase()}`);
@@ -656,6 +677,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'GET',
     path: '/drugs',
+    deviceOnly: true,
     handler: async (_req, res, _params, _query, _body) => {
       const node = server.getEntityNode() as MemberNode | null;
       if (!node) {
@@ -673,6 +695,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'GET',
     path: '/drugs/summary',
+    deviceOnly: true,
     handler: async (_req, res, _params, _query, _body) => {
       const node = server.getEntityNode() as MemberNode | null;
       if (!node) {
@@ -690,6 +713,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'GET',
     path: '/drugs/range',
+    deviceOnly: true,
     handler: async (_req, res, _params, query, _body) => {
       const node = server.getEntityNode() as MemberNode | null;
       if (!node) {
@@ -712,6 +736,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'GET',
     path: '/drugs/medication/:ndcHash',
+    deviceOnly: true,
     handler: async (_req, res, params, _query, _body) => {
       const node = server.getEntityNode() as MemberNode | null;
       if (!node) {
@@ -729,6 +754,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'GET',
     path: '/drugs/claim/:leafIndex',
+    deviceOnly: true,
     handler: async (_req, res, params, _query, _body) => {
       const node = server.getEntityNode() as MemberNode | null;
       if (!node) {
@@ -749,6 +775,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'GET',
     path: '/drugs/tree-status',
+    deviceOnly: true,
     handler: async (_req, res, _params, _query, _body) => {
       const node = server.getEntityNode() as MemberNode | null;
       if (!node) {
@@ -768,6 +795,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'GET',
     path: '/receipts',
+    deviceOnly: true,
     handler: async (_req, res, _params, _query, _body) => {
       const node = server.getEntityNode() as MemberNode | null;
       if (!node) {
@@ -787,6 +815,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'GET',
     path: '/formulary/:planIdHash',
+    deviceOnly: true,
     handler: async (_req, res, params, _query, _body) => {
       const node = server.getEntityNode() as MemberNode | null;
       if (!node) {
@@ -805,6 +834,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'GET',
     path: '/formulary-page',
+    deviceOnly: true,
     handler: async (_req, res, _params, query) => {
       try {
         const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
@@ -833,6 +863,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'GET',
     path: '/formulary-drug-count',
+    deviceOnly: true,
     handler: async (_req, res) => {
       try {
         const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
@@ -855,6 +886,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'POST',
     path: '/pcp/assign',
+    deviceOnly: true,
     handler: async (_req, res, _params, _query, body) => {
       const node = server.getEntityNode() as MemberNode | null;
       if (!node) {
@@ -926,6 +958,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'GET',
     path: '/pcp/current',
+    deviceOnly: true,
     handler: async (_req, res, _params, _query, _body) => {
       // Return PCP info from local state if available
       const data = server.getLocalState().getState();
@@ -937,6 +970,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'DELETE',
     path: '/pcp/current',
+    deviceOnly: true,
     handler: async (_req, res) => {
       try {
         const localState = server.getLocalState();
@@ -960,6 +994,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'POST',
     path: '/proof/pcp-assignment',
+    deviceOnly: true,
     handler: async (_req, res, _params, _query, _body) => {
       if (server.getOnboardingPhase() !== 'ready') {
         return server.sendResponse(res, 409, false, undefined, `Cannot generate proof in phase: ${server.getOnboardingPhase()}`);
@@ -1127,6 +1162,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'GET',
     path: '/nfc/id-payload',
+    deviceOnly: true,
     handler: async (_req, res, _params, _query, _body) => {
       const data = server.getLocalState().getState();
       if (!data?.walletId) {
@@ -1153,6 +1189,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'GET',
     path: '/nfc/id-qr',
+    deviceOnly: true,
     handler: async (_req, res, _params, _query, _body) => {
       const data = server.getLocalState().getState();
       if (!data?.walletId) {
@@ -1173,6 +1210,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'GET',
     path: '/proof-timings',
+    deviceOnly: true,
     handler: async (_req, res, _params, _query, _body) => {
       const node = server.getEntityNode() as MemberNode | null;
       if (!node) {
@@ -1189,6 +1227,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'POST',
     path: '/messaging/send',
+    deviceOnly: true,
     handler: async (_req, res, _params, _query, body) => {
       const node = server.getEntityNode() as MemberNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
@@ -1282,6 +1321,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'GET',
     path: '/messaging/inbox',
+    deviceOnly: true,
     handler: async (_req, res) => {
       const node = server.getEntityNode() as MemberNode | null;
       if (!node) {
@@ -1298,6 +1338,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'GET',
     path: '/messaging/sent',
+    deviceOnly: true,
     handler: async (_req, res) => {
       const node = server.getEntityNode() as MemberNode | null;
       if (!node) {
@@ -1314,6 +1355,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'GET',
     path: '/messaging/thread/:threadIdHash',
+    deviceOnly: true,
     handler: async (_req, res, params) => {
       const node = server.getEntityNode() as MemberNode | null;
       if (!node) {
@@ -1342,6 +1384,12 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'POST',
     path: '/onboarding/eject',
+    /*
+     * Deliberately NOT deviceOnly. This route verifies the PIN itself (A4), which is strictly
+     * stronger than holding a session that a PIN once produced. Requiring both would mean a
+     * member who knows their PIN cannot wipe a device whose session has expired without first
+     * unlocking it, which is a two-step for no gain. The PIN is the authorisation here.
+     */
     handler: async (_req, res, _params, _query, body) => {
       const state = server.getLocalState();
       if (!state) {
@@ -1387,6 +1435,8 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
 
         // 2. Clear in-memory state (enrollment key, derived key, etc.)
         state.lock();
+        // A5: and the device session, which outlived the state it authorised access to.
+        server.clearDeviceSession();
 
         // 3. Reset the phase BEFORE clearing the node — if setEntityNode
         //    throws, at least the phase is correct for the next request.

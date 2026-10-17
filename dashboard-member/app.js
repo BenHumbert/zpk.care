@@ -171,9 +171,55 @@
     if (isEnrolled()) {
       walletId = lsGet(LS.WALLET_ID);
       enrollmentKey = lsGet(LS.ENROLL_KEY);
-      enterApp();
+      /*
+       * A5: an enrolled device still has to be unlocked before the app can do anything.
+       *
+       * The session lives in memory in this page, so a reload has none, and every route but
+       * unlock now refuses without one. Before this the app went straight to the dashboard on
+       * the strength of a wallet ID in localStorage, which is not a credential and never was:
+       * anyone with the browser profile had it. So the reload path asks for the PIN, which is
+       * what a locked device should do.
+       */
+      unlockThenEnter();
     } else {
       showScreen('landing-screen');
+    }
+  }
+
+  /**
+   * Ask for the PIN, obtain a device session, then open the app. Used on reload and whenever a
+   * request comes back unauthorised because the session expired.
+   */
+  async function unlockThenEnter(reason) {
+    var message = reason
+      ? reason + String.fromCharCode(10) + String.fromCharCode(10) + 'Enter your device PIN:'
+      : 'Enter your device PIN to unlock this device:';
+    for (;;) {
+      var pin = prompt(message);
+      if (!pin) { showScreen('landing-screen'); return false; }
+      try {
+        var r = await fetch(location.origin + '/onboarding/unlock', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: pin }),
+        });
+        var j = await r.json();
+        if (j.ok) {
+          RPC.setDeviceSession((j.data && j.data.deviceSession) || '');
+          enterApp();
+          return true;
+        }
+        if (r.status === 429) {
+          var wait = r.headers.get('Retry-After');
+          message = 'Too many incorrect attempts. Wait ' + (wait || 'a moment') +
+            ' seconds, then enter your PIN:';
+        } else {
+          message = 'Incorrect PIN. Try again:';
+        }
+      } catch (e) {
+        toast('Could not reach this device: ' + e.message, 'error');
+        showScreen('landing-screen');
+        return false;
+      }
     }
   }
 
@@ -185,7 +231,7 @@
     // Fetch PCP and plan info from server (not localStorage)
     RPC.getCurrentPcp().then(function (pcp) { pcpData = pcp; }).catch(function () {});
     // Fetch onboarding status to get planIdHash
-    fetch(location.origin + '/onboarding/status', { headers: { 'Content-Type': 'application/json' } })
+    fetch(location.origin + '/onboarding/status', { headers: RPC.deviceHeaders() })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         var data = j.data || j;
@@ -197,6 +243,11 @@
     // Router
     var hash = location.hash.replace('#', '') || 'dashboard';
     navigate(hash);
+
+    // A5: if the session expires mid-use, ask for the PIN rather than failing silently.
+    RPC.setDeviceLockedHandler(function () {
+      unlockThenEnter('Your device session expired.');
+    });
 
     // SSE
     RPC.connectSSE(function (ev) { handleSSE(ev); });
@@ -273,7 +324,7 @@
 
     try {
       var resp = await fetch(location.origin + '/onboarding/eject', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: RPC.deviceHeaders(),
         body: JSON.stringify({ pin: pin }),
       });
       var data = await resp.json();
@@ -357,10 +408,15 @@
           if (pin !== confirm) { toast('PINs do not match', 'error'); return; }
           onboardState.pin = pin;
           try {
+            // A5: unlock is the only open route on this node, and it is what issues the session
+            // the other twenty-eight require. Capture it or nothing afterwards works.
             await fetch(location.origin + '/onboarding/unlock', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ pin: pin }),
-            }).then(function (r) { return r.json(); }).then(function (j) { if (!j.ok) throw new Error(errMsg(j.error) || 'Unlock failed'); });
+            }).then(function (r) { return r.json(); }).then(function (j) {
+              if (!j.ok) throw new Error(errMsg(j.error) || 'Unlock failed');
+              RPC.setDeviceSession((j.data && j.data.deviceSession) || '');
+            });
           } catch (e) { toast('Unlock error: ' + e.message, 'error'); return; }
           onboardStep = 1;
           renderOnboardStep();
@@ -388,7 +444,7 @@
           onboardState.enrollPIN = pin;
           try {
             await fetch(location.origin + '/onboarding/accept-token', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              method: 'POST', headers: RPC.deviceHeaders(),
               body: JSON.stringify({ tokenId: v }),
             }).then(function (r) { return r.json(); }).then(function (j) { if (!j.ok) throw new Error(errMsg(j.error) || 'Failed'); });
           } catch (e) { toast('Token error: ' + e.message, 'error'); return; }
@@ -505,7 +561,7 @@
       // Step 1: Generate enrollment key on the server (Nautilus local state)
       if ($('ob-keygen-msg')) $('ob-keygen-msg').textContent = 'Generating enrollment key on device...';
       var keyRes = await fetch(location.origin + '/onboarding/generate-key', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: RPC.deviceHeaders(),
         body: JSON.stringify({}),
       }).then(function (r) { return r.json(); });
       if (!keyRes.ok) throw new Error(errMsg(keyRes.error) || 'Key generation failed');
@@ -514,7 +570,7 @@
       if ($('ob-keygen-msg')) $('ob-keygen-msg').textContent = 'Deriving wallet ID (Poseidon hash)...';
       var today = new Date().toISOString().split('T')[0];
       var deriveRes = await fetch(location.origin + '/onboarding/derive-wallet', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: RPC.deviceHeaders(),
         body: JSON.stringify({
           cardholderId: onboardState.cardholderId,
           dateOfBirth: onboardState.dob,
@@ -554,7 +610,7 @@
       onboardState.statusMessage = 'Enrolling with insurer...';
       if ($('ob-enroll-msg')) $('ob-enroll-msg').textContent = onboardState.statusMessage;
       var enrollRes = await fetch(location.origin + '/onboarding/enroll', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: RPC.deviceHeaders(),
         body: JSON.stringify({ tokenPIN: onboardState.enrollPIN || undefined }),
       }).then(function (r) { return r.json(); });
       if (!enrollRes.ok) throw new Error(errMsg(enrollRes.error) || 'Enrollment failed');
@@ -564,7 +620,7 @@
       onboardState.statusMessage = 'Compiling ZK programs...';
       if ($('ob-enroll-msg')) $('ob-enroll-msg').textContent = onboardState.statusMessage;
       var compileRes = await fetch(location.origin + '/onboarding/compile', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: RPC.deviceHeaders(),
         body: JSON.stringify({}),
       }).then(function (r) { return r.json(); });
       if (!compileRes.ok) {
@@ -578,7 +634,7 @@
       onboardState.statusMessage = 'Generating zero-knowledge registration proof (this may take 30-120s)...';
       if ($('ob-enroll-msg')) $('ob-enroll-msg').textContent = onboardState.statusMessage;
       var proofRes = await fetch(location.origin + '/proof/registration', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: RPC.deviceHeaders(),
         body: JSON.stringify({}),
       }).then(function (r) { return r.json(); });
       if (!proofRes.ok) {
@@ -1200,7 +1256,7 @@
     // Step 2: Generate wallet update proof (commits PCP to MEMBER tree on-chain)
     try {
       var proofRes = await fetch(location.origin + '/proof/pcp-assignment', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: RPC.deviceHeaders(),
         body: JSON.stringify({}),
       }).then(function (r) { return r.json(); });
       if (proofRes.ok) {
