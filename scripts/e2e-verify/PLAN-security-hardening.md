@@ -286,6 +286,61 @@ LAN address refuses; an allowlisted browser origin is echoed back exactly; a for
 header at all; a node's `/rpc` is refused. A port that is not listening is reported as skipped, never
 as a pass, because a closed port proves nothing about the policy it would have applied.
 
+**A10, first half: who signed it.** Done 2026-10-17. Closes the forgery in A-12.
+
+*The finding leads with the wrong detail.* A-12 says the attestation key derives from the public
+literal `zkpcare-attestation-authority-seed`, so anyone with the source can sign. True, and bad.
+But `verifyAttestation` verified against **`att.pk`, the public key carried inside the attestation
+itself**, which means forging needed no seed and no secret at all: generate a keypair, sign an
+attestation naming any wallet, embed your own public key, and it comes back valid. The pharmacy's
+`/nfc/scan` then displayed that wallet as a verified member. A signature is only evidence if you
+already know whose signature it should be.
+
+*The fix.* `verifyAttestation(att, expectedPublicKeyHex)` now takes the key the **verifier**
+trusts, compares it to the claimed key in constant time before touching the signature, and
+**refuses when it has none** — no default, no fallback. Making the parameter required was
+deliberate: the compiler then found every call site, which is how the five in the pharmacy's scan
+handler were all updated rather than four of them.
+
+*Where a pharmacy gets the key.* It asks the sequencer once, via `l2_getAttestationPublicKey`, and
+pins it for the process. A counter that cannot obtain it **refuses to verify** rather than falling
+back to trusting the tag. That is a deliberate availability cost and it is the right failure for a
+credential check. Offline verification still works for as long as the key is cached, which is what
+the design intends: the tag is checked against a key the pharmacy already holds, not against
+itself.
+
+*Two things this does not fix, stated rather than implied.*
+
+- **`l2_requestAttestation` is still open**, so the sequencer will sign for any wallet it knows if
+  asked. An attacker no longer forges one, but can still *request* one. Closing that needs proof
+  that the caller owns the wallet, which is the same machinery as item D1, so it stays with the
+  second half of A10.
+- **The signing keys are still weak.** The engine's authority derives from the public literal seed,
+  and the node's derives from the gossip secret, which every child process inherits (BOOT-05).
+  Pinning means a forger must now use the *real* key, and both of those keys are obtainable.
+
+*A third finding this turned up: A-29.* The employer onboarding path has the identical flaw.
+`verifyEmployerSignature` and `verifyInsurerSignature` pass `att.publicKeyHex` and
+`att.insurerPublicKeyHex` into the verifier, so an employer attestation carries its own trust
+anchor and anyone can produce one that verifies. A10 fixed the NFC side only. The insurer's key
+should come from its own configuration and the employer's from the approved application record,
+both of which the insurer already holds.
+
+*Another gap in the typecheck, found the same way as A8's.* `visualizer/` is not in the main
+tsconfig's `include` either, so the engine's caller of this function compiled without complaint
+while passing nothing. It failed closed, which is the design working, but it would have silently
+broken the engine's own verification. Measured for the record: **44 type errors in
+`visualizer/engine`**, alongside 39 in `tests/` and 2 in `scripts/`. Driving those to zero is its
+own task; what matters here is that the numbers are now written down.
+
+*Acceptance test.* `tests/attestation-trust.test.ts`, 15 tests. The one that carries the finding
+is the pair: a forgery is refused against the trusted key, **and** the same forgery verifies
+perfectly against its own author's key — which proves the refusal comes from the key check rather
+than from a malformed object. Also: swapping the embedded key to the trusted one does not help,
+because the signature then fails; a verifier with no key refuses a genuine attestation, so there
+is no fallback path; and two structural checks that every pharmacy call site passes the pinned key
+and the engine passes its own.
+
 **A5 implementation record.** Done 2026-10-17.
 
 *The shape of the problem.* The member node had 29 routes and **none of them authenticated

@@ -43,6 +43,7 @@ import {
   createPublicKey,
   createHash,
   type KeyObject,
+  timingSafeEqual,
 } from 'crypto';
 
 // ─── Types ──────────────────────────────────────────────────
@@ -243,7 +244,25 @@ export class SequencerAttestationAuthority {
    * public key embedded in the attestation. The pharmacy doesn't need
    * access to the sequencer's private key or even this class instance.
    */
-  static verifyAttestation(att: NfcCredentialAttestation): AttestationVerifyResult {
+  /**
+   * Verify an attestation **against a key the verifier already trusts**.
+   *
+   * This used to verify against `att.pk`, the public key carried inside the attestation itself,
+   * which verifies nothing at all: an attacker generates a keypair, signs an attestation naming
+   * any wallet, embeds their own public key, and it comes back valid. The pharmacy's `/nfc/scan`
+   * then treated that wallet as a verified member. That is finding A-12, and the embedded key was
+   * a worse hole than the public literal seed the finding also mentions, because forging needed
+   * no secret whatsoever.
+   *
+   * `expectedPublicKeyHex` is the attestation authority's key, which a verifier must obtain out
+   * of band — the pharmacy node fetches the sequencer's once at startup and pins it. There is no
+   * default and no fallback: an empty or mismatched key is a refusal, because a signature is only
+   * evidence if you already know whose signature it should be.
+   */
+  static verifyAttestation(
+    att: NfcCredentialAttestation,
+    expectedPublicKeyHex: string,
+  ): AttestationVerifyResult {
     // Check required fields
     if (!isAttestation(att)) {
       return { valid: false, expired: false, reason: 'Not a valid attestation object' };
@@ -253,9 +272,30 @@ export class SequencerAttestationAuthority {
     const now = Math.floor(Date.now() / 1000);
     const expired = att.exp > 0 && now > att.exp;
 
-    // Verify Ed25519 signature using the embedded public key
+    // Fail closed when the verifier has no pinned key to check against.
+    if (!expectedPublicKeyHex || expectedPublicKeyHex.length !== 64) {
+      return {
+        valid: false,
+        expired,
+        reason: 'No trusted attestation key available to verify against',
+      };
+    }
+
+    // The attestation must claim the key we already trust. Compared in constant time, and before
+    // the signature check, so a mismatched key never reaches the verifier.
+    const claimed = Buffer.from(att.pk, 'hex');
+    const trusted = Buffer.from(expectedPublicKeyHex, 'hex');
+    if (claimed.length !== trusted.length || !timingSafeEqual(claimed, trusted)) {
+      return {
+        valid: false,
+        expired,
+        reason: 'Attestation was signed by a key this verifier does not trust',
+      };
+    }
+
+    // Verify the Ed25519 signature against the trusted key.
     try {
-      const publicKeyRaw = Buffer.from(att.pk, 'hex');
+      const publicKeyRaw = trusted;
       if (publicKeyRaw.length !== 32) {
         return { valid: false, expired, reason: 'Invalid public key length' };
       }

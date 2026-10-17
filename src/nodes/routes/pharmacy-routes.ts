@@ -55,6 +55,56 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
   // would override that policy with a wildcard, so no handler below sets it.
   const routes: RouteRegistration[] = [];
 
+  /*
+   * A10: the attestation key this pharmacy trusts.
+   *
+   * `/nfc/scan` used to verify a member's credential attestation against the public key carried
+   * **inside** the attestation, which verifies nothing: anyone could generate a keypair, sign an
+   * attestation naming any wallet, embed their own public key, and this counter would display a
+   * verified member (finding A-12).
+   *
+   * The key is fetched from the sequencer once and cached for the process. A pharmacy that cannot
+   * obtain it **refuses to verify**, rather than falling back to trusting whatever the tag says.
+   * That is a deliberate availability cost: a counter that cannot reach the sequencer cannot
+   * confirm a credential, which is the correct failure for a credential check.
+   *
+   * Offline verification still works for the window the key is cached, which is what the design
+   * intends — the tag is verified against a key the pharmacy already holds, not against itself.
+   */
+  let trustedAttestationKey: string | null = null;
+
+  async function getTrustedAttestationKey(): Promise<string | null> {
+    if (trustedAttestationKey) return trustedAttestationKey;
+    const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+    try {
+      const resp = await fetch(`${seqUrl}/rpc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0', id: 1, method: 'l2_getAttestationPublicKey', params: {},
+        }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      const json = await resp.json() as { result?: unknown };
+      const key = typeof json.result === 'string'
+        ? json.result
+        : (json.result as { publicKeyHex?: string } | null)?.publicKeyHex;
+      if (typeof key === 'string' && key.length === 64) {
+        trustedAttestationKey = key;
+        console.log('  [pharmacy] pinned the sequencer attestation key %s…', key.slice(0, 12));
+        return trustedAttestationKey;
+      }
+      console.warn('  [pharmacy] the sequencer returned no usable attestation key; scans cannot verify.');
+      return null;
+    } catch (err: unknown) {
+      console.warn(
+        '  [pharmacy] could not reach the sequencer for its attestation key (%s); scans cannot verify.',
+        err instanceof Error ? err.message : String(err),
+      );
+      return null;
+    }
+  }
+
   // ══════════════════════════════════════════════════════════
   //  ONBOARDING
   // ══════════════════════════════════════════════════════════
@@ -846,10 +896,17 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       let walletId: string | null = null;
       let attestationResult: { valid: boolean; expired: boolean; reason?: string; attestation?: NfcCredentialAttestation } | null = null;
 
+      /*
+       * A10: the key this counter trusts, not the one the tag claims. Fetched once and cached.
+       * An empty string here means the pharmacy could not obtain it, and every verification
+       * below then refuses rather than trusting the tag's own key.
+       */
+      const trustedKey = (await getTrustedAttestationKey()) ?? '';
+
       // Priority 0: full body is the attestation wrapper { type, version, walletId, attestation }
       if (b && (b as any).type === 'credential-attestation' && (b as any).attestation && isAttestation((b as any).attestation)) {
         const att = (b as any).attestation as NfcCredentialAttestation;
-        const result = SequencerAttestationAuthority.verifyAttestation(att);
+        const result = SequencerAttestationAuthority.verifyAttestation(att, trustedKey);
         attestationResult = { ...result, attestation: att };
         if (result.valid) {
           walletId = att.w;
@@ -857,7 +914,7 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       }
       // Priority 1: credential-attestation (Ed25519 offline verification)
       else if (b?.attestation && isAttestation(b.attestation)) {
-        const result = SequencerAttestationAuthority.verifyAttestation(b.attestation);
+        const result = SequencerAttestationAuthority.verifyAttestation(b.attestation, trustedKey);
         attestationResult = { ...result, attestation: b.attestation };
         if (result.valid) {
           walletId = b.attestation.w;
@@ -869,7 +926,7 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
         const po = b.payloadObject as Record<string, unknown>;
         if (po.type === 'credential-attestation' && po.attestation && isAttestation(po.attestation as NfcCredentialAttestation)) {
           const att = po.attestation as NfcCredentialAttestation;
-          const result = SequencerAttestationAuthority.verifyAttestation(att);
+          const result = SequencerAttestationAuthority.verifyAttestation(att, trustedKey);
           attestationResult = { ...result, attestation: att };
           if (result.valid) {
             walletId = att.w;
@@ -884,13 +941,13 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
         try {
           const parsed = JSON.parse(b.payload);
           if (parsed.type === 'credential-attestation' && parsed.attestation && isAttestation(parsed.attestation)) {
-            const result = SequencerAttestationAuthority.verifyAttestation(parsed.attestation);
+            const result = SequencerAttestationAuthority.verifyAttestation(parsed.attestation, trustedKey);
             attestationResult = { ...result, attestation: parsed.attestation };
             if (result.valid) {
               walletId = parsed.attestation.w;
             }
           } else if (isAttestation(parsed)) {
-            const result = SequencerAttestationAuthority.verifyAttestation(parsed);
+            const result = SequencerAttestationAuthority.verifyAttestation(parsed, trustedKey);
             attestationResult = { ...result, attestation: parsed };
             if (result.valid) {
               walletId = parsed.w;

@@ -5613,9 +5613,19 @@ export class AdjudicationService {
     return null;
   }
 
-  /** Verify an attestation's Ed25519 signature and expiry */
+  /**
+   * Verify an attestation's Ed25519 signature and expiry.
+   *
+   * A10: against **this engine's own authority key**, not the key carried inside the attestation.
+   * Verifying against the embedded key accepted anything anyone chose to sign, which is finding
+   * A-12. This verifier is the engine checking its own signatures, so it already holds the right
+   * key and no fetch is needed.
+   */
   verifyAttestation(att: NfcCredentialAttestation): { valid: boolean; expired: boolean; revoked: boolean; reason?: string } {
-    const result = SequencerAttestationAuthority.verifyAttestation(att);
+    const result = SequencerAttestationAuthority.verifyAttestation(
+      att,
+      this.attestationAuthority.publicKeyHex,
+    );
     const revoked = this.attestationAuthority.isRevoked(att.n);
     return {
       ...result,
