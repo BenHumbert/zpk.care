@@ -229,7 +229,7 @@ Letters name the phases; this is the order to execute them in. Two items move fr
 7. **Phase F, mostly early.** F1 (relocate the fixtures and assert isolation) and F1b (remove the unsecure path) move into phase A, because every later phase is easier to verify once the production entry point provably cannot reach a fallback. F1c (delete `src/poc/`) can be done at any time. The rest is continuous cleanup.
 8. **Last step before a release is tagged:** delete the fixture tree, re-run every acceptance check against a network built without it, and tag that verified state. The fixtures cannot go earlier, because the acceptance tests use them.
 
-One sequencing warning. B2 purges stored preimages and C1 changes the derivation. If there is live member data to preserve, the migration in C4 has to run while the old preimages still exist, which means **C4's migration plan has to be decided before B2 deletes anything.** Decide section 8's question 5 before starting phase B.
+**Sequencing resolved 2026-10-16: production starts from genesis.** There is no live member data to preserve, so B2's purge and C1's new derivation collapse into a single change. Land the salt and the group binding together, on the final formula, then wipe state and launch. No one-time migration run is needed. C4 drops to nothing. This does **not** remove wallet migration as a recovery feature: a member who loses their phone still needs continuity for their claims history and year-to-date accumulator, which is risk-log PRD-1 and has to work before launch.
 
 ## 6. Acceptance tests
 

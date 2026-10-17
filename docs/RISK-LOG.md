@@ -169,12 +169,38 @@ Full detail in `docs/AUDIT.md`. Listed here because each needs a decision or car
 
 ---
 
+## Operator model and sizing (DEC-2 analysis, 2026-10-16)
+
+**A single operator holding every quorum key makes quorum a durability mechanism, not a trust one.** A sister company that provides all the seeds, does all the installs and runs all ten nodes can sign any quorum certificate it likes. That is not an argument against the model, but it changes what is being bought.
+
+| Property | A single-operator cluster of 10 gives you | It does not give you |
+|---|---|---|
+| Availability | Node loss does not halt service; the failover chain works | — |
+| Durability | State survives machine and site loss | — |
+| Geographic resilience | Regional outage tolerance | — |
+| Scale | Throughput per partition | — |
+| Operator honesty | — | **Nothing. One entity holds every key** |
+
+**Why this is less bad here than it would be elsewhere, and what it costs.** Once phases B and C land, the operator holds hashes and proofs, not identity. A malicious or coerced operator could corrupt the ledger, meaning wrong cost shares or forged claims, but could not read anyone's medications or identity. The trust model degrades from "nobody can cheat" to **"nobody can see, and cheating is detectable"** — provided detectability is real, which requires A1 (verify at submit) and E6 (the chain proof) so that participants can independently check a published commitment. Without E6 there is no artifact to check against and misbehaviour is neither prevented nor detected.
+
+**Recommended path.** Start single-operator for availability. Keep the quorum N-of-M as written so external operators can be added later without re-architecting: a large employer customer, the insurer, an independent auditor. Make detectability real now rather than later, because it is what the single-operator model rests on.
+
+**Sizing: derive it, do not assume it.** Ten per million is a plausible starting guess, but the dominant variable is not node count.
+
+- A million members generates roughly 12 to 14 million prescriptions a year at US averages, so about 38,000 a day, averaging under half a claim per second but peaking several times that, because pharmacy volume clusters on Monday mornings and around refill cycles.
+- The measured constraint is proving. The live pool reports an average of **28.6 seconds per batch** with two workers, and `prepareBatch` caps a batch at **two transitions**. That is roughly 0.07 transitions per second per partition, and it is a hard ceiling regardless of hardware, because it is serialised per partition.
+- So throughput scales with **partitions**, and ten partitions gives about 0.7 per second: adequate for the average, thin for the peak.
+- **The real lever is transitions per batch, not nodes.** The cap of two exists as a workaround for a Pickles recursion limit. Raising it through the merge tree multiplies throughput per partition directly and would cut the node count needed. Measure that before buying hardware.
+
+**Geography matters for disaster resilience and essentially nothing else.** A cross-country round trip is tens of milliseconds while proving takes tens of seconds, so network latency is three orders of magnitude below the dominant cost. Note that partition assignment is `walletId mod partitionCount`, which is geography-blind: a member's leader may be anywhere. That is fine for the reason just given, and it is worth not "fixing" it into a geographic scheme that would break the clean client-side routing for no measurable gain.
+
 ## Open decisions blocking work
 
 | ID | Decision | Blocks | Owner |
 |---|---|---|---|
-| DEC-1 | Is there live member data to preserve, or can production start from genesis? The migration must be designed before phase B deletes the stored preimages | phase B | owner |
-| DEC-2 | Who operates the leviathan nodes? Three under one operator is durability, not trust | phase E quorum | owner, business decision |
+| DEC-1 | **ANSWERED 2026-10-16: production starts from genesis.** No live member data to preserve. Consequences: B2 and C collapse into one derivation change, land salt and group binding together, no one-time migration run. Does **not** remove wallet migration as a recovery feature; PRD-1 still has to work before launch | unblocked | closed |
+| DEC-2 | **PARTLY ANSWERED 2026-10-16:** target roughly 10 nodes per million members, distributed across the US, operated by a sister company that provides seeds, installs and setup. See the analysis below: this buys availability and durability, not operator-independence, which makes DEC-3 the decisive trust question | phase E sizing open | owner |
+
 | DEC-3 | Does the adjudication engine move out of the sequencer process? It is the largest refactor and what makes B1 and B2 real | phase B completion | owner |
 | DEC-4 | Quote honoured as a ceiling, confirmed? Charge the lower of quoted and re-adjudicated, with a pharmacy decline when the price rose materially | phase B3 | owner |
 | DEC-5 | Member app platform and keystore target | phase B1 | owner |
