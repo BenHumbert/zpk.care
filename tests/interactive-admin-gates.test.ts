@@ -84,6 +84,18 @@ describe('the routes A11 closes are admin-gated', () => {
     expect(admin.has(route)).toBe(true);
   });
 
+  /*
+   * A12 fixed the bug that was accidentally blocking credential minting, so these two had to be
+   * closed in the same change. A-17's own note said to treat it as critical the moment A-24 was
+   * fixed; this is the test that keeps it closed.
+   */
+  test.each([
+    '/interactive/generate-credential',
+    '/interactive/credential-status',
+  ])('credential minting route %s requires admin', (route) => {
+    expect(admin.has(route)).toBe(true);
+  });
+
   test('the gates that were already there are still there', () => {
     for (const route of [
       '/interactive/approve-prior-auth',

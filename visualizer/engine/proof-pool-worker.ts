@@ -43,7 +43,7 @@ import type {
 // ─── Program Imports ──────────────────────────────────────
 
 // Wallets
-import { ProofGateProgram } from '../../src/wallets/proof-gate.js';
+import { ProofGateProgram, ProofGateProof } from '../../src/wallets/proof-gate.js';
 
 // Engine
 import {
@@ -131,6 +131,15 @@ const TYPE_REGISTRY: Record<string, { toJSON: (v: any) => any; fromJSON: (v: any
 
   // Proofs
   StateTransitionProof: { toJSON: (v: any) => v.toJSON(), fromJSON: (v: any) => StateTransitionProof.fromJSON(v) },
+  /*
+   * A12, finding A-24 / ENG-23. This type was missing, and the two Credential methods below
+   * declared their first argument as a `StateTransitionProof` instead. The pool deserialises by
+   * its **own** declared types rather than anything the caller sends, so a ProofGate proof was
+   * parsed as a state-transition proof and `generate-credential` failed with "Cannot convert
+   * undefined to a BigInt" every time the pool was running — which is the production default.
+   * `CredentialProgram.proveHolding` takes a `ProofGateProof` (credential-program.ts:139).
+   */
+  ProofGateProof: { toJSON: (v: any) => v.toJSON(), fromJSON: (v: any) => ProofGateProof.fromJSON(v) },
 };
 
 // ─── Program Registry ─────────────────────────────────────
@@ -240,12 +249,12 @@ const PROGRAM_REGISTRY: Record<string, Record<string, MethodDef>> = {
   Credential: {
     proveHolding: {
       fn: (...args: any[]) => CredentialProgram.proveHolding(...args),
-      argTypes: ['StateTransitionProof', 'CredentialData', 'CredentialInventoryWitness', 'Field'],
+      argTypes: ['ProofGateProof', 'CredentialData', 'CredentialInventoryWitness', 'Field'],
       hasPublicOutput: true,
     },
     proveHoldingByType: {
       fn: (...args: any[]) => CredentialProgram.proveHoldingByType(...args),
-      argTypes: ['StateTransitionProof', 'CredentialData', 'CredentialInventoryWitness', 'Field', 'Field'],
+      argTypes: ['ProofGateProof', 'CredentialData', 'CredentialInventoryWitness', 'Field', 'Field'],
       hasPublicOutput: true,
     },
   },
@@ -316,10 +325,22 @@ async function handleCompile(): Promise<void> {
 
 // ─── Proving ──────────────────────────────────────────────
 
-function deserializeArg(typeName: string, serialized: unknown): unknown {
+/*
+ * A12, and this is the part the audit's fix sketch missed.
+ *
+ * o1js returns a **Promise** from `Proof.fromJSON` — see
+ * `node_modules/o1js/dist/node/lib/proof-system/proof.d.ts:74`. This function was synchronous, so
+ * every proof argument reached the ZkProgram as an unresolved Promise, and the circuit then read
+ * `undefined` off it and threw "Cannot convert undefined to a BigInt". That is the error A-24
+ * reported, and the type-name mismatch the finding identified was real but **not sufficient**:
+ * correcting the declared type alone still produced the same failure, which is how this turned up.
+ *
+ * Structs and witnesses deserialise synchronously, so awaiting is a no-op for them.
+ */
+async function deserializeArg(typeName: string, serialized: unknown): Promise<unknown> {
   const entry = TYPE_REGISTRY[typeName];
   if (!entry) throw new Error(`Unknown type in registry: ${typeName}`);
-  return entry.fromJSON(serialized);
+  return await entry.fromJSON(serialized);
 }
 
 async function handleProve(jobId: string, request: ProofJobRequest): Promise<void> {
@@ -346,7 +367,7 @@ async function handleProve(jobId: string, request: ProofJobRequest): Promise<voi
   const args: unknown[] = [];
   for (let i = 0; i < request.args.length; i++) {
     try {
-      args.push(deserializeArg(methodDef.argTypes[i], request.args[i]));
+      args.push(await deserializeArg(methodDef.argTypes[i], request.args[i]));
     } catch (err: any) {
       const preview = JSON.stringify(request.args[i])?.slice(0, 200) ?? 'null';
       throw new Error(`Deserialization failed for arg[${i}] (${methodDef.argTypes[i]}): ${err.message}\n  Input preview: ${preview}`);

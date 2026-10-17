@@ -558,8 +558,29 @@ export class NautilusAppServer {
    * role, the phase and the uptime — enough to answer "is this node up and how far through
    * onboarding is it", which is all a probe needs.
    */
+  /**
+   * Whether identity may be disclosed on the open endpoints.
+   *
+   * **Member nodes only withhold it.** That was not the first version of this: A5 withheld it on
+   * every role, and the e2e harness caught the consequence — it reads the prescriber's and
+   * pharmacy's wallet IDs from their `/health` in order to write a prescription, and provider
+   * nodes have **no unlock route**, so nothing can ever authenticate to one to get the value
+   * back. The flow simply broke.
+   *
+   * Scoping it to members is also the right line rather than a workaround. MEM-H1 is about the
+   * member node, and a member's wallet ID is the one that unlocks PHI through the sequencer's
+   * open reads. A provider's is a hash of an NPI that is published in a federal directory, and it
+   * is discoverable from the sequencer's own provider registry regardless, so withholding it here
+   * would cost a working flow and buy nothing. What actually protects provider-keyed reads is
+   * item D1, at the sequencer.
+   */
+  private mayDiscloseIdentity(req: IncomingMessage, path: string): boolean {
+    if (this.config.role !== 'member') return true;
+    return this.checkDeviceAuth(req) || this.checkNautilusAdminAuth(req, 'GET', path);
+  }
+
   private handleHealth(req: IncomingMessage, res: ServerResponse): void {
-    const identified = this.checkDeviceAuth(req) || this.checkNautilusAdminAuth(req, 'GET', '/health');
+    const identified = this.mayDiscloseIdentity(req, '/health');
     const health: NautilusHealthResponse = {
       role: this.config.role,
       phase: this.onboardingPhase,
@@ -582,8 +603,7 @@ export class NautilusAppServer {
 
   private handleOnboardingStatus(req: IncomingMessage, res: ServerResponse): void {
     const state = this.localState.getState();
-    const identified = this.checkDeviceAuth(req)
-      || this.checkNautilusAdminAuth(req, 'GET', '/onboarding/status');
+    const identified = this.mayDiscloseIdentity(req, '/onboarding/status');
 
     if (!identified) {
       // Phase only. `state.onboarding` carries `tokenData` with the enrollment token, group and

@@ -286,6 +286,64 @@ LAN address refuses; an allowlisted browser origin is echoed back exactly; a for
 header at all; a node's `/rpc` is refused. A port that is not listening is reported as skipped, never
 as a pass, because a closed port proves nothing about the policy it would have applied.
 
+**A12 implementation record.** Done 2026-10-17. Three broken features, not two.
+
+*Credential generation (A-24, ENG-23).* The proof pool deserialises each argument using **its own
+declared types**, not anything the caller sends. The two `Credential` methods declared their first
+argument as a `StateTransitionProof`, while `CredentialProgram.proveHolding` actually takes a
+`ProofGateProof` (`credential-program.ts:139`). There was no `ProofGateProof` entry in the
+worker's codec table at all, so a ProofGate proof was parsed as a state-transition proof and the
+job died with "Cannot convert undefined to a BigInt" every time the pool was running — which is
+the production default, so the feature never worked in production and worked only on the inline
+path. The type is now registered and both methods corrected.
+
+*Member and family history (A-24, ENG-19).* Both referenced an identifier called `fulfillment`
+that is declared nowhere in that scope, so **every member with at least one prescription got a 500
+reading their own history**. `latestFill` is the fill record already in scope four lines above and
+carries the settlement commitment. Two sites, same mistake.
+
+*A third, found while verifying A8 (A-28).* A seeded provider node could register but could not
+send an eScript. The starters derive the wallet ID from the fixture enrollment key and then drop
+the key, so `encryptEScript` threw "Cannot send eScript: enrollment key not available" and the
+prescriber path returned 500 on a clean boot. The codemap had recorded the omission as a safety
+property — "no enrollment key is placed in local state" — without noting that it breaks the
+feature which needs it.
+
+The fix is one line per starter, and the reason it is safe is worth stating: `setEnrollmentKey`
+and `useEnrollmentKey` operate on the in-memory obfuscated-key wrapper and **neither touches the
+encrypted file or requires the state to be unlocked**. So the seed path still writes nothing to
+disk, which is the property the codemap was describing, and a genuinely enrolled node is in
+exactly the same position once it has unlocked. The starters also have no PIN — `start-leviathan`
+passes `ZKTRIDENT_PIN` only to the member child — so persisting it was not an option anyway.
+
+*The eScript chain had a third link, recorded as A-30 rather than fixed here.* Fixing A-28 moved
+the prescriber's error from "enrollment key not available" to "Missing pharmacyWalletId" (the A5
+regression, also fixed) and then to "recipient encryption key not registered" — each fix exposing
+the next link. That last one is **not** a seeding quirk: `encryptEScript` needs the recipient's
+X25519 public key from the sequencer, the member registers its key at enroll, the prescriber
+registers its own **only inside the badge-tap handler**, and `pharmacy-routes.ts` contains no
+`l2_registerEntity` call at all. So an encrypted eScript to a pharmacy is broken by construction.
+Recorded as A-30 with the fix sketch — register the encryption key for every role at startup or
+enrollment — rather than extended into this item a fourth time, because it needs its own
+verification.
+
+*Why these matter beyond being bugs, and what had to ship with them.* A-17 is the finding that
+open credential minting would allow offline impersonation at a pharmacy, and the audit's own note
+says it is "blocked in this deployment only by A-24: credential generation currently fails in the
+proof pool. Treat as critical the moment A-24 is fixed."
+
+So fixing A-24 **unblocks an attack**. `/interactive/generate-credential` mints a portable
+credential for any wallet and `/interactive/credential-status` returns it, and neither was gated.
+Shipping the repair on its own would have handed over a working exploit, so both routes were
+admin-gated in the same change. That is an interim control and is labelled as one: the right
+answer is a proof that the caller owns the wallet, which is the second half of A10. It costs
+nothing today because only the visualizer calls these routes and the production launcher does not
+serve it — the same situation as the identity dump in A11.
+
+The general lesson, worth keeping: **check what a functional fix unblocks before shipping it.** A
+bug can be the only thing standing between an open route and an exploit, and the audit had already
+written down that this one was.
+
 **A10, first half: who signed it.** Done 2026-10-17. Closes the forgery in A-12.
 
 *The finding leads with the wrong detail.* A-12 says the attestation key derives from the public
@@ -408,6 +466,22 @@ because identity lives behind the PIN and not behind the authorisation check; an
 PIN rather than a session. The last test is structural: it reads the route table and asserts that
 the only routes without `deviceOnly` are unlock and eject, so a new route added without the flag
 fails here instead of shipping open.
+
+*A correction to this item, caught by the e2e harness and not by any unit test.* The first version
+withheld identity on **every** role's `/health`, because `handleHealth` is shared by all node
+types. Provider nodes have no unlock route, so nothing can ever authenticate to one to get the
+value back, and the harness — which reads the prescriber's and pharmacy's wallet IDs from their
+health in order to write a prescription — simply broke with "Missing pharmacyWalletId".
+
+Scoping the withholding to member nodes is also the right line rather than a workaround. MEM-H1 is
+about the member node, and a **member's** wallet ID is the one that unlocks PHI through the
+sequencer's open reads. A provider's is a hash of an NPI published in a federal directory, and the
+sequencer's own provider registry hands it out anyway, so withholding it here would cost a working
+flow and buy nothing. What actually protects provider-keyed reads is item D1, at the sequencer.
+`tests/device-session.test.ts` now pins that a prescriber node still reports its wallet ID.
+
+The general point: **a shared handler changes every role that uses it.** Reading the client was
+not enough here; the regression only appeared when the whole pipeline ran.
 
 *Regression baselines, all matched exactly after the suites were taught the session:*
 `smoke-leviathan` 14 of 46, `smoke-e2e` 32 of 65.
@@ -1043,3 +1117,72 @@ timeout was being counted as a refusal.
 **Next: A3.** Remove `/onboarding/backup-key`, the caller-supplied key path in `generate-key`, and
 `restore-key` from the network surface. A2 narrowed who can reach those routes; it did not change
 what they do, and they are the remaining I3 break.
+
+## State of work (2026-10-17, Session 5: phase A, items A1-A5, A8, A10a, A11, A12)
+
+**Nine items done, all verified against a running network rather than only against tests.**
+
+| Item | What it closed | Finding |
+|---|---|---|
+| A1 | Submitted proofs are cryptographically verified before any state is written | **A-3** (critical) |
+| A2 | Loopback binds, a port-aware CORS allowlist, proxies narrowed per role | **A-7** (critical) |
+| A3 | The enrollment key cannot be exported, injected or replaced | **A-5** (critical) |
+| A4 | A wrong PIN no longer unlocks; eject demands a fresh PIN; attempt backoff | A-20, MEM-M2 |
+| A5 | The member node authenticates; the open endpoints stop leaking the wallet ID | MEM-H1 |
+| A8 | The employer admin token is no longer handed out on an open route | **A-4** (critical) |
+| A10a | Attestations verify against a trusted key, not the tag's own | A-12 (forgery half) |
+| A11 | The identity dump, the eligibility cascade and the ledger controls are gated | A-13, A-19 |
+| A12 | Three broken features, plus the gate that had to ship with the fix | A-24, A-28, A-17 |
+
+**Criticals: four of seven closed** (A-3, A-4, A-5, A-7). Three remain and they are the ones that
+need design rather than gates: **A-1** the reversible identity hashes, **A-2** credential-free
+member reads, **A-6** proofless member creation.
+
+**Four new findings this session**, all recorded in `docs/AUDIT.md`: **A-28** a seeded provider
+cannot send an eScript (fixed in A12), **A-29** the employer attestation path has the same
+embedded-key flaw A10a fixed for NFC, plus two corrections to existing findings — the `/rpc`
+proxies attach no `Authorization` at all, and A-5's scope covered all three node types rather than
+the member node alone.
+
+**Three lessons that cost real time and should outlive this session.**
+
+1. **A grep is not a client inventory.** A2 nearly switched off two dashboards because I searched
+   for `rpc.` and `l2_` while the pages call a global `RPC` object. The answer was in a comment at
+   the dispatch site. *Read the client.*
+2. **A shared handler changes every role.** A5 silenced the provider nodes' health endpoint
+   because `handleHealth` is common to all node types, and provider nodes can never authenticate.
+   Only running the whole pipeline caught it. *Reading the client is not enough when the code is
+   shared.*
+3. **Check what a functional fix unblocks.** Fixing A-24 removed the bug that was the only thing
+   stopping the A-17 impersonation path, which the audit had already written down. The gate had to
+   ship in the same commit.
+
+**A process gap closed, and two still open.** `npx tsc --noEmit` covers **only `src/**/*`**, and
+both `tsx` and `ts-jest` transpile without checking, so `scripts/`, `tests/` and `visualizer/`
+have never been typechecked. Two of my own bugs had already shipped through that gap. Added
+`tsconfig.scripts.json` and `npm run typecheck:scripts`. Current counts, for tracking rather than
+as a gate: **src 21, scripts 2, tests 39, visualizer/engine 44.**
+
+**Performance, outside the security scope but requested by the owner.** The formulary Merkle tree
+build was the sequencer's whole boot delay: ~700 s, not the 0.4 s JSON parse. Now ~12x faster — a
+bottom-up builder plus a disk cache keyed on a digest of the records — and `ZKTRIDENT_FORMULARY_LIMIT`
+is honoured, which it never was. A dev boot now reaches ready in about a minute. Also fixed a
+formulary root check that had been comparing against an **empty tree** on every boot since it was
+written, so it could never pass and its warning was noise.
+
+**Regression baselines, all re-matched exactly. Do not re-derive these.** `smoke-leviathan` 14 of
+46, `smoke-e2e` 32 of 65, `onboarding` + `wallet-migration` 17, `formulary-update` 3,
+`production-showcase` 26 of 35 (one better than its 27 baseline). Every acceptance suite added this
+session passes in full: proof gate, network surface, key custody, PIN custody, marketplace
+credentials, admin gates, device session, attestation trust.
+
+**Git: 27 commits on local `dev`, nothing pushed, `origin/main` untouched.**
+
+**Next, per the owner's agreed order.** Finish Step 1: **A9** split the shared admin token (A-14),
+**A10b** authenticate `storeMessage` and require proofs for PCP assignment and attestation
+requests (A-15, A-16, and the open half of A-12 and A-17), **A13** give the replicas credentials
+(A-8). Then **Step 2, the one-shot identity change**, which is the item with a deadline: write the
+recovery card first (**A12b**), then salt the identity fields (**C1**, closing A-1), then require a
+real registration proof (**B2**, closing A-6), then bind the real group and plan (**C2**, closing
+A-9), then re-enroll. One migration, three criticals, and it only stays cheap while there are no
+real members.

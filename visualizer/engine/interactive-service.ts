@@ -4919,7 +4919,10 @@ export class AdjudicationService {
         ndcHash: fieldToStr(rx.prescriptionData.ndcHash),
         prescriberWalletId: truncField(rx.prescriptionData.prescriberWalletId),
         pharmacyWalletId: truncField(rx.activeStatus.pharmacyWalletId),
-        settlementCommitment: fulfillment ? fieldToStr(fulfillment.settlementCommitment) : null,
+        // A12, finding A-24 / ENG-19: this said `fulfillment`, which is declared nowhere in this
+        // scope, so every member with at least one prescription got a 500 reading their own
+        // history. `latestFill` is the fill record in scope and carries the commitment.
+        settlementCommitment: latestFill ? fieldToStr(latestFill.settlementCommitment) : null,
       });
     }
 
@@ -4982,7 +4985,8 @@ export class AdjudicationService {
           } : null,
           rxCommitment: fieldToStr(rx.prescriptionData.commitment()),
           ndcHash: fieldToStr(rx.prescriptionData.ndcHash),
-          settlementCommitment: fulfillment ? fieldToStr(fulfillment.settlementCommitment) : null,
+          // Same fix as above (A12 / ENG-19): `fulfillment` was undeclared here too.
+          settlementCommitment: latestFill ? fieldToStr(latestFill.settlementCommitment) : null,
         });
       }
 

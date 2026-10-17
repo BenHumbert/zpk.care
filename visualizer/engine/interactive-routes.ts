@@ -100,6 +100,24 @@ export function registerInteractiveRoutes(
      */
     '/interactive/state',
     '/interactive/update-provider-network',
+
+    /*
+     * Added by A12, and the reason is a consequence of A12 itself.
+     *
+     * Finding A-17 says open credential minting would allow offline impersonation at a pharmacy,
+     * and the audit's own note says it is "blocked in this deployment only by A-24: credential
+     * generation currently fails in the proof pool. Treat as critical the moment A-24 is fixed."
+     * A12 fixed A-24. So the bug that was accidentally holding the door shut is gone, and these
+     * two routes — one that mints a portable credential for any wallet, one that returns it —
+     * had to be closed in the same change rather than shipped newly exploitable.
+     *
+     * Admin is an interim gate, chosen because it is consistent with the rest of this Set and
+     * costs nothing: only the visualizer calls these, and the production launcher does not serve
+     * it. The real fix is a proof that the caller owns the wallet, which is the second half of
+     * item A10.
+     */
+    '/interactive/generate-credential',
+    '/interactive/credential-status',
     '/interactive/force-batch',
     '/interactive/save-checkpoint',
     '/interactive/retry-batch',

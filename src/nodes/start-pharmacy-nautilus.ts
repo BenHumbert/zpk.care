@@ -123,6 +123,14 @@ async function main(): Promise<void> {
 
     const walletId = derivePharmacyWalletId(pharmacy.localData, pharmacy.enrollmentKey).toString();
 
+    /*
+     * A12, finding A-28, same as the prescriber starter: the wallet ID was derived from the seed
+     * enrollment key and the key then dropped, so anything needing it later had nothing to use.
+     * Held in memory only — neither this setter nor `useEnrollmentKey` touches the encrypted
+     * file, so the seed path still writes nothing to disk.
+     */
+    server.getLocalState().setEnrollmentKey(pharmacy.enrollmentKey);
+
     console.log('  [seed] Pharmacy:  %s', pharmacy.storeName);
     console.log('  [seed] Type:      %s', pharmacy.pharmacyTypeDesc);
     console.log('  [seed] Wallet:    %s...', walletId.slice(0, 20));

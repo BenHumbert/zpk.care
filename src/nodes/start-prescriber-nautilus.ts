@@ -122,6 +122,19 @@ async function main(): Promise<void> {
     }
 
     const walletId = derivePrescriberWalletId(prescriber.localData, prescriber.enrollmentKey).toString();
+
+    /*
+     * A12, finding A-28. The wallet ID was derived from the seed enrollment key and the key was
+     * then dropped, so this node could register but could not **encrypt an eScript**:
+     * `encryptEScript` reads the key from local state and threw "Cannot send eScript: enrollment
+     * key not available", and the prescriber path returned 500 on a clean boot.
+     *
+     * Held in memory only, via the obfuscated-key wrapper. Neither this setter nor
+     * `useEnrollmentKey` touches the encrypted file, so the seed path keeps the property the
+     * codemap recorded for it — nothing written to disk — while the feature that needs the key
+     * works. A really enrolled node is in the same position after unlocking.
+     */
+    server.getLocalState().setEnrollmentKey(prescriber.enrollmentKey);
     const displayName = `Dr. ${prescriber.firstName} ${prescriber.lastName}, ${prescriber.credential}`;
 
     console.log('  [seed] Prescriber: %s', displayName);

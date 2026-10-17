@@ -330,6 +330,47 @@ describe('eject authorises on the PIN rather than a session', () => {
   });
 });
 
+/*
+ * Caught by the e2e harness rather than by a unit test, and worth pinning here.
+ *
+ * The first version of A5 withheld identity on every role's `/health`. Provider nodes have no
+ * unlock route, so nothing can ever authenticate to one, and the harness — which reads the
+ * prescriber's and pharmacy's wallet IDs from their health in order to write a prescription —
+ * simply broke. Scoping it to member nodes is also the right line: MEM-H1 is about the member
+ * node, and a provider's wallet ID is a hash of a publicly published NPI that the sequencer's own
+ * provider registry hands out anyway.
+ */
+describe('only member nodes withhold identity on the open endpoints', () => {
+  test('a prescriber node still reports its wallet ID without credentials', async () => {
+    const dir = makeTempDir('devsession-pre-');
+    const seed = new NautilusLocalState(dir);
+    await seed.unlock(PIN);
+    await seed.save({
+      version: 1, role: 'prescriber',
+      walletId: '55555555555555555555',
+      onboarding: { phase: 'ready' },
+      lastSavedAt: new Date().toISOString(),
+    });
+    seed.lock();
+
+    const config: NautilusAppConfig = {
+      role: 'prescriber', port: 0, host: '127.0.0.1',
+      sequencerUrl: 'http://127.0.0.1:1',
+      stateDir: dir, enableSSE: false, maxSseConnections: 0,
+      allowedOrigins: ['http://localhost:4002'],
+    };
+    const server = new NautilusAppServer(config);
+    servers.push(server);
+    await server.getLocalState().unlock(PIN);
+    await server.getLocalState().load();
+    await server.start();
+
+    const res = await request(server.getPort(), 'GET', '/health');
+    expect(res.status).toBe(200);
+    expect(dataOf(res).walletId).toBe('55555555555555555555');
+  });
+});
+
 describe('the route table itself', () => {
   test('every member route but unlock requires a session', () => {
     // Structural, so a new route added without the flag fails here rather than shipping open.
