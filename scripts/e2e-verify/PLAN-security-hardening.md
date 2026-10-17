@@ -81,7 +81,7 @@ The largest phase, and the one that changes the pipeline. Section 7 covers the c
 | B1 | **The device proves its own wallet updates.** Move wallet-update proving out of the engine and into the member app. The engine stops holding member preimages and stops proving on members' behalf | I2 | A-1, C-1, ENG-02 |
 | B2 | **Stop sending the preimage.** `register-member` takes a verified registration proof and a wallet ID, nothing else. Delete the preimage fields from the engine's state and from `adjudication-state.json`, and purge the existing file | I2 | A-1, A-6, C-2 |
 | B3 | **Split the fill into adjudicate-then-finalize.** The accumulator stays on the member's credential, where the design puts it. The pharmacy adjudicates on the member's prescribing-time authorization and commits a **pending** settlement; the member's offline attestation at pickup finalizes it and applies the accumulator delta; an unclaimed fill reverses after a window using the reversal path that already exists. See section 7 | I2 | A-1, A-11 |
-| B4 | Providers prove with their own provisioned keys, split so no single party can reconstruct one. Remove the committed fixture enrollment keys and the NPI-derived provider keys from every runtime path. See the design note below | I3 | A-14, ENG-14 |
+| B4 | Providers prove with keys held in a FIDO2 authenticator, wrapped under its `hmac-secret` so no server can reconstruct one. Retire the passive-tag badge service. Remove the committed fixture enrollment keys and the NPI-derived provider keys from every runtime path. See the design note below | I3 | A-14, ENG-14 |
 | B5 | Enforce PCP consent at prescribing: a prescriber who is not the member's consented PCP needs member approval. Add the lifecycle check that today lets revoked and terminated members be billed | I7, correctness | A-16, A-18 |
 | B6 | Stop sending the wallet ID to the employer. Remove `/enrollment/confirm`'s wallet storage and the roster's wallet column, so I6 holds by construction rather than by a 401 | I6 | A-9, PHI-9, C-2 |
 | B7 | Fire the lifecycle transition the design specifies: ELIGIBLE to ACTIVE on first claim | correctness | C-2 (FIG. 5 §D) |
@@ -97,21 +97,33 @@ Three things it has to get right.
 
 *The key must not sit whole on a passive tag.* Today `createProviderBadge` writes the entire enrollment key to the tag, AES-256-GCM under scrypt of a six-character PIN, with the salt and IV beside it. A passive read yields everything needed to brute-force the PIN offline, where no rate limit or lockout applies. One million candidates is hours on commodity hardware.
 
-*The fix makes the check unforgeable rather than merely present.* Split the provider's enrollment key into two shares. One share lives on the provider's tag, the other on the plan's credentialing service, released only after an online PIN verification that is rate-limited and locks out. The tag alone is useless, the server alone is useless, and there is no local code path that can answer "verified" because the server's share is required to reconstruct. Reconstruct in memory for the duration of the signing and zeroize after, the way `ObfuscatedKey` already does for member state.
+*Decision: a FIDO2 hardware key replaces the passive tag.* This is better than splitting the key between a tag and the server, and it removes a custom protocol we would otherwise have to design and get right. Retire `provider-badge-service.ts` rather than fixing it.
+
+The mechanism is the CTAP2 **`hmac-secret`** extension. The authenticator derives a deterministic symmetric secret from the credential plus a salt, and will only do so after user verification. Wrap the provider's enrollment key under a key derived from that secret. The ciphertext can then live anywhere, including on our own server, because:
+
+- the wrapping secret never leaves the hardware, so there is nothing to read off a tag in a corridor and nothing to brute-force offline;
+- the PIN retry counter is enforced **in hardware**, typically eight attempts before lockout, which is the rate limiting we were going to have to build;
+- the service holds ciphertext it cannot open, so it cannot prescribe as a provider even if it wanted to;
+- the key signs a challenge, so nothing secret crosses the wire and replay is prevented;
+- FIPS-series keys satisfy EPCS's hard-token requirement directly, and this is a trodden path rather than an invention. `systemd-cryptenroll` unlocks LUKS volumes with exactly this extension.
 
 | Element | Role | Factor type |
 |---|---|---|
-| Employer RFID badge | Identifies who is at the workstation. Not a secret, so its serial is an identifier only | none, it is a lookup key |
-| zpk.care tag | Holds one share of the enrollment key | possession |
-| PIN, or biometric on a paired device | Releases the second share, verified online with rate limiting and lockout | knowledge or inherence |
+| Employer RFID badge | Identifies who is at the workstation and ties our audit trail to the hospital's own access control. Not a secret | none, convenience and identification |
+| FIDO2 key, NFC-capable | Holds the wrapping secret in its secure element; unwraps the enrollment key on user verification | possession |
+| Key PIN | Gates the authenticator, with hardware-enforced lockout | knowledge |
 
-Whether to keep the second tag at all is a real choice. Dropping it means the plan's service holds the only share and the provider authenticates with badge plus PIN, which is simpler and still satisfies EPCS, but it means the service could act alone if it ever captured a PIN. Keeping it means the service genuinely cannot prescribe as a provider, which is consistent with everything else in this design. The cost is a replacement workflow when a tag is lost.
+Prefer an **NFC-capable** key so the gesture is a tap rather than a plug. At a shared clinical workstation, tap is the same motion as the badge and does not depend on which USB port is reachable or what shape it is. Discoverable credentials let the key carry the identity, so nothing has to be typed to identify the provider.
+
+*Friction budget.* Three actions at every signing is one too many for someone writing thirty scripts a day. EPCS requires the two factors at each signing of a controlled substance, and imposes nothing on the rest. So: badge tap opens the session and ties the audit trail; the key plus PIN is required once per session for ordinary prescribing with a timeout; and the key is touched at each signing of a controlled substance, which is how existing EPCS systems already work.
+
+*Recovery, which this design makes mandatory.* If the enrollment key is wrapped under one authenticator's secret and that key is lost, the wallet is unrecoverable. Register **two keys per provider** at credentialing and wrap the enrollment key under both, so either opens it. That is standard FIDO practice. The second route is `WalletMigrationProgram`, which already proves identity continuity across a key change and is currently dead code; reviving it for providers is the same work as reviving it for members in C3.
 
 *Onboarding that is not prohibitive.* Credentialing already exists as a one-time step with NPI, DEA and a lifecycle state in the provider registry. Add to it: the provider generates their enrollment key at the provisioning station or on their own device, never derived from the NPI, which is public; the key is split and one share written to the tag; the tag's identifier and the employer badge's identifier are both bound to the provider's wallet. Day to day is then tap, PIN, prescribe.
 
 *What actually makes an eScript safe to rely on.* Authentication has to happen at signing, not at session start, which is also what EPCS requires. And the prescriber's identity proof has to be **submitted and verified rather than discarded**, which is finding A-22: today the proof is generated and thrown away, so a pharmacy cannot verify that the named prescriber authorized the script. Fixing A-22 is what makes the eScript verifiable, not new machinery. The DEA number check and the Schedule II refill rule already exist and stay.
 
-*Decisions this needs:* whether EPCS certification is in scope for the first production release, which changes the identity-proofing requirements; and what badge technology the target customers actually carry, because a 125 kHz proximity card exposes only a serial while a PIV or Seos card can do challenge-response and would be a stronger identifier.
+*Decisions this needs:* whether EPCS certification is in scope for the first production release, which changes the identity-proofing requirements and brings a certified-application audit with it; the per-provider hardware budget, since two keys each at roughly 25 to 50 dollars is 25 to 50 thousand for a five-hundred-prescriber system, plus a replacement workflow; and whether the employer badge is worth integrating at all, given that it is convenience rather than a factor once the authenticator is in place.
 
 ### Phase C — Salt the identity fields and migrate
 
