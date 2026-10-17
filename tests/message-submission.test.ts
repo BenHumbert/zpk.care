@@ -41,6 +41,7 @@ import type { GossipMessage, MessageStoredPayload } from '../src/l2/l2-peer-type
 import { generateMessageId } from '../src/l2/l2-peer-network.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
 import { WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
+import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 
 jest.setTimeout(60000);
 
@@ -84,7 +85,7 @@ function makePayload(content = 'test'): MessagePayload {
 
 /** Create a fresh L2Node for testing */
 function createNode(opts: Partial<Parameters<typeof L2Node.prototype.start>[0]> = {}): L2Node {
-  return new L2Node(
+  const node = new L2Node(
     {
       batchIntervalMs: 999_999, // no auto-batch
       autoSettle: false,
@@ -98,6 +99,8 @@ function createNode(opts: Partial<Parameters<typeof L2Node.prototype.start>[0]> 
     EMPTY_ROOT,
     Field(0),
   );
+  node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/message-submission.test.ts'));
+  return node;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -167,7 +170,9 @@ describe('L2Node.storeMessage', () => {
 describe('Gossip replication — applyReplicatedMessage', () => {
   test('replicates a message to a second sequencer', () => {
     const seq1 = new L2SequencerService(new InMemoryStore(), EMPTY_ROOT, EMPTY_ROOT, Field(0), 999_999, true);
+    seq1.setTransitionVerifier(createAcceptAllVerifierForTests('tests/message-submission.test.ts'));
     const seq2 = new L2SequencerService(new InMemoryStore(), EMPTY_ROOT, EMPTY_ROOT, Field(0), 999_999, true);
+    seq2.setTransitionVerifier(createAcceptAllVerifierForTests('tests/message-submission.test.ts'));
 
     const msg = makeMessage(walletA, walletB, threadAlpha);
     const pl = makePayload('replicated');
@@ -182,6 +187,7 @@ describe('Gossip replication — applyReplicatedMessage', () => {
 
   test('idempotent — skips duplicate leafIndex', () => {
     const seq = new L2SequencerService(new InMemoryStore(), EMPTY_ROOT, EMPTY_ROOT, Field(0), 999_999, true);
+    seq.setTransitionVerifier(createAcceptAllVerifierForTests('tests/message-submission.test.ts'));
     const msg = makeMessage(walletA, walletB, threadAlpha);
     const pl = makePayload('first');
     seq.storeMessage(msg, pl);
@@ -198,7 +204,9 @@ describe('Gossip replication — applyReplicatedMessage', () => {
 
   test('roots converge after replicating all messages', () => {
     const seq1 = new L2SequencerService(new InMemoryStore(), EMPTY_ROOT, EMPTY_ROOT, Field(0), 999_999, true);
+    seq1.setTransitionVerifier(createAcceptAllVerifierForTests('tests/message-submission.test.ts'));
     const seq2 = new L2SequencerService(new InMemoryStore(), EMPTY_ROOT, EMPTY_ROOT, Field(0), 999_999, true);
+    seq2.setTransitionVerifier(createAcceptAllVerifierForTests('tests/message-submission.test.ts'));
 
     const messages = [
       { msg: makeMessage(walletA, walletB, threadAlpha), pl: makePayload('msg1') },
@@ -223,7 +231,9 @@ describe('Gossip replication — applyReplicatedMessage', () => {
 
   test('replicated messages are queryable by sender', () => {
     const seq1 = new L2SequencerService(new InMemoryStore(), EMPTY_ROOT, EMPTY_ROOT, Field(0), 999_999, true);
+    seq1.setTransitionVerifier(createAcceptAllVerifierForTests('tests/message-submission.test.ts'));
     const seq2 = new L2SequencerService(new InMemoryStore(), EMPTY_ROOT, EMPTY_ROOT, Field(0), 999_999, true);
+    seq2.setTransitionVerifier(createAcceptAllVerifierForTests('tests/message-submission.test.ts'));
 
     const msg = makeMessage(walletA, walletB, threadAlpha);
     const pl = makePayload('queryable');
@@ -238,7 +248,9 @@ describe('Gossip replication — applyReplicatedMessage', () => {
 
   test('replicated messages are queryable by recipient', () => {
     const seq1 = new L2SequencerService(new InMemoryStore(), EMPTY_ROOT, EMPTY_ROOT, Field(0), 999_999, true);
+    seq1.setTransitionVerifier(createAcceptAllVerifierForTests('tests/message-submission.test.ts'));
     const seq2 = new L2SequencerService(new InMemoryStore(), EMPTY_ROOT, EMPTY_ROOT, Field(0), 999_999, true);
+    seq2.setTransitionVerifier(createAcceptAllVerifierForTests('tests/message-submission.test.ts'));
 
     const msg = makeMessage(walletA, walletB, threadAlpha);
     const pl = makePayload();
@@ -253,7 +265,9 @@ describe('Gossip replication — applyReplicatedMessage', () => {
 
   test('replicated messages are queryable by thread', () => {
     const seq1 = new L2SequencerService(new InMemoryStore(), EMPTY_ROOT, EMPTY_ROOT, Field(0), 999_999, true);
+    seq1.setTransitionVerifier(createAcceptAllVerifierForTests('tests/message-submission.test.ts'));
     const seq2 = new L2SequencerService(new InMemoryStore(), EMPTY_ROOT, EMPTY_ROOT, Field(0), 999_999, true);
+    seq2.setTransitionVerifier(createAcceptAllVerifierForTests('tests/message-submission.test.ts'));
 
     const msg = makeMessage(walletA, walletB, threadAlpha);
     const pl = makePayload();
@@ -422,6 +436,7 @@ describe('Sequencer message query methods', () => {
 describe('Checkpoint round-trip preserves messages', () => {
   test('export + restore preserves message store state', () => {
     const seq1 = new L2SequencerService(new InMemoryStore(), EMPTY_ROOT, EMPTY_ROOT, Field(0), 999_999, true);
+    seq1.setTransitionVerifier(createAcceptAllVerifierForTests('tests/message-submission.test.ts'));
 
     seq1.storeMessage(makeMessage(walletA, walletB, threadAlpha), makePayload('msg1'));
     seq1.storeMessage(makeMessage(walletB, walletC, threadBeta), makePayload('msg2'));
@@ -429,6 +444,7 @@ describe('Checkpoint round-trip preserves messages', () => {
     const state = seq1.exportState();
 
     const seq2 = new L2SequencerService(new InMemoryStore(), EMPTY_ROOT, EMPTY_ROOT, Field(0), 999_999, true);
+    seq2.setTransitionVerifier(createAcceptAllVerifierForTests('tests/message-submission.test.ts'));
     seq2.restoreState(state);
 
     expect(seq2.getMessageCount()).toBe(seq1.getMessageCount());

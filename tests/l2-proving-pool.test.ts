@@ -28,6 +28,7 @@ import { InMemoryStore } from '../src/storage/local-store.js';
 import { L2SequencerService, MAX_TRANSITIONS_PER_BATCH } from '../src/l2/l2-sequencer-service.js';
 import { L2Node } from '../src/l2/l2-node.js';
 import type { ProvingJobRequest, ProvingJobResult, PoolEvent, PoolEventType } from '../src/l2/l2-proving-pool-types.js';
+import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 
 // ─── Mock Proof Helpers ─────────────────────────────────────
 
@@ -105,6 +106,7 @@ describe('L2SequencerService — Split Batch API', () => {
       30_000,
       true, // l2Only
     );
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
   });
 
   test('prepareBatch returns empty batch when no proofs pending', () => {
@@ -351,6 +353,7 @@ describe('L2SequencerService — Split Batch API', () => {
       30_000,
       false, // NOT l2Only
     );
+    seqNonL2.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     // Inject a fake in-flight batch to simulate non-settled state
     (seqNonL2 as any).inFlightBatchNumber = 1n;
@@ -498,6 +501,7 @@ describe('L2Node — proving pool integration', () => {
       new InMemoryStore(),
       ROOT_0, LC_ROOT, Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     expect(node.getProvingPool()).toBeNull();
 
@@ -513,6 +517,7 @@ describe('L2Node — proving pool integration', () => {
       new InMemoryStore(),
       ROOT_0, LC_ROOT, Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     // Create mock pool that returns a valid result
     const mockPool = {
@@ -554,6 +559,7 @@ describe('L2Node — proving pool integration', () => {
       new InMemoryStore(),
       ROOT_0, LC_ROOT, Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     // Create mock pool that rejects
     const mockPool = {
@@ -596,6 +602,7 @@ describe('L2Node — proving pool integration', () => {
       new InMemoryStore(),
       ROOT_0, LC_ROOT, Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     // No pool set — should use withProvingLock path (which calls buildBatch)
     // buildBatch with mock proofs will try to call BatchProgram.wrapSingle
@@ -622,6 +629,7 @@ describe('L2SequencerService — buildBatch backward compatibility', () => {
       30_000,
       true,
     );
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
   });
 
   test('buildBatch returns empty batch when pool is empty', async () => {
@@ -666,6 +674,7 @@ describe('ProvingJobRequest edge cases', () => {
       30_000,
       true,
     );
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     const proof = makeMockProof({
       walletId: WALLET_A,
@@ -692,6 +701,7 @@ describe('ProvingJobRequest edge cases', () => {
       30_000,
       true,
     );
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     const proof1 = makeMockProof({
       walletId: WALLET_A,
@@ -725,6 +735,7 @@ describe('ProvingJobRequest edge cases', () => {
       30_000,
       true,
     );
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     const proof1 = makeMockProof({
       walletId: WALLET_A,
@@ -835,6 +846,7 @@ describe('L2SequencerService — workerId in finalizeBatch', () => {
       30_000,
       true,
     );
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     const proof = makeMockProof({
       walletId: WALLET_A,
@@ -866,6 +878,7 @@ describe('L2SequencerService — workerId in finalizeBatch', () => {
       30_000,
       true,
     );
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     const proof = makeMockProof({
       walletId: WALLET_A,
@@ -908,6 +921,7 @@ describe('L2Node — pool event forwarding', () => {
       new InMemoryStore(),
       ROOT_0, LC_ROOT, Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     const events: any[] = [];
     node.on((e) => events.push(e));
@@ -946,6 +960,7 @@ describe('L2Node — pool event forwarding', () => {
       new InMemoryStore(),
       ROOT_0, LC_ROOT, Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     const mockResult = makeMockResult(
       ROOT_0.toString(), ROOT_1.toString(),

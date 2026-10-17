@@ -37,6 +37,7 @@ import { L2SequencerService } from '../src/l2/l2-sequencer-service.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
 import { WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
 import type { L2Batch } from '../src/l2/l2-types.js';
+import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 
 jest.setTimeout(60000);
 
@@ -84,12 +85,14 @@ const INITIAL_LC_ROOT = emptyLcTree.getRoot();
 
 function createSequencer(): L2SequencerService {
   const store = new InMemoryStore();
-  return new L2SequencerService(
+  const seq = new L2SequencerService(
     store,
     INITIAL_REG_ROOT,
     INITIAL_LC_ROOT,
     Field(0),
   );
+  seq.setTransitionVerifier(createAcceptAllVerifierForTests('tests/message-store.test.ts'));
+  return seq;
 }
 
 // ─── 1. Types & Hashing ─────────────────────────────────────

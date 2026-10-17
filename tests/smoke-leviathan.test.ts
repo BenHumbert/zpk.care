@@ -47,6 +47,7 @@ import { buildMemberRoutes } from '../src/nodes/routes/member-routes.js';
 import { buildPrescriberRoutes } from '../src/nodes/routes/prescriber-routes.js';
 import { buildPharmacyRoutes } from '../src/nodes/routes/pharmacy-routes.js';
 import type { NautilusAppConfig } from '../src/nodes/nautilus-app-types.js';
+import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -184,6 +185,7 @@ describe('Smoke — L2Node + 4 Nautilus Apps (HTTP routes)', () => {
       INITIAL_ROOT,
       Field(0),
     );
+    l2Node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/smoke-leviathan.test.ts'));
 
     rpcServer = new L2RpcServer(l2Node, { port: 0, adminToken: TEST_ADMIN_TOKEN });
     await rpcServer.start();

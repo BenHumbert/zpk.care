@@ -50,6 +50,7 @@ import { isMyPartition, getPartition } from './l2-partition.js';
 import { WalletRegistry, WalletState, WALLET_TREE_HEIGHT } from '../wallets/wallet-state.js';
 import { lifecycleLeafCommitment, LIFECYCLE_REGISTERED, LifecycleWitness } from '../engine/lifecycle.js';
 import type { IWalProvider, WalEntry } from './l2-wal.js';
+import type { TransitionProofVerifier } from './l2-proof-verifier.js';
 import type { ProvingJobRequest, ProvingJobResult } from './l2-proving-pool-types.js';
 import { FormularyService } from './formulary-service.js';
 import type { FormularyServiceState } from './formulary-service.js';
@@ -244,6 +245,10 @@ export class L2SequencerService {
   // Write-Ahead Log (optional — when set, mutations are WAL'd before application)
   private walProvider: IWalProvider | null = null;
 
+  // Cryptographic verification of submitted proofs. Required: submitProof refuses
+  // while this is null, so there is no path that accepts an unverified transition.
+  private transitionVerifier: TransitionProofVerifier | null = null;
+
   // Drained transitions held between prepareBatch() and finalizeBatch()
   private drainedTransitions: PendingTransition[] = [];
 
@@ -289,12 +294,33 @@ export class L2SequencerService {
    * @throws If proof verification fails or roots don't match
    */
   async submitProof(proof: StateTransitionProof, metadata?: ClaimSubmissionMetadata): Promise<L2Receipt> {
-    // 1. Verify the proof
-    proof.verify();
+    // 1. Verify the proof cryptographically, before anything is read, recorded or mutated.
+    //
+    //    This is the first thing that happens, deliberately. Everything below it —
+    //    the fingerprint, the partition check, the root assertions, the tree update,
+    //    the WAL append, the receipt, the audit chain, the claim leaf and the gossip
+    //    that follows — is state the caller must not be able to touch with a proof
+    //    that does not verify.
+    //
+    //    The verifier is injected rather than called directly, so this method contains
+    //    no path that can accept an unverified transition: with none configured the
+    //    submission is refused. `proof.verify()` used to stand here and did nothing;
+    //    o1js documents it as having no effect outside a circuit.
+    if (!this.transitionVerifier) {
+      throw new Error(
+        'Proof verification is not configured: refusing to accept a state transition. ' +
+          'Call setTransitionVerifier() with a verifier bound to a pinned verification key.',
+      );
+    }
+    await this.transitionVerifier(proof);
 
     const output = proof.publicOutput as unknown as TransitionOutput;
 
-    // 1a. Proof fingerprint dedup — prevent replay of identical transitions
+    // 1a. Proof fingerprint dedup — prevent replay of identical transitions.
+    //     Recorded after verification, so a proof that fails to verify never leaves a
+    //     fingerprint behind. An honest proof that is recorded and then loses a root
+    //     race is rebuilt against the new roots, which gives it a different
+    //     fingerprint, so the entry it leaves is inert.
     const fp = `${output.walletId}:${output.oldRegistryRoot}:${output.newRegistryRoot}:${output.oldLifecycleRoot}:${output.newLifecycleRoot}`;
     if (this.seenProofFingerprints.has(fp)) {
       throw new Error('Duplicate proof: this transition has already been processed');
@@ -2017,6 +2043,23 @@ export class L2SequencerService {
   /** Get the current partition config, or null if not partitioned */
   getPartitionConfig(): PartitionConfig | null {
     return this.partitionConfig ? { ...this.partitionConfig } : null;
+  }
+
+  /**
+   * Install the verifier for submitted state-transition proofs. Required before this
+   * sequencer will accept anything: `submitProof` refuses while it is unset, which is
+   * why it is an injected dependency rather than an option that could default to off.
+   *
+   * Production builds it with `createTransitionProofVerifier()`, which compiles the
+   * program and pins its verification key hash.
+   */
+  setTransitionVerifier(verifier: TransitionProofVerifier): void {
+    this.transitionVerifier = verifier;
+  }
+
+  /** Whether a proof verifier is installed. False means every submission is refused. */
+  hasTransitionVerifier(): boolean {
+    return this.transitionVerifier !== null;
   }
 
   /** Set the Write-Ahead Log provider (optional — enables crash-safe durability) */

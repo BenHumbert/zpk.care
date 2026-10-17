@@ -39,6 +39,7 @@ import {
 } from '../src/engine/lifecycle.js';
 import { TransitionOutput } from '../src/engine/state-transition.js';
 import { NautilusAppServer } from '../src/nodes/nautilus-app-server.js';
+import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 
 // ─── Reference model (independent of the sequencer) ─────────
 
@@ -75,7 +76,11 @@ const credRoot = (n: number) => Poseidon.hash([Field(99), Field(n)]);
 
 function newSequencer() {
   const empty = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
-  return new L2SequencerService(new InMemoryStore(), empty, empty, Field(0), 60_000, true);
+  const seq = new L2SequencerService(new InMemoryStore(), empty, empty, Field(0), 60_000, true);
+  // These cases drive the tree/root invariant with mock proofs, so verification is
+  // explicitly stubbed. Production installs a real verifier at boot.
+  seq.setTransitionVerifier(createAcceptAllVerifierForTests('tests/registry-consistency.test.ts'));
+  return seq;
 }
 
 /** Every wallet witness, and the empty next-slot witness, must hash to the published root. */

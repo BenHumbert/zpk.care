@@ -32,6 +32,7 @@ import { L2SequencerService } from '../src/l2/l2-sequencer-service.js';
 import { L2Node } from '../src/l2/l2-node.js';
 import { AuditService } from '../src/audit/audit-service.js';
 import type { ClaimSubmissionMetadata } from '../src/l2/l2-types.js';
+import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 
 // ─── Mock Proof Helpers ─────────────────────────────────────
 
@@ -95,6 +96,7 @@ describe('Claim Accumulator Integration — Sequencer', () => {
   beforeEach(() => {
     const store = new InMemoryStore();
     sequencer = new L2SequencerService(store, REG_ROOT_0, LC_ROOT, Field(0));
+    sequencer.setTransitionVerifier(createAcceptAllVerifierForTests('tests/claim-accumulator-integration.test.ts'));
   });
 
   test('submitProof with metadata sets ndcHash on AuditEvent', async () => {
@@ -287,6 +289,7 @@ describe('Claim Accumulator Integration — Checkpoint', () => {
   test('export/restore preserves claim accumulator state', async () => {
     const store = new InMemoryStore();
     const original = new L2SequencerService(store, REG_ROOT_0, LC_ROOT, Field(0));
+    original.setTransitionVerifier(createAcceptAllVerifierForTests('tests/claim-accumulator-integration.test.ts'));
 
     const proof1 = makeMockProof({
       walletId: WALLET_A,
@@ -316,6 +319,7 @@ describe('Claim Accumulator Integration — Checkpoint', () => {
 
     // Restore
     const restored = new L2SequencerService(store, REG_ROOT_0, LC_ROOT, Field(0));
+    restored.setTransitionVerifier(createAcceptAllVerifierForTests('tests/claim-accumulator-integration.test.ts'));
     restored.restoreState(state);
 
     expect(restored.getClaimAccumulatorRoot()).toBe(originalRoot);
@@ -329,6 +333,7 @@ describe('Claim Accumulator Integration — Checkpoint', () => {
   test('empty accumulator not included in checkpoint', () => {
     const store = new InMemoryStore();
     const sequencer = new L2SequencerService(store, REG_ROOT_0, LC_ROOT, Field(0));
+    sequencer.setTransitionVerifier(createAcceptAllVerifierForTests('tests/claim-accumulator-integration.test.ts'));
 
     const state = sequencer.exportState();
     expect(state.claimAccumulatorState).toBeUndefined();
@@ -337,6 +342,7 @@ describe('Claim Accumulator Integration — Checkpoint', () => {
   test('restoreState without accumulator resets to empty', async () => {
     const store = new InMemoryStore();
     const sequencer = new L2SequencerService(store, REG_ROOT_0, LC_ROOT, Field(0));
+    sequencer.setTransitionVerifier(createAcceptAllVerifierForTests('tests/claim-accumulator-integration.test.ts'));
 
     const proof = makeMockProof({
       walletId: WALLET_A,
@@ -350,6 +356,7 @@ describe('Claim Accumulator Integration — Checkpoint', () => {
 
     // Restore with a state that has no accumulator
     const emptyState = new L2SequencerService(store, REG_ROOT_0, LC_ROOT, Field(0));
+    emptyState.setTransitionVerifier(createAcceptAllVerifierForTests('tests/claim-accumulator-integration.test.ts'));
     const state = emptyState.exportState();
     sequencer.restoreState(state);
 
@@ -367,6 +374,7 @@ describe('Claim Accumulator Integration — L2Node', () => {
       LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/claim-accumulator-integration.test.ts'));
 
     const proof = makeMockProof({
       walletId: WALLET_A,
@@ -392,6 +400,7 @@ describe('Claim Accumulator Integration — L2Node', () => {
       LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/claim-accumulator-integration.test.ts'));
 
     const proof = makeMockProof({
       walletId: WALLET_A,
@@ -422,6 +431,7 @@ describe('Claim Accumulator Integration — Multiple Claims', () => {
   test('multiple claims for same member accumulate correctly', async () => {
     const store = new InMemoryStore();
     const sequencer = new L2SequencerService(store, REG_ROOT_0, LC_ROOT, Field(0));
+    sequencer.setTransitionVerifier(createAcceptAllVerifierForTests('tests/claim-accumulator-integration.test.ts'));
 
     // 3 claims for the same member, different drugs
     const roots = [REG_ROOT_0, REG_ROOT_1, REG_ROOT_2, REG_ROOT_3];
@@ -465,6 +475,7 @@ describe('Claim Accumulator Integration — Multiple Claims', () => {
   test('mixed claim and non-claim proofs maintain correct state', async () => {
     const store = new InMemoryStore();
     const sequencer = new L2SequencerService(store, REG_ROOT_0, LC_ROOT, Field(0));
+    sequencer.setTransitionVerifier(createAcceptAllVerifierForTests('tests/claim-accumulator-integration.test.ts'));
 
     // Proof 1: registration (no metadata)
     const regProof = makeMockProof({

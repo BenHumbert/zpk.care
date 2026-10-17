@@ -95,6 +95,7 @@ import type { PlanTemplateConfig } from '../src/onboarding/plan-template.js';
 import type { MemberLocalData } from '../src/models/member.js';
 import type { PrescriberLocalData } from '../src/models/prescriber.js';
 import type { PharmacyLocalData } from '../src/models/pharmacy.js';
+import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 
 // ─── Timeout ───────────────────────────────────────────────
 
@@ -392,6 +393,7 @@ describe('Accumulator Reconstruction', () => {
   beforeEach(() => {
     store = new InMemoryStore();
     sequencer = new L2SequencerService(store, REG_ROOT_0, LC_ROOT, Field(0));
+    sequencer.setTransitionVerifier(createAcceptAllVerifierForTests('tests/wallet-migration.test.ts'));
   });
 
   test('reconstructAccumulator returns null for unknown wallet', () => {
@@ -992,6 +994,7 @@ describe('L2SequencerService Integration — deductibleCreditCents + reconstruct
   beforeEach(() => {
     store = new InMemoryStore();
     sequencer = new L2SequencerService(store, REG_ROOT_0, LC_ROOT, Field(0));
+    sequencer.setTransitionVerifier(createAcceptAllVerifierForTests('tests/wallet-migration.test.ts'));
   });
 
   test('submitProof with deductibleCreditCents metadata stores in claim leaf', async () => {
@@ -1131,6 +1134,7 @@ describe('L2SequencerService Integration — deductibleCreditCents + reconstruct
     // Export and restore
     const state = sequencer.exportState();
     const restored = new L2SequencerService(store, REG_ROOT_0, LC_ROOT, Field(0));
+    restored.setTransitionVerifier(createAcceptAllVerifierForTests('tests/wallet-migration.test.ts'));
     restored.restoreState(state);
 
     const claims = restored.getClaimsByMember(WALLET_A.toString());

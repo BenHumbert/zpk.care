@@ -58,6 +58,7 @@ import { buildPharmacyRoutes } from '../src/nodes/routes/pharmacy-routes.js';
 import { buildEmployerRoutes } from '../src/nodes/routes/employer-routes.js';
 import { hashString } from '../src/zkp/hash-utils.js';
 import type { NautilusAppConfig } from '../src/nodes/nautilus-app-types.js';
+import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -234,6 +235,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
       INITIAL_ROOT,
       Field(0),
     );
+    l2Node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/smoke-e2e.test.ts'));
 
     rpcServer = new L2RpcServer(l2Node, { port: 0, adminToken: TEST_ADMIN_TOKEN });
     await rpcServer.start();

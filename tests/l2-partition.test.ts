@@ -30,6 +30,7 @@ import {
 import type { PartitionConfig } from '../src/l2/l2-partition.js';
 import { L2SequencerService } from '../src/l2/l2-sequencer-service.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
+import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 
 // ─── Partition Assignment ─────────────────────────────────────
 
@@ -195,12 +196,14 @@ describe('L2SequencerService — Partition Config', () => {
   test('getPartitionConfig returns null by default', () => {
     const store = new InMemoryStore();
     const service = new L2SequencerService(store, Field(0), Field(0), Field(0));
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-partition.test.ts'));
     expect(service.getPartitionConfig()).toBeNull();
   });
 
   test('setPartitionConfig stores config', () => {
     const store = new InMemoryStore();
     const service = new L2SequencerService(store, Field(0), Field(0), Field(0));
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-partition.test.ts'));
     service.setPartitionConfig({ partitionCount: 4, partitionIndex: 1 });
 
     const config = service.getPartitionConfig();
@@ -210,6 +213,7 @@ describe('L2SequencerService — Partition Config', () => {
   test('getPartitionConfig returns a copy (not a reference)', () => {
     const store = new InMemoryStore();
     const service = new L2SequencerService(store, Field(0), Field(0), Field(0));
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-partition.test.ts'));
     service.setPartitionConfig({ partitionCount: 4, partitionIndex: 1 });
 
     const config1 = service.getPartitionConfig();

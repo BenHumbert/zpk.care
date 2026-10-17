@@ -36,6 +36,7 @@ import type {
   L2NodeConfig,
   AdminStateDelta,
 } from '../src/l2/l2-types.js';
+import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 
 // ─── Test Data ──────────────────────────────────────────────
 
@@ -209,6 +210,7 @@ describe('L2SequencerService', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
   });
 
   test('constructor initializes with correct initial state', () => {
@@ -231,6 +233,7 @@ describe('L2SequencerService', () => {
       Field(0),
       60_000,
     );
+    custom.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
     expect(custom.getBatchIntervalMs()).toBe(60_000);
   });
 
@@ -297,6 +300,7 @@ describe('L2SequencerService — Batch Failure & Retry', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
   });
 
   test('getInFlightBatchNumber starts as null', () => {
@@ -367,6 +371,7 @@ describe('H3 — Settlement Failure Rollback', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
   });
 
   test('markBatchFailed rolls back current roots to last-settled state', () => {
@@ -494,6 +499,7 @@ describe('H4 — syncFromL1', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
   });
 
   test('syncFromL1 updates both current and last-settled roots', () => {
@@ -687,6 +693,7 @@ describe('L2SequencerService — AdminState & ChainProof', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
   });
 
   test('isChainProofEnabled returns false by default', () => {
@@ -758,6 +765,7 @@ describe('L2SequencerService — Checkpoint with Chain State', () => {
   test('exportState includes adminState when set', () => {
     store = new InMemoryStore();
     const service = new L2SequencerService(store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
     service.setAdminState(adminConfig);
 
     const state = service.exportState();
@@ -775,6 +783,7 @@ describe('L2SequencerService — Checkpoint with Chain State', () => {
   test('exportState omits adminState when not set', () => {
     store = new InMemoryStore();
     const service = new L2SequencerService(store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
 
     const state = service.exportState();
     expect(state.adminState).toBeUndefined();
@@ -785,11 +794,13 @@ describe('L2SequencerService — Checkpoint with Chain State', () => {
   test('restoreState rebuilds admin state from checkpoint', () => {
     store = new InMemoryStore();
     const service1 = new L2SequencerService(store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
+    service1.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
     service1.setAdminState(adminConfig);
     const exported = service1.exportState();
 
     // Restore into a fresh service
     const service2 = new L2SequencerService(store, Field(0), Field(0), Field(0));
+    service2.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
     service2.restoreState(exported);
 
     expect(service2.isChainProofEnabled()).toBe(true);
@@ -805,9 +816,11 @@ describe('L2SequencerService — Checkpoint with Chain State', () => {
   test('restoreState without admin state does not enable chain proofs', () => {
     store = new InMemoryStore();
     const service1 = new L2SequencerService(store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
+    service1.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
     const exported = service1.exportState();
 
     const service2 = new L2SequencerService(store, Field(0), Field(0), Field(0));
+    service2.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
     service2.restoreState(exported);
 
     expect(service2.isChainProofEnabled()).toBe(false);
@@ -890,6 +903,7 @@ describe('L2SequencerService — L2-Only Mode', () => {
       DEFAULT_BATCH_INTERVAL_MS,
       true, // l2Only
     );
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
   });
 
   test('isL2Only returns true when constructed with l2Only=true', () => {
@@ -900,6 +914,7 @@ describe('L2SequencerService — L2-Only Mode', () => {
     const defaultService = new L2SequencerService(
       store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0),
     );
+    defaultService.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
     expect(defaultService.isL2Only()).toBe(false);
   });
 
@@ -934,6 +949,7 @@ describe('L2SequencerService — L2-Only Mode', () => {
     const restored = new L2SequencerService(
       store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0),
     );
+    restored.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
     expect(restored.isL2Only()).toBe(false);
 
     restored.restoreState(state);
@@ -945,6 +961,7 @@ describe('L2SequencerService — L2-Only Mode', () => {
     const defaultService = new L2SequencerService(
       store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0),
     );
+    defaultService.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
     const state = defaultService.exportState();
     delete (state as any).l2Only;
 
@@ -953,6 +970,7 @@ describe('L2SequencerService — L2-Only Mode', () => {
       DEFAULT_BATCH_INTERVAL_MS,
       true, // constructed as L2-only
     );
+    restored.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
     restored.restoreState(state);
     // Should preserve the construction-time value when checkpoint has no l2Only
     expect(restored.isL2Only()).toBe(true);

@@ -48,6 +48,7 @@ import type { L2Receipt, L2Block, L2Batch } from '../src/l2/l2-types.js';
 import type { AuditEvent } from '../src/audit/audit-types.js';
 import type { L2SequencerState } from '../src/l2/l2-checkpoint.js';
 import { l2Stringify, l2Parse } from '../src/l2/l2-json.js';
+import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 
 // ─── Test Setup ─────────────────────────────────────────────
 
@@ -96,6 +97,7 @@ async function createTestNode(
     INITIAL_LC_ROOT,
     Field(0),
   );
+  node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
 
   const server = new L2RpcServer(node, { port: 0, adminToken: TEST_ADMIN_TOKEN });
   await server.start();
@@ -526,6 +528,7 @@ describe('Sequencer Replication Methods', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     sequencer = node.getSequencer();
   });
 
@@ -1041,6 +1044,7 @@ describe('L2Node Peer Integration', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     expect(node.getRole()).toBe('sequencer');
   });
 
@@ -1053,6 +1057,7 @@ describe('L2Node Peer Integration', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     expect(node.getRole()).toBe('replica');
   });
 
@@ -1065,6 +1070,7 @@ describe('L2Node Peer Integration', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     expect(node.getNodeId()).toBe('my-custom-node');
   });
 
@@ -1077,6 +1083,7 @@ describe('L2Node Peer Integration', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     const id = node.getNodeId();
     expect(typeof id).toBe('string');
     expect(id.startsWith('node-')).toBe(true);
@@ -1091,6 +1098,7 @@ describe('L2Node Peer Integration', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     node.start();
     expect(node.getPeerNetwork()).toBeNull();
     node.stop();
@@ -1133,7 +1141,9 @@ describe('L2Node Peer Integration', () => {
   test('sequencer node has auto-generated nodeId', () => {
     const store = new InMemoryStore();
     const n1 = new L2Node({ batchIntervalMs: 999_999 }, store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
+    n1.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     const n2 = new L2Node({ batchIntervalMs: 999_999 }, store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
+    n2.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     expect(n1.getNodeId()).not.toBe(n2.getNodeId());
   });
 
@@ -1338,6 +1348,7 @@ describe('Multi-Node Gossip', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    replica.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
 
     const seq = replica.getSequencer();
     const receipt = mockReceipt(0n, 'l2-00000000');
@@ -1361,6 +1372,7 @@ describe('Multi-Node Gossip', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    replica.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
 
     const seq = replica.getSequencer();
 
@@ -1392,6 +1404,7 @@ describe('Multi-Node Gossip', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    replica.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     const seq = replica.getSequencer();
 
     // 1. Receipt
@@ -1427,6 +1440,7 @@ describe('Multi-Node Gossip', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    replica.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     const seq = replica.getSequencer();
 
     for (let i = 0; i < 5; i++) {
@@ -1466,6 +1480,7 @@ describe('Multi-Node Gossip', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    replica.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     const repSeq = replica.getSequencer();
     repSeq.applyReplicatedReceipt(
       mockReceipt(0n, 'l2-00000000'),
@@ -1485,6 +1500,7 @@ describe('Multi-Node Gossip', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    replica.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     const seq = replica.getSequencer();
 
     // Set up receipt and batch
@@ -1739,6 +1755,7 @@ describe('Edge Cases & Network Resilience', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node1.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     const seq1 = node1.getSequencer();
 
     // Add receipts
@@ -1771,6 +1788,7 @@ describe('Edge Cases & Network Resilience', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node2.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     const seq2 = node2.getSequencer();
     seq2.restoreState(exported);
 

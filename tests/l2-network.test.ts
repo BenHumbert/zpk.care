@@ -39,6 +39,7 @@ import type { L2ChainEvent } from '../src/l2/l2-node.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
 import { WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
 import type { L2Receipt, L2Batch } from '../src/l2/l2-types.js';
+import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 
 // ─── Test Setup ─────────────────────────────────────────────
 
@@ -159,6 +160,7 @@ describe('L2RpcServer', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-network.test.ts'));
     server = new L2RpcServer(node, { port: 0 }); // Random port
     await server.start();
     port = server.getPort();
@@ -361,6 +363,7 @@ describe('L2Client', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-network.test.ts'));
     node.start();
     server = new L2RpcServer(node, { port: 0 });
     await server.start();
@@ -465,6 +468,7 @@ describe('SSE Event Streaming', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-network.test.ts'));
     server = new L2RpcServer(node, { port: 0 });
     await server.start();
     port = server.getPort();
@@ -606,6 +610,7 @@ describe('L2 Client-Server Integration', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-network.test.ts'));
     node.start();
     server = new L2RpcServer(node, { port: 0 });
     await server.start();

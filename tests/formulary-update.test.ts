@@ -51,6 +51,7 @@ import { TokenAuthority } from '../src/onboarding/token-authority.js';
 import { GroupRegistry, buildGroupConfig } from '../src/onboarding/group-registry.js';
 import { OpaqueRoster } from '../src/onboarding/opaque-roster.js';
 import { BenefitPlanRegistry } from '../src/eligibility/benefit-plan-registry.js';
+import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 
 // ─── Test Data ───────────────────────────────────────────
 
@@ -244,6 +245,7 @@ describe('Formulary Update Push (GAP 3)', () => {
         Field(0),
         30_000,
       );
+      sequencer.setTransitionVerifier(createAcceptAllVerifierForTests('tests/formulary-update.test.ts'));
     });
 
     test('storeFormulary and getFormulary', () => {
@@ -287,6 +289,7 @@ describe('Formulary Update Push (GAP 3)', () => {
       // Restore to new sequencer
       const store2 = new InMemoryStore();
       const sequencer2 = new L2SequencerService(store2, Field(0), Field(0), Field(0));
+      sequencer2.setTransitionVerifier(createAcceptAllVerifierForTests('tests/formulary-update.test.ts'));
       sequencer2.restoreState(state);
 
       const restored = sequencer2.getFormulary(planIdHash);
@@ -313,6 +316,7 @@ describe('Formulary Update Push (GAP 3)', () => {
         Field(0),
         Field(0),
       );
+      node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/formulary-update.test.ts'));
       node.start();
 
       server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', maxBodyBytes: 10 * 1024 * 1024, enableSSE: false });

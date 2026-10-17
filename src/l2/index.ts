@@ -259,6 +259,18 @@ export type {
 } from './l2-wal.js';
 export { DEFAULT_WAL_CONFIG } from './l2-wal.js';
 
+// Proof verification — required before the sequencer accepts any transition
+export {
+  createTransitionProofVerifier,
+  createAcceptAllVerifierForTests,
+  ProofRejected,
+} from './l2-proof-verifier.js';
+export type {
+  TransitionProofVerifier,
+  TransitionVerifierOptions,
+  ProofRejectionReason,
+} from './l2-proof-verifier.js';
+
 // Quorum Protocol — Ed25519-based consensus
 export {
   L2QuorumService,

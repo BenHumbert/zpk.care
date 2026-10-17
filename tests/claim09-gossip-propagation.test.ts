@@ -42,6 +42,7 @@ import type {
 import type { L2Receipt } from '../src/l2/l2-types.js';
 import type { AuditEvent } from '../src/audit/audit-types.js';
 import { l2Stringify, l2Parse } from '../src/l2/l2-json.js';
+import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 
 // ─── Test Setup ─────────────────────────────────────────────
 
@@ -85,6 +86,7 @@ async function createTestNode(
     INITIAL_LC_ROOT,
     Field(0),
   );
+  node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/claim09-gossip-propagation.test.ts'));
 
   const server = new L2RpcServer(node, { port: 0, adminToken: TEST_ADMIN_TOKEN });
   await server.start();

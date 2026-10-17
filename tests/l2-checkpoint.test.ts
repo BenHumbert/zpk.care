@@ -42,6 +42,7 @@ import { InMemoryStore } from '../src/storage/local-store.js';
 import { WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
 import { AuditService } from '../src/audit/audit-service.js';
 import type { L2Receipt, L2Block, L2Batch, AdminStateDelta } from '../src/l2/l2-types.js';
+import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 
 // ─── Test Setup ─────────────────────────────────────────────
 
@@ -368,6 +369,7 @@ describe('L2SequencerService — Export / Restore', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
   });
 
   test('exportState captures all initial state', () => {
@@ -539,6 +541,7 @@ describe('L2SequencerService — Export / Restore', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    service2.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
     service2.restoreState(state1);
     const state2 = service2.exportState();
 
@@ -606,6 +609,7 @@ describe('L2Node — Checkpoint Integration', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
 
     const checkpoint = node.exportCheckpoint('manual');
 
@@ -630,6 +634,7 @@ describe('L2Node — Checkpoint Integration', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
 
     const checkpoint = makeCheckpoint();
     node.restoreFromCheckpoint(checkpoint);
@@ -650,6 +655,7 @@ describe('L2Node — Checkpoint Integration', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
 
     const checkpoint = makeCheckpoint();
     node.restoreFromCheckpoint(checkpoint);
@@ -706,6 +712,7 @@ describe('L2Node — Checkpoint Integration', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
 
     const cpStore = new L2CheckpointStore(tmpDir);
     node.setCheckpointStore(cpStore);
@@ -724,6 +731,7 @@ describe('L2Node — Checkpoint Integration', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
 
     const result = await node.saveCheckpoint('manual');
     expect(result).toBeNull();
@@ -738,6 +746,7 @@ describe('L2Node — Checkpoint Integration', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
 
     const cpStore = new L2CheckpointStore(tmpDir);
     node.setCheckpointStore(cpStore);
@@ -758,6 +767,7 @@ describe('L2Node — Checkpoint Integration', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
 
     const cpStore = new L2CheckpointStore(tmpDir);
     node.setCheckpointStore(cpStore, { maxCheckpoints: 2 });
@@ -791,6 +801,7 @@ describe('Full Crash Recovery', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node1.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
     node1.setCheckpointStore(cpStore);
 
     // Manually set some state via restoreFromCheckpoint
@@ -896,6 +907,7 @@ describe('Full Crash Recovery', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
     node.setCheckpointStore(cpStore);
     node.start();
 
@@ -919,6 +931,7 @@ describe('Full Crash Recovery', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
 
     // No batches → lastSettledBatchNumber = null
     const cp1 = node.exportCheckpoint('manual');
@@ -981,6 +994,7 @@ describe('C6 Fix: Crash Recovery Root Consistency', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
 
     // Simulate: checkpoint was taken during graceful shutdown with
     // proofs accepted (current roots advanced) but not yet batched.
@@ -1020,6 +1034,7 @@ describe('C6 Fix: Crash Recovery Root Consistency', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
 
     // In-flight batch transitions from lastSettled to batch.newRoots
     const inFlightBatch = mockBatch(1n, [0n]);
@@ -1065,6 +1080,7 @@ describe('C6 Fix: Crash Recovery Root Consistency', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
 
     // Old checkpoint format — no lastSettled fields
     service.restoreState({
@@ -1098,6 +1114,7 @@ describe('C6 Fix: Crash Recovery Root Consistency', () => {
       Field(2000),
       Field(5),
     );
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
 
     const state = service.exportState();
 
@@ -1115,6 +1132,7 @@ describe('C6 Fix: Crash Recovery Root Consistency', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
 
     // Restore with a batched (in-flight) batch
     const batch = mockBatch(0n, [0n]);
@@ -1262,6 +1280,7 @@ describe('Checkpoint Edge Cases', () => {
       INITIAL_LC_ROOT,
       Field(0),
     );
+    node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
 
     node.setCheckpointStore(cpStore, { autoCheckpoint: false });
 

@@ -163,6 +163,42 @@ async function main(): Promise<void> {
     maxCheckpoints,
   });
 
+  // ── Proof verification (required: the sequencer refuses submissions without it) ──
+  //
+  // Compiling StateTransitionProgram costs a few seconds once, and gives us the
+  // verification key every submitted proof is checked against. Until this is installed
+  // the sequencer rejects every submission, so a failure here stops the boot rather
+  // than quietly leaving the ledger open to unverified writes.
+  {
+    const { createTransitionProofVerifier } = await import('../l2/l2-proof-verifier.js');
+    const expectedVkHash = env.ZKTRIDENT_TRANSITION_VK_HASH;
+    let verifier;
+    try {
+      verifier = await createTransitionProofVerifier({
+        expectedVkHash,
+        onCompiled: ({ vkHash, compileMs }) => {
+          console.log('  [verify] StateTransitionProgram compiled in %d ms', compileMs);
+          if (expectedVkHash) {
+            console.log('  [verify] Verification key matches the pinned hash %s…', vkHash.slice(0, 16));
+          } else {
+            console.warn(
+              '  [verify] No ZKTRIDENT_TRANSITION_VK_HASH pinned. Set it to\n' +
+              '           %s\n' +
+              '           so that a swapped or recompiled program is refused at boot.',
+              vkHash,
+            );
+          }
+        },
+      });
+    } catch (err) {
+      console.error('  [verify] Cannot establish proof verification:', err instanceof Error ? err.message : err);
+      console.error('  [verify] Refusing to start. A sequencer that cannot verify proofs must not accept them.');
+      throw err;
+    }
+    node.getSequencer().setTransitionVerifier(verifier);
+    console.log('  [verify] Submitted proofs are verified before any state is written');
+  }
+
   // ── Proving Pool (optional — auto-detect worker count from available RAM) ──
 
   const poolSizeEnv = env.ZKTRIDENT_POOL_SIZE ?? 'auto';

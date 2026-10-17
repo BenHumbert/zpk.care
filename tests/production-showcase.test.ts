@@ -70,6 +70,7 @@ import { AccumulatorData, ACCUMULATOR_LEAF_INDEX } from '../src/access-control/a
 import { hashString, dateToField, centsToField, quantityToField, codeToField } from '../src/zkp/hash-utils.js';
 import { PlanTemplate } from '../src/onboarding/plan-template.js';
 import { MEMBERS, PRESCRIBERS, PHARMACIES, MEDICATIONS, getAllFormularyEntries } from '../src/data/index.js';
+import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -216,6 +217,7 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
       { batchIntervalMs: 60_000, autoSettle: false },
       store, INITIAL_ROOT, INITIAL_ROOT, Field(0),
     );
+    l2Node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/production-showcase.test.ts'));
     rpcServer = new L2RpcServer(l2Node, { port: 0, adminToken: TEST_ADMIN_TOKEN });
     await rpcServer.start();
     rpcPort = rpcServer.getPort();
