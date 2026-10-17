@@ -33,6 +33,16 @@
   var selectedPlanIds = [];
   var applicationId = localStorage.getItem('zkmp_applicationId') || null;
   var applicationStatus = localStorage.getItem('zkmp_applicationStatus') || null;
+  /*
+   * A8: the one-time activation secret, used to collect the employer's admin credentials.
+   *
+   * sessionStorage rather than localStorage on purpose. It is needed only between submitting the
+   * application and collecting the token, which is one sitting, and a secret that survives the
+   * tab outlives its own usefulness. If the tab is closed in between, the employer re-enters the
+   * activation code they were told to save, which is the same recovery path as the application
+   * ID already had.
+   */
+  var claimSecret = sessionStorage.getItem('zkmp_claimSecret') || '';
   var keypair = null; // { publicKeyHex, privateKey (CryptoKey) } — NOT persisted (CryptoKey is non-exportable)
   var agreementData = null; // { terms, commitment, documentHash, canonicalMessage }
 
@@ -47,6 +57,10 @@
     } else {
       localStorage.removeItem('zkmp_applicationStatus');
     }
+    try {
+      if (claimSecret) sessionStorage.setItem('zkmp_claimSecret', claimSecret);
+      else sessionStorage.removeItem('zkmp_claimSecret');
+    } catch (e) { /* private mode — the employer re-enters the code instead */ }
   }
 
   // ─── Helpers ──────────────────────────────────────────────
@@ -380,8 +394,20 @@
       var result = await api('POST', '/marketplace/api/apply', body);
       applicationId = result.applicationId;
       applicationStatus = 'submitted';
+      // A8: everything after the first dot is the secret; the identifier is before it.
+      var code = result.activationCode || '';
+      claimSecret = code.indexOf('.') >= 0 ? code.slice(code.indexOf('.') + 1) : '';
       persistState();
 
+      if (code) {
+        alert([
+          'Save your activation code now. It is shown once and cannot be recovered.',
+          '',
+          code,
+          '',
+          'You will need it to collect your administrator credentials after provisioning.',
+        ].join(String.fromCharCode(10)));
+      }
       toast('Application submitted! ID: ' + applicationId, 'success');
       status.textContent = '';
       navigate('sign');
@@ -740,10 +766,38 @@
 
       var el = document.getElementById('activate-content');
 
-      // Phase C: live URLs from the orchestrator (employerNodeUrl, hrToolUrl, adminToken)
-      var hrToolUrl = config.hrToolUrl || '';
-      var employerNodeUrl = config.employerNodeUrl || '';
-      var adminToken = config.adminToken || '';
+      /*
+       * A8: collect the administrator credentials with the one-time activation secret.
+       *
+       * The progress poll above no longer carries the admin token. It used to, on an open route
+       * keyed by the application ID, which is written to the insurer's plaintext store and
+       * printed to its console, so anyone who read it from either could collect the token and
+       * drive the employer's tenant. Collection is now a separate request that carries the
+       * secret in its body and works exactly once.
+       */
+      if (!claimSecret) {
+        claimSecret = prompt(
+          'Enter your activation code to collect your administrator credentials:'
+        ) || '';
+        // Accept the whole code or just the secret half, since that is what people will paste.
+        if (claimSecret.indexOf('.') >= 0) claimSecret = claimSecret.slice(claimSecret.indexOf('.') + 1);
+        persistState();
+      }
+      if (!claimSecret) throw new Error('An activation code is required to collect your credentials.');
+
+      var creds = await api(
+        'POST',
+        '/marketplace/api/activate-credentials/' + encodeURIComponent(applicationId),
+        { claimSecret: claimSecret }
+      );
+
+      // Phase C: live URLs from the orchestrator, token from the one-time collection
+      var hrToolUrl = creds.hrToolUrl || config.hrToolUrl || '';
+      var employerNodeUrl = creds.employerNodeUrl || config.employerNodeUrl || '';
+      var adminToken = creds.adminToken || '';
+      // It has been handed over; keep it out of storage from here on.
+      claimSecret = '';
+      persistState();
 
       el.innerHTML =
         '<div class="info-banner success">Your employer infrastructure is live. Save the admin token below — it will not be shown again.</div>' +

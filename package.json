@@ -6,6 +6,8 @@
   "main": "build/index.js",
   "scripts": {
     "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "typecheck:scripts": "tsc -p tsconfig.scripts.json",
     "test": "npx jest --verbose",
     "start:leviathan": "npx tsx src/nodes/start-leviathan.ts",
     "start:leviathan:clean": "npm run kill:ports && npm run clean:state && npx tsx src/nodes/start-leviathan.ts",

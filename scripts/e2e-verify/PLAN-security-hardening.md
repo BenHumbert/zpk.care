@@ -286,6 +286,105 @@ LAN address refuses; an allowlisted browser origin is echoed back exactly; a for
 header at all; a node's `/rpc` is refused. A port that is not listening is reported as skipped, never
 as a pass, because a closed port proves nothing about the policy it would have applied.
 
+**A8 implementation record.** Done 2026-10-17. **Closes critical A-4.**
+
+*The cause is sharper than the finding states, and the sharper version changes the fix.* The
+audit called this an open route that returns a token. It is, but the code was doing it on purpose:
+the rekey route carries the comment "Not admin-gated — applicationId (128-bit random) acts as the
+bearer secret". A hundred and twenty-eight random bits **is** a fine secret. The defect is that
+the same value is simultaneously an identifier, and this identifier is
+
+- printed to the console at submission (`[marketplace] Application submitted: EMPAPP-…`),
+- written to `nautilus-data/marketplace-applications.json` in plaintext,
+- carried in URL paths, where proxies, browser history and access logs record it,
+- and handed to the employer with "Save your application ID", plus a field to type it back in.
+
+A secret that is logged, filed in the clear and put in a URL is not a secret. So the fix is not to
+add a gate; it is to stop one value doing two jobs.
+
+*What changed.* `applicationId` keeps every job above. A separate 256-bit secret is generated at
+submission, returned **once** as a single `activationCode` string the employer saves, and kept only
+as a SHA-256 hash. Credentials come from a new `POST /marketplace/api/activate-credentials/
+:applicationId` that takes the secret **in the body**, compares it in constant time, and works
+exactly once. `activate-status` stays open and reports progress, because progress is not a
+credential and the dashboard polls it every two seconds.
+
+*Both leaking paths, not just the named one.* The audit named `activate-status`. The `activate`
+POST also returned the token on its idempotent branch, so re-posting activate for an
+already-provisioned tenant handed it out again. Closing only the route named in the finding would
+have left the same credential one request away.
+
+*A second hole in the same family, which the audit did not record.* `POST
+/employer-applications/:applicationId/rekey` replaced the employer's `publicKeyHex` for anyone
+presenting the application ID. That is the key the insurer is about to attest, so a reader of the
+insurer's log or its plaintext store could substitute their own signing identity for the
+employer's before signature. It now requires the same secret. It is still **not** insurer-admin
+gated, because an employer who has lost their key has to be able to recover without the insurer,
+which is the whole point of the route.
+
+*Why not the plan's original prescription.* This item said "gate `activate-status` and `activate`
+behind insurer admin". That closes the hole and also ends self-service employer signup, which is
+an active product goal rather than an accident: the employer applies on a public page and has no
+prior credential to authenticate with. The one-time secret closes the hole and keeps the employer
+able to finish their own activation. The cost is one line of UX — the employer saves an activation
+code instead of an application ID — against the insurer having to deliver credentials out of band
+for every tenant.
+
+*On rotating the four exposed tokens.* They belonged to e2e fixture tenants (`e2e-a-mva0yqkn-admin-…`),
+and the owner's standing instruction is that fixture keys are fake and will never be used again.
+The application store is not on disk at all right now. So there is nothing to rotate; what mattered
+was that new tenants stop being issued the same way, which is what changed.
+
+*The no-oracle property.* An unknown application and a wrong secret return the same status and the
+same message, so neither route can be used to discover which application IDs exist.
+
+*Acceptance test.* `tests/marketplace-credentials.test.ts`, 13 tests. It asserts the secret is not
+the application ID, that only its hash is stored and the secret appears in no stored field, that
+collection is refused without it, with a wrong one, and with the application ID presented as the
+secret, that a replay is refused, that an unknown application is indistinguishable from a wrong
+secret, and that rekey can no longer swap the signing key without it. One test is **structural**:
+it reads the route file and asserts the admin token appears in no response other than the
+secret-gated one, so a future edit cannot quietly put it back on a route no test exercises.
+
+The suite stands up a **stub sequencer**, because `apply` checks employer-ID uniqueness against
+the sequencer and fails closed when it cannot reach one. That is correct behaviour and was left
+alone rather than loosened to suit a test.
+
+*Two bugs of my own that this item surfaced, and the gap that hid them.* `npx tsc --noEmit` checks
+only `src/**/*`: the main tsconfig's `include` says so, and `tests` is in its `exclude`. So
+`scripts/` and `tests/` have never been typechecked. `tsx` and `ts-jest` transpile without
+checking, which means a type or syntax error in an acceptance script only surfaces when it runs.
+Two had already shipped:
+
+- `check-phi-containment.ts` carried a **broken string literal** from the A3 commit, so the PHI
+  containment check would have crashed on its next run. It was a shell heredoc eating a backslash
+  escape, the third time that happened this session.
+- `run.ts` had a **duplicate `const cred`** from this item, which only appeared when I ran the live
+  verification and esbuild refused the file.
+
+Added `tsconfig.scripts.json` and `npm run typecheck:scripts`, which overrides the base config's
+`rootDir`. The acceptance scripts are now clean; two pre-existing errors remain elsewhere in
+`scripts/` (`bootstrap-system.ts:262`, `measure-verify.ts:47`), neither on the verification path,
+recorded rather than fixed. Also added `npm run typecheck` as a name for the `src` check that was
+only ever invoked by hand. **`tests/` is still unchecked** — 39 errors under the same options — and
+that is a job of its own rather than a line in this item.
+
+The lesson for the cost rules: *a green typecheck was never covering the code that proves the
+fixes work*. Run both from here on.
+
+*A new finding the live run turned up, unrelated to this item.* **A-28: a seeded provider node can
+register but cannot send an eScript.** The prescriber starter derives the wallet ID from the
+fixture enrollment key and then never stores the key, so `encryptEScript` throws
+`Cannot send eScript: enrollment key not available` and the prescriber path returns 500. The
+codemap recorded the omission as a safety property — "no enrollment key is placed in local state"
+— without noting that it breaks the feature that needs it. Independent of A3, which touched only
+the deleted backup route in that file. Belongs with A-24 in item A12.
+
+*Four harness assertions failed and none of them is A8.* One expects the sequencer to refuse
+`admin123`, which it accepts because this boot set `ZKTRIDENT_UNSECURE=true` — a boot-mode
+mismatch, not a defect. Two are **A-9**, the member not being bound to the employer's group, which
+item C2 owns. The fourth is A-28 above. All five A8 assertions passed.
+
 **A4 implementation record.** Done 2026-10-17.
 
 *The root cause was one sentence wide.* `unlock(pin)` derived a scrypt key and returned. Deriving

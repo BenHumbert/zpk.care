@@ -265,8 +265,7 @@ async function main() {
         // An injected key must not be stored; if it is, the derived wallet is the attacker's.
         probes.push(post(`${base}/onboarding/generate-key`, { enrollmentKey: 'Aa1!'.repeat(16) }));
       }
-      return (await Promise.all(probes)).join('
-');
+      return (await Promise.all(probes)).join(String.fromCharCode(10));
     },
   });
   places.push({

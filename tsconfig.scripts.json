@@ -1,0 +1,10 @@
+{
+  "//": "The main tsconfig includes only src/**/*, so scripts/ was never typechecked. tsx transpiles without checking, so a broken string literal in check-phi-containment.ts and a duplicate declaration in run.ts both shipped and only failed at runtime, one of them during a live verification run. These scripts decide whether a fix is real, so they are worth checking. rootDir and outDir are overridden because the base config points them at src/.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["scripts/**/*"],
+  "exclude": ["node_modules", "build"]
+}

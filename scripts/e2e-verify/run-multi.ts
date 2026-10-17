@@ -101,6 +101,9 @@ async function onboardEmployer(label: string, planId: string, people: Array<{ em
     ein: label === 'A' ? '12-3456789' : '98-7654321', state: 'WI', selectedPlanIds: [planId], effectiveDate: new Date().toISOString().slice(0, 10), enrollmentCap: 10, publicKeyHex,
   });
   const appId = unwrap(apply.json)?.applicationId;
+  // A8: the activation code, shown once at submission, is what collects the credentials.
+  const activationCode: string = unwrap(apply.json)?.activationCode ?? '';
+  const claimSecret = activationCode.includes('.') ? activationCode.split('.').slice(1).join('.') : '';
   t.check('Application accepted', !!appId, 'applicationId', apply.json);
   const up = await fetch(`${INS}/marketplace/api/upload-document/${appId}`, { method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: Buffer.from('%PDF-1.4\n% E2E placeholder (fictional)\n%%EOF\n') });
   t.check('IRS letter uploaded', up.status < 300, '2xx', up.status);
@@ -113,6 +116,13 @@ async function onboardEmployer(label: string, planId: string, people: Array<{ em
   await http('POST', `${INS}/marketplace/api/activate/${appId}`, {});
   const act = unwrap((await poll(quiet, `${INS}/marketplace/api/activate-status/${appId}`, j => ['complete', 'error'].includes(unwrap(j)?.status), 300_000, 2000)).json);
   t.check('Employer node and HR Tool activated', act?.status === 'complete', 'complete', act?.status ?? act);
+  t.check('The open status poll carries no admin token', !act?.adminToken, 'absent', act?.adminToken ?? 'absent');
+  // A8: collect the admin token once, with the activation secret.
+  const cred = unwrap((await http('POST', `${INS}/marketplace/api/activate-credentials/${appId}`, { claimSecret })).json);
+  t.check('Admin credentials collected with the activation secret', Boolean(cred?.adminToken), 'token', cred?.adminToken ? 'present' : cred);
+  act.employerNodeUrl = cred?.employerNodeUrl ?? act.employerNodeUrl;
+  act.hrToolUrl = cred?.hrToolUrl ?? act.hrToolUrl;
+  act.adminToken = cred?.adminToken;
   const groupId = `GRP-${label}-${RUN}`;
   const grp = await http('POST', `${act.employerNodeUrl}/groups`, { groupId, planId, effectiveDate: new Date().toISOString().slice(0, 10), enrollmentCap: 10 }, { Authorization: `Bearer ${act.adminToken}` });
   t.check('Group created', grp.status < 300, '2xx', grp.status);

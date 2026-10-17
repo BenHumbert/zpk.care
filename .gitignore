@@ -63,3 +63,8 @@ tmp_thread.json
 # Temp files
 ~$*
 C\357\200\272*
+
+# Harness output from scripts/e2e-verify/run.ts and run-multi.ts. Run artefacts, not source:
+# they hold a trace of a live run including device PINs and tokens, so they must never be
+# committed.
+e2e-out/

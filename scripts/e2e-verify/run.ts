@@ -162,6 +162,11 @@ async function main() {
     ein: '12-3456789', state: 'WI', selectedPlanIds: [planId], effectiveDate: new Date().toISOString().slice(0, 10), enrollmentCap: 10, publicKeyHex,
   });
   const appId = unwrap(apply.json)?.applicationId;
+  // A8: the activation code is shown once at submission and is what collects the admin
+  // credentials. The identifier alone no longer does.
+  const activationCode: string = unwrap(apply.json)?.activationCode ?? '';
+  const claimSecret = activationCode.includes('.') ? activationCode.split('.').slice(1).join('.') : '';
+  trace.secret('employer activation secret', claimSecret);
   trace.check('Application accepted', !!appId, 'applicationId', apply.json);
   const pdf = Buffer.from('%PDF-1.4\n% E2E placeholder CP 575 (fictional)\n%%EOF\n');
   const up = await fetch(`${INS}/marketplace/api/upload-document/${appId}`, { method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: pdf });
@@ -186,8 +191,21 @@ async function main() {
   const actDone = await poll(quiet, `${INS}/marketplace/api/activate-status/${jobKey}`, j => ['complete', 'error'].includes(unwrap(j)?.status), 300_000, 2000);
   const actData = unwrap(actDone.json);
   trace.check('Employer node and HR Tool activated', actData?.status === 'complete', 'complete', actData?.status ?? actData);
-  const employerNodeUrl = actData?.employerNodeUrl, hrToolUrl = actData?.hrToolUrl, empAdmin = actData?.adminToken;
+  // A8: the admin token is no longer on the open poll. It is collected once, with the secret.
+  const empCred = await http('POST', `${INS}/marketplace/api/activate-credentials/${appId}`, { claimSecret });
+  trace.check('Admin credentials collected with the activation secret', empCred.status < 300, '2xx', empCred.status);
+  const credData = unwrap(empCred.json);
+  const employerNodeUrl = credData?.employerNodeUrl ?? actData?.employerNodeUrl;
+  const hrToolUrl = credData?.hrToolUrl ?? actData?.hrToolUrl;
+  const empAdmin = credData?.adminToken;
   trace.secret('employer node admin token', String(empAdmin));
+  // Single use: a replay must be refused, and that is worth asserting here because it is the
+  // property that makes the one-time promise in the UI true.
+  const replay = await http('POST', `${INS}/marketplace/api/activate-credentials/${appId}`, { claimSecret });
+  trace.check('A second collection attempt is refused', replay.status === 410, '410', replay.status);
+  const noSecret = await http('POST', `${INS}/marketplace/api/activate-credentials/${appId}`, {});
+  trace.check('Collection without the secret is refused', noSecret.status === 401, '401', noSecret.status);
+  trace.check('The open status poll carries no admin token', !actData?.adminToken, 'absent', actData?.adminToken ?? 'absent');
   trace.note(`employer node ${employerNodeUrl} · HR Tool ${hrToolUrl}`);
 
   trace.begin('employer', 'Create the benefit group');

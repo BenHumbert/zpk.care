@@ -30,7 +30,7 @@
  *   - Duplicate employer attestation blocked on sequencer
  *   - Content-Disposition filename sanitized
  */
-import { randomBytes, createHash, sign as ed25519Sign, createPrivateKey, createPublicKey } from 'crypto';
+import { randomBytes, createHash, timingSafeEqual, sign as ed25519Sign, createPrivateKey, createPublicKey } from 'crypto';
 import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
@@ -99,6 +99,46 @@ function saveApplicationStore(): void {
 function generateApplicationId(): string {
   const rand = randomBytes(16).toString('hex');
   return `EMPAPP-${rand}`;
+}
+
+/*
+ * ── The activation secret (phase A item A8, finding A-4) ──────────────────────────────────
+ *
+ * `GET /marketplace/api/activate-status/:id` returned the employer node's admin token in clear
+ * to anyone who presented the application ID. The audit retrieved one and replayed it against
+ * that tenant's roster for a 200, reading token IDs, wallet IDs and hashes.
+ *
+ * The code's own comment on the rekey route says the intent: "applicationId (128-bit random)
+ * acts as the bearer secret". The entropy is fine. The problem is that the same value is also
+ * an identifier, and this one is written to `marketplace-applications.json` in plaintext,
+ * printed to the console on submission, and carried in URL paths where any proxy or access log
+ * records it. A secret that is logged, filed in the clear and put in a URL is not a secret.
+ *
+ * So the two roles are split. `applicationId` stays the identifier and keeps doing all of the
+ * above. A separate secret is generated at submission, returned **once**, and kept only as a
+ * SHA-256 hash. Credentials are collected by presenting it in a request **body**, once; the
+ * progress poll stays open because progress is not a credential.
+ *
+ * Why not gate the whole thing behind insurer admin, as the plan item first proposed: that would
+ * end self-service employer signup, which is a product goal rather than an accident. This closes
+ * the hole and keeps the employer able to finish their own activation.
+ */
+
+function generateClaimSecret(): string {
+  return randomBytes(32).toString('base64url');
+}
+
+function hashClaimSecret(secret: string): string {
+  return createHash('sha256').update(secret, 'utf-8').digest('hex');
+}
+
+/** Constant-time compare, so a wrong secret leaks nothing through timing. */
+function claimSecretMatches(application: EmployerApplication, presented: string): boolean {
+  if (!application.claimSecretHash || !presented) return false;
+  const expected = Buffer.from(application.claimSecretHash, 'hex');
+  const actual = Buffer.from(hashClaimSecret(presented), 'hex');
+  if (expected.length !== actual.length) return false;
+  return timingSafeEqual(expected, actual);
 }
 
 export function getApplicationStore(): Map<string, EmployerApplication> {
@@ -293,8 +333,11 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
       }
 
       const applicationId = generateApplicationId();
+      // Returned once, below, and never recoverable from the store or the logs.
+      const claimSecret = generateClaimSecret();
       const application: EmployerApplication = {
         applicationId,
+        claimSecretHash: hashClaimSecret(claimSecret),
         employerId: b.employerId,
         companyName: b.companyName,
         contactName: b.contactName,
@@ -316,10 +359,18 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
       recentApplications.push(Date.now());
       console.log('[marketplace] Application submitted: %s (%s)', applicationId, b.companyName);
 
+      /*
+       * One string for the employer to keep. The identifier before the dot is what appears in
+       * URLs and logs; the part after it is the secret and appears nowhere else, including in
+       * the console line above, which prints only the identifier.
+       */
       server.sendResponse(res, 201, true, {
         applicationId,
+        activationCode: `${applicationId}.${claimSecret}`,
         status: 'submitted',
-        message: 'Application received. Save your application ID.',
+        message:
+          'Application received. Save your activation code now — it is shown once and cannot ' +
+          'be recovered. You need it to collect your administrator credentials.',
       });
     },
   });
@@ -719,7 +770,15 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
           'Insurer admin token not configured — orchestrator cannot register tenants on the sequencer');
       }
 
-      // Idempotency: if a job for this applicationId is already complete, return it.
+      /*
+       * Idempotency: if a job for this applicationId is already complete, report that.
+       *
+       * This branch also used to return `adminToken`, which is the second half of finding A-4:
+       * re-POSTing activate for an already-provisioned tenant handed the token out again, so
+       * closing only `activate-status` would have left the same credential on an open route one
+       * request away. It now reports completion and nothing more; the token comes from
+       * activate-credentials with the activation secret.
+       */
       const existingJob = activationJobs.get(params.applicationId);
       if (existingJob && existingJob.status === 'complete' && existingJob.result) {
         return server.sendResponse(res, 200, true, {
@@ -734,7 +793,7 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
           effectiveDate: app.effectiveDate,
           employerNodeUrl: existingJob.result.employerNodeUrl,
           hrToolUrl: existingJob.result.hrToolUrl,
-          adminToken: existingJob.result.adminToken,
+          credentialsCollected: Boolean(app.credentialsCollectedAt),
         });
       }
       if (existingJob && existingJob.status === 'pending') {
@@ -813,7 +872,15 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
           error: job.error,
         });
       }
-      // complete
+      /*
+       * Complete, and **without the admin token** (A8, finding A-4). This route is open so the
+       * browser can poll progress, and progress is not a credential. The token is collected from
+       * `POST /marketplace/api/activate-credentials/:applicationId` by presenting the activation
+       * secret, once.
+       *
+       * The URLs stay: the employer needs them, and a port is not a secret. They were only
+       * dangerous beside the token.
+       */
       return server.sendResponse(res, 200, true, {
         status: 'complete',
         employerId: app.employerId,
@@ -825,7 +892,62 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
         effectiveDate: app.effectiveDate,
         employerNodeUrl: job.result!.employerNodeUrl,
         hrToolUrl: job.result!.hrToolUrl,
-        adminToken: job.result!.adminToken,
+        credentialsCollected: Boolean(app.credentialsCollectedAt),
+      });
+    },
+  });
+
+
+  /*
+   * Collect the employer node's administrator credentials. Replaces the open handout that
+   * `activate-status` used to perform (A8, finding A-4).
+   *
+   * Three properties, in the order that matters:
+   *
+   *   1. **The secret travels in the body, not the path.** A URL lands in proxy logs, browser
+   *      history and the server's own access log. That is what disqualified `applicationId` from
+   *      being the secret in the first place.
+   *   2. **Single use.** Once collected, a replay is refused. The token is shown to the employer
+   *      exactly once, which the dashboard already told them to expect, so this makes the
+   *      promise true rather than changing it.
+   *   3. **A wrong secret is indistinguishable from a wrong application.** Both answer 401 with
+   *      the same text, so the route is not an oracle for which application IDs exist.
+   */
+  routes.push({
+    method: 'POST',
+    path: '/marketplace/api/activate-credentials/:applicationId',
+    handler: async (_req, res, params, _query, body) => {
+      const b = body as { claimSecret?: string } | undefined;
+      const app = applicationStore.get(params.applicationId);
+
+      // Same answer for an unknown application and a wrong secret.
+      if (!app || !b?.claimSecret || !claimSecretMatches(app, b.claimSecret)) {
+        return server.sendResponse(res, 401, false, undefined,
+          'Invalid activation code.');
+      }
+
+      const job = activationJobs.get(params.applicationId);
+      if (!job || job.status !== 'complete' || !job.result) {
+        return server.sendResponse(res, 409, false, undefined,
+          'This tenant is not provisioned yet. Poll activate-status until it reports complete.');
+      }
+
+      if (app.credentialsCollectedAt) {
+        return server.sendResponse(res, 410, false, undefined,
+          'These credentials were already collected. Use the rekey flow to obtain new ones.');
+      }
+
+      app.credentialsCollectedAt = Date.now();
+      saveApplicationStore();
+      // The identifier is logged; the secret and the token are not.
+      console.log('[marketplace] Admin credentials collected for %s', app.applicationId);
+
+      return server.sendResponse(res, 200, true, {
+        employerId: app.employerId,
+        employerNodeUrl: job.result.employerNodeUrl,
+        hrToolUrl: job.result.hrToolUrl,
+        adminToken: job.result.adminToken,
+        message: 'Store this token securely. It will not be shown again.',
       });
     },
   });
@@ -927,19 +1049,35 @@ export function buildEmployerAdminRoutes(server: NautilusAppServer): RouteRegist
     },
   });
 
-  // Allow re-keying: employer lost their browser key, needs to update publicKeyHex
-  // Not admin-gated — applicationId (128-bit random) acts as the bearer secret.
+  /*
+   * Allow re-keying: the employer lost their browser key and needs to update publicKeyHex.
+   *
+   * This route's previous comment read "Not admin-gated — applicationId (128-bit random) acts as
+   * the bearer secret", and that is the same mistake as finding A-4, in a second place the audit
+   * did not list. The entropy was never the issue: `applicationId` is printed to the console on
+   * submission, written to `marketplace-applications.json` in plaintext, and carried in this very
+   * URL path. Anyone who read it from a log could **replace the public key the insurer will
+   * attest**, substituting their own signing identity for the employer's before signature.
+   *
+   * It now requires the activation secret, in the body, like credential collection. Still not
+   * insurer-admin gated, because an employer who has lost their key has to be able to recover
+   * without the insurer's help, which is the point of the route.
+   */
   routes.push({
     method: 'POST',
     path: '/employer-applications/:applicationId/rekey',
     adminOnly: false,
     handler: async (_req, res, params, _query, body) => {
       const app = applicationStore.get(params.applicationId);
-      if (!app) return server.sendResponse(res, 404, false, undefined, 'Application not found');
+      const b = body as { publicKeyHex?: string; claimSecret?: string } | undefined;
+
+      // Same answer for an unknown application and a wrong secret: no existence oracle.
+      if (!app || !b?.claimSecret || !claimSecretMatches(app, b.claimSecret)) {
+        return server.sendResponse(res, 401, false, undefined, 'Invalid activation code.');
+      }
       if (app.status !== 'approved') {
         return server.sendResponse(res, 409, false, undefined, 'Can only rekey approved applications');
       }
-      const b = body as { publicKeyHex?: string } | undefined;
       if (!b?.publicKeyHex || !/^[0-9a-f]{64}$/i.test(b.publicKeyHex)) {
         return server.sendResponse(res, 400, false, undefined, 'Invalid public key');
       }

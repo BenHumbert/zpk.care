@@ -386,6 +386,20 @@ export interface EmployerApplication {
   publicKeyHex: string;
   submittedAt: number;
   status: EmployerApplicationStatus;
+  /**
+   * SHA-256 of the one-time activation secret issued when the application was submitted.
+   *
+   * Phase A item A8, finding A-4. `applicationId` was being used as the bearer secret for
+   * collecting the employer's node admin token — a decision the code documented in a comment —
+   * but that value is written to a plaintext store, printed to the console, and carried in URL
+   * paths, so it is an identifier and cannot also be a secret. The secret is now separate: it is
+   * returned once at submission, only this hash is kept, and it never appears in a log or a URL.
+   *
+   * Absent on applications created before A8; those cannot collect credentials and must rekey.
+   */
+  claimSecretHash?: string;
+  /** When the admin token was collected. Set once; a second attempt is refused. */
+  credentialsCollectedAt?: number;
   reviewedAt?: number;
   approvedAt?: number;
   denialReason?: string;
