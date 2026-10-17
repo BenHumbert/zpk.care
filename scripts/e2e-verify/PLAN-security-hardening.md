@@ -72,6 +72,22 @@ The exploitable perimeter, plus the one integrity fix that everything downstream
 | A12 | Fix the two broken routes: the proof-pool credential job type mismatch, and the undeclared identifier that makes member and family history return 500 | correctness | A-24 |
 | A13 | **Give the replicas credentials so gossip is actually delivered**, and add an invariant monitor that alarms when a replica's root diverges from the leader's or a batch stalls. This is the prerequisite for phase E, and the monitor is what should have caught 29 hours of dead replication | availability | A-8, C-3 |
 
+**A1 implementation spec.** Written out because it goes first and because getting the ordering wrong would leave the hole open while looking closed.
+
+*Where the verification key comes from.* The sequencer does not compile `StateTransitionProgram` today. Add a compile at boot and keep the verification key in memory. Measured cost on the live member node: **3,803 ms, once**. Assert the key's hash equals a constant pinned in config and **fail closed at boot** if it does not, so that swapping the program is detected rather than silently accepted.
+
+*The call.* `verify(proof, verificationKey)` from o1js, the same function the harness already uses at `scripts/e2e-verify/run.ts:493` to check batch proofs, with the tamper case beside it at `:501`. That is the pattern to copy; it is proven against this codebase's own proofs.
+
+*Ordering, which is the whole point.* Verification becomes the first thing `submitProof` does. Nothing may happen before it returns true. In the current body at `l2-sequencer-service.ts:291-471` that means it precedes the fingerprint insert at `:298-302`, the partition check at `:305`, the root assertions at `:318-340`, `planTreeUpdate` at `:344`, the WAL append, the apply at `:374-378`, the receipt at `:381`, the audit event at `:398-423`, the claim leaf at `:429-457`, and the gossip broadcast.
+
+*Fingerprint handling.* A-3 also found the fingerprint recorded before the checks and never removed when a later step throws, so a rejected submission permanently poisons that transition. Wrap the body so the fingerprint is removed on any throw, or insert it only once every check has passed. Either is fine; leaving it as is means a failed submission can block the honest retry.
+
+*Distinct errors.* Return different codes for an undecodable proof, a proof that fails verification, and a root mismatch. Today all three collapse into one shape, which is why the audit's probe could not tell a structural decode failure from a cryptographic one without reading the library source.
+
+*Acceptance.* `check-proof-gate.ts`, itself an A1 deliverable, submits four things in order: a well-formed proof with a tampered public output; a valid proof re-pointed at another wallet; a structurally undecodable proof; and one honest proof. The first three must be refused, and the check must assert **no mutation** by comparing status, receipt count, audit-log length and claim-leaf count before and after, not merely that an error came back.
+
+*One thing to measure.* Verification now sits on the submit path. Record the per-proof cost. If it is material at volume, it can move into a proving-pool worker, but only with care: the ordering guarantee above is what makes A1 worth doing, and making verification asynchronous would give it back.
+
 ### Phase B — Keep identity on the device
 
 The largest phase, and the one that changes the pipeline. Section 7 covers the consequences.
