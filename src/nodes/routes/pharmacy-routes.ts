@@ -27,7 +27,6 @@
 import { Field } from 'o1js';
 import { generateEnrollmentKey } from '../../wallets/wallet-derivation.js';
 import { securePharmacyDerivation } from '../../security/secure-context.js';
-import { exportEnrollmentBackup, importEnrollmentBackup } from '../../security/enrollment-backup.js';
 import { WalletRegistryWitness } from '../../wallets/wallet-state.js';
 import { LifecycleWitness } from '../../engine/lifecycle.js';
 import {
@@ -95,7 +94,19 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       if (server.getOnboardingPhase() !== 'token_received') {
         return server.sendResponse(res, 409, false, undefined, `Cannot generate key in phase: ${server.getOnboardingPhase()}`);
       }
-      const enrollmentKey = (body as any)?.enrollmentKey ?? generateEnrollmentKey();
+      /*
+       * The key is generated here and only here. This used to read
+       * `(body as any)?.enrollmentKey ?? generateEnrollmentKey()`, with no validation and no
+       * authentication, under a comment about deterministic testing — finding MEM-C2. Two
+       * things were wrong with it. An attacker could inject a key they knew before
+       * `derive-wallet`, so the wallet would be derived under their key. And accepting an
+       * enrollment key *inbound over the network at all* is the thing rule I3 forbids,
+       * whatever the key turns out to be.
+       *
+       * A test or a seeding tool that needs a specific key sets it on the device's own local
+       * state in-process, which is what a device does; it does not post it to a port.
+       */
+      const enrollmentKey = generateEnrollmentKey();
       const state = server.getLocalState();
       const data = state.getState();
       if (data) {
@@ -274,51 +285,21 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
     },
   });
 
-  routes.push({
-    method: 'POST',
-    path: '/onboarding/backup-key',
-    handler: async (_req, res, _params, _query, body) => {
-      const phase = server.getOnboardingPhase();
-      if (phase === 'awaiting_token' || phase === 'token_received') {
-        return server.sendResponse(res, 409, false, undefined, 'Enrollment key not yet generated');
-      }
-      const b = body as { pin?: string } | undefined;
-      if (!b?.pin) return server.sendResponse(res, 400, false, undefined, 'Missing pin');
-      const state = server.getLocalState();
-      if (!state.hasEnrollmentKey()) return server.sendResponse(res, 409, false, undefined, 'No enrollment key');
-      const data = state.getState();
-      const pin = b.pin;
-      const walletIdForBackup = data?.walletId ?? '0';
-      const backup = state.useEnrollmentKey((key) =>
-        exportEnrollmentBackup(key, pin, walletIdForBackup, DOMAIN_TAG_PHARMACY),
-      );
-      server.sendResponse(res, 200, true, { backup });
-    },
-  });
-
-  routes.push({
-    method: 'POST',
-    path: '/onboarding/restore-key',
-    handler: async (_req, res, _params, _query, body) => {
-      const b = body as { backup?: Record<string, unknown>; pin?: string } | undefined;
-      if (!b?.backup || !b?.pin) return server.sendResponse(res, 400, false, undefined, 'Missing backup or pin');
-      try {
-        const enrollmentKey = importEnrollmentBackup(
-          b.backup as unknown as Parameters<typeof importEnrollmentBackup>[0],
-          b.pin,
-        );
-        const state = server.getLocalState();
-        state.setEnrollmentKey(enrollmentKey);
-        const data = state.getState();
-        if (data) {
-          await state.save(data);
-        }
-        server.sendResponse(res, 200, true, { restored: true });
-      } catch (err) {
-        server.sendResponse(res, 400, false, undefined, err instanceof Error ? err.message : 'Restore failed');
-      }
-    },
-  });
+  /*
+   * `POST /onboarding/backup-key` and `POST /onboarding/restore-key` were here. Both are gone
+   * — phase A item A3, findings A-5, MEM-C1 and MEM-H2, which the audit recorded against the
+   * member node only. They were on this node too, with the same shape: a provider's enrollment
+   * key was exportable by any caller that could reach the port.
+   *
+   * `backup-key` took the PIN from the request body and returned the AES-GCM blob, so the caller
+   * chose the PIN, received the ciphertext, and decrypted the raw key offline. `restore-key` had
+   * no authentication and no phase check and overwrote the stored key outright.
+   *
+   * Rule I3 puts the enrollment key in secure storage and on an offline card under a PIN, and
+   * nowhere else; a route that exports it cannot satisfy that by adding authentication, because
+   * the export is the breach. Provider key custody is being redesigned around a FIDO2
+   * authenticator rather than an exported blob, so nothing replaces these here.
+   */
 
   // ══════════════════════════════════════════════════════════
   //  DISPENSING HISTORY

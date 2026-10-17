@@ -34,7 +34,6 @@ import { hashString } from '../../zkp/hash-utils.js';
 import { WalletRegistryWitness, CREDENTIAL_INVENTORY_HEIGHT } from '../../wallets/wallet-state.js';
 import { LifecycleWitness } from '../../engine/lifecycle.js';
 import { secureMemberDerivation } from '../../security/secure-context.js';
-import { exportEnrollmentBackup, importEnrollmentBackup } from '../../security/enrollment-backup.js';
 import { buildPcpAssignmentData, PCP_ASSIGNMENT_LEAF_INDEX } from '../../eligibility/pcp-assignment-data.js';
 import type { PcpAssignmentLocalData } from '../../eligibility/pcp-assignment-data.js';
 import { MerkleForest, ForestDomain } from '../../zkp/merkle-forest.js';
@@ -138,8 +137,19 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         return server.sendResponse(res, 409, false, undefined, `Cannot generate key in phase: ${server.getOnboardingPhase()}`);
       }
 
-      // Accept optional enrollmentKey for deterministic testing (key import)
-      const enrollmentKey = (body as any)?.enrollmentKey ?? generateEnrollmentKey();
+      /*
+       * The key is generated here and only here. This used to read
+       * `(body as any)?.enrollmentKey ?? generateEnrollmentKey()`, with no validation and no
+       * authentication, under a comment about deterministic testing — finding MEM-C2. Two
+       * things were wrong with it. An attacker could inject a key they knew before
+       * `derive-wallet`, so the wallet would be derived under their key. And accepting an
+       * enrollment key *inbound over the network at all* is the thing rule I3 forbids,
+       * whatever the key turns out to be.
+       *
+       * A test or a seeding tool that needs a specific key sets it on the device's own local
+       * state in-process, which is what a device does; it does not post it to a port.
+       */
+      const enrollmentKey = generateEnrollmentKey();
 
       const state = server.getLocalState();
       const data = state.getState();
@@ -582,75 +592,27 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
     },
   });
 
-  // ── Onboarding: Backup Key ────────────────────────────────
-
-  routes.push({
-    method: 'POST',
-    path: '/onboarding/backup-key',
-    handler: async (_req, res, _params, _query, body) => {
-      const phase = server.getOnboardingPhase();
-      if (phase === 'awaiting_token' || phase === 'token_received') {
-        return server.sendResponse(res, 409, false, undefined, 'Enrollment key not yet generated');
-      }
-
-      const b = body as { pin?: string } | undefined;
-      if (!b?.pin) {
-        return server.sendResponse(res, 400, false, undefined, 'Missing pin');
-      }
-
-      const state = server.getLocalState();
-      const data = state.getState();
-      if (!state.hasEnrollmentKey()) {
-        return server.sendResponse(res, 409, false, undefined, 'No enrollment key in state');
-      }
-
-      // Capture values before entering useEnrollmentKey closure
-      const pin = b.pin;
-      const walletIdForBackup = data?.walletId ?? '0';
-      const domainTagForBackup = data?.domainTag ?? DOMAIN_TAG_MEMBER;
-
-      // Reconstruct key only for the duration of backup export
-      const backup = state.useEnrollmentKey((key) =>
-        exportEnrollmentBackup(key, pin, walletIdForBackup, domainTagForBackup),
-      );
-
-      server.sendResponse(res, 200, true, { backup });
-    },
-  });
-
-  // ── Onboarding: Restore Key ───────────────────────────────
-
-  routes.push({
-    method: 'POST',
-    path: '/onboarding/restore-key',
-    handler: async (_req, res, _params, _query, body) => {
-      const b = body as { backup?: Record<string, unknown>; pin?: string } | undefined;
-      if (!b?.backup || !b?.pin) {
-        return server.sendResponse(res, 400, false, undefined, 'Missing backup or pin');
-      }
-
-      try {
-        const enrollmentKey = importEnrollmentBackup(
-          b.backup as unknown as Parameters<typeof importEnrollmentBackup>[0],
-          b.pin,
-        );
-
-        const state = server.getLocalState();
-        // Wrap restored key in XOR-split obfuscation immediately
-        state.setEnrollmentKey(enrollmentKey);
-        const data = state.getState();
-        if (data) {
-          await state.save(data);
-        }
-
-        // Key is restored — NEVER returned in response
-        server.sendResponse(res, 200, true, { restored: true });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Restore failed';
-        server.sendResponse(res, 400, false, undefined, msg);
-      }
-    },
-  });
+  /*
+   * `POST /onboarding/backup-key` and `POST /onboarding/restore-key` were here. Both are gone
+   * — phase A item A3, findings A-5, MEM-C1 and MEM-H2.
+   *
+   * `backup-key` took the PIN **from the request body** and returned the AES-GCM blob in the
+   * response. So the caller chose the PIN, received the ciphertext, and decrypted the raw
+   * 256-bit enrollment key at leisure. The card-plus-PIN second factor only means anything if
+   * the holder of the card is not also the party that set the PIN, and over HTTP they always
+   * were. It was gated on the onboarding phase and on a key existing, and on nothing else: no
+   * authentication at all.
+   *
+   * `restore-key` had neither authentication nor a phase check, and wrote whatever it decrypted
+   * straight into local state. One request replaced the key the wallet is derived from, which
+   * either hijacks the wallet or destroys it.
+   *
+   * Rule I3: the enrollment key lives in the device's secure storage and on an offline card
+   * under a PIN, and nowhere else. A route that exports it cannot be made to satisfy that by
+   * adding authentication, because the export itself is the breach. Backup becomes an in-app
+   * operation that writes the card at the enrollment tap — item A12b, which is in phase A
+   * precisely because that tap is the only moment the key is in hand.
+   */
 
   // ── Query: Drug History ───────────────────────────────────
 

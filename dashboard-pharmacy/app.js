@@ -1703,9 +1703,8 @@
           });
           break;
         case 1:
-          result = await API.onboarding.generateKey({
-            enrollmentKey: $('#wiz-enrollmentKey').value || undefined,
-          });
+          // No enrollmentKey: the node generates its own and accepts none inbound (A3).
+          result = await API.onboarding.generateKey();
           break;
         case 2:
           result = await API.onboarding.deriveWallet({

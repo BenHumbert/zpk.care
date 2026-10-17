@@ -1709,18 +1709,6 @@
       })(i);
     }
 
-    var wizBackup = $('#wiz-backup-btn');
-    if (wizBackup) wizBackup.addEventListener('click', function () {
-      var pin = prompt('Enter a PIN to encrypt your backup:');
-      if (!pin) return;
-      API.backupKey(pin).then(function (res) {
-        setHTML('#wiz-result-5', '<div class="form-result success">Backup created. Store safely: ' + esc(JSON.stringify(res.backup)) + '</div>');
-        toast('Backup created', 'success');
-      }).catch(function (err) {
-        setHTML('#wiz-result-5', '<div class="form-result error">' + esc(err.message) + '</div>');
-      });
-    });
-
     // Proofs
     var proofRegBtn = $('#proof-reg-btn');
     if (proofRegBtn) proofRegBtn.addEventListener('click', generateRegistrationProof);

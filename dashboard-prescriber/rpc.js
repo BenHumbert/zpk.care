@@ -152,10 +152,9 @@ const API = (() => {
     return post('/onboarding/accept-token', body);
   }
 
-  function generateKey(enrollmentKey) {
-    const body = {};
-    if (enrollmentKey) body.enrollmentKey = enrollmentKey;
-    return post('/onboarding/generate-key', body);
+  // The node generates the key itself and accepts none from the network (A3).
+  function generateKey() {
+    return post('/onboarding/generate-key', {});
   }
 
   function deriveWallet(prescriberIdQualifier, prescriberId) {
@@ -173,8 +172,8 @@ const API = (() => {
 
   function compile() { return post('/onboarding/compile'); }
 
-  function backupKey(pin) { return post('/onboarding/backup-key', { pin }); }
-  function restoreKey(backup, pin) { return post('/onboarding/restore-key', { backup, pin }); }
+  // backupKey and restoreKey are gone. The routes they called exported and overwrote the
+  // enrollment key over HTTP; see the note in src/nodes/routes/prescriber-routes.ts.
 
   // ── Proofs ─────────────────────────────────────────────────
 
@@ -275,8 +274,6 @@ const API = (() => {
     deriveWallet,
     enroll,
     compile,
-    backupKey,
-    restoreKey,
 
     // Proofs
     generateRegistrationProof,

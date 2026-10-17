@@ -87,6 +87,22 @@ async function get(url: string): Promise<string> {
   }
 }
 
+async function post(url: string, body: unknown): Promise<string> {
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
+    });
+    return `[POST ${url} -> ${r.status}]
+` + (await r.text());
+  } catch (e: any) {
+    return `[POST ${url} -> unreachable: ${e?.message ?? e}]
+`;
+  }
+}
+
 async function rpc(base: string, method: string, params: Record<string, unknown>): Promise<string> {
   try {
     const r = await fetch(`${base}/rpc`, {
@@ -229,6 +245,29 @@ async function main() {
   places.push({
     name: 'Member node public endpoints (/health, /onboarding/status)',
     text: async () => (await Promise.all(MEMBER_PORTS.flatMap(p => [get(`http://localhost:${p}/health`), get(`http://localhost:${p}/onboarding/status`)]))).join('\n'),
+  });
+  /*
+   * The routes A3 deleted. Probed on purpose, and on every node type, because this scan is the
+   * one that looks for the raw enrollment key off the device: if a key-export route is ever put
+   * back, the response body lands in this scan and the `secret` needle catches it. A 404 here is
+   * the expected result and contributes nothing; a 200 with a blob is the whole point.
+   */
+  places.push({
+    name: 'Key-custody routes removed by A3 (backup-key, restore-key, generate-key with a key)',
+    text: async () => {
+      const ports = [...MEMBER_PORTS, '4002', '4003'];
+      const probes: Array<Promise<string>> = [];
+      for (const port of ports) {
+        const base = `http://localhost:${port}`;
+        probes.push(post(`${base}/onboarding/backup-key`, { pin: '000000' }));
+        probes.push(post(`${base}/onboarding/backup-key`, {}));
+        probes.push(post(`${base}/onboarding/restore-key`, { backup: { version: 1 }, pin: '000000' }));
+        // An injected key must not be stored; if it is, the derived wallet is the attacker's.
+        probes.push(post(`${base}/onboarding/generate-key`, { enrollmentKey: 'Aa1!'.repeat(16) }));
+      }
+      return (await Promise.all(probes)).join('
+');
+    },
   });
   places.push({
     name: 'Member node /rpc proxy, no credentials (sequencer data through the phone)',

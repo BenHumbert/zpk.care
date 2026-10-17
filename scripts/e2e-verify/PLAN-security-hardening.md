@@ -286,6 +286,72 @@ LAN address refuses; an allowlisted browser origin is echoed back exactly; a for
 header at all; a node's `/rpc` is refused. A port that is not listening is reported as skipped, never
 as a pass, because a closed port proves nothing about the policy it would have applied.
 
+**A3 implementation record.** Done 2026-10-17.
+
+*The finding was scoped too narrowly.* The audit recorded `backup-key`, `restore-key` and the
+inbound-key path against the **member node**. All three were also on the **pharmacy** and
+**prescriber** nodes, with the same shape and the same absence of authentication, so a provider's
+enrollment key was exportable by anyone who could reach the port. Six routes removed, not two,
+and three `generate-key` handlers changed, not one.
+
+*Two of them had live clients, which is why reading the client first mattered.* After A2, where I
+nearly switched off a proxy two dashboards depend on, I checked before deleting:
+
+| Route | Client | What the client did |
+|---|---|---|
+| `backup-key` | `dashboard-prescriber` | A **Backup Key** button that prompted for a PIN and then **rendered the AES-GCM blob into the page** as selectable text |
+| `generate-key` inbound key | `dashboard-pharmacy` | An **enrollment-key input field**, on a wizard panel whose own description read "A cryptographic enrollment key will be generated locally on this device. It is NEVER transmitted." |
+| `restore-key` | none, on any dashboard | Nothing. Pure surface |
+
+Both clients are removed with the routes: the prescriber's button, its handler and its markup; the
+pharmacy's input, its label and the argument that carried it. The member dashboard's Restore tab is
+**not** touched, because it never used these routes — it decrypts a pasted card with Web Crypto in
+the browser. It writes the recovered key to plaintext `localStorage`, which is MEM-H4 and belongs
+to item C3.
+
+*Why authentication was not the answer.* Rule I3 puts the enrollment key in secure storage and on
+an offline card under a PIN. A route that returns the key cannot be made to satisfy that by adding
+a token, because the export is the breach, not the lack of a check. `backup-key` was worse than
+unauthenticated: it took the **PIN from the request body**, so the caller chose the PIN, received
+the ciphertext and decrypted at leisure. A card-plus-PIN second factor means something only when
+the party holding the card is not also the party that set the PIN, and over HTTP it always was.
+
+*What tests do instead of posting a key.* `production-showcase.test.ts` imported known seed keys
+over HTTP so later proofs would be deterministic. It builds its nodes in-process, so it now sets
+the key on the device's own local state directly — which is what a device does. The phase still
+advances through the route; only the key stops crossing a boundary.
+
+*A sweep for anything else that touches key material*, since this finding's scope was wrong once
+already. Every remaining `useEnrollmentKey` call reconstructs the key inside a closure to derive
+the wallet, derive an encryption keypair (returning only the public half), or encrypt a message;
+none returns it. `setEnrollmentKey` is now reached only from `generate-key`, with a locally
+generated key. Two key-adjacent routes are left alone because the plan already owns them: the
+provider `/interactive/badge/tap` on the pharmacy and prescriber nodes, where the badge is the
+enrollment key under a fixed development PIN, is retired by the phase-C decision to use a FIDO2
+authenticator instead; and the employer `set-pin-hash` and marketplace `rekey` routes belong to
+items A8 and A9.
+
+*Acceptance test.* `tests/key-custody.test.ts`, 20 tests. It asserts the two routes are **absent
+from the route table** of all three node types, which is stronger than a 404 from a running server
+because a route cannot be reintroduced without failing here, and it checks no remaining path
+matches backup, restore, export or reveal at all. The inbound-key path is checked behaviourally:
+hand a member node a strong, known key, derive a wallet, and assert the wallet is **not** the one
+that key would produce. It also reads the real generated key out of local state in-process and
+proves it appears in no response body.
+
+The last test is the positive counterpart, and it is there to fail fast. It sets a known key on a
+device in-process and asserts the derived wallet equals `deriveMemberWalletId` over that key — the
+exact mechanism `production-showcase.test.ts` now depends on. Without it, a mistake in the seeding
+helper would only surface fifteen minutes into a suite that generates real recursive proofs.
+
+*The gap this leaves, stated rather than hidden.* **There is no backup at all until A12b writes the
+card.** That is a product gap, not a regression in safety: what existed was not a usable backup but
+an export anyone on the port could request, delivered as text in a browser. A12b is already in
+phase A for this reason, because the enrollment tap is the only moment the key is in hand. Until
+then a lost device loses the wallet, which was already true in practice — the browser card flow
+encrypts the literal string `server-managed` for normally-enrolled users (MEM-M5), so the designed
+recovery path has never worked.
+
 ### Phase B — Keep identity on the device
 
 The largest phase, and the one that changes the pipeline. Section 7 covers the consequences.

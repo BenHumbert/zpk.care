@@ -164,9 +164,9 @@ const API = {
       // params: { tokenId, groupId?, planId?, validUntil? }
       return post('/onboarding/accept-token', params);
     },
-    generateKey(params) {
-      // params: { enrollmentKey? }
-      return post('/onboarding/generate-key', params || {});
+    // No arguments: the node generates the key itself and accepts none from the network (A3).
+    generateKey() {
+      return post('/onboarding/generate-key', {});
     },
     deriveWallet(params) {
       // params: { serviceProviderIdQualifier, serviceProviderId }
@@ -179,14 +179,8 @@ const API = {
     compile() {
       return post('/onboarding/compile', {});
     },
-    backupKey(params) {
-      // params: { pin }
-      return post('/onboarding/backup-key', params);
-    },
-    restoreKey(params) {
-      // params: { backup, pin }
-      return post('/onboarding/restore-key', params);
-    },
+    // backupKey and restoreKey are gone. The routes they called exported and overwrote the
+    // enrollment key over HTTP; see the note in src/nodes/routes/pharmacy-routes.ts.
   },
 
   // ── Proof ──────────────────────────────────────────────────

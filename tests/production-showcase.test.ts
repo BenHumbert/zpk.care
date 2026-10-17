@@ -179,6 +179,25 @@ async function createApp(
   return { server, stateDir };
 }
 
+/**
+ * Put a known enrollment key on a device, the way a device does it: in its own process, on its
+ * own local state. The key is never posted to a port.
+ *
+ * This replaces `POST /onboarding/generate-key { enrollmentKey }`, which A3 removed. That route
+ * accepted an enrollment key inbound over the network with no authentication and no validation,
+ * which let an attacker fix the key a wallet would be derived under (finding MEM-C2) and was a
+ * direct breach of rule I3 regardless of the key. The phase still advances through the route;
+ * only the key itself is set locally.
+ */
+async function seedEnrollmentKey(app: NautilusAppServer, port: number, key: string): Promise<void> {
+  const r = await post(port, '/onboarding/generate-key');
+  expect(r.status).toBe(200);
+  const state = app.getLocalState();
+  state.setEnrollmentKey(key);
+  const data = state.getState();
+  if (data) await state.save(data);
+}
+
 // ─── Test Suite ────────────────────────────────────────────
 
 describe('Production Showcase — Alice\'s Healthcare Journey', () => {
@@ -287,11 +306,8 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
     });
     expect(r.status).toBe(200);
 
-    // Import known seed enrollment key (deterministic for proof generation later)
-    r = await post(memberPort, '/onboarding/generate-key', {
-      enrollmentKey: alice.enrollmentKey,
-    });
-    expect(r.status).toBe(200);
+    // Known seed key, set on the device in-process (see seedEnrollmentKey)
+    await seedEnrollmentKey(memberApp, memberPort, alice.enrollmentKey);
 
     // Derive wallet from PHI
     r = await post(memberPort, '/onboarding/derive-wallet', {
@@ -318,10 +334,7 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
     });
     expect(r.status).toBe(200);
 
-    r = await post(prescriberPort, '/onboarding/generate-key', {
-      enrollmentKey: drChen.enrollmentKey,
-    });
-    expect(r.status).toBe(200);
+    await seedEnrollmentKey(prescriberApp, prescriberPort, drChen.enrollmentKey);
 
     r = await post(prescriberPort, '/onboarding/derive-wallet', {
       prescriberIdQualifier: drChen.localData.prescriberIdQualifier,
@@ -343,10 +356,7 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
     });
     expect(r.status).toBe(200);
 
-    r = await post(pharmacyPort, '/onboarding/generate-key', {
-      enrollmentKey: mainSt.enrollmentKey,
-    });
-    expect(r.status).toBe(200);
+    await seedEnrollmentKey(pharmacyApp, pharmacyPort, mainSt.enrollmentKey);
 
     r = await post(pharmacyPort, '/onboarding/derive-wallet', {
       serviceProviderIdQualifier: mainSt.localData.serviceProviderIdQualifier,
