@@ -15,7 +15,7 @@ Entry `spawnEmployerTenant({employerId, employerPubKeyHex, sequencerUrl, insurer
 | Attestation pin | `l2_getEmployerAttestation` (262-270); requires `result.employerId === employerId` (272) and `result.publicKeyHex` == `employerPubKeyHex` case-insensitive (275) | 260-280 |
 | Ports | `allocateEphemeralPort`: bind `127.0.0.1:0`, read assigned port, close (112-125); one for employer, one for HR Tool (283-284) | 112-126, 283-284 |
 | Admin token | `${employerId.toLowerCase()}-admin-${randomBytes(16).hex.slice(0,16)}` = 64 random bits (158-162); fingerprint = sha256 hex[0:16] (164-166) | 154-166 |
-| Employer child | `spawn('npx', ['tsx', start-employer-nautilus.ts], {shell:true, stdio:['ignore','pipe','pipe']})` (289-304); env = `...process.env` (parent insurer env inherited, 291) + `ZKTRIDENT_PORT`, `ZKTRIDENT_HOST='127.0.0.1'`, `ZKTRIDENT_EMPLOYER_ID`, `ZKTRIDENT_EMPLOYER_PUBKEY_HEX`, `ZKTRIDENT_SEQUENCER_URL`, `ZKTRIDENT_INSURER_URL`, `ZKTRIDENT_ADMIN_TOKEN=<token>`, `ZKTRIDENT_UNSECURE='true'` (inert for this script), `ZKTRIDENT_CORS_ORIGINS='*'` (292-300); child stdout/stderr relayed with `[tenant id]` prefix (305-306); no `cwd` set | 287-308 |
+| Employer child | `spawn('npx', ['tsx', start-employer-nautilus.ts], {shell:true, stdio:['ignore','pipe','pipe']})` (289-304); env = `...process.env` (parent insurer env inherited, 291) + `ZKTRIDENT_PORT`, `ZKTRIDENT_HOST='127.0.0.1'`, `ZKTRIDENT_EMPLOYER_ID`, `ZKTRIDENT_EMPLOYER_PUBKEY_HEX`, `ZKTRIDENT_SEQUENCER_URL`, `ZKTRIDENT_INSURER_URL`, `ZKTRIDENT_ADMIN_TOKEN=<token>`, `ZKTRIDENT_UNSECURE='true'` (inert for this script), ~~`ZKTRIDENT_CORS_ORIGINS='*'`~~ **removed by A2: the spawned node resolves the local dashboard origins itself** (292-300); child stdout/stderr relayed with `[tenant id]` prefix (305-306); no `cwd` set | 287-308 |
 | Employer health wait | poll `GET /health` until `body.ok && body.data.phase==='ready'`, 60 s budget, 500 ms interval, 2 s per request (130-152, 312-317); failure → SIGTERM employer (319) | 310-321 |
 | HR Tool child | `spawn('npx', ['tsx', src/tools/hr-tool-server.ts], {shell:true})`; env = `...process.env` + `PORT`, `HR_TOOL_DATA_DIR='./hr-tool-data/<employerId>'` (relative to the insurer process cwd), `EMPLOYER_NODE_URL`, `EMPLOYER_ADMIN_TOKEN=<token>`, `EMPLOYER_ID`, `EMPLOYER_PUBKEY_HEX` (the last two are not read by hr-tool-server.ts/hr-tool-core.ts) | 323-342 |
 | HR Tool wait | poll `GET /api/session` for any JSON, 30 s (345-350); failure → SIGTERM both (352-353) | 344-355 |
@@ -33,7 +33,7 @@ GAP: I7 — the per-tenant admin token is delivered by two ungated marketplace r
 
 | Item | Fact | Source |
 |---|---|---|
-| Env defaults | `ZKTRIDENT_PORT` 4005 (58); `ZKTRIDENT_HOST` **0.0.0.0** (59); `ZKTRIDENT_SEQUENCER_URL` http://localhost:3030 (60); `ZKTRIDENT_STATE_DIR` ./nautilus-data (61); TLS cert/key optional (62-63); SSE on, max 50 (64-65); `ZKTRIDENT_CORS_ORIGINS` default `['*']` (66-68); `ZKTRIDENT_ADMIN_TOKEN` optional (70; without it admin routes default-deny, banner 229) | 54-71 |
+| Env defaults | `ZKTRIDENT_PORT` 4005 (58); `ZKTRIDENT_HOST` **127.0.0.1** since A2, was `0.0.0.0` (59); `ZKTRIDENT_SEQUENCER_URL` http://localhost:3030 (60); `ZKTRIDENT_STATE_DIR` ./nautilus-data (61); TLS cert/key optional (62-63); SSE on, max 50 (64-65); `ZKTRIDENT_CORS_ORIGINS` default `['*']` (66-68); `ZKTRIDENT_ADMIN_TOKEN` optional (70; without it admin routes default-deny, banner 229) | 54-71 |
 | Required | `ZKTRIDENT_EMPLOYER_ID` (80-84); `ZKTRIDENT_EMPLOYER_PUBKEY_HEX` 64 hex (89-99); `ZKTRIDENT_INSURER_URL` optional, must be http(s) (100-104) | 80-104 |
 | Node | `new EmployerNode({employerId, insurerUrl, sequencerUrl, clientOptions:{adminToken}})` (122-129); `setRequireAttestation(true)` (135) | 120-135 |
 | Attestation load | `l2_verifyEmployer` unauthenticated (152-157); needs `result.valid && result.attestation` (159); `att.publicKeyHex` must equal the pinned env key (165) → mismatch `process.exit(1)` (198-201); retries at 0/500/1000/2000/4000/8000/16000 ms (189); not loaded after 7 tries → `exit(1)` (205-210). **Fail-closed by construction** | 145-210 |
@@ -181,7 +181,7 @@ Commands `init/import/lookup/reconcile/export/status` (25-39, 562-583). Uses the
 
 ### 4.1 Startup (`src/nodes/start-prescriber-nautilus.ts`)
 
-Env: `ZKTRIDENT_PORT` 4002 (59), `ZKTRIDENT_HOST` 0.0.0.0 (60), sequencer (61), stateDir ./nautilus-data (62), CORS `['*']` (67-69), prover URL/key (71-72), `ZKTRIDENT_ADMIN_TOKEN` (73), `ZKTRIDENT_PIN` (83), dashboard-prescriber (78-81). Seed mode `ZKTRIDENT_SEED_PRESCRIBER` (102-167): picks `PRESCRIBERS[idx|name]` (107-113) whose `enrollmentKey` comes from `src/data/prescribers.json` (data/index.ts:278-289; 16 `enrollmentKey` entries, e.g. prescribers.json:7); `walletId = derivePrescriberWalletId(localData, enrollmentKey)` (122); node built with walletId only (129-134) — **no enrollment key is placed in local state**; phase `awaiting_credentialing`, `server.start()` (138-139); polls `l2_getProvider` ≤ 60×1 s for `credentialState===2` (144-158); `ready` either way (160-166). Recovery mode (171-202): state+PIN → unlock/load walletId (172-187); PIN only → create encrypted state phase `awaiting_token` (188-197); no PIN → fresh onboarding (198-201). Shutdown locks state (234).
+Env: `ZKTRIDENT_PORT` 4002 (59), `ZKTRIDENT_HOST` 127.0.0.1 since A2 (60), sequencer (61), stateDir ./nautilus-data (62), CORS `['*']` (67-69), prover URL/key (71-72), `ZKTRIDENT_ADMIN_TOKEN` (73), `ZKTRIDENT_PIN` (83), dashboard-prescriber (78-81). Seed mode `ZKTRIDENT_SEED_PRESCRIBER` (102-167): picks `PRESCRIBERS[idx|name]` (107-113) whose `enrollmentKey` comes from `src/data/prescribers.json` (data/index.ts:278-289; 16 `enrollmentKey` entries, e.g. prescribers.json:7); `walletId = derivePrescriberWalletId(localData, enrollmentKey)` (122); node built with walletId only (129-134) — **no enrollment key is placed in local state**; phase `awaiting_credentialing`, `server.start()` (138-139); polls `l2_getProvider` ≤ 60×1 s for `credentialState===2` (144-158); `ready` either way (160-166). Recovery mode (171-202): state+PIN → unlock/load walletId (172-187); PIN only → create encrypted state phase `awaiting_token` (188-197); no PIN → fresh onboarding (198-201). Shutdown locks state (234).
 
 ### 4.2 State held
 
@@ -258,7 +258,7 @@ Body `{providerType, providerIndex}` (1215-1217) → seed `PRESCRIBERS[providerI
 
 ### 5.1 Startup (`src/nodes/start-pharmacy-nautilus.ts`)
 
-Same shape: port 4003 (59), host 0.0.0.0 (60), CORS `['*']` (67-69), adminToken (73), PIN (83). Seed `ZKTRIDENT_SEED_PHARMACY` (102-166): `PHARMACIES[idx|storeName|ncpdp]` (107-113), `enrollmentKey` from `src/data/pharmacies.json` (data/index.ts:297-299; 15 entries); walletId derived (122); node with walletId only (128-133) — no enrollment key in state; credential poll (143-157); recovery branch (170-201).
+Same shape: port 4003 (59), host 127.0.0.1 since A2 (60), CORS the local allowlist since A2 (67-69), adminToken (73), PIN (83). Seed `ZKTRIDENT_SEED_PHARMACY` (102-166): `PHARMACIES[idx|storeName|ncpdp]` (107-113), `enrollmentKey` from `src/data/pharmacies.json` (data/index.ts:297-299; 15 entries); walletId derived (122); node with walletId only (128-133) — no enrollment key in state; credential poll (143-157); recovery branch (170-201).
 
 ### 5.2 State held
 
@@ -312,7 +312,7 @@ Attestation verification = `SequencerAttestationAuthority.verifyAttestation` (nf
 
 ### 5.5 Badge tap (`/interactive/badge/tap`, 1032-1111)
 
-Seed `PHARMACIES[providerIndex]` (1055); key from repo JSON (1061); derive walletId (1065); proof skipped (1071-1074); `l2_getProvider` (1079-1083); `badge:session` 8 h with no artifact (1095-1098); CORS `*` (1100). GAP: I7 as in §4.5.
+Seed `PHARMACIES[providerIndex]` (1055); key from repo JSON (1061); derive walletId (1065); proof skipped (1071-1074); `l2_getProvider` (1079-1083); `badge:session` 8 h with no artifact (1095-1098); ~~CORS `*`~~ removed by A2 (1100). GAP: I7 as in §4.5.
 
 ## 6. Where things live (this scope)
 

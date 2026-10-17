@@ -79,8 +79,8 @@ async function main(): Promise<void> {
   console.log('');
   console.log('  Proof Delegate Server is running');
   console.log('  ─────────────────────────────────');
-  console.log('  Prove:         http://0.0.0.0:%d/prove', proverPort);
-  console.log('  Status:        http://0.0.0.0:%d/status', proverPort);
+  console.log('  Prove:         http://localhost:%d/prove', proverPort);
+  console.log('  Status:        http://localhost:%d/status', proverPort);
   console.log('  API key:       %s', proverApiKey ? 'configured' : 'NONE (unauthenticated)');
   console.log('');
 

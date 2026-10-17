@@ -37,6 +37,7 @@ import type { VizEvent } from '../../src/l2/l2-rpc-server.js';
 import { AdjudicationService, type ConsoleEvent } from './interactive-service.js';
 import { registerInteractiveRoutes, getConsoleEmitter } from './interactive-routes.js';
 import { NfcBridge } from './nfc-bridge.js';
+import { resolveBindHost, resolveAllowedOrigins } from '../../src/security/network-policy.js';
 
 const REGISTRY_TREE_HEIGHT = 11;
 const PORT = parseInt(process.env.PORT || '3030', 10);
@@ -68,7 +69,7 @@ async function main() {
   );
 
   // 2. Create and start RPC Server
-  const server = new L2RpcServer(node, { port: PORT, host: '0.0.0.0', allowedOrigins: ['*'] });
+  const server = new L2RpcServer(node, { port: PORT, host: resolveBindHost(process.env, 'interactive engine'), allowedOrigins: resolveAllowedOrigins(process.env, { role: 'interactive engine' }) });
 
   // Collect console SSE clients before service creation
   // (Routes need to be registered before we create the service,

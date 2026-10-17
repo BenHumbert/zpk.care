@@ -27,11 +27,11 @@ Owner rules broken: I1 PHI/PII local only; I2 only walletID + proofs leave the p
 | RPC-05 | MEDIUM | I7 | Ed25519 admin signature replayable (30 s window, no nonce/cache) | rpc:2624-2658 | capture an admin `X-Admin-Signature`, resend within 30 s → accepted again |
 | RPC-06 | MEDIUM | I7 | `checkAdminAuth` signs a constant message, not path/body-bound | rpc:2661-2671 | one Ed25519 sig over `admin-endpoint\|{}\|ts` opens `/viz/emit`, `/viz/clear`, every adminOnly route for 30 s |
 | RPC-07 | MEDIUM | I6,I7 | SSE/viz expose wallet IDs, wallet→displayName, X25519 keys; `/viz/history` ACAO `*` | rpc:595-660,2426-2460,2502-2522 | `GET /events` or `GET /viz/entities` (no auth) → walletId + displayName + encryptionPublicKeyHex |
-| RPC-08 | MEDIUM | I4 | Binds 0.0.0.0; CORS `*` in unsecure mode | start:72,88-90; rpc:422-425 | `netstat` shows :3030 on 0.0.0.0; unsecure response `Access-Control-Allow-Origin: *` |
+| RPC-08 | MEDIUM | I4 | ~~Binds 0.0.0.0; CORS `*` in unsecure mode~~ **FIXED by A2, 2026-10-17** | start:72,88-90; rpc:422-425 | `netstat` showed :3030 on 0.0.0.0; unsecure response `Access-Control-Allow-Origin: *`. Now `127.0.0.1` and a port-aware allowlist in both modes |
 | REP-01 | MEDIUM | — | Replication non-functional: gossip is ADMIN-gated, replicas hold no token | start:481-487; rpc:691-702; peer:300-315 | `l2_getStateDigest` on :3031 → empty/stale vs :3030; replica logs show l2_gossipRelay Unauthorized |
 | REP-02 | MEDIUM | I7 | Replicas apply gossip with no crypto verification; batch verify is flag-only/never enabled | seq:2488-2541; node:981-1009,2480 | code: `applyReplicatedReceipt` overwrites roots from payload; `batchProof.verify()` is the o1js flag |
 | REP-03 | MEDIUM | I7 | Gossip signature excludes payload; no secret → accept-all | peer:631-680,671 | start with no `ZKTRIDENT_GOSSIP_SECRET` → `verifyGossip` returns true for any message |
-| PRX-02 | MEDIUM | I4,I7 | Explorer strips Authorization, forwards any RPC method, no body cap, shared rate-limit IP | exp:76-95 | `POST :8000/rpc` any OPEN method → relayed to :3030; `Authorization` header dropped |
+| PRX-02 | MEDIUM | I4,I7 | ~~Explorer forwards any RPC method~~ **FIXED by A2, 2026-10-17**: loopback bind, and the explorer proxy now forwards only the 45 methods its own page calls (403 otherwise). It could not be closed — the explorer page reaches the sequencer no other way. Body cap and per-caller rate limit still outstanding | exp:76-95 | `POST :8000/rpc` any OPEN method → relayed to :3030; no `Authorization` was ever attached |
 | BOOT-03 | MEDIUM | I7 | `admin123` default admin token in unsecure mode | start:80-81 | start with `ZKTRIDENT_UNSECURE=true` → `Authorization: Bearer admin123` passes all 17 ADMIN methods |
 | BOOT-04 | MEDIUM | I3,I7 | Full `process.env` inherited by every child (gossip secret, genesis key, token) | start:523,557-562,662 | child member/provider process env contains `ZKTRIDENT_GOSSIP_SECRET` and `ZKTRIDENT_GENESIS_ADMIN_KEY` |
 | BOOT-05 | MEDIUM | I7 | Gossip secret doubles as the NFC attestation Ed25519 seed; non-hex silently shortens | start:288; node:348-351; nfc:183-190 | any secret-holder (every child/peer) derives the sequencer attestation key and forges attestations |
@@ -141,10 +141,16 @@ Severity counts: CRITICAL 1 · HIGH 10 · MEDIUM 17 · LOW 5 (33 total).
 **Impact.** Any origin subscribes to live wallet activity and the wallet→display-name + X25519-key registry (I6), with a CORS wildcard on `/viz/history`.
 **Fix sketch.** Gate viz/SSE behind auth or emit only non-identifying handles; drop the wildcard.
 
-### RPC-08 — MEDIUM — Binds all interfaces; CORS wildcard in unsecure
+### RPC-08 — MEDIUM — Binds all interfaces; CORS wildcard in unsecure — **FIXED by A2, 2026-10-17**
 **Evidence.** Default host `0.0.0.0` (start:72); `allowedOrigins` becomes `['*']` in unsecure mode (start:88-90), echoed as `Access-Control-Allow-Origin: *` (rpc:424). Default secure origin list lacks ports, so `:4001` dashboards get `null` unless proxied.
 **Impact.** The sequencer is reachable off-host; unsecure deployments accept any browser origin.
 **Fix sketch.** Default to 127.0.0.1; never use `*`; include ports in the allow-list.
+**Fixed.** All three, in `src/security/network-policy.ts`. One thing this finding understated: the
+port-less list did not merely fail to match, it answered the off-list origin with the literal string
+`null`, and `Access-Control-Allow-Origin: null` grants every null-origin context — a `file://` page, a
+sandboxed iframe, a data URI. The policy that looked strictest was granting a class of caller that the
+wildcard would also have reached. The header is now omitted entirely for an off-list origin and for a
+request that carries no `Origin` at all.
 
 ### REP-01 — MEDIUM — Replication is non-functional in the shipped topology
 **Evidence.** Gossip is delivered via `client.gossipRelay` → `l2_gossipRelay`, which is in `ADMIN_METHODS` (peer:300-315; rpc:207-225). The sequencer's peer client attaches the admin bearer (peer:150-154), but replica RPC servers are built with `{port,host,enableSSE:false,allowedOrigins}` only — no `adminToken`, no `unsecureMode` (start:481-487). The admin gate then default-denies: `if (!this.options.adminToken) return Unauthorized` (rpc:696-702). Replica→sequencer gossip carries no token either (replica node options omit `adminToken`).

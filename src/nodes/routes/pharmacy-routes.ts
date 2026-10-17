@@ -51,6 +51,9 @@ const DOMAIN_TAG_PHARMACY = 2;
  * Build all pharmacy routes.
  */
 export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistration[] {
+  // CORS is applied once by L2RpcServer.handleRequest, from the deployment's origin
+  // allowlist. Naming Access-Control-Allow-Origin in a writeHead header object here
+  // would override that policy with a wildcard, so no handler below sets it.
   const routes: RouteRegistration[] = [];
 
   // ══════════════════════════════════════════════════════════
@@ -1097,14 +1100,14 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
           data: { sessionDuration: '8h', walletId },
         });
 
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ authenticated: true, events, elapsedMs: Date.now() - start }));
       } catch (err: any) {
         events.push({
           type: 'badge:error', providerIndex, providerType, displayName: 'Unknown', timestamp: Date.now(),
           error: err?.message ?? String(err),
         });
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ authenticated: false, events, error: err?.message ?? String(err) }));
       }
     },

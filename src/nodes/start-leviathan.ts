@@ -25,7 +25,7 @@
  * Configuration via environment variables (all optional — sensible defaults):
  *
  *   ZKTRIDENT_PORT             — RPC server port (default: 3030)
- *   ZKTRIDENT_HOST             — RPC bind address (default: 0.0.0.0)
+ *   ZKTRIDENT_HOST             — RPC bind address (default: 127.0.0.1, loopback only)
  *   ZKTRIDENT_NODE_ID          — Unique node identifier (default: auto-generated)
  *   ZKTRIDENT_BATCH_INTERVAL_MS — Batch timer interval in ms (default: 180000 = 3 min)
  *   ZKTRIDENT_PARTITION_COUNT  — Total partitions in the network (default: 1)
@@ -38,7 +38,11 @@
  *   ZKTRIDENT_L2_ONLY          — Skip MINA L1 settlement (default: true)
  *   ZKTRIDENT_SSE              — Enable SSE event streaming (default: true)
  *   ZKTRIDENT_MAX_SSE          — Max concurrent SSE connections (default: 100)
- *   ZKTRIDENT_CORS_ORIGINS     — Comma-separated allowed CORS origins (default: *)
+ *   ZKTRIDENT_TLS_CERT         — Path to a PEM certificate. With ZKTRIDENT_TLS_KEY the
+ *                                RPC server serves HTTPS instead of HTTP.
+ *   ZKTRIDENT_TLS_KEY          — Path to the matching PEM private key.
+ *   ZKTRIDENT_CORS_ORIGINS     — Comma-separated allowed CORS origins
+ *                                (default: the local dashboard origins)
  *   ZKTRIDENT_POOL_SIZE        — Proving pool workers: number or "auto" (default: "auto", min 3)
  *   ZKTRIDENT_POOL_RECYCLE     — Recycle worker after N jobs to reclaim WASM heap (default: 3)
  *   ZKTRIDENT_PRODUCTION_FORMULARY — Load 500 NDC NADAC formulary on startup (default: false)
@@ -63,13 +67,14 @@ import { WALLET_TREE_HEIGHT } from '../wallets/wallet-state.js';
 import type { PartitionConfig } from '../l2/l2-partition.js';
 import type { VizEvent } from '../l2/l2-rpc-server.js';
 import http from 'http';
+import { resolveBindHost, resolveAllowedOrigins } from '../security/network-policy.js';
 
 // ─── Environment Parsing ──────────────────────────────────────
 
 const env = process.env;
 
 const port = parseInt(env.ZKTRIDENT_PORT ?? '3030', 10);
-const host = env.ZKTRIDENT_HOST ?? '0.0.0.0';
+const host = resolveBindHost(env, 'sequencer');
 const nodeId = env.ZKTRIDENT_NODE_ID;
 const batchIntervalMs = parseInt(env.ZKTRIDENT_BATCH_INTERVAL_MS ?? '30000', 10);
 const partitionCount = parseInt(env.ZKTRIDENT_PARTITION_COUNT ?? '1', 10);
@@ -85,9 +90,12 @@ const maxCheckpoints = parseInt(env.ZKTRIDENT_MAX_CHECKPOINTS ?? '10', 10);
 const l2Only = (env.ZKTRIDENT_L2_ONLY ?? 'true') !== 'false';
 const enableSSE = (env.ZKTRIDENT_SSE ?? 'true') !== 'false';
 const maxSseConnections = parseInt(env.ZKTRIDENT_MAX_SSE ?? '100', 10);
-const allowedOrigins = env.ZKTRIDENT_CORS_ORIGINS
-  ? env.ZKTRIDENT_CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
-  : unsecureMode ? ['*'] : ['http://localhost', 'http://127.0.0.1'];
+// Local dashboard origins by default. A wildcard is only honoured when it is asked
+// for explicitly AND the node is in unsecure mode; it is never the default.
+const allowedOrigins = resolveAllowedOrigins(env, {
+  role: 'sequencer',
+  allowWildcard: unsecureMode,
+});
 
 // ─── Build Options ────────────────────────────────────────────
 
@@ -124,6 +132,11 @@ const rpcOptions: Partial<L2RpcServerOptions> = {
   ...(adminToken ? { adminToken } : {}),
   ...(unsecureMode ? { unsecureMode: true } : {}),
   ...(hasDashboard ? { dashboardDir } : {}),
+  // TLS is configuration, not code: set both paths and the server listens HTTPS. Left
+  // unset it listens HTTP, which is why the default bind is loopback only.
+  ...(env.ZKTRIDENT_TLS_CERT && env.ZKTRIDENT_TLS_KEY
+    ? { tlsCert: env.ZKTRIDENT_TLS_CERT, tlsKey: env.ZKTRIDENT_TLS_KEY }
+    : {}),
 };
 
 // ─── Main ─────────────────────────────────────────────────────
@@ -544,6 +557,9 @@ async function main(): Promise<void> {
       host,
       enableSSE: false,
       allowedOrigins,
+      ...(env.ZKTRIDENT_TLS_CERT && env.ZKTRIDENT_TLS_KEY
+        ? { tlsCert: env.ZKTRIDENT_TLS_CERT, tlsKey: env.ZKTRIDENT_TLS_KEY }
+        : {}),
     };
     const replicaRpc = new L2RpcServer(replica, replicaRpcOpts);
     await replicaRpc.start();

@@ -29,6 +29,7 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import type { PocStatus, PocEvent, PocEventEmitter } from './poc-types.js';
+import { resolveBindHost, resolveAllowedOrigins } from '../security/network-policy.js';
 
 /** Callback to retrieve current PocStatus */
 export type StatusProvider = () => PocStatus;
@@ -55,7 +56,7 @@ export class PocDashboardServer {
       this.server = http.createServer((req, res) => this.handleRequest(req, res));
 
       this.server.on('error', reject);
-      this.server.listen(this.port, '0.0.0.0', () => {
+      this.server.listen(this.port, resolveBindHost(process.env, 'poc dashboard'), () => {
         // Subscribe to events for SSE broadcast
         this.unsubscribe = this.emitter.onEvent((event) => this.broadcastSSE(event));
         resolve();

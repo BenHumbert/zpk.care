@@ -13,7 +13,7 @@ Working tree as read on 2026-10-16. Abbreviations: R = visualizer/engine/interac
 | adminToken = `ZKTRIDENT_ADMIN_TOKEN`, or `admin123` only when `ZKTRIDENT_UNSECURE=true` | L:80-81, 118-127 |
 | No SESSION class exists: badge sessions (S:6605-6611) are returned to the caller and never checked by any route. No per-route RATE limit: the only limiter is `l2_submitProof` on `/rpc` | RPC:717-723, 2742-2754 |
 | In-process guards only: `enrollmentJobs` (R:142), `fillJobs` + 5-min TTL (R:413-415), `credentialJobs` (R:950), `badgeTapInProgress` → 429 (R:145, 1939-1942) | R |
-| Every handler writes `Access-Control-Allow-Origin: *` itself, overriding the server CORS policy | e.g. R:124, 169; RPC:420-424 |
+| ~~Every handler writes `Access-Control-Allow-Origin: *` itself, overriding the server CORS policy~~ **Fixed by A2 (2026-10-17): all 77 removed. No handler sets the header; `L2RpcServer.handleRequest` applies the deployment allowlist once.** | R:top-of-file note; RPC:420-424 |
 | `GET /interactive/badge/:key` is registered as the literal key `GET:/interactive/badge/`; exact-match dispatch means `/interactive/badge/prescriber-0` never reaches it (falls through to dashboard static files) — dead route | R:2013-2043; RPC:392, 500 |
 | Helpers: `readBody` (no size limit), `sendError`, BigInt-safe `safeJsonStringify`; console emitter stashed on the server object | R:2061-2093, 2045-2053 |
 | Server-side 30 s request timeout except SSE paths | RPC:408-418 |

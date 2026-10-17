@@ -25,14 +25,16 @@
  * Configuration via environment variables:
  *
  *   ZKTRIDENT_PORT             — Server port (default: 4005)
- *   ZKTRIDENT_HOST             — Bind address (default: 0.0.0.0)
+ *   ZKTRIDENT_HOST             — Bind address (default: 127.0.0.1, loopback only)
  *   ZKTRIDENT_SEQUENCER_URL    — Leviathan sequencer URL (default: http://localhost:3030)
  *   ZKTRIDENT_STATE_DIR        — State directory (default: ./nautilus-data)
  *   ZKTRIDENT_TLS_CERT         — Path to PEM certificate file (optional)
  *   ZKTRIDENT_TLS_KEY          — Path to PEM private key file (optional)
  *   ZKTRIDENT_SSE              — Enable SSE streaming (default: true)
  *   ZKTRIDENT_MAX_SSE          — Max SSE connections (default: 50)
- *   ZKTRIDENT_CORS_ORIGINS     — Comma-separated CORS origins (default: *)
+ *   ZKTRIDENT_CORS_ORIGINS     — Comma-separated CORS origins
+ *                                (default: the local dashboard origins)
+ *   ZKTRIDENT_RPC_PROXY        — 1 to re-enable POST /rpc forwarding (default: off)
  *   ZKTRIDENT_DISPLAY_NAME     — Display name for logging
  *   ZKTRIDENT_ADMIN_TOKEN      — Bearer token for admin endpoints (required)
  *   ZKTRIDENT_EMPLOYER_ID      — Employer identifier (required)
@@ -48,6 +50,7 @@ import { NautilusAppServer } from './nautilus-app-server.js';
 import type { NautilusAppConfig } from './nautilus-app-types.js';
 import { buildEmployerRoutes } from './routes/employer-routes.js';
 import { EmployerNode } from './employer-node.js';
+import { resolveBindHost, resolveAllowedOrigins, resolveRpcProxyPolicy } from '../security/network-policy.js';
 
 // ─── Environment ─────────────────────────────────────────────
 
@@ -56,16 +59,15 @@ const env = process.env;
 const config: NautilusAppConfig = {
   role: 'employer',
   port: parseInt(env.ZKTRIDENT_PORT ?? '4005', 10),
-  host: env.ZKTRIDENT_HOST ?? '0.0.0.0',
+  host: resolveBindHost(env, 'employer node'),
   sequencerUrl: env.ZKTRIDENT_SEQUENCER_URL ?? 'http://localhost:3030',
   stateDir: env.ZKTRIDENT_STATE_DIR ?? './nautilus-data',
   tlsCert: env.ZKTRIDENT_TLS_CERT,
   tlsKey: env.ZKTRIDENT_TLS_KEY,
   enableSSE: (env.ZKTRIDENT_SSE ?? 'true') !== 'false',
   maxSseConnections: parseInt(env.ZKTRIDENT_MAX_SSE ?? '50', 10),
-  allowedOrigins: env.ZKTRIDENT_CORS_ORIGINS
-    ? env.ZKTRIDENT_CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
-    : ['*'],
+  allowedOrigins: resolveAllowedOrigins(env, { role: 'employer node' }),
+  rpcProxy: resolveRpcProxyPolicy(env, 'employer node'),
   displayName: env.ZKTRIDENT_DISPLAY_NAME,
   adminToken: env.ZKTRIDENT_ADMIN_TOKEN,
 };

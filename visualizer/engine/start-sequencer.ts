@@ -26,6 +26,7 @@ import { Field, MerkleTree } from 'o1js';
 import { InMemoryStore } from '../../src/storage/local-store.js';
 import { L2Node } from '../../src/l2/l2-node.js';
 import { L2RpcServer } from '../../src/l2/l2-rpc-server.js';
+import { resolveBindHost, resolveAllowedOrigins } from '../../src/security/network-policy.js';
 
 const REGISTRY_TREE_HEIGHT = 11;
 const PORT = parseInt(process.env.PORT || '3030', 10);
@@ -56,7 +57,7 @@ async function main() {
   );
 
   // 3. Create and start RPC Server
-  const server = new L2RpcServer(node, { port: PORT, host: '0.0.0.0', allowedOrigins: ['*'] });
+  const server = new L2RpcServer(node, { port: PORT, host: resolveBindHost(process.env, 'visualizer sequencer'), allowedOrigins: resolveAllowedOrigins(process.env, { role: 'visualizer sequencer' }) });
   await server.start();
 
   console.log(`[Sequencer] RPC Server listening on port ${PORT}`);

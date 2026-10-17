@@ -39,6 +39,7 @@ import {
 import { WalletRegistryWitness } from '../wallets/wallet-state.js';
 import { LifecycleWitness } from '../engine/lifecycle.js';
 import { l2Stringify, l2Parse } from '../l2/l2-json.js';
+import { resolveBindHost } from '../security/network-policy.js';
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -302,7 +303,7 @@ export class ProofDelegateServer {
     });
 
     await new Promise<void>((resolve) => {
-      this.server!.listen(this.port, '0.0.0.0', resolve);
+      this.server!.listen(this.port, resolveBindHost(process.env, 'prover'), resolve);
     });
   }
 

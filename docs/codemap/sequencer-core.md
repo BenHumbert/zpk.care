@@ -30,12 +30,12 @@ Environment variables (all read with `process.env` at start:69):
 | Var | Default | Read | Effect |
 |---|---|---|---|
 | `ZKTRIDENT_PORT` | 3030 | start:71 | RPC port; replicas port+1, port+2 (464) |
-| `ZKTRIDENT_HOST` | `0.0.0.0` | 72 | bind address for sequencer and replicas (119, 483) |
+| `ZKTRIDENT_HOST` | `127.0.0.1` (A2; was `0.0.0.0`) | 72 | bind address for sequencer and replicas (119, 483); a wider bind warns at boot |
 | `ZKTRIDENT_NODE_ID` | `node-<ts36>-<rand>` (node:284) | 73 | gossip senderId |
 | `ZKTRIDENT_BATCH_INTERVAL_MS` | 30000 (header comment says 180000, start:30) | 74 | batch timer |
 | `ZKTRIDENT_PARTITION_COUNT`, `_INDEX` | 1, 0 | 75-76, 93-96 | `partitionConfig` only when count > 1 |
 | `ZKTRIDENT_SEED_PEERS` | none | 77-79 | extra seed peers |
-| `ZKTRIDENT_UNSECURE` | unset | 80 | `'true'` => adminToken defaults to `admin123` (81), CORS `*` (90), rpc `unsecureMode` (125; rpc:694, 852, 2663 relax admin auth and allow direct admin-key registration), insurer child gets `ZKTRIDENT_UNSECURE=true` (606); banner 709 |
+| `ZKTRIDENT_UNSECURE` | unset | 80 | `'true'` => adminToken defaults to `admin123` (81), **permits** `ZKTRIDENT_CORS_ORIGINS=*` but no longer makes `*` the default (90), rpc `unsecureMode` (125; rpc:694, 852, 2663 relax admin auth and allow direct admin-key registration), insurer child gets `ZKTRIDENT_UNSECURE=true` (606); banner 709 |
 | `ZKTRIDENT_ADMIN_TOKEN` | none (secure) / `admin123` (unsecure) | 81 | node options 109 -> peer network/L2Client (node:922; peer:150-154); rpc 124; children 605, 626, 633, 651 |
 | `ZKTRIDENT_GOSSIP_SECRET` | none | 82 | node options 110, replicas 476 -> HMAC gossip auth (peer:629-680); also the attestation-key seed (288 -> node:348-352). None => "unauthenticated gossip" (banner 711) |
 | `ZKTRIDENT_CHECKPOINT_DIR` | `./l2-data` | 83 | checkpoints and `adjudication-state.json` (335) |

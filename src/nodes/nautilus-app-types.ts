@@ -23,6 +23,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { EntityRole } from './entity-node-types.js';
+import type { RpcProxyPolicy } from '../security/network-policy.js';
 
 // ─── Onboarding State Machine ─────────────────────────────────
 
@@ -80,6 +81,8 @@ export interface NautilusAppConfig {
   proverApiKey?: string;
   /** Allowed CORS origins */
   allowedOrigins: string[];
+  /** A2: whether and how POST /rpc forwards to the sequencer. Off unless explicitly set. */
+  rpcProxy?: RpcProxyPolicy;
   /** Insurer Nautilus URL for enrollment notification (optional) */
   insurerUrl?: string;
   /** Employer Nautilus URL for enrollment confirmation (optional) */

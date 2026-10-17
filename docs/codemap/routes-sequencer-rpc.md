@@ -11,7 +11,7 @@ Abbreviations: RPC = `src/l2/l2-rpc-server.ts`; CLI = `src/l2/l2-client.ts`; SEQ
 |---|---|---|
 | Options | `L2RpcServerOptions`: port, host, maxBodyBytes, enableSSE, adminToken, adminKeys, unsecureMode, allowedOrigins, maxSseConnections, proofRateLimitPerMinute, tlsCert, tlsKey, dashboardDir | RPC:119-147 |
 | Defaults | port 3030, host `127.0.0.1`, maxBodyBytes 20 MB (doc comment at 125 still says 10 MB), enableSSE true | RPC:149-154 |
-| Live config (sequencer :3030) | host default `0.0.0.0` (`ZKTRIDENT_HOST`); unsecureMode = `ZKTRIDENT_UNSECURE==='true'`; adminToken = unsecure ? (`ZKTRIDENT_ADMIN_TOKEN` ?? `'admin123'`) : `ZKTRIDENT_ADMIN_TOKEN`; allowedOrigins = `ZKTRIDENT_CORS_ORIGINS` split, else unsecure ? `['*']` : `['http://localhost','http://127.0.0.1']`; dashboardDir = `dashboard-leviathan/` if it has index.html; no adminKeys, no TLS passed | LEV:72,80-81,87-90,115-127,270 |
+| Live config (sequencer :3030) | host default `0.0.0.0` (`ZKTRIDENT_HOST`); unsecureMode = `ZKTRIDENT_UNSECURE==='true'`; adminToken = unsecure ? (`ZKTRIDENT_ADMIN_TOKEN` ?? `'admin123'`) : `ZKTRIDENT_ADMIN_TOKEN`; allowedOrigins = `ZKTRIDENT_CORS_ORIGINS` split, else unsecure ? `['*']` : `['http://localhost','http://127.0.0.1']`; dashboardDir = `dashboard-leviathan/` if it has index.html; no adminKeys, no TLS passed. **Changed by A2 (2026-10-17):** host defaults to `127.0.0.1`; allowedOrigins comes from `resolveAllowedOrigins` (local dashboard origins with ports), `*` honoured only in unsecure mode and only when asked for; TLS now passed from `ZKTRIDENT_TLS_CERT`/`_KEY` | LEV:72,80-81,87-90,115-127,270 |
 | Live config (replicas :3031/:3032) | `{port, host, enableSSE:false, allowedOrigins}` only — no adminToken/unsecureMode, so every ADMIN method on a replica is default-denied | LEV:481-487 |
 | HTTP vs HTTPS | https only when both tlsCert and tlsKey set; else plain http | RPC:281-288 |
 | Unhandled error | `handleRequest().catch` → 500 `Internal Server Error` | RPC:271-277 |
@@ -296,7 +296,7 @@ Raw (non-L2Client) RPC callers worth knowing (grep of `l2_*` literals): `routes/
 ### Explorer — `src/nodes/start-explorer.ts`
 | Method | Path | Auth | Behaviour | Source |
 |---|---|---|---|---|
-| OPTIONS | * | OPEN | 204 + CORS (`ZKTRIDENT_CORS_ORIGINS`, default `*`) | EXP:41,56-62,69-73 |
+| OPTIONS | * | OPEN | 204 + CORS (`ZKTRIDENT_CORS_ORIGINS`, default `*`) — **A2: default is now the local dashboard origins, and an off-list origin gets no header** | EXP:41,56-62,69-73 |
 | POST | /rpc | OPEN (strips caller headers) | forwards raw body to `<sequencer>/rpc` with only `Content-Type` → Authorization/X-Admin-Signature never reach the sequencer; no body cap on the proxy; all proxied `l2_submitProof` share the explorer's IP for the rate limiter; 502 on failure | EXP:76-95 |
 | GET | /health | OPEN | proxied | EXP:98-109 |
 | GET | /events | OPEN | SSE pump from sequencer `/events` | EXP:112-143 |
@@ -304,7 +304,7 @@ Raw (non-L2Client) RPC callers worth knowing (grep of `l2_*` literals): `routes/
 | GET | /<static> | OPEN | files from `explorer/` (app.js, index.html, logo.png, rpc.js, style.css); regex + `..` guard; `path.join` without canonical-prefix check | EXP:43-44,188-201 |
 | * | other | — | 404 text | EXP:203-204 |
 
-Binds `0.0.0.0` on `ZKTRIDENT_EXPLORER_PORT` (8000); sequencer `ZKTRIDENT_SEQUENCER_URL` (http://localhost:3030) (EXP:39-40,207). Spawned by LEV:662 with those env vars. Explorer browser code calls read-only `l2_*` (status, chain, audit, claims, messages, receipts, reconstructAccumulator, peers, quorum) directly through this proxy (`explorer/rpc.js`).
+Binds `127.0.0.1` since A2 (was `0.0.0.0`) on `ZKTRIDENT_EXPLORER_PORT` (8000); sequencer `ZKTRIDENT_SEQUENCER_URL` (http://localhost:3030) (EXP:39-40,207). Spawned by LEV:662 with those env vars. Explorer browser code calls read-only `l2_*` (status, chain, audit, claims, messages, receipts, reconstructAccumulator, peers, quorum) directly through this proxy (`explorer/rpc.js`).
 
 ### Proof delegate — `src/nodes/proof-delegate.ts`
 | Method | Path | Auth | Behaviour | Source |
@@ -313,7 +313,7 @@ Binds `0.0.0.0` on `ZKTRIDENT_EXPLORER_PORT` (8000); sequencer `ZKTRIDENT_SEQUEN
 | POST | /prove | `X-Api-Key` must `===` configured apiKey; **no auth when apiKey unset** (non-constant-time compare) | body ≤10 MB; `{method:'proveRegistration'|'proveWalletUpdate', params:{preimage[7 Field strings], registryWitnessJson, lifecycleWitnessJson, currentRegistryRoot, currentLifecycleRoot, oldCredentialRoot?, oldNonce?, newCredentialRoot?, currentLifecycle?}}` → `StateTransitionProgram.proveRegistration/proveWalletUpdate` → `{success, proofJson, proofTimeMs}` or raw error text | PD:52-67,277-293,331-389,394-410 |
 | * | other | — | 404; handler exceptions → 500 with raw message | PD:295-301 |
 
-Server: only `StateTransitionProgram` compiled (PD:249-252); binds `0.0.0.0` (PD:305); no CORS headers, no rate limit, no TLS. Who it proves for: any caller presenting a wallet preimage — registration and wallet-update proofs. GAP I2: the 7-Field preimage (domain tag + hashed identity fields + enrollment-key hash) leaves the device to :4040 when delegation is used; the file's own comment says only hashes cross (PD:23-28). Interface comment says a 6-element preimage (PD:55) but the code consumes indices 0-6 (PD:349-351,364-366). Client `ProofDelegateClient` (PD:84-220) sends `X-Api-Key` when given (PD:194-197); it is only re-exported (`src/nodes/index.ts:31`) — no Nautilus node instantiates it. The member dashboard can POST `proverUrl+'/prove'` from the browser with no API key (`dashboard-member/rpc.js:24,34,36,179-191`).
+Server: only `StateTransitionProgram` compiled (PD:249-252); binds `127.0.0.1` since A2, was `0.0.0.0` (PD:305); no CORS headers, no rate limit, no TLS. Who it proves for: any caller presenting a wallet preimage — registration and wallet-update proofs. GAP I2: the 7-Field preimage (domain tag + hashed identity fields + enrollment-key hash) leaves the device to :4040 when delegation is used; the file's own comment says only hashes cross (PD:23-28). Interface comment says a 6-element preimage (PD:55) but the code consumes indices 0-6 (PD:349-351,364-366). Client `ProofDelegateClient` (PD:84-220) sends `X-Api-Key` when given (PD:194-197); it is only re-exported (`src/nodes/index.ts:31`) — no Nautilus node instantiates it. The member dashboard can POST `proverUrl+'/prove'` from the browser with no API key (`dashboard-member/rpc.js:24,34,36,179-191`).
 
 ### start-prover — `src/nodes/start-prover.ts`
 `ZKTRIDENT_PROVER_PORT` (4040), `ZKTRIDENT_PROVER_API_KEY` (default none → banner prints `NONE (unauthenticated)`) (48-49,84); compiles then starts `ProofDelegateServer` (60-75); SIGINT/SIGTERM graceful stop (89-101).

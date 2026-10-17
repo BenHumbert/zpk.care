@@ -54,6 +54,7 @@ import type {
   RouteHandler,
   OnboardingPhase,
 } from './nautilus-app-types.js';
+import { corsOriginHeader } from '../security/network-policy.js';
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -345,11 +346,10 @@ export class NautilusAppServer {
       res.on('finish', () => clearTimeout(timeout));
     }
 
-    // CORS
-    const origin = req.headers.origin ?? '*';
-    const allowed = this.config.allowedOrigins;
-    const corsOrigin = allowed.includes('*') ? '*' : (allowed.includes(origin) ? origin : 'null');
-    res.setHeader('Access-Control-Allow-Origin', corsOrigin);
+    // CORS (A2): one shared policy. A disallowed or absent origin gets no header at all,
+    // rather than the literal 'null', which granted any null-origin context.
+    const corsOrigin = corsOriginHeader(req.headers.origin, this.config.allowedOrigins);
+    if (corsOrigin) res.setHeader('Access-Control-Allow-Origin', corsOrigin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Signature, X-Content-Hash');
 
@@ -512,8 +512,42 @@ export class NautilusAppServer {
       return;
     }
 
+    // A2: forwards only the methods this role's own dashboard calls. It used to forward any
+    // method at all, so a page served from this node could reach every method the sequencer
+    // left open. The proxy stays on by default because real pages depend on it — the member
+    // dashboard's helper defaults its base URL to location.origin, so without it every one of
+    // its sequencer calls fails. See resolveRpcProxyPolicy for what the lists are and for what
+    // this does not fix.
+    const policy = this.config.rpcProxy;
+    if (!policy?.enabled) {
+      this.sendJson(res, 404, {
+        jsonrpc: '2.0', id: null,
+        error: { code: -32601, message: 'RPC proxying is disabled on this node' },
+      });
+      return;
+    }
+
     try {
       const body = await this.readBody(req);
+
+      let method: string | undefined;
+      try {
+        method = (JSON.parse(body) as { method?: string }).method;
+      } catch {
+        this.sendJson(res, 400, {
+          jsonrpc: '2.0', id: null,
+          error: { code: -32700, message: 'Parse error' },
+        });
+        return;
+      }
+      if (!method || !policy.allowed.has(method)) {
+        this.sendJson(res, 403, {
+          jsonrpc: '2.0', id: null,
+          error: { code: -32601, message: `Method not available through this node's proxy: ${method ?? 'none'}` },
+        });
+        return;
+      }
+
       const upstream = await fetch(seqUrl.replace(/\/+$/, '') + '/rpc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

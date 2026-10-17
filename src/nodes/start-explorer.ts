@@ -25,20 +25,31 @@
  *
  *   ZKTRIDENT_EXPLORER_PORT   — Explorer server port (default: 8000)
  *   ZKTRIDENT_SEQUENCER_URL   — Leviathan sequencer URL (default: http://localhost:3030)
- *   ZKTRIDENT_CORS_ORIGINS    — Comma-separated CORS origins (default: *)
+ *   ZKTRIDENT_CORS_ORIGINS    — Comma-separated CORS origins
+ *                               (default: the local dashboard origins)
+ *   ZKTRIDENT_HOST            — Bind address (default: 127.0.0.1, loopback only)
+ *   ZKTRIDENT_RPC_PROXY       — 0 to disable POST /rpc forwarding (default: on,
+ *                               limited to the methods the explorer page calls)
  *
  * Usage:
  *   npx tsx src/nodes/start-explorer.ts
  */
 import http from 'http';
+import type { IncomingMessage } from 'http';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { resolveBindHost, resolveAllowedOrigins, corsOriginHeader, resolveRpcProxyPolicy } from '../security/network-policy.js';
 
 const env = process.env;
 const port = parseInt(env.ZKTRIDENT_EXPLORER_PORT ?? '8000', 10);
 const sequencerUrl = (env.ZKTRIDENT_SEQUENCER_URL ?? 'http://localhost:3030').replace(/\/+$/, '');
-const corsOrigins = env.ZKTRIDENT_CORS_ORIGINS ?? '*';
+const allowedOrigins = resolveAllowedOrigins(env, { role: 'explorer' });
+// The explorer's page reaches the sequencer only through this proxy, so it stays on. What
+// changes is that it forwards a fixed list of 45 read methods, covering the 27 the page
+// calls, instead of relaying whatever method the body happens to name. The /viz/* proxy
+// below is GET-only, so the admin viz writes are not reachable through here either.
+const rpcProxy = resolveRpcProxyPolicy(env, 'explorer');
 
 const thisDir = path.dirname(fileURLToPath(import.meta.url));
 const explorerDir = path.resolve(thisDir, '..', '..', 'explorer');
@@ -53,9 +64,15 @@ const mimeTypes: Record<string, string> = {
   '.ico': 'image/x-icon',
 };
 
-function corsHeaders(): Record<string, string> {
+/**
+ * CORS headers for one request. The allow-origin header is omitted entirely when the
+ * request carries no Origin or an Origin that is not on the allowlist, rather than
+ * echoing a wildcard back.
+ */
+function corsHeaders(req: IncomingMessage): Record<string, string> {
+  const origin = corsOriginHeader(req.headers.origin, allowedOrigins);
   return {
-    'Access-Control-Allow-Origin': corsOrigins,
+    ...(origin ? { 'Access-Control-Allow-Origin': origin } : {}),
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   };
@@ -67,17 +84,39 @@ const server = http.createServer(async (req, res) => {
 
   // CORS preflight
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, corsHeaders());
+    res.writeHead(204, corsHeaders(req));
     res.end();
     return;
   }
 
   // Proxy /rpc to sequencer
   if (pathname === '/rpc' && req.method === 'POST') {
+    if (!rpcProxy.enabled) {
+      res.writeHead(404, { ...corsHeaders(req), 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32601, message: 'RPC proxying is disabled on this explorer' } }));
+      return;
+    }
     try {
       const chunks: Buffer[] = [];
       for await (const chunk of req) chunks.push(chunk as Buffer);
       const body = Buffer.concat(chunks);
+
+      // Only the methods the explorer's own page calls. Everything else — admin controls,
+      // witness endpoints, anything added to the sequencer later — is refused here rather
+      // than relayed, so this proxy cannot be used to reach past the explorer.
+      let method: string | undefined;
+      try {
+        method = (JSON.parse(body.toString('utf-8')) as { method?: string }).method;
+      } catch {
+        res.writeHead(400, { ...corsHeaders(req), 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }));
+        return;
+      }
+      if (!method || !rpcProxy.allowed.has(method)) {
+        res.writeHead(403, { ...corsHeaders(req), 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32601, message: 'Method not available through the explorer: ' + (method ?? 'none') } }));
+        return;
+      }
 
       const upstream = await fetch(sequencerUrl + '/rpc', {
         method: 'POST',
@@ -85,10 +124,10 @@ const server = http.createServer(async (req, res) => {
         body,
       });
       const text = await upstream.text();
-      res.writeHead(upstream.status, { ...corsHeaders(), 'Content-Type': 'application/json' });
+      res.writeHead(upstream.status, { ...corsHeaders(req), 'Content-Type': 'application/json' });
       res.end(text);
     } catch (e: any) {
-      res.writeHead(502, { ...corsHeaders(), 'Content-Type': 'application/json' });
+      res.writeHead(502, { ...corsHeaders(req), 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Sequencer unreachable: ' + e.message }));
     }
     return;
@@ -99,10 +138,10 @@ const server = http.createServer(async (req, res) => {
     try {
       const upstream = await fetch(sequencerUrl + '/health');
       const text = await upstream.text();
-      res.writeHead(upstream.status, { ...corsHeaders(), 'Content-Type': 'application/json' });
+      res.writeHead(upstream.status, { ...corsHeaders(req), 'Content-Type': 'application/json' });
       res.end(text);
     } catch (e: any) {
-      res.writeHead(502, { ...corsHeaders(), 'Content-Type': 'application/json' });
+      res.writeHead(502, { ...corsHeaders(req), 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Sequencer unreachable' }));
     }
     return;
@@ -115,7 +154,7 @@ const server = http.createServer(async (req, res) => {
         headers: { Accept: 'text/event-stream' },
       });
       res.writeHead(200, {
-        ...corsHeaders(),
+        ...corsHeaders(req),
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
@@ -136,7 +175,7 @@ const server = http.createServer(async (req, res) => {
         res.end();
       }
     } catch {
-      res.writeHead(502, corsHeaders());
+      res.writeHead(502, corsHeaders(req));
       res.end('data: {"error":"Sequencer unreachable"}\n\n');
     }
     return;
@@ -151,7 +190,7 @@ const server = http.createServer(async (req, res) => {
           headers: { Accept: 'text/event-stream' },
         });
         res.writeHead(200, {
-          ...corsHeaders(),
+          ...corsHeaders(req),
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
           'Connection': 'keep-alive',
@@ -175,11 +214,11 @@ const server = http.createServer(async (req, res) => {
         const upstream = await fetch(sequencerUrl + pathname + url.search);
         const text = await upstream.text();
         const ct = upstream.headers.get('content-type') || 'application/json';
-        res.writeHead(upstream.status, { ...corsHeaders(), 'Content-Type': ct });
+        res.writeHead(upstream.status, { ...corsHeaders(req), 'Content-Type': ct });
         res.end(text);
       }
     } catch (e: any) {
-      res.writeHead(502, { ...corsHeaders(), 'Content-Type': 'application/json' });
+      res.writeHead(502, { ...corsHeaders(req), 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Sequencer unreachable: ' + e.message }));
     }
     return;
@@ -192,7 +231,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const content = fs.readFileSync(filePath);
       const ext = path.extname(filePath).toLowerCase();
-      res.writeHead(200, { ...corsHeaders(), 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
+      res.writeHead(200, { ...corsHeaders(req), 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
       res.end(content);
       return;
     } catch {
@@ -200,11 +239,11 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  res.writeHead(404, { ...corsHeaders(), 'Content-Type': 'text/plain' });
+  res.writeHead(404, { ...corsHeaders(req), 'Content-Type': 'text/plain' });
   res.end('Not found');
 });
 
-server.listen(port, '0.0.0.0', () => {
+server.listen(port, resolveBindHost(env, 'explorer'), () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════════════╗');
   console.log('  ║     🐊  LEVIATHAN EXPLORER — Adjuda-GATOR    ║');

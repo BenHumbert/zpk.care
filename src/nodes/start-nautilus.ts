@@ -29,7 +29,7 @@
  * Configuration via environment variables:
  *
  *   ZKTRIDENT_PORT             — RPC server port (default: 3031)
- *   ZKTRIDENT_HOST             — RPC bind address (default: 0.0.0.0)
+ *   ZKTRIDENT_HOST             — RPC bind address (default: 127.0.0.1, loopback only)
  *   ZKTRIDENT_NODE_ID          — Unique node identifier (default: auto-generated)
  *   ZKTRIDENT_SEED_PEERS       — Comma-separated peer URLs (default: none)
  *   ZKTRIDENT_ADMIN_TOKEN      — Bearer token for admin RPC methods (default: none)
@@ -39,7 +39,11 @@
  *   ZKTRIDENT_SYNC_PEER        — Peer URL for Initial Block Download (default: none)
  *   ZKTRIDENT_SSE              — Enable SSE event streaming (default: true)
  *   ZKTRIDENT_MAX_SSE          — Max concurrent SSE connections (default: 100)
- *   ZKTRIDENT_CORS_ORIGINS     — Comma-separated allowed CORS origins (default: *)
+ *   ZKTRIDENT_TLS_CERT         — Path to a PEM certificate. With ZKTRIDENT_TLS_KEY the
+ *                                RPC server serves HTTPS instead of HTTP.
+ *   ZKTRIDENT_TLS_KEY          — Path to the matching PEM private key.
+ *   ZKTRIDENT_CORS_ORIGINS     — Comma-separated allowed CORS origins
+ *                                (default: the local dashboard origins)
  *
  * Usage:
  *   ZKTRIDENT_SYNC_PEER=http://localhost:3030 npx tsx src/nodes/start-nautilus.ts
@@ -51,13 +55,14 @@ import { L2RpcServer } from '../l2/l2-rpc-server.js';
 import type { L2RpcServerOptions } from '../l2/l2-rpc-server.js';
 import { L2CheckpointStore } from '../l2/l2-checkpoint.js';
 import { InMemoryStore } from '../storage/local-store.js';
+import { resolveBindHost, resolveAllowedOrigins } from '../security/network-policy.js';
 
 // ─── Environment Parsing ──────────────────────────────────────
 
 const env = process.env;
 
 const port = parseInt(env.ZKTRIDENT_PORT ?? '3031', 10);
-const host = env.ZKTRIDENT_HOST ?? '0.0.0.0';
+const host = resolveBindHost(env, 'replica');
 const nodeId = env.ZKTRIDENT_NODE_ID;
 const seedPeers = env.ZKTRIDENT_SEED_PEERS
   ? env.ZKTRIDENT_SEED_PEERS.split(',').map((s) => s.trim()).filter(Boolean)
@@ -69,9 +74,7 @@ const maxCheckpoints = parseInt(env.ZKTRIDENT_MAX_CHECKPOINTS ?? '10', 10);
 const syncPeer = env.ZKTRIDENT_SYNC_PEER;
 const enableSSE = (env.ZKTRIDENT_SSE ?? 'true') !== 'false';
 const maxSseConnections = parseInt(env.ZKTRIDENT_MAX_SSE ?? '100', 10);
-const allowedOrigins = env.ZKTRIDENT_CORS_ORIGINS
-  ? env.ZKTRIDENT_CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
-  : ['*'];
+const allowedOrigins = resolveAllowedOrigins(env, { role: 'replica' });
 
 // ─── Build Options ────────────────────────────────────────────
 
@@ -95,6 +98,9 @@ const rpcOptions: Partial<L2RpcServerOptions> = {
   maxSseConnections,
   allowedOrigins,
   ...(adminToken ? { adminToken } : {}),
+  ...(env.ZKTRIDENT_TLS_CERT && env.ZKTRIDENT_TLS_KEY
+    ? { tlsCert: env.ZKTRIDENT_TLS_CERT, tlsKey: env.ZKTRIDENT_TLS_KEY }
+    : {}),
 };
 
 // ─── Main ─────────────────────────────────────────────────────

@@ -36,6 +36,7 @@
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
+import { resolveBindHost, resolveAllowedOrigins } from '../security/network-policy.js';
 
 export class FlowchartDashboardServer {
   private server: http.Server | null = null;
@@ -58,7 +59,7 @@ export class FlowchartDashboardServer {
     return new Promise((resolve, reject) => {
       this.server = http.createServer((req, res) => this.handleRequest(req, res));
       this.server.on('error', reject);
-      this.server.listen(this.dashboardPort, '0.0.0.0', () => resolve());
+      this.server.listen(this.dashboardPort, resolveBindHost(process.env, 'flowchart dashboard'), () => resolve());
     });
   }
 

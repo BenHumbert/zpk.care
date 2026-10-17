@@ -63,6 +63,10 @@ export function registerInteractiveRoutes(
   service: AdjudicationService,
   nfcBridge?: NfcBridge,
 ): void {
+  // CORS is applied once by L2RpcServer.handleRequest, from the deployment's origin
+  // allowlist. Naming Access-Control-Allow-Origin in a writeHead header object here
+  // would override that policy with a wildcard, so no handler below sets it.
+
   // Tier 3 admin-only routes — destructive or privilege-escalating operations
   const ADMIN_ROUTES = new Set([
     '/interactive/approve-prior-auth',
@@ -106,7 +110,6 @@ export function registerInteractiveRoutes(
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
     });
 
     consoleSseClients.add(res);
@@ -123,7 +126,6 @@ export function registerInteractiveRoutes(
       const state = service.getState();
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(state, 'getState'));
     } catch (err) {
@@ -166,7 +168,7 @@ export function registerInteractiveRoutes(
         publicKeyHex: params.publicKeyHex ? String(params.publicKeyHex) : undefined,
       });
 
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(result));
     } catch (err) {
       sendError(res, 500, err instanceof Error ? err.message : String(err));
@@ -190,7 +192,6 @@ export function registerInteractiveRoutes(
       if (existing) {
         res.writeHead(200, {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
         });
         res.end(safeJsonStringify(existing, 'enroll'));
         return;
@@ -212,7 +213,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(202, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify({ status: 'pending', memberIndex }, 'enroll'));
     } catch (err) {
@@ -236,7 +236,6 @@ export function registerInteractiveRoutes(
       if (!job) {
         res.writeHead(200, {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
         });
         res.end(JSON.stringify({ status: 'not_started' }));
         return;
@@ -244,7 +243,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
 
       // Clear completed/errored jobs so re-enrollment is possible after reset
@@ -279,7 +277,6 @@ export function registerInteractiveRoutes(
       });
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
     } catch (err) {
@@ -302,7 +299,6 @@ export function registerInteractiveRoutes(
       const result = await service.getL2Node().withProvingLock(() => service.approvePriorAuth(params.priorAuthId));
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
       // Force batch to settle any pending transitions immediately
@@ -327,7 +323,6 @@ export function registerInteractiveRoutes(
       const result = service.denyPriorAuth(params.priorAuthId);
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
     } catch (err) {
@@ -366,7 +361,7 @@ export function registerInteractiveRoutes(
         }
       }
 
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ prescriberIndex, pharmacyIndex }));
     } catch (err) {
       sendError(res, 500, err instanceof Error ? err.message : String(err));
@@ -398,7 +393,6 @@ export function registerInteractiveRoutes(
       }));
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
       // Force batch to settle prescription proof immediately
@@ -430,7 +424,6 @@ export function registerInteractiveRoutes(
       if (existing) {
         res.writeHead(200, {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
         });
         res.end(safeJsonStringify(existing, 'fill'));
         return;
@@ -457,7 +450,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(202, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify({ status: 'pending', prescriptionId: jobKey }, 'fill'));
     } catch (err) {
@@ -482,7 +474,6 @@ export function registerInteractiveRoutes(
       if (!job) {
         res.writeHead(200, {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
         });
         res.end(JSON.stringify({ status: 'not_started' }));
         return;
@@ -490,7 +481,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
 
       // Prune old completed jobs (TTL-based, not delete-on-read)
@@ -514,7 +504,7 @@ export function registerInteractiveRoutes(
       const url = new URL(req.url ?? '', `http://${req.headers.host}`);
       const pharmacyIndex = parseInt(url.searchParams.get('pharmacyIndex') ?? '0', 10);
       const prescriptions = service.getPrescriptionsByPharmacy(pharmacyIndex);
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(safeJsonStringify({ prescriptions }, 'prescriptions-by-pharmacy'));
     } catch (err: any) {
       sendError(res, 500, err.message);
@@ -531,7 +521,7 @@ export function registerInteractiveRoutes(
         return;
       }
       const result = service.markFilled({ prescriptionId: params.prescriptionId });
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(safeJsonStringify(result, 'mark-filled'));
     } catch (err: any) {
       sendError(res, 500, err.message);
@@ -579,7 +569,6 @@ export function registerInteractiveRoutes(
       if (existing) {
         res.writeHead(200, {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
         });
         res.end(safeJsonStringify({ ...existing, prescriptionId: jobKey }, 'prescribe-and-fill'));
         return;
@@ -623,7 +612,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(202, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify({ status: 'pending', prescriptionId: jobKey }, 'prescribe-and-fill'));
     } catch (err) {
@@ -665,7 +653,6 @@ export function registerInteractiveRoutes(
       });
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
     } catch (err) {
@@ -692,7 +679,6 @@ export function registerInteractiveRoutes(
       }));
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
       // Force batch to settle any pending transitions immediately
@@ -720,7 +706,6 @@ export function registerInteractiveRoutes(
       }));
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
     } catch (err) {
@@ -743,7 +728,6 @@ export function registerInteractiveRoutes(
       const result = service.getMemberHistory({ memberWalletId: walletId });
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
     } catch (err) {
@@ -767,7 +751,6 @@ export function registerInteractiveRoutes(
       const result = await service.getL2Node().withProvingLock(() => service.enrollFamily(subscriberIndex));
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
     } catch (err) {
@@ -790,7 +773,6 @@ export function registerInteractiveRoutes(
       const result = service.getFamilyHistory({ memberWalletId: walletId });
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
     } catch (err) {
@@ -816,7 +798,6 @@ export function registerInteractiveRoutes(
       });
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
     } catch (err) {
@@ -842,7 +823,6 @@ export function registerInteractiveRoutes(
       });
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
     } catch (err) {
@@ -865,7 +845,6 @@ export function registerInteractiveRoutes(
       const result = await service.getL2Node().withProvingLock(() => service.sendMessage(params));
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
     } catch (err) {
@@ -888,7 +867,6 @@ export function registerInteractiveRoutes(
       const result = service.decryptThread(params.messageIndices, params.walletId);
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
     } catch (err) {
@@ -911,7 +889,6 @@ export function registerInteractiveRoutes(
       const result = service.getThreads(walletId);
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
     } catch (err) {
@@ -935,7 +912,6 @@ export function registerInteractiveRoutes(
       const result = await service.getL2Node().withProvingLock(() => service.createDelegation(params));
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
     } catch (err) {
@@ -967,7 +943,6 @@ export function registerInteractiveRoutes(
       if (existing) {
         res.writeHead(200, {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
         });
         res.end(safeJsonStringify(existing, 'generate-credential'));
         return;
@@ -987,7 +962,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(202, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify({ status: 'pending', walletId: params.walletId, proofType }, 'generate-credential'));
     } catch (err) {
@@ -1014,7 +988,6 @@ export function registerInteractiveRoutes(
       if (!job) {
         res.writeHead(200, {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
         });
         res.end(JSON.stringify({ status: 'not_started' }));
         return;
@@ -1022,7 +995,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
 
       // Clear completed/errored jobs so regeneration is possible
@@ -1049,7 +1021,6 @@ export function registerInteractiveRoutes(
       const result = await service.getL2Node().withProvingLock(() => service.verifyCredential(params.credentialJson));
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
     } catch (err) {
@@ -1073,7 +1044,6 @@ export function registerInteractiveRoutes(
       const result = await service.getL2Node().withProvingLock(() => service.updateFormularyEntry(params));
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
     } catch (err) {
@@ -1097,7 +1067,6 @@ export function registerInteractiveRoutes(
       const result = await service.getL2Node().withProvingLock(() => service.updateProviderNetwork(params));
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
     } catch (err) {
@@ -1120,7 +1089,6 @@ export function registerInteractiveRoutes(
       const result = await service.getL2Node().withProvingLock(() => service.planYearRollover(params));
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
     } catch (err) {
@@ -1144,7 +1112,6 @@ export function registerInteractiveRoutes(
       const result = service.checkStepTherapy(walletId, ndcHash);
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result));
     } catch (err) {
@@ -1186,7 +1153,6 @@ export function registerInteractiveRoutes(
     }));
     res.writeHead(200, {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
     });
     res.end(safeJsonStringify({
       status,
@@ -1202,7 +1168,6 @@ export function registerInteractiveRoutes(
       const batch = await service.forceBatch();
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify({
         ok: true,
@@ -1210,7 +1175,7 @@ export function registerInteractiveRoutes(
         message: batch ? 'Batch built and settled' : 'No pending proofs to batch',
       }, 'force-batch'));
     } catch (err) {
-      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
     }
   });
@@ -1221,11 +1186,10 @@ export function registerInteractiveRoutes(
       const filename = await service.saveCheckpoint();
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify({ ok: true, filename, message: filename ? `Checkpoint saved: ${filename}` : 'No checkpoint store configured' }, 'save-checkpoint'));
     } catch (err) {
-      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
     }
   });
@@ -1248,11 +1212,10 @@ export function registerInteractiveRoutes(
       const batch = seq.retryBatch(batchNumber);
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify({ ok: true, batchNumber: Number(batch.batchNumber), l1Status: batch.l1Status, message: `Batch ${batch.batchNumber} retried` }, 'retry-batch'));
     } catch (err) {
-      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
     }
   });
@@ -1276,11 +1239,10 @@ export function registerInteractiveRoutes(
       seq.markBatchFailed(batchNumber, 'Simulated L1 settlement failure');
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify({ ok: true, message: `Batch ${batchNumber} marked as failed` }, 'simulate-failure'));
     } catch (err) {
-      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
     }
   });
@@ -1292,7 +1254,6 @@ export function registerInteractiveRoutes(
     credentialJobs.clear();
     res.writeHead(200, {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
     });
     res.end(safeJsonStringify({ ok: true, message: 'Session reset. Ready for new enrollments.' }, 'reset'));
   });
@@ -1306,7 +1267,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify({
         ...state,
@@ -1363,7 +1323,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify({ claims }, 'claims-by-member'));
     } catch (err) {
@@ -1388,7 +1347,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify({ claims }, 'claims-by-prescriber'));
     } catch (err) {
@@ -1413,7 +1371,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify({ claims }, 'claims-by-pharmacy'));
     } catch (err) {
@@ -1438,7 +1395,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify({ claims }, 'claims-by-ndc'));
     } catch (err) {
@@ -1463,7 +1419,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify({ receipts }, 'receipts-by-wallet'));
     } catch (err) {
@@ -1489,7 +1444,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify({
         memberWalletId,
@@ -1519,7 +1473,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(result, 'claim-proof'));
     } catch (err) {
@@ -1544,7 +1497,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(formulary, 'formulary'));
     } catch (err) {
@@ -1561,7 +1513,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify({ receipts }, 'all-receipts'));
     } catch (err) {
@@ -1578,7 +1529,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify({ batches }, 'all-batches'));
     } catch (err) {
@@ -1605,7 +1555,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(sanitized, 'audit-log'));
     } catch (err) {
@@ -1624,7 +1573,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify({
         chainProofJson,
@@ -1660,7 +1608,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify(chainState, 'chain-state'));
     } catch (err) {
@@ -1675,7 +1622,6 @@ export function registerInteractiveRoutes(
       const batch = await service.forceBatch();
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify({
         ok: true,
@@ -1707,7 +1653,6 @@ export function registerInteractiveRoutes(
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(safeJsonStringify({
         ok: true,
@@ -1828,7 +1773,6 @@ export function registerInteractiveRoutes(
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
       });
 
       // Send initial status
@@ -1875,7 +1819,6 @@ export function registerInteractiveRoutes(
 
         res.writeHead(200, {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
         });
         res.end(JSON.stringify({ status: 'queued', walletId: params.walletId, format }));
       } catch (err) {
@@ -1889,7 +1832,6 @@ export function registerInteractiveRoutes(
       nfcBridge.cancelWrite();
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(JSON.stringify({ status: 'cancelled' }));
     });
@@ -1898,7 +1840,6 @@ export function registerInteractiveRoutes(
     reg('GET', '/interactive/nfc/status', async (_req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(JSON.stringify(nfcBridge.getStatus()));
     });
@@ -1907,7 +1848,6 @@ export function registerInteractiveRoutes(
     reg('GET', '/interactive/nfc/sequencer-pubkey', async (_req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(JSON.stringify({ publicKey: service.getSequencerPublicKey() }));
     });
@@ -1926,7 +1866,7 @@ export function registerInteractiveRoutes(
         walletId: badge.w.slice(0, 16) + '...',
         createdAt: badge.ts,
       }));
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ badges, count: badges.length }));
     } catch (err) {
       sendError(res, 500, err instanceof Error ? err.message : String(err));
@@ -1960,7 +1900,7 @@ export function registerInteractiveRoutes(
       const success = events.some(e => e.type === 'badge:session');
       const error = events.find(e => e.type === 'badge:error');
 
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(safeJsonStringify({
         authenticated: success,
         events,
@@ -1994,7 +1934,7 @@ export function registerInteractiveRoutes(
       const errors = events.filter(e => e.type === 'badge:error').length;
       const proofs = events.filter(e => e.type === 'badge:proof' && e.data?.verified).length;
 
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(safeJsonStringify({
         summary: {
           totalProviders: authenticated + errors,
@@ -2027,7 +1967,7 @@ export function registerInteractiveRoutes(
       }
 
       // Redact the encrypted key for security display
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         key,
         badge: {
@@ -2069,7 +2009,6 @@ function readBody(req: IncomingMessage): Promise<string> {
 function sendError(res: ServerResponse, status: number, message: string): void {
   res.writeHead(status, {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
   });
   res.end(JSON.stringify({ error: message }));
 }

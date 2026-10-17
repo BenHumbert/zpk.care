@@ -51,6 +51,7 @@ import { ReceiptFactory, deriveAllWalletIds, type DerivedWallets } from './poc-r
 import { PocNodeRegistry } from './poc-node-registry.js';
 import { PocDashboardServer } from './poc-dashboard-server.js';
 import { PocWorkflow } from './poc-workflow.js';
+import { resolveBindHost, resolveAllowedOrigins } from '../security/network-policy.js';
 
 // ─── Constants ───────────────────────────────────────────
 
@@ -185,7 +186,7 @@ async function main(): Promise<void> {
       const server = new L2RpcServer(lev, {
         port: PORT_MAP.leviathans[i],
         adminToken: ADMIN_TOKEN,
-        allowedOrigins: ['*'],
+        allowedOrigins: resolveAllowedOrigins(process.env, { role: 'poc orchestrator' }),
       });
       await server.start();
 
@@ -242,12 +243,12 @@ async function main(): Promise<void> {
     const insurerServer = new NautilusAppServer({
       role: 'insurer',
       port: PORT_MAP.insurer,
-      host: '0.0.0.0',
+      host: resolveBindHost(process.env, 'poc orchestrator'),
       sequencerUrl: primaryUrl,
       stateDir: './poc-data/insurer',
       enableSSE: true,
       maxSseConnections: 10,
-      allowedOrigins: ['*'],
+      allowedOrigins: resolveAllowedOrigins(process.env, { role: 'poc orchestrator' }),
       adminToken: ADMIN_TOKEN,
       displayName: 'Insurer (PBM)',
     });
@@ -276,12 +277,12 @@ async function main(): Promise<void> {
       const memberServer = new NautilusAppServer({
         role: 'member',
         port: PORT_MAP.members[i],
-        host: '0.0.0.0',
+        host: resolveBindHost(process.env, 'poc orchestrator'),
         sequencerUrl: primaryUrl,
         stateDir: `./poc-data/member-${i}`,
         enableSSE: true,
         maxSseConnections: 10,
-        allowedOrigins: ['*'],
+        allowedOrigins: resolveAllowedOrigins(process.env, { role: 'poc orchestrator' }),
         displayName: m.displayName,
       });
       memberServer.registerRoutes(buildMemberRoutes(memberServer));
@@ -312,12 +313,12 @@ async function main(): Promise<void> {
       const prescriberServer = new NautilusAppServer({
         role: 'prescriber',
         port: PORT_MAP.prescribers[i],
-        host: '0.0.0.0',
+        host: resolveBindHost(process.env, 'poc orchestrator'),
         sequencerUrl: primaryUrl,
         stateDir: `./poc-data/prescriber-${i}`,
         enableSSE: true,
         maxSseConnections: 10,
-        allowedOrigins: ['*'],
+        allowedOrigins: resolveAllowedOrigins(process.env, { role: 'poc orchestrator' }),
         displayName: p.displayName,
       });
       prescriberServer.registerRoutes(buildPrescriberRoutes(prescriberServer));
@@ -348,12 +349,12 @@ async function main(): Promise<void> {
       const pharmacyServer = new NautilusAppServer({
         role: 'pharmacy',
         port: PORT_MAP.pharmacies[i],
-        host: '0.0.0.0',
+        host: resolveBindHost(process.env, 'poc orchestrator'),
         sequencerUrl: primaryUrl,
         stateDir: `./poc-data/pharmacy-${i}`,
         enableSSE: true,
         maxSseConnections: 10,
-        allowedOrigins: ['*'],
+        allowedOrigins: resolveAllowedOrigins(process.env, { role: 'poc orchestrator' }),
         displayName: ph.displayName,
       });
       pharmacyServer.registerRoutes(buildPharmacyRoutes(pharmacyServer));

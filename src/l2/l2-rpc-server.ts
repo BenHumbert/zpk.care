@@ -49,6 +49,7 @@ import type { ProviderType } from './provider-registry-types.js';
 import type { BenefitPlanConfig, ClaimSubmissionMetadata } from './l2-types.js';
 import { hashString } from '../zkp/hash-utils.js';
 import { ProofRejected } from './l2-proof-verifier.js';
+import { corsOriginHeader, resolveAllowedOrigins } from '../security/network-policy.js';
 import { AuditService } from '../audit/audit-service.js';
 
 // ─── Visualization Types ──────────────────────────────────
@@ -251,11 +252,18 @@ export class L2RpcServer {
 
   // Dashboard static file directory
   private dashboardDir: string | null = null;
+  /** Browser origins this server will answer cross-origin. Fixed at construction. */
+  private readonly allowedOrigins: string[];
 
   constructor(node: L2Node | L2Leviathan, options?: Partial<L2RpcServerOptions>) {
     this.node = node;
     this.options = { ...DEFAULT_RPC_SERVER_OPTIONS, ...options };
     this.dashboardDir = this.options.dashboardDir ?? null;
+    // Resolved once, so the policy is fixed at construction and a boot-time warning is
+    // printed once rather than on every request.
+    this.allowedOrigins = this.options.allowedOrigins?.length
+      ? this.options.allowedOrigins
+      : resolveAllowedOrigins(process.env, { role: 'rpc server' });
 
     // Initialize admin key registry from options
     this.initAdminKeys();
@@ -419,11 +427,12 @@ export class L2RpcServer {
       res.on('finish', () => clearTimeout(timeout));
     }
 
-    // CORS headers — default restrictive (localhost only)
-    const origin = req.headers.origin ?? '';
-    const allowed = this.options.allowedOrigins ?? ['http://localhost', 'http://127.0.0.1'];
-    const corsOrigin = allowed.includes('*') ? '*' : (allowed.includes(origin) ? origin : 'null');
-    res.setHeader('Access-Control-Allow-Origin', corsOrigin);
+    // CORS. The header is omitted entirely for a request with no Origin and for an origin
+    // that is not on the list; the previous code answered a disallowed origin with the
+    // literal 'null', which grants any null-origin context such as a file:// page or a
+    // sandboxed iframe, and defaulted to a port-less list that could never match.
+    const corsOrigin = corsOriginHeader(req.headers.origin, this.allowedOrigins);
+    if (corsOrigin) res.setHeader('Access-Control-Allow-Origin', corsOrigin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Signature');
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://localhost:* http://127.0.0.1:*; img-src 'self' data:");
@@ -2461,9 +2470,10 @@ export class L2RpcServer {
 
   /** Return viz event history as JSON array (GET /viz/history) */
   private handleVizHistory(res: ServerResponse): void {
+    // No Access-Control-Allow-Origin here: handleRequest has already applied the
+    // deployment's policy, and naming the header again would override it with a wildcard.
     res.writeHead(200, {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
     });
     res.end(l2Stringify(this.vizEventBuffer));
   }

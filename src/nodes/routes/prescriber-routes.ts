@@ -50,6 +50,9 @@ export function buildPrescriberRoutes(
   server: NautilusAppServer,
   networkRegistry?: ProviderNetworkRegistry,
 ): RouteRegistration[] {
+  // CORS is applied once by L2RpcServer.handleRequest, from the deployment's origin
+  // allowlist. Naming Access-Control-Allow-Origin in a writeHead header object here
+  // would override that policy with a wildcard, so no handler below sets it.
   const routes: RouteRegistration[] = [];
 
   // ── E2E Encryption Helper (shared across all eScript routes) ──
@@ -1321,7 +1324,7 @@ export function buildPrescriberRoutes(
           data: { sessionDuration: '8h', walletId, isNewWallet },
         });
 
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           authenticated: true,
           events,
@@ -1333,7 +1336,7 @@ export function buildPrescriberRoutes(
           type: 'badge:error', providerIndex, providerType, displayName, timestamp: Date.now(),
           error: err?.message ?? String(err),
         });
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           authenticated: false,
           events,

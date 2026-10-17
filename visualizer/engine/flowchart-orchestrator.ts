@@ -45,6 +45,7 @@ import { FlowchartDashboardServer } from '../../src/poc/flowchart-dashboard-serv
 import { ProvingPool } from '../../src/l2/l2-proving-pool.js';
 import { MEDICATIONS } from '../../src/data/index.js';
 import { hashString } from '../../src/zkp/hash-utils.js';
+import { resolveBindHost, resolveAllowedOrigins } from '../../src/security/network-policy.js';
 
 const REGISTRY_TREE_HEIGHT = 11;
 const BACKEND_PORT = parseInt(process.env.BACKEND_PORT || '3030', 10);
@@ -290,8 +291,8 @@ async function main() {
   // 2. Create L2RpcServer
   const rpcServer = new L2RpcServer(node, {
     port: BACKEND_PORT,
-    host: '0.0.0.0',
-    allowedOrigins: ['*'],
+    host: resolveBindHost(process.env, 'flowchart orchestrator'),
+    allowedOrigins: resolveAllowedOrigins(process.env, { role: 'flowchart orchestrator' }),
   });
 
   // Buffered console emitter (same pattern as start-interactive.ts)

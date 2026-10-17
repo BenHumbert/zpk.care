@@ -297,7 +297,8 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
       ZKTRIDENT_INSURER_URL: insurerUrl,
       ZKTRIDENT_ADMIN_TOKEN: adminToken,
       ZKTRIDENT_UNSECURE: 'true',
-      ZKTRIDENT_CORS_ORIGINS: '*',
+      // No ZKTRIDENT_CORS_ORIGINS: the spawned node resolves the local dashboard
+      // origins itself. Passing '*' here opened every employer node to any origin.
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     shell: true,

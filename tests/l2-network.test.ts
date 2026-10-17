@@ -66,9 +66,13 @@ function rawRpc(port: number, body: string): Promise<{ status: number; body: str
 }
 
 /** Helper: raw HTTP GET */
-function rawGet(port: number, path: string): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
+function rawGet(
+  port: number,
+  path: string,
+  headers: http.OutgoingHttpHeaders = {},
+): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
-    http.get({ hostname: '127.0.0.1', port, path }, (res) => {
+    http.get({ hostname: '127.0.0.1', port, path, headers }, (res) => {
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => resolve({ status: res.statusCode ?? 0, body: data, headers: res.headers }));
@@ -251,10 +255,42 @@ describe('L2RpcServer', () => {
     expect(rpcRes.result).toBeNull();
   });
 
-  test('CORS headers are set on responses', async () => {
+  /*
+   * This test used to assert `access-control-allow-origin: 'null'` for a request with no
+   * matching origin, and called that "default restrictive CORS". It was pinning a hole in
+   * place: `Access-Control-Allow-Origin: null` is a grant, not a denial — it admits every
+   * null-origin context, which is a `file://` page, a sandboxed iframe or a data URI. A2
+   * changed the server to omit the header entirely in that case, so the assertion now reads
+   * the other way round.
+   */
+  test('an origin that is not on the allowlist gets no allow-origin header', async () => {
+    const res = await rawGet(port, '/health', { Origin: 'http://evil.example.com' });
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
+  test('a request with no Origin gets no allow-origin header', async () => {
     const res = await rawGet(port, '/health');
-    // Default restrictive CORS: no matching origin → 'null'
-    expect(res.headers['access-control-allow-origin']).toBe('null');
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
+  test('an allowlisted origin is echoed back exactly', async () => {
+    // The default list is the local dashboard origins, with ports — the previous default of
+    // ['http://localhost', 'http://127.0.0.1'] carried none, so it matched no real browser.
+    const res = await rawGet(port, '/health', { Origin: 'http://localhost:4001' });
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:4001');
+  });
+
+  test('an explicit allowlist is honoured and nothing else is', async () => {
+    await server.stop();
+    server = new L2RpcServer(node, { port: 0, allowedOrigins: ['http://example.test:9999'] });
+    await server.start();
+    port = server.getPort();
+
+    const allowed = await rawGet(port, '/health', { Origin: 'http://example.test:9999' });
+    expect(allowed.headers['access-control-allow-origin']).toBe('http://example.test:9999');
+
+    const denied = await rawGet(port, '/health', { Origin: 'http://localhost:4001' });
+    expect(denied.headers['access-control-allow-origin']).toBeUndefined();
   });
 
   test('404 for unknown paths', async () => {

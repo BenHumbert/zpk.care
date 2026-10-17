@@ -6,8 +6,8 @@ Working tree 2026-10-16, uncommitted "registry fix" included. Abbreviations: AS=
 
 | Item | Behavior | Source |
 |---|---|---|
-| Bind | member 4001 / insurer 4004, both host `0.0.0.0`; SN (replica) is an L2RpcServer, not a NautilusAppServer: 3031, `0.0.0.0` | SM:73-74, SI:56-57, SN:59-60 |
-| CORS | `allowedOrigins` = ZKTRIDENT_CORS_ORIGINS split on comma, default `['*']`; response origin = `*` if list has `*`, else echo request origin if listed, else literal `null`; methods GET,POST,PUT,DELETE,OPTIONS; headers Content-Type, Authorization, X-Admin-Signature, X-Content-Hash; OPTIONS → 204 | SM:81-83, SI:64-66, AS:349-360 |
+| Bind | member 4001 / insurer 4004, both `127.0.0.1` since A2 (were `0.0.0.0`); SN (replica) is an L2RpcServer, not a NautilusAppServer: 3031, also `127.0.0.1` | SM:73-74, SI:56-57, SN:59-60 |
+| CORS | **A2:** `allowedOrigins` = `resolveAllowedOrigins`, default the local dashboard origins *with ports*; response origin = echo the request origin if listed, else **no header at all** (was the literal `null`, which granted every null-origin context); methods GET,POST,PUT,DELETE,OPTIONS; headers Content-Type, Authorization, X-Admin-Signature, X-Content-Hash; OPTIONS → 204 | SM:81-83, SI:64-66, AS:349-360 |
 | adminOnly gate | Mode A (when `authorizedClientKeys` non-empty): header `X-Admin-Signature` = `clientId:timestamp:sigHex`; abs(now−ts) ≤ 30 s; Ed25519 verify over `METHOD:PATH \| timestamp \| contentHash` where contentHash is the caller's own `X-Content-Hash` header, never recomputed from the body (GAP I7: signature not bound to body). Mode B: `Authorization: Bearer <config.adminToken>`; length check then `timingSafeEqual`. Neither configured → always 401 | AS:165-206 |
 | Key registries | `registerClientKey` switches gate to Mode A (AS:212-217); `registerPartnerKey/getPartnerKey` = separate in-memory Map, grants nothing (AS:224-230); `revokeClientKey` AS:233-235 | |
 | GET /health | open; role, phase, sequencerConnected, **walletId**, displayName, uptime, tls, sequencerUrl | AS:364, 479-493 |
@@ -47,7 +47,7 @@ Insurer memory only: `__enrollmentRegistry` Map walletId → {walletId, tokenId,
 
 ## 3. Member node routes (MR, registered SM:115)
 
-31 routes, **0 adminOnly** (grep) — GAP I4/I7: every route is reachable by anyone who can reach `0.0.0.0:4001`, CORS `*` (SM:74, 81-83). Phase machine (AT:30-37; in-memory `onboardingPhase` AS:101, mirrored in the blob): awaiting_token →accept-token→ token_received →generate-key→ key_generated →derive-wallet→ wallet_derived →enroll→ enrolled →compile→ compiling → ready; eject → awaiting_token (MR:1369); boot restores the phase from the blob (SM:133). Phase checks (409) are the only gate on onboarding routes.
+31 routes, **0 adminOnly** (grep) — GAP I7: every route is still unauthenticated (A5 fixes that). A2 narrowed the reach: the node binds `127.0.0.1` and CORS is an allowlist, so this is now reachable from the device itself rather than from the LAN or a drive-by page (SM:74, 81-83). Phase machine (AT:30-37; in-memory `onboardingPhase` AS:101, mirrored in the blob): awaiting_token →accept-token→ token_received →generate-key→ key_generated →derive-wallet→ wallet_derived →enroll→ enrolled →compile→ compiling → ready; eject → awaiting_token (MR:1369); boot restores the phase from the blob (SM:133). Phase checks (409) are the only gate on onboarding routes.
 
 | # | Method Path | Auth | Checks in order | Outbound calls (target: route — fields) | Writes | Source |
 |---|---|---|---|---|---|---|

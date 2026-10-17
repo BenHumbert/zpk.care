@@ -139,6 +139,98 @@ Costs to budget: verifier worker compile 4.6 s at boot, then roughly 1 s warm pe
 about 4 s on a cold first call. One worker is enough at expected rates; `ZKTRIDENT_VERIFY_POOL_SIZE`
 raises it. Workers recycle every 50 verifications to release WASM heap.
 
+**A2 implementation record.** Done 2026-10-17. The surface turned out to be wider than the
+audit's four endpoints, and one finding in it was wrong in the useful direction.
+
+*What was actually there.* Fourteen listeners across the repository, each deciding bind address
+and CORS for itself, with four different answers: eleven defaulted to `0.0.0.0`; seven defaulted
+to CORS `*`; the sequencer defaulted to `['http://localhost', 'http://127.0.0.1']`, which carries
+no port and therefore **matches no browser**, since a browser sends `http://localhost:4001`; and
+eighty-one route handlers wrote `Access-Control-Allow-Origin: '*'` into a `writeHead` header
+object, overriding whatever policy the server had just set. Seventy-seven of those were in
+`interactive-routes.ts`, which is mounted into the live sequencer.
+
+*The off-list origin was worse than open.* The sequencer answered a disallowed origin with the
+literal string `null`. That is not a denial. `Access-Control-Allow-Origin: null` grants any
+null-origin context: a `file://` page, a sandboxed iframe, a data URI. The policy that looked
+strictest was granting a class of attacker the wildcard would have reached anyway.
+
+*The proxies, and a mistake worth recording.* I first concluded the proxies had no client at
+all, and set them **off by default** on that basis. That was wrong, and it would have shipped two
+broken dashboards. The check I ran was `grep` for `rpc\.` and for `l2_` in each `app.js`; the
+pages actually call a **global `RPC` object** — capital letters — that `rpc.js` defines, so the
+calls were there and my pattern could not see them. Worse, the answer was written at the call
+site: the comment directly above the `/rpc` dispatch in `nautilus-app-server.ts` reads "The
+member dashboard sends JSON-RPC 2.0 to /rpc expecting to reach the Leviathan sequencer." I ran
+a grep instead of reading the twelve lines around the thing I was about to switch off. Read out
+properly:
+
+| Client | Reaches the sequencer by | Methods |
+|---|---|---|
+| `dashboard-member` (:4001) | `rpc.js` sets `baseUrl = location.origin`, so **the node's proxy**, unless a sequencer URL is stored | 29, including `l2_submitProof`, `l2_storeMessage`, `l2_requestAttestation` |
+| `explorer` (:8000) | **its own proxy**, the only path it has | 34 reads |
+| `dashboard-leviathan` (:3030) | same-origin to the sequencer's real `/rpc` — no proxy | 23 |
+| `dashboard-pharmacy`, `dashboard-insurer` | the node's proxy | 1 each (`l2_getFormulary`) |
+| `dashboard-prescriber`, `dashboard-employer` | neither | 0 |
+
+So the proxies are **on by default with a per-role method allowlist**, which is what the plan
+item asked for in the first place. Each role forwards what its own page calls and refuses
+everything else, so the proxy stops being a universal passthrough to whatever the sequencer
+leaves open — including methods added later. `ZKTRIDENT_RPC_PROXY=0` turns a proxy off. A role
+with no list gets no proxy, so adding a role cannot silently open one.
+
+**What narrowing the proxy does not fix, and must not be read as fixing.** Three methods on the
+member list should require authentication and do not: `l2_storeMessage` accepts any claimed
+sender, `l2_requestAttestation` signs for any wallet, and the claim and message queries take a
+wallet ID and return that wallet's records. Those are A-12, A-15, A-16 and A-13. They are
+reachable directly on `:3030` by anyone who can reach the sequencer, so the proxy was never
+their cause and closing it was never their cure — **A10 is**. What A2 buys here is that a node
+serving a dashboard is no longer a path to the methods that node has no business touching.
+
+A2's audit finding also said the proxies forward with the node's own bearer token; they attach no
+`Authorization` at all, which is better, and that correction is recorded in
+`deferred_security_admin_tasks.md`.
+
+*Where the policy lives now.* `src/security/network-policy.ts`, a leaf module with no imports, so
+both `src/l2` and `src/nodes` can use it without a dependency cycle. Four functions: `resolveBindHost`
+(loopback default, warns at boot when told to bind wider), `resolveAllowedOrigins` (the local
+dashboard origins *with ports*, wildcard only where a caller explicitly permits one),
+`corsOriginHeader` (returns null to mean **send no header**, which is what fixes the `null` grant
+and the no-Origin case), and `resolveRpcProxyPolicy`.
+
+*TLS: config-ready, not enabled, and that is a deliberate reading of the item.* The item says
+"enable TLS on every listener". What I did instead: `tlsCert`/`tlsKey` were already plumbed through
+`L2RpcServer` and `NautilusAppServer`, but the sequencer and replica starters never passed them, so
+HTTPS was unreachable without a code change. They do now, from `ZKTRIDENT_TLS_CERT`/`_KEY`. No
+certificate is generated and none is required; unset, the listener serves HTTP.
+
+I did not turn it on, because on a loopback-only listener it buys nothing a self-signed certificate
+does not immediately cost back: the attacker it would stop needs to be reading the loopback
+interface, which needs local administrator rights, at which point they can read the process's memory
+and its keys directly. It would add a browser trust warning to every dashboard for that. **Two
+servers still have no TLS path at all** — `start-explorer.ts` and `src/tools/hr-tool-server.ts` both
+construct a plain `http.createServer`. Left as is for the same reason, and recorded here rather than
+left silent.
+
+**Where TLS does matter is phase E**, and it is not this kind of TLS. Ten leviathans in a cluster
+have to reach each other and nobody else, which is mutual TLS between known peers with pinned
+certificates, not server-side TLS on a loopback port. Loopback binding is the right answer for a
+single host and the wrong answer for the cluster; A2 secures the former and phase E has to replace
+it, not extend it.
+
+*What this does not do.* Binding to loopback protects a single-host deployment. The ten-leviathan
+cluster of the target architecture needs these listeners reachable by each other and by nobody
+else, which is a private interface or mutual TLS between known peers, not loopback — phase E.
+Three non-production dashboards (`src/poc/`, `visualizer/engine/flowchart-orchestrator.ts`) keep
+wildcard response headers; they are now loopback-bound, and the files are slated for removal, so
+they were not churned.
+
+*Acceptance test.* `scripts/e2e-verify/check-network-surface.ts` dials every listener on loopback
+**and on this host's own LAN address**, and checks four things per port: loopback answers while the
+LAN address refuses; an allowlisted browser origin is echoed back exactly; a foreign origin gets no
+header at all; a node's `/rpc` is refused. A port that is not listening is reported as skipped, never
+as a pass, because a closed port proves nothing about the policy it would have applied.
+
 ### Phase B — Keep identity on the device
 
 The largest phase, and the one that changes the pipeline. Section 7 covers the consequences.
@@ -437,3 +529,52 @@ Backup of the pre-Session-4 file: the session scratchpad, `plan-before-session4.
 **The fix phases are next.** Note that there are now six phases and 44 work items, not the four phases the original session sequence assumed, because production operation adds phase E (turning the trust layer on) and phase F (removing the scaffolding). Phase A alone is thirteen items. Plan on more than four sessions, and keep one phase per session as the cost rules say.
 
 Start with A1 alone, then the rest of phase A. Decide section 8 question 5 before beginning phase B.
+
+## State of work (2026-10-17, Session 5: phase A items A1 and A2)
+
+**A1 — proofs are verified before any state is written. Done and proven on a live network.**
+
+```
+TAMPERED (public output altered, roots left matching current state)
+  -> refused: "not valid against this deployment's verification key [reason: invalid]"   5.7 s
+     ledger: wallets=31  accepted=0   UNCHANGED
+HONEST
+  -> ACCEPTED  receipt=l2-00000000  isReg=True                                            4.9 s
+     ledger: wallets=32  accepted=1   ADVANCED
+```
+
+The implementation is a child-process verifier (`l2-verify-worker.ts`, `l2-verify-pool.ts`) and a
+refusal that fails closed when no verifier is configured. The reason it is a process and not a
+function call is the finding worth carrying forward: **after the adjudication engine compiles its
+ten ZkPrograms into the sequencer's single global o1js context, no further o1js work completes in
+that process.** Measured both directions — verifier set up before the engine, the compile succeeds
+and the first verification never returns; set up after, the compile itself never returns. The same
+wall put batch proving in a worker. Treat it as a standing constraint.
+
+**A2 — the remote surface is closed. Done.** Fourteen listeners, one policy module
+(`src/security/network-policy.ts`): loopback binds, a port-aware CORS allowlist, no
+`Access-Control-Allow-Origin` at all for an off-list origin or a request with no `Origin`, 81
+wildcard overrides removed from live route handlers, both `/rpc` proxies narrowed to a per-role
+method allowlist, and TLS wired through the two sequencer starters so HTTPS is configuration
+rather than a code change. Full record above, including the two places the audit was wrong and the
+one place I was.
+
+**The mistake to carry forward.** I concluded the `/rpc` proxies had no client, from a `grep` for
+`rpc\.` and `l2_` in each dashboard's `app.js`. The pages call a global `RPC` object that `rpc.js`
+defines, so the pattern could not see the calls, and acting on that would have shipped a broken
+member dashboard and a broken explorer. Checking what a client *is* has to mean reading the
+client, not pattern-matching one spelling of its call site.
+
+**Test and typecheck baseline, unchanged by either item.** The suite is not green and was not green
+before: 5 failures reproduced on a stashed HEAD (3 in `formulary-update.test.ts`, 1 in
+`claim-accumulator-integration.test.ts`, 1 in `l2.test.ts` asserting `MAX_TRANSITIONS_PER_BATCH`
+is 4 where the source says 2). Typecheck: 21 pre-existing errors, same count after both items.
+
+**Acceptance tests added this session.** `scripts/e2e-verify/check-proof-gate.ts` (A1) and
+`scripts/e2e-verify/check-network-surface.ts` (A2). Both treat an inconclusive result as a failure
+rather than a pass, which is what the first version of the proof-gate check got wrong — a client
+timeout was being counted as a refusal.
+
+**Next: A3.** Remove `/onboarding/backup-key`, the caller-supplied key path in `generate-key`, and
+`restore-key` from the network surface. A2 narrowed who can reach those routes; it did not change
+what they do, and they are the remaining I3 break.
