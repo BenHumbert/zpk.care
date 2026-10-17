@@ -109,17 +109,22 @@ There is no recovery path today. The inputs work and the proof exists; every pie
 
 **Design (owner, 2026-10-16): one card written at enrollment, two functions, different protection.** The card is written during the enrollment tap, which is the only clean moment, because that is when the key is generated and in memory. This is why it belongs in phase A and not phase C: a card cannot be issued retroactively for a key that is already gone.
 
-| Half | Contents | Protection | Purpose |
-|---|---|---|---|
-| Public attestation | wallet ID, credential commitment, lifecycle, expiry, nonce, sequencer signature | none, and none needed | Proves coverage at a pharmacy. A thief who reads it learns a wallet ID, which is already public. This is `nfc-attestation.ts`, already built |
-| Recovery blob | one **share** of the enrollment key | PIN typed on the phone, plus an online release of the second share | Restores the wallet onto a new phone. This is `recovery-card.ts`, built but unwired |
+| Contents | Protection | Purpose |
+|---|---|---|
+| One **share** of the enrollment key, and nothing else | PIN typed on the phone, plus an online release of the second share | Restores the wallet onto a new phone. This is `recovery-card.ts`, built but unwired |
+
+**Revised 2026-10-16: the card carries no public attestation.** Adjudicating at prescribing makes it redundant. The pharmacy already holds the script with its price and a proof that the price is right, so it has no coverage question left to ask at the counter. The attestation existed for the older model where coverage was checked on arrival.
+
+Removing it is a security gain, not just a simplification: **a found card now reveals nothing at all, not even a wallet ID.** That matters because wallet IDs are the lookup key for claims history through endpoints that stay open until phase D, so a static readable attestation on a physical object was a link from a dropped card to a queryable medication history.
+
+The attestation mechanism itself is not deleted. It moves from the card to the **phone**, generated on demand, short-expiry and biometric-gated, which is strictly stronger than a static long-lived one on a passive tag: it can be revoked in real time and it expires on its own.
 
 **The trap to avoid: the card must not be a bearer instrument,** for medication or for the wallet. If the card alone dispenses, a stolen card dispenses, which is diversion for controlled substances and fraud for specialty drugs. If the card alone restores the wallet, a stolen card is an account takeover. So access is tiered:
 
 | Situation | Presented | Allowed |
 |---|---|---|
 | Normal | Phone, biometric, QR | Everything: any medication, finalize settlement, identity disclosure for a controlled script |
-| Emergency, no phone | Card alone | Non-controlled only, dispensing against the already-priced script. **The pharmacy checks photo identification against the name it already holds from the script.** Settlement finalizes on the pharmacy's attestation instead of the member's |
+| Emergency, no phone | Nothing cryptographic | Non-controlled only, dispensing against the already-priced script. **The pharmacy checks photo identification against the name it already holds from the script**, which is what pharmacies do today. Settlement finalizes on the pharmacy's attestation instead of the member's. The card is not needed for this and no longer helps with it |
 | Recovery | Card plus PIN on a new phone | Restores the wallet and carries the accumulator |
 
 The emergency path needs no new cryptography. The pharmacy already has the patient's name from the script that arrived through its normal channel, so checking photo identification against it is the control pharmacies already apply every day. A stolen card with no matching identification gets nothing.
@@ -127,6 +132,21 @@ The emergency path needs no new cryptography. The pharmacy already has the patie
 **Why the split share matters, and why it is affordable here.** A passive card holding ciphertext with its salt and initialization vector beside it permits an **offline** brute force of a short PIN, the same flaw as the provider badge. The asymmetry that solves it: the point-of-sale path must work offline, but **recovery can require connectivity**, because the member is setting up a new phone when they use it. So the card carries one share and the second is released online, rate-limited. A stolen card alone yields nothing to unlimited offline compute.
 
 **Two further requirements.** Issue **two cards at enrollment**, one kept at home, because losing the card and the phone together is otherwise unrecoverable; this matches the two-authenticator rule for providers. And the card must be **revocable**, because a member who rotates their enrollment key after a suspected compromise would otherwise leave an old card as a live path back into the wallet. The attestation format already carries a nonce intended as the revocation handle.
+
+### PRD-2 — Emergency and inpatient care is out of scope, and the data would not answer the question anyway
+
+| | |
+|---|---|
+| **Severity** | low as a risk, high as a scoping clarification |
+| **Status** | closed by decision, 2026-10-16 |
+
+The question was whether an emergency department should be able to pull minimal data to stabilise a patient. The answer is no, for two independent reasons, and both are worth recording so that nobody promises it later.
+
+**It is the wrong benefit.** Emergency, inpatient and facility care adjudicate under the **medical** benefit with the health plan. Pharmacy benefit covers outpatient retail and mail. An emergency department never queries a PBM for coverage, and drugs given during an admission are billed inside the facility charge. One nuance in the other direction: a **discharge prescription is pharmacy benefit**, so the output of an emergency visit is in scope even though the visit is not.
+
+**The data does not contain the answer.** The system records dispensed medications: drug identity, quantity, dates, costs, prescriber and pharmacy. There is **no allergy data anywhere** in the model, and no field for it in any of the six domain trees. Medication history and an allergy list are different artifacts. What the accumulator could support is "what is this patient currently taking", which permits interaction and duplicate-therapy inference, and that is already what the drug-utilisation-review surface does. It cannot support "what is this patient allergic to", and conflating the two would mean promising a clinical safety feature the data cannot back.
+
+**Future product, not a missing feature.** A medication-history service for treatment purposes is a real and valuable thing, and this system would hold an unusually complete record for it. It is also a separate product with its own consent model and its own disclosure surface under HIPAA treatment-purpose rules. Out of scope for release one; do not let it leak into the architecture as an assumed capability.
 
 ---
 
