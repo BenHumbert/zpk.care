@@ -1,0 +1,61 @@
+# Member node, app server, identity and key code — static audit
+
+Session 2, static read of the working tree (no live probes in this pass; several claims cross-checked live elsewhere and marked). Scope: `src/nodes/nautilus-app-server.ts`, `nautilus-local-state.ts`, `entity-node-base.ts`, `member-node.ts`, `nfc-identity.ts`, `routes/member-routes.ts`, `start-member-nautilus.ts`, `start-nautilus.ts`; `src/wallets/wallet-derivation.ts`, `proof-gate.ts`, `wallet-migration-service.ts`; `src/security/*`; `src/zkp/hash-utils.ts`; `dashboard-member/{app.js,rpc.js,index.html}`. Companion files: `containment-and-binding.md`, `auth-and-exposure.md`, `phi-pii.md`, `proofs-and-crypto.md`. Hub: `../AUDIT.md`.
+
+Verify column: **V** personally re-read the cited lines this session; **map** matches the Session 1 code map; **agent** from the delegated static pass, lines cited but not re-read here.
+
+## The enabling condition
+
+The member node binds `0.0.0.0` (`start-member-nautilus.ts:74`), defaults CORS to `*` (`:81-83`, applied `nautilus-app-server.ts:349-352`), and has zero `adminOnly` routes. `/rpc`, `/health`, `/onboarding/status`, `/events` are served as open built-ins before any auth (`nautilus-app-server.ts:364-382`). Every response carries `Access-Control-Allow-Origin: *`, so any website the member merely visits can script these endpoints cross-origin and read the responses; same-origin is the only implicit control and CORS `*` removes it. The browser app never sends an auth header (`dashboard-member/rpc.js:36`). This turns the findings below from local-only into drive-by-from-any-webpage. [V: bind/CORS/0-adminOnly confirmed earlier this session]
+
+## Critical
+
+| ID | Rule | Finding | file:line | Verify |
+|---|---|---|---|---|
+| MEM-C1 | I3, I4, I2 | `POST /onboarding/backup-key` returns `exportEnrollmentBackup(key, pin, …)` where the PIN comes from the request body; unauthenticated, gated only by phase and `hasEnrollmentKey()`. A remote caller supplies its own PIN, receives the AES-GCM blob in the CORS-readable response, and decrypts the raw 256-bit enrollment key offline. The physical-card-plus-PIN two-factor is void when the caller supplies the PIN and gets the blob over HTTP. | `member-routes.ts:587-619`, `security/enrollment-backup.ts:97-134` | map |
+| MEM-C2 | I3 | `POST /onboarding/generate-key` accepts `body.enrollmentKey` verbatim (`?? generateEnrollmentKey()`), no auth, no `validateEnrollmentKey`, phase gate only. An attacker injects a known key before `derive-wallet`, so the wallet is derived under a key the attacker knows. Also a direct I3 breach: an enrollment key should never be transmitted inbound. | `member-routes.ts:133-157` (`:142`) | map |
+| MEM-C3 | I1, I2 | `/proof/registration` POSTs all 6 `preimageFields` to `${sequencerUrl}/interactive/register-member` over plaintext HTTP, no auth; four are unsalted single-value Poseidon hashes, so the material that leaves the device is effectively raw PHI. This is the send side of the exposure that `containment-and-binding.md` CONT-1 reverses from disk. The wallet ID itself stays safe (it mixes the 256-bit key hash). | `member-routes.ts:554-566`; `zkp/hash-utils.ts:31-34, 62-64`; `wallet-derivation.ts:137-146` | V (reversal proven in CONT-1) |
+
+## High
+
+| ID | Rule | Finding | file:line | Verify |
+|---|---|---|---|---|
+| MEM-H1 | I4, I7 | Fully open local surface (root cause of the rest). 31 routes, 0 `adminOnly`; `/rpc` proxy forwards to the sequencer with no auth; `/health` returns `walletId`; `/onboarding/status` returns `walletId` + `{tokenId, groupId, planId}`. Drive-by chain from any visited site: `GET /health` → walletId → `POST /rpc l2_getClaimsByMember/getReceiptsByWallet/getMessagesByWallet` → the member's drug history, costs, message metadata. | `nautilus-app-server.ts:364-382, 479-504, 508-529` | V (bind/CORS); map (chain) |
+| MEM-H2 | I3, I7 | `POST /onboarding/restore-key` has no auth and no phase check; `importEnrollmentBackup(b.backup, b.pin)` → `setEnrollmentKey()` → save. A remote caller overwrites the member's key, hijacking or bricking the wallet. | `member-routes.ts:623-653` | map |
+| MEM-H3 | I4, durability | `/onboarding/eject` is reachable unauthenticated after a failed unlock. `unlock(pin)` sets `derivedKey` from scrypt before any decrypt and never clears it on GCM failure; the handler's catch returns 400 without locking; so one `POST /onboarding/unlock` with any ≥6-char junk PIN flips `isUnlocked()` true, which is the only gate on `POST /onboarding/eject`, which deletes `nautilus-state.enc`. When the launcher auto-unlocks via `ZKTRIDENT_MEMBER_PIN`→`ZKTRIDENT_PIN`, eject needs no PIN at all. | `nautilus-local-state.ts:150, 159-162, 177-178`; `member-routes.ts:61-96, 1344-1366`; `start-leviathan.ts:650` | **V (full chain re-read this session)** |
+| MEM-H4 | I3 | The Restore tab writes the recovered real key to plaintext `localStorage` (`zkt_enrollmentKey`) and Settings renders its first 16 chars. Readable by any same-origin script (no CSP) and anyone with the browser profile. Normal enrollment stores only the literal `server-managed`, so this is the Restore-path break. | `dashboard-member/app.js:632-634, 1588` | map |
+
+## Medium
+
+| ID | Finding | file:line | Verify |
+|---|---|---|---|
+| MEM-M1 | `GET /drugs/claim/:leafIndex` returns any leaf's claim with proof, not restricted to the member; `GET /messaging/thread/:threadIdHash` returns any thread, and `threadIdHash = Poseidon([wA, …wB])` is deterministic from two public wallet IDs, so a pair's thread is enumerable. | `member-node.ts:217-230`; `member-routes.ts:730-748, 1205-1208, 1315-1329` | map/agent |
+| MEM-M2 | No rate limit or lockout on `POST /onboarding/unlock`; min PIN 6 chars; scrypt N=2^15 slows but does not bound online attempts against a numeric PIN. | `member-routes.ts:61-96`; `nautilus-local-state.ts:134` | V (no limit in handler) |
+| MEM-M3 | `/messaging/send` falls back to hex plaintext (`iv:'0', tag:'0'`) to the sequencer when the recipient has no key or on any error, so message plaintext leaves the device unencrypted. Overlaps the known "messaging not E2E" vulnerability. | `member-routes.ts:1240-1247` | map |
+| MEM-M4 | The shared server's Ed25519 `adminOnly` path signs `METHOD:PATH|ts|contentHash` where `contentHash` is read from the caller's `X-Content-Hash` header and never recomputed from the body, so a captured signature replays with any body inside a 30 s window with no nonce. Inert on the member node (0 adminOnly, `registerClientKey` uncalled) but it is the gate other nodes rely on. | `nautilus-app-server.ts:178-192, 212-217` | V (header-trust confirmed earlier) |
+| MEM-M5 | The browser Recovery Card encrypts the in-memory `enrollmentKey`, which after normal enrollment is the literal `server-managed`, so the card is worthless for normally-enrolled users; it uses PBKDF2-SHA256/100k, incompatible with the node's scrypt v1 and `recovery-card.ts` v2; `exportRecoveryCard`/`WalletMigrationService` have no runtime callers, so the designed NFC recovery path is dead. | `app.js:1393-1417, 470, 612-628`; `enrollment-backup.ts:107`; `recovery-card.ts:137` | map |
+| MEM-M6 | The member node holds the network admin token (`admin123` in unsecure mode) and uses it on `l2_registerEntity` and every later L2Client RPC. Not exfiltratable via the HTTP routes, but a network-wide admin secret on the most-exposed node is an I4/I7 weakness. | `start-member-nautilus.ts:89`; `start-leviathan.ts:651, 81`; `member-routes.ts:290-292, 351` | map |
+
+## Low
+
+- **MEM-L1** — `/proof/registration` and `/proof/pcp-assignment` 500s echo `err.message` + `err.stack` to the caller (path disclosure). `member-routes.ts:579, 1119`. [agent]
+- **MEM-L2** — `hash-utils.ts:54-64` docstring claims `hashDate` is "computationally irreversible"; true only inside the combined wallet ID, false for the standalone field that leaves the device (CONT-1 disproves it). [V: reversal proven]
+- **MEM-L3** — When a non-default origin list is configured, an unlisted origin gets literal `Access-Control-Allow-Origin: null`, granting `null`-origin contexts (sandboxed iframes, `file://`). Should omit the header. `nautilus-app-server.ts:351`. [agent]
+- **MEM-L4** — No Content-Security-Policy on the member app, which handles the restored key in memory/localStorage; `esc()` is applied consistently so no obvious XSS sink was found. `dashboard-member/index.html`. [agent]
+- **MEM-L5** — Dead recovery/migration code that implements the I3-designed NFC path but is never wired; `enrollment-service.processMigration` reads a non-existent `TokenRecord.localData`. [map]
+- **MEM-L6** — `scrubObject` does `new Uint8Array(view.buffer).fill(0)` on the whole backing ArrayBuffer; for a pooled Node Buffer slice this could wipe other live buffers. Latent: `MemberLocalData` is strings/number only, so the typed-array branch is not hit. `security/secure-scrub.ts:49-51`. [agent]
+- **MEM-L7** — `/onboarding/enroll` will POST `{tokenId, walletId}` to employer `/enrollment/confirm` if `ZKTRIDENT_EMPLOYER_URL` is set (I6). Inert today: sent unauthenticated to an ADMIN route (401), launcher sets no employer URL. `member-routes.ts:403-414`. [map]
+- **MEM-L8** — In `generate-key`, `setOnboardingPhase('key_generated')` runs outside the `if (data)` guard, so the in-memory phase advances even when the key was not stored; in-memory phase and blob phase can desync. `member-routes.ts:146-153`. [agent]
+
+## Verified non-issues
+
+- Static file serving rejects traversal: regex `^[/a-zA-Z0-9._-]+$` plus an explicit `!includes('..')` (`nautilus-app-server.ts:433-471`).
+- `/onboarding/enroll` takes `insurerUrl` from server config, not the body, so the SSRF present on the pharmacy node is already fixed here (`member-routes.ts:283`).
+- `derive-wallet` scrubs the raw PHI copy after derivation (`secure-context.ts:78`); raw PHI is not persisted or logged; `genderCode` is validated but excluded from the preimage.
+- The member app escapes server-supplied strings before `innerHTML` (`app.js:86-88, 796-801, 1308-1316`).
+- `nfc-identity.ts` payloads carry only the public wallet ID.
+
+## Open questions
+
+- Is MEM-C2's inbound-key path reachable in a production build, or only behind the "deterministic testing" comment?
+- MEM-H3: should a failed unlock clear `derivedKey`, and should eject require a fresh PIN rather than a sticky unlocked flag?

@@ -1,0 +1,169 @@
+# zpk.care defect and PHI/PII audit (hub)
+
+Session 2 of the review program, written 2026-10-16. Audited against the owner's rules I1-I7 (stated in `scripts/e2e-verify/PLAN-security-hardening.md` §1) plus ordinary correctness. Source of truth is the **running network**, started 2026-10-15 15:47 and still up at audit time: sequencer :3030 in secure Bearer mode, replicas :3031/:3032, member devices :4001 and :4011-:4013, prescriber :4002, pharmacy :4003, insurer + marketplace :4004, explorer :8000, proof delegate :4040, four employer tenants (:65441, :65445, :49318, :49322) and their HR Tools (:65442, :65446, :49319, :49323). All test identities are fictional.
+
+Companion detail files in `docs/audit/`: `containment-and-binding.md` (mine, live), `auth-and-exposure.md` (live probes), `proofs-and-crypto.md` (live probes), `phi-pii.md` (live), `sequencer.md`, `engine.md`, `member-node.md`. Structure of the system: `docs/CODEMAP.md`.
+
+**Evidence column.** *live* = reproduced against the running network this session, command and output recorded in the detail file. *static* = read in source, cited to `file:line`, not exercised. *run* = a failing check in the last multi-employer harness run (`119/127`, itemized in `containment-and-binding.md` §5).
+
+**Severity.** *critical* = breaks a core promise of the design or yields another party's data or credentials outright. *high* = breaks a rule or corrupts money/state, with a realistic path. *medium* = real weakness needing a precondition. *low* = defect worth fixing, limited impact.
+
+**Scale.** 7 critical, 20 high, and about 40 medium/low across the detail files. The seven critical findings are the agenda; most of the rest are instances of them.
+
+---
+
+## Critical
+
+| ID | Rule | Finding | Evidence | Where |
+|---|---|---|---|---|
+| **A-1** | I2, I1 | **The identity behind every wallet is recoverable from one file on the sequencer.** `l2-data/adjudication-state.json` stores each member's 6-Field wallet preimage in the clear. The hashes are unsalted (`src/zkp/hash-utils.ts:31-34, 62-64`), so they invert by search. I recovered all four members' first name, last name and date of birth: a 37,572-entry date table (1920-2020) plus a 20-name list, 75 s at 498 hashes/s in plain Node. Recovered: `19921103 Rowan Ashgrove`, `19870412 Avery Quillfeather`, `20010219 Sasha Penhallow`, `19750828 Jules Marrowind`. Only `hash(enrollmentKey)` resists, by its 256-bit entropy. | **live** (reversal run; independently reproduced from a decrypted device state by a second pass) | `containment-and-binding.md` CONT-1; `phi-pii.md` PHI-1; `engine.md` ENG-02; `member-node.md` MEM-C3 |
+| **A-2** | I7 | **Any wallet ID yields that member's whole record, with no credential.** Eleven open RPCs serve claims with drug brand names, deductible and out-of-pocket cents, receipts, wallet state, X25519 key, PCP links, audit entries. Wallet IDs are themselves enumerable from open endpoints (`l2_getAllReceipts`, `/viz/entities`). The premise "only opaque wallet IDs go outward" does not survive this, because the wallet ID is the lookup key to everything. | **live** (`l2_getClaimsByMember` → `ABACAVIR (Generic)`, `patientPayCents 1400`; `l2_reconstructAccumulator` → `2400/1400`) | `auth-and-exposure.md` AUTH-1; `sequencer.md` RPC-01; `engine.md` ENG-08 |
+| **A-3** | I7, integrity | **Acceptance is gated by Merkle arithmetic, not by cryptography.** `proof.verify()` at `src/l2/l2-sequencer-service.ts:293` is the o1js flag setter, documented in the library itself as having "no effect outside a circuit" (`node_modules/o1js/dist/node/lib/proof-system/proof.js:89, 91-93`); nothing in `src/l2`, `src/nodes` or the engine imports a verifier. The only real gate is that the caller's *claimed* old roots equal the current roots (`:324`). Trees, receipt, audit chain, claim leaf and gossip all precede the batch circuit, which is the first cryptographic check. `l2_submitProof` needs no caller auth and its witnesses are open. **Probed live:** four malformed submissions were all rejected, but every one died at the Pickles base64 **decode**, never reaching `verify()` or the root check, which confirms the no-op rather than any validity check. The remaining step, a structurally decodable real proof whose public output is swapped to claim a different wallet with `oldRoots == current`, was **not executed** because it would mutate committed state. Reasoning the code path, it would be applied, audit-chained and gossiped, then fail in-circuit at batch time with no rollback in L2-only mode, wedging settlement. | **live** (rejections probed, zero mutation; o1js source read) | `proofs-and-crypto.md` ZK-1; `sequencer.md` SEQ-01; `auth-and-exposure.md` AUTH-10 |
+| **A-4** | I7 | **An open route hands out employer tenant admin tokens.** `GET /marketplace/api/activate-status/:id` returns the employer node's admin token in clear to anyone holding the application ID, which is also stored in plaintext in `nautilus-data/marketplace-applications.json`. The token was fetched and replayed against that tenant's roster for a 200, returning token IDs, wallet IDs and hashes. Four tenants are live, so the blast radius is four. | **live** (token retrieved, replayed, 200) | `auth-and-exposure.md` AUTH-3 (`marketplace-routes.ts:828, 737`) |
+| **A-5** | I3, I4 | **The enrollment key can be exported from the phone by any caller.** `POST /onboarding/backup-key` encrypts the real key under a PIN taken from the request body and returns the blob; unauthenticated, and the member node binds `0.0.0.0` with CORS `*`. The caller chooses the PIN and receives the ciphertext, so it decrypts offline. The card-plus-PIN second factor is void. `generate-key` also accepts a caller-supplied key, and `restore-key` overwrites the stored one. | static (route openness; the live member node is unlocked, so exercising it would mutate the real device) | `member-node.md` MEM-C1, C2, H2; `auth-and-exposure.md` AUTH-12 |
+| **A-6** | I7 | **`POST /interactive/register-member` provisions an ELIGIBLE wallet with no proof.** Open route; the only check is that the supplied preimage Poseidon-hashes to the supplied wallet ID, which the caller controls both sides of. The engine then mints the credential itself. Anyone reachable can create a covered member. | **live** (empty body → 400 "Missing required fields", not 401, so no auth gate; the ADMIN sibling `terminate-member` → 401) | `engine.md` ENG-01; `auth-and-exposure.md` AUTH-5 |
+| **A-7** | I4 | **Everything binds `0.0.0.0` with CORS `*`, and the node proxies strip credentials.** Any web page the member visits can script :4001-:4004 and :8000 cross-origin and read the responses; so can any host on the LAN. The Nautilus and explorer `/rpc` proxies forward to the sequencer with no `Authorization`, so every open sequencer method is reachable through them. This is the delivery mechanism that turns A-2, A-5, A-15 and A-16 from local curl into drive-by. | **live** (`:4001/rpc` and `:8000/rpc` return `ACAO: *` with results; :3030 itself returns `null` to an off-list origin) | `auth-and-exposure.md` AUTH-2; `sequencer.md` RPC-08, PRX-02; `engine.md` ENG-15 |
+
+---
+
+## High
+
+| ID | Rule | Finding | Evidence | Where |
+|---|---|---|---|---|
+| A-8 | availability | **Replication is entirely non-functional.** Gossip is delivered via `l2_gossipRelay`, which is admin-gated (`l2-rpc-server.ts:216`), but replica RPC servers are constructed with no admin token and no unsecure flag (`start-leviathan.ts:481-487`). After 29 h, 20 accepted proofs and 19 batches, both replicas hold 0 receipts, 0 wallets and the genesis root. The "no single trusted operator" and data-availability properties are not in force; neither are WAL, quorum, or failover, which the launcher never enables. | **live** (replica status 0/0/0; relay to :3031 → `-32003 Unauthorized — no admin token configured`) | `sequencer.md` REP-01; `CODEMAP.md` §1 (corrected) |
+| A-9 | correctness | **Members are bound to a default plan and group, not their employer's.** All four carry `planId PLAN-GOLD-2026`, `groupId ACME-CORP`, empty `employeeId`/`familyId`, while the plans their employers bought (`PLAN-E2E-…`, copay 1000, deductible 50000) sit unused on the same sequencer. The app sends only `{tokenId}`, the node stores empty group/plan, the empty group becomes `groupIdHash = Field(0)`, and the engine substitutes demo defaults. Adjudication therefore runs against the wrong benefit rules, and the three-party ceremony's central binding is not in force. | **live** (state dump vs `l2_getPlans`) | `containment-and-binding.md` BIND-1 |
+| A-10 | correctness, money | **A duplicate fill charged the member and recorded no claim.** The harness saw `adjudicated (patient pays 1000) with 0 new leaf`: a duplicate member+NDC+pharmacy+date returns the existing leaf (`claim-accumulator-service.ts:103-144`) while the engine still bills. I traced the consequence: member :4012's engine total exceeds the ledger by exactly `1000/1000`, one copay. Money moved with no ledger record and no audit entry. | **run** + **live** (divergence is exactly one copay) | `sequencer.md` SEQ-07; table below |
+| A-11 | correctness | **The ledger disagrees with the engine for half the members.** Rebuilding each accumulator from the ledger, which is what NFC recovery and deductible tracking depend on: :4011 `53700/50000` = ledger ✓, :4013 `52000/50000` = ledger ✓, **:4001 engine `53000/50000` vs ledger `2400/1400`**, **:4012 engine `3100/3100` vs ledger `2100/2100`**. :4012's gap is A-10. :4001's gap is ~$486 of deductible the ledger never saw; cause not yet isolated. Also `memberIndex` is `-1` for all four. | **live** (per-member comparison) | this file; `proofs-and-crypto.md` |
+| A-12 | I7 | **Forged "verified member" credentials.** `l2_requestAttestation` is open and mints a sequencer-signed Ed25519 attestation with lifecycle hard-coded ACTIVE for any known wallet, ignoring revocation. The pharmacy `/nfc/scan` trusts a valid signature, and verification uses the key embedded in the attestation rather than a pinned one. Separately, the engine's attestation key derives from the public literal seed `zkpcare-attestation-authority-seed`, so anyone with the source can sign. | **live** (attestation with signature returned, no auth) | `auth-and-exposure.md` AUTH-4; `sequencer.md` SEQ-05; `engine.md` ENG-09 |
+| A-13 | I1, I5, I6 | **`GET /interactive/state` is an open 137 KB identity dump:** wallet ID beside display name, employee ID, family ID, accumulators, portable credential JSON, attestations, prescriptions linking wallet to drug, and seed PII including cardholder IDs and birth dates. | **live** (200, 137,035 bytes, no auth) | `auth-and-exposure.md` AUTH-8; `engine.md` ENG-06 |
+| A-14 | I7 | **One secret is the whole network's authority.** `ZKTRIDENT_ADMIN_TOKEN` is the sequencer bearer, each Nautilus node's bearer, the insurer's Ed25519 attestation signing seed, and is shipped to the member "phone" and every provider node. Compromise of the most exposed node is compromise of the network. In unsecure mode its value is `admin123`. | static | `auth-and-exposure.md` AUTH-9; `sequencer.md` BOOT-02; `member-node.md` MEM-M6 |
+| A-15 | I7 | **Message impersonation.** `l2_storeMessage` is open and takes `senderWalletId` from the caller, so anyone can post as any member or provider and pollute thread indexes. Bodies are not end-to-end encrypted: dashboards send `btoa(plaintext)` with `iv:'0'`, and the member node falls back to hex plaintext when the recipient has no key. | **live** (bogus sender accepted) | `auth-and-exposure.md` AUTH-6; `sequencer.md` RPC-02; `member-node.md` MEM-M3 |
+| A-16 | I7 | **PCP links are forgeable.** `l2_registerPcpAssignment` is open, takes no proof, and the result is readable through open queries and the prescriber's patient list. Since a consented PCP needs no further member approval to prescribe, this is the lever that turns into prescribing authority. | **live** (write accepted, read back) | `auth-and-exposure.md` AUTH-7; `sequencer.md` RPC-03 |
+| A-17 | I7 | **Open credential minting would allow offline impersonation at a pharmacy** (`/interactive/generate-credential` plus the open state dump). Blocked in this deployment only by A-24: credential generation currently fails in the proof pool. Treat as critical the moment A-24 is fixed. | static + **run** (generation errors today) | `engine.md` ENG-07, ENG-23 |
+| A-18 | correctness | **Revoked and terminated members remain billable.** No lifecycle check in prescribe, dispense, reverse or PCP assignment. | static | `engine.md` ENG-04 |
+| A-19 | I7 | **`update-provider-network` is open but does admin-class work:** a per-member cascade that rewrites every member's eligibility and submits N proofs. Its sibling `update-formulary` is admin-gated. | static | `engine.md` ENG-05 |
+| A-20 | I4, durability | **The device can be wiped by an unauthenticated caller.** `unlock()` sets the scrypt key before any decrypt and never clears it when decryption fails, and the handler's catch does not lock, so one POST with any 6-character junk PIN makes `isUnlocked()` true. That flag is the only gate on `POST /onboarding/eject`, which deletes `nautilus-state.enc`. With the launcher's env PIN, no PIN is needed at all. | **live** (full chain re-read and confirmed in source) | `member-node.md` MEM-H3 |
+| A-21 | I5 | **Employee identity and enrollment PINs live on the insurer's host.** The orchestrator spawns each HR Tool inside the insurer process, so `hr-tool-data/` lands there. The correlation table holds employee name, birth date, email and the 8-digit enrollment PIN; it is encrypted, but under an operator passphrase with a ≥8-character minimum, no confirmation and no attempt limit. The audit log beside it is plaintext and two code paths can write an employee ID or search term into it. | **live** (table decrypted with the harness passphrase; contents confirmed) | `phi-pii.md` PHI-4; `containment-and-binding.md` CONT-3; `routes-employer-provider-hrtool.md` §3 |
+| A-22 | integrity | **Every clinical and financial rule is enforced only by TypeScript.** Eligibility, formulary, prior auth, step therapy, prescriber identity, script status and the settlement split are each proven and then discarded; only a bare wallet-update proof is submitted. No relying party can verify that a claim was adjudicated correctly, which is the system's headline claim. The day-supply check is passed its own maximum, so it cannot fail. | static | `engine.md` ENG-03; `zk-programs.md` |
+| A-23 | correctness | **The proven settlement no longer matches what was recorded.** Family pooling rewrites patient and plan pay after the fulfillment proof, so the settlement commitment and the claim metadata disagree. Day supply is hard-coded to 30. | static | `engine.md` ENG-13 |
+| A-24 | functional | **Two user-visible features are broken on the live network.** Portable credential generation fails in the proof pool (`Cannot convert undefined to a BigInt`) because the worker registers the credential job's first argument as a `StateTransitionProof` while the service sends a ProofGate proof. And the member's own history views return HTTP 500 `fulfillment is not defined`. | **live** (both reproduced; `member-history` and `family-history` → 500) | `engine.md` ENG-23, ENG-19 |
+| A-25 | integrity | **Restart and failure paths weaken the invariant.** Restore rebuilds wallet trees only from receipts' registrations and then relaxes root enforcement when wallets are missing; evicted receipts drop registrations permanently; a proving failure in L2-only mode returns transitions to the pool with no rollback and no way to identify the poisoned one, halting settlement. | static | `sequencer.md` SEQ-02, SEQ-03, SEQ-04 |
+| A-26 | integrity | **The audit chain does not bind the money.** The event commitment carries `patientPayCents` and `planPayCents` but both are populated `?? 0` and `enrichAuditEvent`, the only thing that would fill them, has no callers. So the hash chain commits to no amounts and the financial audit is vacuous: `l2_verifyFinancialBalance` reports `balanced: true` over `totalClaims: 0`. `audit-types.ts:34` still documents 8 fields where the code hashes 10. | **live** (`balanced:true / totalClaims:0`) | `proofs-and-crypto.md` ZK-6; `sequencer.md` SEQ-08 |
+| A-27 | I7 | **`l2_recordFill` appends claim leaves with no proof and no audit entry** (admin-gated, and only the harness calls it today). | static | `sequencer.md` SEQ-09 |
+
+### Accumulator divergence (A-10, A-11), measured live
+
+| Member device | Engine oop/deductible | Ledger rebuild | Claims served | Verdict |
+|---|---|---|---|---|
+| :4011 | 53700 / 50000 | 53700 / 50000 | 3 | agrees |
+| :4001 | 53000 / 50000 | 2400 / 1400 | 2 | **diverges by 50600 / 48600** |
+| :4013 | 52000 / 50000 | 52000 / 50000 | 2 | agrees |
+| :4012 | 3100 / 3100 | 2100 / 2100 | 2 | **diverges by exactly one 1000 copay (A-10)** |
+
+---
+
+## Medium and low
+
+Full treatment in the detail files; one line each here.
+
+**Auth and exposure.** Employer `/groups` open and `/tokens/:id/validate` an unauthenticated oracle that never consumes a code (AUTH-13). `/viz/*` leaks the wallet-to-real-name directory including provider names and NPIs, and `/viz/history` forces `ACAO: *` (AUTH-11). Nautilus Ed25519 admin signs over a caller-supplied `X-Content-Hash`, never recomputed, with no nonce (AUTH-14, dormant). The engine's admin routes sign the constant `admin-endpoint|{}|ts`, so one signature opens every admin route (AUTH-15, dormant). Ed25519 admin mode never arms because no genesis key is registered, so the sequencer silently runs Bearer (AUTH-16). Unverified `entityMetadata` lets a registrant bind any display name to a wallet (RPC-04). Raw error text and stack traces returned to callers (RPC-09, MEM-L1).
+
+**Engine.** Open batch and data-availability control: force-batch, retry, simulate-failure, save-checkpoint (ENG-11). `GET step-therapy-check` mutates the formulary and every member's eligibility (ENG-12). Badge tap uses dev PIN `000000`, hard-codes `verified: true`, and issues an 8-hour session no route ever checks (ENG-16). No rate limit, unbounded body reads, unbounded job maps (ENG-17). Restart loses encryption keys, messages and attestation revocations, so messaging breaks and revoked credentials become valid again (ENG-18). `prescribe-and-fill` never marks filled (ENG-20); `badge/:key` is unreachable under exact-match dispatch (ENG-21); `/node/publish-formulary` is a no-op (ENG-24); `updateRxStatus` does not validate `actorIndex` (ENG-27).
+
+**Sequencer and boot.** Proof fingerprints are recorded before the checks and not cleared when a later step throws (SEQ-06). Gossip signatures cover only the header, not the payload, and replicas would apply gossip unverified if it arrived (REP-02, REP-03). The explorer forwards any method and strips auth (PRX-02). The proof delegate takes the 7-Field preimage off-device (PRX-01, I2) and is unauthenticated when no API key is set, though this deployment has one (AUTH-17). Children inherit the launcher's whole environment (BOOT-04). The gossip secret doubles as the NFC attestation seed and is silently shortened if not hex (BOOT-05). Checkpoints hold claim data in the clear at rest (BOOT-06).
+
+**Member app and device.** The Restore tab writes the real enrollment key to plaintext `localStorage` and Settings renders part of it (MEM-H4). The browser Recovery Card encrypts the literal `server-managed` for normally-enrolled users and uses PBKDF2 where the node uses scrypt, so the designed NFC recovery path is dead (MEM-M5). No attempt limit on unlock (MEM-M2). Any claim leaf and any message thread are readable, and thread IDs are derivable from two public wallet IDs (MEM-M1). No CSP on the member app (MEM-L4). `hash-utils.ts:54-64` documents `hashDate` as irreversible, which A-1 disproves (MEM-L2).
+
+---
+
+## What a chain proof actually proves to an outside party
+
+This is the load-bearing question for Session 3, because it is what the filings claim and what a relying party would depend on. Stated precisely, from the circuits as written:
+
+**A `ChainProof` proves** that the wallet registry and lifecycle Merkle trees evolved through a chain of slot writes, each authenticated by knowledge of a 7-field preimage that hashes to the wallet ID in that slot, with correct Merkle bookkeeping at every step. It is an authenticated set with a verifiable history.
+
+**It does not prove** any of the following, none of which appear in any circuit it covers:
+
+- that a wallet ID belongs to a real, enrolled, or non-revoked person. Any preimage satisfies the circuit, and `register-member` will provision an ELIGIBLE wallet from caller-supplied fields (A-6).
+- that the member was eligible, that the drug was on the formulary, that prior authorization existed, or that the prescriber was in network. Those proofs are generated and discarded (A-22).
+- **any financial amount.** Patient pay and plan pay are in no circuit the chain proof covers; the audit chain commits them as zero (A-26); and family pooling rewrites them after the fulfillment proof is made (A-23).
+- that the claim ledger, the accumulators, or the audit amounts match what was actually billed. Two of four members' accumulators already disagree with the ledger (A-11).
+- that the stored batch proof corresponds to the state being served. `finalizeBatch` stores the worker's proof JSON verbatim and nothing verifies it afterwards.
+
+So the system currently proves the integrity of a wallet-state database, not the correctness of adjudication. The adjudication logic is real, deterministic and in-circuit, and the harness confirms its arithmetic recomputes; but the proofs that attest to it are thrown away, so no third party can check any of it. Closing that gap is mostly a matter of submitting and verifying proofs that already exist, not of writing new circuits.
+
+## Rule verdicts
+
+| Rule | Verdict | Basis |
+|---|---|---|
+| **I1** raw PHI/PII only in the app, only until hashed | **holds literally, defeated in effect** | Zero hits for any member's name, birth date or cardholder ID across the sequencer's disk, the live APIs, the network log, the insurer's files and the HR plaintext files; the app scrubs after hashing and the device blob is ciphertext. But A-1 reconstructs the same values from the stored hashes, and A-21 keeps employee PII on the insurer host. |
+| **I2** only the wallet ID and proofs leave the phone | **broken** | A-1: the 6-Field preimage including `hash(enrollmentKey)` leaves on an unauthenticated route and persists in the clear. A-13, PRX-01. |
+| **I3** enrollment key only in secure storage and on the card | **broken** | A-5 exports it, `restore-key` overwrites it, the browser Restore path writes it to `localStorage`, and the card flow is dead code. The key itself never reaches the sequencer, which is the one part that holds. |
+| **I4** nothing outside the app can reach it | **broken** | A-7: `0.0.0.0` plus CORS `*` plus credential-stripping proxies on every node. A-20 lets an outsider wipe the device. |
+| **I5** employee identity stays on the employer's machine | **broken in deployment, sound in construction** | A-21: the HR Tool runs inside the insurer process. The hashing itself is correct: a 32-byte per-group random seed with domain-separated Poseidon, so only `employeeIdHash`, `familyIdHash` and `tokenPinHash` cross to the employer node, and the same employee is unlinkable across groups. |
+| **I6** only the member links employee to wallet | **holds today, by accident** | No store outside a device holds both a wallet ID and its employee ID; the employer roster is admin-gated, `enrolledCount` is 0, and the member's confirm call 401s. But the fields are empty only because of A-9, and `confirmEnrollment` would record the wallet ID if it ever succeeded. |
+| **I7** every state-changing or member-data route authenticates; proofs verified at submit | **broken** | A-2, A-3, A-4, A-6, A-15, A-16, plus roughly 51 open engine routes and 75 open RPC methods. Proofs are first verified at batch time, after the state has already changed. |
+
+---
+
+## What works, and should not be disturbed
+
+- **The cryptographic core.** Wallet derivation, the ProofGate program, and `StateTransitionProgram` with ownership inlined over 7 private fields are sound. Batch and chain recursion verify each submitted state transition in-circuit. The harness verified 18 batch proofs against verification keys it compiled locally, and confirmed tampered copies are rejected.
+- **In-circuit settlement math.** Deductible, out-of-pocket maximum and copay arithmetic recompute exactly, and the fulfillment and settlement commitments recompute from the stored claim, except where A-23's rewrite intervenes.
+- **The registry invariant from Phase 1.** The sequencer's tree hashed to its published root after every registration and every claim, across two employers and four concurrent members. This fix is holding.
+- **Device confidentiality.** AES-256-GCM under scrypt (N=2^15), raw PHI scrubbed immediately after hashing, the key held XOR-split in memory, and no raw PHI anywhere off the device.
+- **Employee hashing.** Per-group random seed, domain-separated Poseidon, unlinkable across groups; only hashes leave the HR Tool.
+- **The auth that exists.** The sequencer's admin Bearer gate rejects a missing token, rejects a wrong token, and accepts the right one. Replicas default-deny every admin method. The employer `/roster` and the HR Tool's `/api/*` are gated. The proof delegate's `/prove` is key-gated in this deployment.
+- **Claim inclusion proofs and audit chain integrity** recompute from the sequencer's own witnesses.
+
+---
+
+## Corrections to earlier documents
+
+| Claim | Correction |
+|---|---|
+| "241 of 254 checks, 13 failures" (kickoff) | **119 of 127, 8 failures.** The older figure was an earlier attempt. Fixed in `SESSION-KICKOFF.md`; failures itemized in `containment-and-binding.md` §5. |
+| Replicas "apply gossip" (code map §1) | **Gossip never arrives** (A-8). Fixed in `CODEMAP.md`. |
+| The Nautilus `/rpc` proxy attaches the node's Bearer token (memory) | It attaches **no** `Authorization` at all. Already corrected in project memory. |
+| "PCP root overwritten" by the next fill (route-map artifact) | **Does not hold.** The PCP leaf is forest MEMBER leaf 0 and survives; the inventory write touches a different slot. |
+| Plaintext `employeeId` in the HR audit log (code map) | **Conditional.** Two code paths can write it, neither exercised; the live logs hold only group IDs and counts. |
+| No save-on-shutdown for engine state (implied by the code map) | **It exists** at `start-leviathan.ts:742-744`; only hard crashes lose the non-batch window. |
+| `l2_getClaimsByMember` takes `memberWalletId` | It takes **`walletId`**. The wrong name returns a param error, which produced a false "claims are not served" reading during this audit. |
+
+---
+
+## What this means for the hardening plan (Session 4)
+
+The existing phases A-D in `PLAN-security-hardening.md` cover most of this, with two gaps.
+
+- **Phase A** (phone surface, backup card, employer codes, employer/HR lockdown) should absorb A-5, A-20, A-21, the member and provider bind/CORS half of A-7, and AUTH-13's non-consuming codes.
+- **Phase B** (hashes stay on the phone, accumulator plan-side, PCP consent, no wallet ID to the employer, delete stored hashes) should absorb A-1, A-6, and **A-9**, which is the deferred plan/group binding and now demonstrably affects benefit calculations. Note that fixing A-9 changes `groupIdHash` and therefore wallet IDs, so sequence it against migration.
+- **Phase C** (salt the identity fields, update the migration proof) finishes A-1 and should revive the dead recovery-card path (MEM-M5).
+- **Phase D** (claims-history access control, verify at submit, auth on open routes, E2E messaging, duplicate-claim fix, proof-pool fix) should absorb A-2, A-3, A-4, A-10, A-12, A-13, A-15, A-16, A-24, A-26, A-27.
+- **Not yet in any phase:** **A-8**, the dead replication, which is an availability and decentralization claim rather than a privacy one, and **A-18/A-19**, the missing lifecycle checks and the open provider-network cascade. Add a phase or fold them into D.
+
+Suggested ordering within that: A-3 and A-2 first, because they are the ones an outside party would use to disprove the system's central claims; then A-1 and A-9 together, since both touch wallet derivation; then the credential-holder set A-4, A-5, A-14.
+
+---
+
+## Open questions for the live network
+
+1. What accounts for :4001's `50600/48600` divergence (A-11)? :4012's is explained; this one is not.
+2. Is `memberIndex: -1` for every enrolled member intended, and does anything address forest leaves by it?
+3. Are the stale tenants from the earlier boot (:49318-:49323) still leaking admin tokens through their own activate-status?
+4. Is the member node's admin token recoverable from `nautilus-state.enc` or the logs on a seized device?
+5. Is `PLAN-GOLD-2026` / `ACME-CORP` reachable in a production boot, or only because the demo seed registers them?
+6. Is the seed PII in `GET /interactive/state` always fixtures, or can real identity land there?
+7. Is unsecure mode (`admin123`, CORS `*`, unauthenticated first-admin registration) reachable in any real deployment?
+8. Is `treesAuthoritative` true or false on the restored live node? It decides whether A-3 permits arbitrary root corruption, because the root assertions are skipped when it is false (`l2-sequencer-service.ts:1452, 1469, 1485, 3059`), or only injection of an arbitrary wallet ID. This needs a read-only hook rather than a probe.
+9. Who was the intended verifier of the discarded claim-flow proofs? The proof delegate on :4040 exists, generates the right shapes, and no process ever calls it.
+
+---
+
+## State of work (end of Session 2)
+
+**Done.** This hub plus six detail files in `docs/audit/` (about 700 lines), from four delegated audit passes and my own live verification. `scripts/e2e-verify/check-phi-containment.ts` was extended from 4 scanned places to 15: it now probes, with no credentials, the sequencer's disk, `/interactive/state`, the viz endpoints, the SSE stream, nine per-wallet RPCs on both the sequencer and a replica, the member nodes' public endpoints, the member and explorer `/rpc` proxies, every employer node and HR Tool it discovers through `l2_listEmployerNodes`, the network log, and the insurer and HR disks. It adds the raw enrollment key as a target, adds an I6 wallet-to-employee linkage pass, prints a per-rule verdict, and takes `--strict` to exit non-zero so it can serve as an acceptance test. Current verdict: I1, I3 and I6 hold; I2 is broken. `CODEMAP.md` and `SESSION-KICKOFF.md` corrected. No source file outside the containment check was modified.
+
+**Nine gaps remain in the containment check**, listed in `phi-pii.md`: decrypt and scan the HR correlation table, add an I5 co-location verdict, needle the enrollment code and PIN, decode message payloads before matching, treat clinical claim data as a target, stop assuming `employeeId == cardholderId`, scan skipped PDFs, widen the proxy probes, and capture browser `localStorage`.
+
+**Session 3 next:** intended versus as-built, reading the patent abstracts, claims and figures in `USPTO Document Submission/`, `Final Submission Version/` and `patent_figures/`, and diffing the intended swimlanes against the as-built route map. A-3, A-22, A-8 and A-26 are the four findings most likely to contradict what the filings claim, because they are about what a proof demonstrates to an outside party, and all four are about the gap between proofs that are generated and proofs that are checked.
