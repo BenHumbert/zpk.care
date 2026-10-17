@@ -75,7 +75,15 @@ The exploitable perimeter, plus the one integrity fix that everything downstream
 
 **A1 implementation spec.** Written out because it goes first and because getting the ordering wrong would leave the hole open while looking closed.
 
-*Where the verification key comes from.* The sequencer does not compile `StateTransitionProgram` today. Add a compile at boot and keep the verification key in memory. Measured cost on the live member node: **3,803 ms, once**. Assert the key's hash equals a constant pinned in config and **fail closed at boot** if it does not, so that swapping the program is detected rather than silently accepted.
+*Where the verification key comes from.* Implemented 2026-10-17. The sequencer now compiles `StateTransitionProgram` at boot and keeps the verification key in memory. **Measured on a genesis boot: 7,239 ms, once** (the earlier 3,803 ms figure came from a warm member-node process, so budget the larger number). The key hash is asserted against `ZKTRIDENT_TRANSITION_VK_HASH` and the boot **fails closed** on a mismatch; with nothing pinned it prints the hash to pin and warns.
+
+The hash for the current program, to pin in deployment config:
+
+```
+ZKTRIDENT_TRANSITION_VK_HASH=9617019925474184580074828633127976039422369210756941418911053898889459585383
+```
+
+It changes whenever the circuit changes, which is the point: a recompiled or swapped program is then refused rather than silently trusted.
 
 *The call.* `verify(proof, verificationKey)` from o1js, the same function the harness already uses at `scripts/e2e-verify/run.ts:493` to check batch proofs, with the tamper case beside it at `:501`. That is the pattern to copy; it is proven against this codebase's own proofs.
 
@@ -88,6 +96,48 @@ The exploitable perimeter, plus the one integrity fix that everything downstream
 *Acceptance.* `check-proof-gate.ts`, itself an A1 deliverable, submits four things in order: a well-formed proof with a tampered public output; a valid proof re-pointed at another wallet; a structurally undecodable proof; and one honest proof. The first three must be refused, and the check must assert **no mutation** by comparing status, receipt count, audit-log length and claim-leaf count before and after, not merely that an error came back.
 
 *One thing to measure.* Verification now sits on the submit path. Record the per-proof cost. If it is material at volume, it can move into a proving-pool worker, but only with care: the ordering guarantee above is what makes A1 worth doing, and making verification asynchronous would give it back.
+
+**A1 is done, verified on a running network 2026-10-17.** Results and the one architectural
+finding it turned up.
+
+| Case | Outcome | Time | Ledger |
+|---|---|---|---|
+| Real proof, public output altered, roots left matching current state | **refused**, `reason: invalid` | 5.7 s | unchanged: 31 wallets, 0 accepted |
+| The same proof, honest | **accepted**, receipt `l2-00000000` | 4.9 s | advanced: 32 wallets, 1 accepted |
+| Malformed submissions (4 shapes) | refused during decoding, before verification | — | unchanged |
+
+The tampered case is the one that matters. Its roots matched current state, so the root check
+passed and only cryptography could refuse it. Before A1 it would have been applied.
+
+**The architectural finding: the sequencer's main process cannot do o1js work after the engine
+loads.** The engine compiles ten ZkPrograms into that process's single o1js context, and
+after that every o1js call there stalls permanently. Measured in both directions:
+
+| Verifier set up | Compile | First verification |
+|---|---|---|
+| Before the engine | succeeds, 7.2 s | **never returns** |
+| After the engine | **never returns**, boot hangs | not reached |
+| In its own process | succeeds, 4.6 s | succeeds, 4.2 s |
+
+This is the same wall that moved batch proving into `l2-proving-worker.ts`, met from the other
+side, so verification now runs in `l2-verify-worker.ts` behind `VerifyPool`. The in-process
+factory is kept for clean single-purpose processes (tests, tools) and documented as unsafe for
+the sequencer. **Treat this as a general constraint: anything needing o1js inside the sequencer
+process needs a worker, not a function call.**
+
+Two things that fell out of doing this, both recorded rather than fixed:
+
+- **`ZKTRIDENT_FORMULARY_LIMIT` is ignored.** Every boot loads all 32,768 NADAC drugs on the
+  main thread regardless, which is most of why a genesis boot takes about ten minutes here. A
+  cheap boot-time win, and it would have made this whole debugging loop faster.
+- **The server's 30 s request timeout is the operative ceiling on verification**, not
+  throughput. At about 5 s per submission there is comfortable headroom, but the 20 s verifier
+  watchdog has to stay below the request timeout or a stalled verification reappears as a 504
+  with no explanation.
+
+Costs to budget: verifier worker compile 4.6 s at boot, then roughly 1 s warm per proof and
+about 4 s on a cold first call. One worker is enough at expected rates; `ZKTRIDENT_VERIFY_POOL_SIZE`
+raises it. Workers recycle every 50 verifications to release WASM heap.
 
 ### Phase B — Keep identity on the device
 

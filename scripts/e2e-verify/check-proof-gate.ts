@@ -40,7 +40,13 @@
  *   --strict    exit 1 if any case is mishandled (for use as a gate)
  *   E2E_SEQ     sequencer base URL (default http://localhost:3030)
  */
+import crypto from 'crypto';
+import { Field } from 'o1js';
 import { l2Parse } from '../../src/l2/l2-json.js';
+import { StateTransitionProgram } from '../../src/engine/state-transition.js';
+import { WalletRegistryWitness } from '../../src/wallets/wallet-state.js';
+import { LifecycleWitness } from '../../src/engine/lifecycle.js';
+import { hashString } from '../../src/zkp/hash-utils.js';
 
 const SEQ = process.env.E2E_SEQ ?? 'http://localhost:3030';
 const STRICT = process.argv.includes('--strict');
@@ -48,12 +54,17 @@ const STRICT = process.argv.includes('--strict');
 type Rpc = { status: number; result?: any; error?: { code: number; message: string } };
 
 async function rpc(method: string, params: Record<string, unknown> = {}): Promise<Rpc> {
+  // Submission has to allow for verification plus whatever else is occupying the main
+  // thread. A genesis boot compiles ten circuits on it, during which nothing answers, and
+  // a short timeout there once produced a false pass: the request never arrived and the
+  // absence of an answer was read as a refusal.
+  const timeoutMs = method === 'l2_submitProof' ? 180_000 : 30_000;
   try {
     const r = await fetch(`${SEQ}/rpc`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     const text = await r.text();
     const parsed = text ? (l2Parse(text) as any) : null;
@@ -131,6 +142,13 @@ async function expectRefusedWithoutMutation(name: string, params: Record<string,
   const after = await snapshot();
   const moved = diff(before, after);
 
+  // A request that never got an answer proves nothing. Counting a transport failure as a
+  // refusal is how a check reports success while the gate is wide open, so it fails here.
+  if (res.status === 0) {
+    record(name, false, `INCONCLUSIVE: no answer from the sequencer (${res.error?.message}). Not a refusal.`);
+    return;
+  }
+
   const refused = res.error !== undefined || res.status >= 400;
   const message = res.error?.message ?? `accepted with status ${res.status}`;
 
@@ -141,6 +159,85 @@ async function expectRefusedWithoutMutation(name: string, params: Record<string,
   } else {
     record(name, true, `refused: ${message.slice(0, 120)}`);
   }
+}
+
+/**
+ * The decisive phase. Builds a genuine registration proof for a throwaway fictional
+ * identity, then submits a copy whose public output has been altered while its roots are
+ * left matching current state. Root equality therefore passes and only verification can
+ * refuse it, which is precisely the hole that existed before this gate: `proof.verify()`
+ * did nothing, so a proof that did not back its own output was applied.
+ *
+ * Then it submits the honest proof, which must be accepted. A gate that refuses
+ * everything is not a gate, it is an outage.
+ *
+ * This phase mutates state: the honest proof registers a wallet. Run it against a
+ * network you are willing to advance.
+ */
+async function realProofPhase() {
+  console.log();
+  console.log('Real-proof cases (this is what actually tests the gate):');
+
+  const w = await rpc('l2_getRegistrationWitnesses');
+  if (!w.result) {
+    record('5. obtain registration witnesses', false, `could not: ${w.error?.message}`);
+    return;
+  }
+  const regWitness = WalletRegistryWitness.fromJSON(JSON.parse(w.result.registryWitnessJson));
+  const lcWitness = LifecycleWitness.fromJSON(JSON.parse(w.result.lifecycleWitnessJson));
+  const currentReg = Field(w.result.currentRegistryRoot);
+  const currentLc = Field(w.result.currentLifecycleRoot);
+
+  // A throwaway fictional identity. Nothing here belongs to a person.
+  const tag = `GATECHECK-${Date.now()}`;
+  const preimage = [
+    Field(0),                                                        // domainTag: member
+    hashString(tag),                                                 // cardholder id
+    hashString('19700101'),                                          // date of birth
+    hashString('Gate'),                                              // first name
+    hashString('Check'),                                             // last name
+    hashString(crypto.randomBytes(32).toString('base64url')),        // enrollment key hash
+    Field(0),                                                        // group id hash
+  ];
+
+  const tCompile = Date.now();
+  await StateTransitionProgram.compile();
+  console.log(`        compiled StateTransitionProgram locally in ${Date.now() - tCompile} ms`);
+
+  const tProve = Date.now();
+  const { proof } = await StateTransitionProgram.proveRegistration(
+    preimage[0], preimage[1], preimage[2], preimage[3], preimage[4], preimage[5], preimage[6],
+    regWitness, lcWitness, currentReg, currentLc,
+  );
+  const proveMs = Date.now() - tProve;
+  const honest = proof.toJSON();
+  console.log(`        produced a genuine registration proof in ${proveMs} ms`);
+
+  // Alter the wallet identity in the public output, leaving both roots untouched so the
+  // root equality check still passes.
+  const tampered = JSON.parse(JSON.stringify(honest));
+  tampered.publicOutput[0] = (BigInt(tampered.publicOutput[0]) + 1n).toString();
+
+  await expectRefusedWithoutMutation(
+    '5. a REAL proof with an altered wallet id, roots left matching current state',
+    { proofJson: tampered },
+  );
+
+  // And the honest one must be accepted, or the gate is just an outage.
+  const before = await snapshot();
+  const tSubmit = Date.now();
+  const res = await rpc('l2_submitProof', { proofJson: honest });
+  const submitMs = Date.now() - tSubmit;
+  const after = await snapshot();
+  const accepted = res.result !== undefined && res.error === undefined;
+  record(
+    '6. the honest proof is accepted',
+    accepted,
+    accepted
+      ? `receipt ${String((res.result as any)?.receiptId)}, round trip ${submitMs} ms, ` +
+        `wallets ${before.walletCount} -> ${after.walletCount}`
+      : `refused: ${res.error?.message}`,
+  );
 }
 
 async function main() {
@@ -181,6 +278,18 @@ async function main() {
   await expectRefusedWithoutMutation('4. empty envelope', {
     proofJson: envelope([], ''),
   });
+
+  // The cases above are all refused by proof decoding, before the verifier is reached.
+  // That matters: it means they do not test the gate. Proving the gate needs a proof that
+  // decodes and whose roots match current state, so that only cryptography can refuse it.
+  if (process.argv.includes('--with-real-proof')) {
+    await realProofPhase();
+  } else {
+    console.log();
+    console.log('  NOTE: the four cases above are refused while the proof is being decoded,');
+    console.log('        before verification runs. They show nothing invalid is accepted, but');
+    console.log('        they do not exercise the gate. Pass --with-real-proof for that.');
+  }
 
   console.log();
   const end = await snapshot();

@@ -270,6 +270,10 @@ export type {
   TransitionVerifierOptions,
   ProofRejectionReason,
 } from './l2-proof-verifier.js';
+export { VERIFY_TIMEOUT_MS } from './l2-proof-verifier.js';
+export { VerifyPool } from './l2-verify-pool.js';
+export type { VerifyPoolOptions } from './l2-verify-pool.js';
+export type { VerifyRequest, VerifyResponse } from './l2-verify-worker.js';
 
 // Quorum Protocol — Ed25519-based consensus
 export {

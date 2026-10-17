@@ -48,6 +48,7 @@ import { ProviderLifecycle, PROVIDER_TYPE_TAG } from './provider-registry-types.
 import type { ProviderType } from './provider-registry-types.js';
 import type { BenefitPlanConfig, ClaimSubmissionMetadata } from './l2-types.js';
 import { hashString } from '../zkp/hash-utils.js';
+import { ProofRejected } from './l2-proof-verifier.js';
 import { AuditService } from '../audit/audit-service.js';
 
 // ─── Visualization Types ──────────────────────────────────
@@ -729,8 +730,16 @@ export class L2RpcServer {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
 
-      // Classify error — pass through client-facing messages, sanitize internal errors
-      if (message.includes('not found') || message.includes('Unknown method')) {
+      // Classify error — pass through client-facing messages, sanitize internal errors.
+      //
+      // A refused proof is reported distinctly and by cause, so that an operator can tell
+      // a malformed submission from one that decoded but did not verify. Those are very
+      // different signals: the first is a broken client, the second is an attempt to write
+      // state with a proof that does not back it. Collapsing both into "Internal error"
+      // is how a forgery attempt would have looked like a bug.
+      if (err instanceof ProofRejected) {
+        this.sendRpcError(res, rpcReq.id, RPC_PROOF_REJECTED, `${message} [reason: ${err.reason}]`);
+      } else if (message.includes('not found') || message.includes('Unknown method')) {
         this.sendRpcError(res, rpcReq.id, RPC_METHOD_NOT_FOUND, message);
       } else if (message.includes('verification failed') || message.includes('mismatch') || message.includes('REJECTED')) {
         this.sendRpcError(res, rpcReq.id, RPC_PROOF_REJECTED, message);

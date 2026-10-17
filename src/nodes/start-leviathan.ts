@@ -165,38 +165,63 @@ async function main(): Promise<void> {
 
   // ── Proof verification (required: the sequencer refuses submissions without it) ──
   //
-  // Compiling StateTransitionProgram costs a few seconds once, and gives us the
-  // verification key every submitted proof is checked against. Until this is installed
-  // the sequencer rejects every submission, so a failure here stops the boot rather
-  // than quietly leaving the ledger open to unverified writes.
+  // Verification runs in its own process. It has to: the engine compiles ten ZkPrograms
+  // into this process's single o1js context, and after that every o1js call here stalls
+  // for good. Measured 2026-10-17 — set up before the engine, the compile succeeds and the
+  // first verification never returns; set up after it, the compile never returns and the
+  // boot hangs. In a clean process the same verification takes about a second. This is the
+  // wall that put batch proving in a worker, met from the other side.
+  //
+  // The boot then verifies a stored proof, because a worker that compiled is not proof that
+  // it can verify: that is exactly the pair of symptoms above. Failing here stops the boot,
+  // rather than leaving every member's first submission to discover it.
   {
-    const { createTransitionProofVerifier } = await import('../l2/l2-proof-verifier.js');
+    const { VerifyPool } = await import('../l2/l2-verify-pool.js');
     const expectedVkHash = env.ZKTRIDENT_TRANSITION_VK_HASH;
-    let verifier;
+    const pool = new VerifyPool({
+      size: parseInt(env.ZKTRIDENT_VERIFY_POOL_SIZE ?? '1', 10) || 1,
+      expectedVkHash,
+    });
+
     try {
-      verifier = await createTransitionProofVerifier({
-        expectedVkHash,
-        onCompiled: ({ vkHash, compileMs }) => {
-          console.log('  [verify] StateTransitionProgram compiled in %d ms', compileMs);
-          if (expectedVkHash) {
-            console.log('  [verify] Verification key matches the pinned hash %s…', vkHash.slice(0, 16));
-          } else {
-            console.warn(
-              '  [verify] No ZKTRIDENT_TRANSITION_VK_HASH pinned. Set it to\n' +
-              '           %s\n' +
-              '           so that a swapped or recompiled program is refused at boot.',
-              vkHash,
-            );
-          }
-        },
-      });
+      const { vkHash, compileMs } = await pool.start();
+      console.log('  [verify] verifier process ready, program compiled in %d ms', compileMs);
+      if (expectedVkHash) {
+        console.log('  [verify] verification key matches the pinned hash %s…', vkHash.slice(0, 16));
+      } else {
+        console.warn(
+          '  [verify] no ZKTRIDENT_TRANSITION_VK_HASH pinned. Set it to %s so that a swapped ' +
+            'or recompiled program is refused at boot.',
+          vkHash,
+        );
+      }
+
+      const verifier = pool.asVerifier();
+
+      // Self-test against a stored proof. Its roots need not match current state; what is
+      // being checked is that this deployment can verify at all.
+      const fixturePath = path.resolve(thisDir, '..', '..', 'scripts', 'e2e-verify', 'fixtures', 'state-transition-proof.json');
+      if (fs.existsSync(fixturePath)) {
+        const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+        const t0 = Date.now();
+        await verifier({ toJSON: () => fixture } as never);
+        console.log('  [verify] self-test passed: a stored proof verified in %d ms', Date.now() - t0);
+      } else {
+        console.warn('  [verify] no self-test fixture at %s — verification is unproven until the first submission', fixturePath);
+      }
+
+      node.getSequencer().setTransitionVerifier(verifier);
+      console.log('  [verify] submitted proofs are verified before any state is written');
+
+      const stopVerifier = async (): Promise<void> => { await pool.shutdown(); };
+      process.once('SIGINT', () => void stopVerifier());
+      process.once('SIGTERM', () => void stopVerifier());
     } catch (err) {
-      console.error('  [verify] Cannot establish proof verification:', err instanceof Error ? err.message : err);
-      console.error('  [verify] Refusing to start. A sequencer that cannot verify proofs must not accept them.');
+      console.error('  [verify] cannot establish proof verification:', err instanceof Error ? err.message : err);
+      console.error('  [verify] refusing to start. A sequencer that cannot verify proofs must not accept them.');
+      await pool.shutdown();
       throw err;
     }
-    node.getSequencer().setTransitionVerifier(verifier);
-    console.log('  [verify] Submitted proofs are verified before any state is written');
   }
 
   // ── Proving Pool (optional — auto-detect worker count from available RAM) ──

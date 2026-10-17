@@ -42,7 +42,16 @@ export type ProofRejectionReason =
   /** Not a decodable proof at all: malformed, truncated, or not this proof system's. */
   | 'undecodable'
   /** Decodes, but is not valid against the pinned verification key. */
-  | 'invalid';
+  | 'invalid'
+  /** Verification did not finish in time, so the proof is refused rather than waited on. */
+  | 'timeout';
+
+/**
+ * How long a single verification may take before the submission is refused. Measured cost
+ * is around one second, with the first call after a compile taking several, so this is
+ * generous by an order of magnitude and still well inside the server's request timeout.
+ */
+export const VERIFY_TIMEOUT_MS = 20_000;
 
 export class ProofRejected extends Error {
   constructor(readonly reason: ProofRejectionReason, message: string) {
@@ -63,7 +72,16 @@ export interface TransitionVerifierOptions {
 }
 
 /**
- * Compile `StateTransitionProgram` and return a verifier bound to its verification key.
+ * Compile `StateTransitionProgram` in THIS process and return a verifier bound to its key.
+ *
+ * **Do not use this inside the sequencer.** The adjudication engine compiles ten ZkPrograms
+ * into that process's single o1js context, after which every o1js call there stalls
+ * permanently — measured 2026-10-17, in both directions: set up before the engine, the
+ * compile succeeds and the first verification never returns; set up after it, the compile
+ * itself never returns. Use `VerifyPool` from `l2-verify-pool.ts`, which verifies in a child
+ * process with its own context.
+ *
+ * This remains useful in a clean single-purpose process: tests, measurement scripts, tools.
  *
  * Compiling costs a few seconds once at startup (measured ~3.8 s). The returned
  * closure holds the key, so per-proof verification does no further setup.
@@ -93,22 +111,39 @@ export async function createTransitionProofVerifier(
   let verified = 0;
   let totalMs = 0;
 
+  let attempted = 0;
+
   return async (proof: StateTransitionProof): Promise<void> => {
     let valid: boolean;
     const startedAt = Date.now();
+    const attempt = ++attempted;
+    console.log('  [verify] #%d verifying a submitted proof…', attempt);
     try {
-      valid = await verify(proof, verificationKey);
+      // A verification that never returns must not hold the request open forever: the
+      // sequencer's own request timeout would answer 504 while the handler stayed stuck,
+      // which looks identical to a hang and tells an operator nothing. Time it out and
+      // refuse instead, so the failure is explicit and the submission is rejected.
+      valid = await Promise.race([
+        verify(proof, verificationKey),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new ProofRejected('timeout', `Proof rejected: verification did not finish within ${VERIFY_TIMEOUT_MS} ms`)),
+            VERIFY_TIMEOUT_MS,
+          ),
+        ),
+      ]);
       verified++;
       totalMs += Date.now() - startedAt;
-      if (verified === 1 || verified % 100 === 0) {
-        console.log(
-          '  [verify] %d proof(s) verified, %d ms last, %d ms mean',
-          verified,
-          Date.now() - startedAt,
-          Math.round(totalMs / verified),
-        );
-      }
+      console.log(
+        '  [verify] #%d %s in %d ms (%d verified, %d ms mean)',
+        attempt,
+        valid ? 'valid' : 'INVALID',
+        Date.now() - startedAt,
+        verified,
+        Math.round(totalMs / verified),
+      );
     } catch (err: unknown) {
+      if (err instanceof ProofRejected) throw err;
       const detail = err instanceof Error ? err.message : String(err);
       throw new ProofRejected(
         'undecodable',
