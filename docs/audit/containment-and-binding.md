@@ -71,7 +71,7 @@ wallet 16425677108535…  planId=PLAN-GOLD-2026  groupId=ACME-CORP  employeeId="
 
 The plans the employers actually bought are registered on the same sequencer, with different rules: `PLAN-E2E-MVA0YQKN` ("E2E Gold", copay 1000, deductible 50000, OOP max 800000, family deductible 100000). The employer groups were `GRP-A-MVA0YQKN` and `GRP-B-MVA0YQKN`.
 
-Cause chain, each step already mapped: the member app posts only `{tokenId}` to `/onboarding/accept-token` (`dashboard-member/app.js:375`), the node takes group and plan from the request body and so stores empty strings (`src/nodes/routes/member-routes.ts:108-120`), the empty group becomes `groupIdHash = Field(0)` in the wallet derivation (`:235-236`), and the engine substitutes its demo defaults when registering (`visualizer/engine/interactive-service.ts` register path). The employer's token carried the real group, and nothing ever compares the two.
+Cause chain, each step already mapped: the member app posts only `{tokenId}` to `/onboarding/accept-token` (`dashboard-member/app.js:375`), the node takes group and plan from the request body and so stores empty strings (`src/nodes/routes/member-routes.ts:108-120`), the empty group becomes `groupIdHash = Field(0)` in the wallet derivation (`:235-236`), and the engine substitutes its fixture defaults when registering (`visualizer/engine/interactive-service.ts` register path). The employer's token carried the real group, and nothing ever compares the two.
 
 Consequences:
 - Adjudication runs against the wrong benefit rules. Copay, deductible, OOP max and family pooling all come from the default plan, not the purchased one. This is a plausible contributor to the two accumulator-rebuild failures in the last live run (engine totals 53000/50000 versus ledger 2400/1400), which `proofs-and-crypto.md` traces to root cause.
@@ -98,4 +98,4 @@ Failures 5-8 are CONT-1/CONT-2 above. Failures 1-4 are integrity defects; see `p
 
 - Does the member's benefit plan get corrected anywhere later in the flow, or do all fills for these wallets use the default plan's rules?
 - Would passing the real group through break the wallet ID (it is mixed into derivation as `groupIdHash`), and does that force a re-enrollment for existing wallets?
-- Is `PLAN-GOLD-2026` / `ACME-CORP` reachable in a production boot, or only because the demo seed registers them?
+- Is `PLAN-GOLD-2026` / `ACME-CORP` reachable in a production boot, or only because the fixture seed registers them?

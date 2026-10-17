@@ -326,6 +326,6 @@ Server: only `StateTransitionProgram` compiled (PD:249-252); binds `0.0.0.0` (PD
 5. `l2_approveAdmission` records every Bearer-mode approval as `'admin'` (RPC:945), so a threshold >1 cannot be met without Ed25519 identities — intended bootstrap limitation?
 6. `pcpAssignments` (RPC:239) and `entityRegistry` (RPC:236) live only in the RPC server process and are not part of `getAdminRegistryState` (RPC:2688-2699); is any checkpoint path persisting them, or are PCP links and wallet display names lost on restart?
 7. `l2_revokeEmployerAttestation` deletes through the private `employerAttestationStore` (RPC:1367) — is a sequencer method intended?
-8. `l2_recordFill` appends claim leaves with no proof (RPC:1684-1727); only `scripts/e2e-verify/run.ts` references it — demo-only, or a production path?
+8. `l2_recordFill` appends claim leaves with no proof (RPC:1684-1727); only `scripts/e2e-verify/run.ts` references it — fixture-only, or a production path?
 9. Who is meant to call `POST /prove`? No node uses `ProofDelegateClient`; the browser path has no API key and the server emits no CORS headers (PD:260-302; `dashboard-member/rpc.js:179-191`).
 10. `l2_submitProof` accepts unverified `entityMetadata` and writes it to `entityRegistry` for registrations (RPC:774-787) — is the display-name binding to a wallet meant to be attacker-controllable at registration time?

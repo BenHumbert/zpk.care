@@ -186,5 +186,5 @@ Insurer admin token in MK: Bearer to sequencer (MK:612-614, 971-973), insurer Ed
 - Wrong-PIN-leaves-unlocked (LS:150 vs LS:201-219; MR:91-94): bug or accepted? It satisfies the /onboarding/eject gate (MR:1355) without the correct PIN.
 - Partner keys are never read (AS:228 has no callers); where are employer signatures re-verified after signing (MK:582 uses `app.publicKeyHex` from the plaintext JSON)?
 - Insurer enrollment registry is memory-only (IR:343; persistence no-op since the insurer never unlocks LS): is the roster expected to survive restarts?
-- /messaging/send plaintext fallback (MR:1240-1247): demo-only?
+- /messaging/send plaintext fallback (MR:1240-1247): fixture-only?
 - /onboarding/derive-wallet accepts genderCode but the preimage omits it (wallet-derivation.ts:137-146): dead input or planned?

@@ -2,13 +2,13 @@
 
 Status: plan complete, nothing implemented. Written 2026-10-16 across review sessions 1-4, from the code map, a live audit, and a comparison against the filed claims.
 
-**Target is full production operation, not a demo.** Two consequences run through everything below. First, a property that is implemented and tested but not switched on does not count as done; the seven dormant claims are work items, not documentation choices. Second, **there is no MINA L1 and none is planned.** The Leviathan network is the trust layer. Finality comes from quorum certificates, state certificates at batch boundaries, and the chain proof. Any remaining `l1Status` naming, `SettlementStrategy` hook or "settled on L1" language is vestigial and is removed in phase F so that nobody reads the code and infers a settlement dependency that does not exist.
+**Target is full production operation.** Two consequences run through everything below. First, a property that is implemented and tested but not switched on does not count as done; the seven dormant claims are work items, not documentation choices. Second, **there is no MINA L1 and none is planned.** The Leviathan network is the trust layer. Finality comes from quorum certificates, state certificates at batch boundaries, and the chain proof. Any remaining `l1Status` naming, `SettlementStrategy` hook or "settled on L1" language is vestigial and is removed in phase F so that nobody reads the code and infers a settlement dependency that does not exist.
 
 Authoritative inputs, in order of precedence:
 - `docs/AUDIT.md` — 27 ranked findings (`A-n` below), live-verified. Supersedes the findings tables that used to sit in section 2 of this file.
-- `docs/INTENDED-VS-ASBUILT.md` — the four structural contradictions (`C-1` to `C-4`) against the filed claims.
+- `docs/INTENDED-VS-ASBUILT.md` — the four structural contradictions (`C-1` to `C-4`) against the design intent recorded in the claims. The patent is no longer being pursued; the abstract and claims now stand as defensive prior art and as the most complete written specification of the target architecture, which is why the comparison still drives work items here.
 - `docs/CODEMAP.md` + `docs/codemap/*` — what the code is and where.
-- `PLAN-registry-fix.md` — Phase 1, done, uncommitted in the working tree.
+- `PLAN-registry-fix.md` — Phase 1, done and committed on the `dev` branch.
 
 Route map of the current system: https://claude.ai/artifact/MVVzf7osD2sJQg1GKtYisx
 Filed-versus-running comparison: https://claude.ai/artifact/5MbBi7TpPtVMeTnTNthxzq
@@ -46,7 +46,7 @@ Each phase moves the system toward this end state. Stating it first, because sev
 | **Proof acceptance** | Applied when the caller's claimed roots match; the verify call is a library no-op | Verified against a pinned verification key **before any mutation**, and rejected otherwise |
 | **Trust layer** | One `L2Node`, no partitioning, dead replication, WAL null, quorum unreachable, chain proof off | At least three leviathan nodes under **separate operational control**, partitioned, authenticated gossip, WAL fsynced before mutation, client acknowledgment only after a quorum majority has logged and signed, heartbeat failover, chain proof producing a non-zero global state root, state certificates at every batch boundary |
 | **Credentials** | One shared `admin123`-class token is the sequencer bearer, every node's bearer, and the insurer's signing seed | Per-role credentials from a provisioning mechanism, Ed25519 admin mode armed with a genesis key, TLS on every listener, no environment inheritance to child processes, attestation and quorum keys in a KMS or HSM |
-| **Demo scaffolding** | Seed identities, committed keys, dev badge PIN `000000`, `PLAN-GOLD-2026`, `ACME-CORP`, unsecure mode | Absent from production builds, with a startup guard that **fails closed** if any is present |
+| **Test fixtures and local-only paths** | Fixture identities, committed keys, badge PIN `000000`, `PLAN-GOLD-2026`, `ACME-CORP`, the unsecure path | Relocated to a test-only module tree. The production entry point **cannot reach them**, asserted by an import-graph test and a startup guard that fails closed. Removed and re-verified as the last step before the release is tagged |
 
 ## 4. Phases
 
@@ -128,11 +128,22 @@ Right now none of it is in force. Both replicas hold zero receipts and sit at th
 | E7 | Replica batch verification enabled, so a replica checks before it applies | integrity | A-8, REP-02 |
 | E8 | Epoch accumulator rotation wired into the product, with persistence | scale | claim 16 |
 
-### Phase F — Remove the scaffolding and the dead ends
+### Phase F — Isolate the fixtures and cut the dead ends
+
+**What the fixture work is actually about.** The committed enrollment keys and the badge PIN are fake and will never be used again, so this is not secret hygiene. Two real risks remain and neither is about the values:
+
+1. **Code paths that accept or derive identity material.** `generate-key` accepts a caller-supplied enrollment key; provider keys are derived from the NPI, which is public; the engine proves on others' behalf from stored preimages. Those paths are the exposure whatever flows through them. If production can still accept an externally supplied key, an attacker supplies a real one.
+2. **Reachable fallbacks that produce a valid-looking result without the real check.** The unsecure path, the hard-coded `verified: true`, the fixture PIN constant, the default plan and group. Each is a branch that answers correctly-shaped without answering correctly.
+
+So the guard is a **reachability assertion**, not a secret scan: an import-graph test proving the production entry point never transitively reaches the fixture tree, plus a startup check that fails closed. That is a property which keeps holding, unlike deletion, which anyone can undo with one import.
+
+**Sequencing.** The acceptance tests use fixture identities, so the fixtures cannot be deleted before the tests pass. Relocate them to a test-only tree early so the guard can assert isolation, keep them for the harness, and make removal plus re-verification the last step before tagging a release.
 
 | # | Work | Rule | Finding |
 |---|---|---|---|
-| F1 | Remove seed identities, committed keys, the dev badge PIN, the default plan and group, and unsecure mode from production builds. Add a startup guard that fails closed if any is present | I3, I7 | A-14, ENG-16 |
+| F1 | Relocate fixture identities, committed keys, the badge PIN constant and the default plan and group into a test-only module tree. Add the import-graph test and the fail-closed startup guard. **Pull this forward to phase A**, because it is what proves isolation for everything after it | I3, I7 | A-14, ENG-16 |
+| F1b | Remove the unsecure path entirely rather than guarding it. There is no production use for an entry point that sets a shared token and opens CORS | I4, I7 | A-7, A-14 |
+| F1c | Delete `src/poc/` (8 files, 3,571 lines). It is unreachable from the production launcher, it is the only place "proof of concept" language survives in the codebase, and its one remaining purpose, generating patent evidence, ended with the filing. Drop the two npm scripts that reach it. `EpochAccumulatorService` lives in `src/l2/` and is unaffected | clarity | §3 |
 | F2 | Remove the MINA vestiges: `l1Status` naming, the settlement strategy hook, and any "settled on L1" language. Finality is the quorum and chain proof | clarity | memory note |
 | F3 | Delete or wire the dead paths the audit found: the unused verification services, `CareContract`, the unused proof delegate, `UserWalletService`, `AorService`, and the claim-16 service that only the evidence generator constructs | clarity | zk-programs, A-17 |
 | F4 | Fix the remaining medium and low findings not otherwise placed: the badge session nobody checks, the mutating GET, unbounded bodies and job maps, restart losing encryption keys and revocations, the engine's constant-message admin signature, the caller-supplied content hash | I7 | AUDIT medium and low |
@@ -148,7 +159,8 @@ Letters name the phases; this is the order to execute them in. Two items move fr
 4. **Phase C.** One operation, because every item changes the wallet ID. **C2, the plan and group binding, moves here from phase B** for exactly that reason: it changes `groupIdHash`, so doing it separately would mean migrating wallets twice.
 5. **Phase D.** D1 depends on C1: ownership proofs are the access control, and salting is what makes the commitments opaque in the first place. Doing D1 first would be defense in depth over a broken premise.
 6. **Phase E.** Depends on A1 and A13.
-7. **Phase F.** Continuous cleanup, with F1's build guard landing before any production deployment.
+7. **Phase F, mostly early.** F1 (relocate the fixtures and assert isolation) and F1b (remove the unsecure path) move into phase A, because every later phase is easier to verify once the production entry point provably cannot reach a fallback. F1c (delete `src/poc/`) can be done at any time. The rest is continuous cleanup.
+8. **Last step before a release is tagged:** delete the fixture tree, re-run every acceptance check against a network built without it, and tag that verified state. The fixtures cannot go earlier, because the acceptance tests use them.
 
 One sequencing warning. B2 purges stored preimages and C1 changes the derivation. If there is live member data to preserve, the migration in C4 has to run while the old preimages still exist, which means **C4's migration plan has to be decided before B2 deletes anything.** Decide section 8's question 5 before starting phase B.
 
@@ -268,7 +280,7 @@ Next: Session 4 completes the phases, order and acceptance tests in sections 3 o
 
 Done: this plan, sections 1 through 8. Section 1 is unchanged. Section 2's findings tables were replaced by a pointer to `docs/AUDIT.md`, which supersedes them and is live-verified; the superseded tables are preserved in git history and in the backup noted below. Sections 3 through 8 are new: the production target architecture, six phases with every work item mapped to a finding, the execution order with two justified re-sequencings, acceptance tests per rule I1-I7, the pill-pipeline impact, and seven decisions that gate the phases.
 
-Two framing corrections from the owner, applied throughout: **the target is full production operation, not a proof of concept**, so the seven dormant claims are work items in phase E rather than a documentation choice; and **there is no MINA L1 and none is planned**, so finality is the quorum certificate, the state certificate and the chain proof, and phase F removes the vestigial L1 naming.
+Two framing corrections from the owner, applied throughout: **the target is full production operation**, so the seven dormant claims are work items in phase E rather than a documentation choice; and **there is no MINA L1 and none is planned**, so finality is the quorum certificate, the state certificate and the chain proof, and phase F removes the vestigial L1 naming.
 
 Key design decisions recorded in the plan rather than left to a fix session:
 - Verifying proofs at submission moves to the front of the queue, out of phase D. It is about twenty lines and everything else depends on a trustworthy ledger.

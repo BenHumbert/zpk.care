@@ -107,7 +107,7 @@ Severity counts: CRITICAL 3, HIGH 6, MEDIUM 9, LOW 9 (27 total).
 
 ### ENG-14 — MEDIUM — Seed enroll handles raw PII + committed enrollment keys in-process; insurer/seed keys are constants (I1, I3, I7)
 **Evidence.** `/interactive/enroll` (OPEN, `R:177-223`) → `enrollMember` reads `MEMBERS[i].enrollmentKey` and raw name/DOB/cardholderId in the sequencer process (`S:1011,1053-1061,1372`). Insurer X25519 key is `deriveEncryptionKeyPair('ADMIN-INSURER-ENCRYPTION-KEY-2026')` (`S:787`); seed provider private keys come from committed `enrollmentKey`s (`S:774-784`).
-**Impact.** The seed/demo path puts raw PII and enrollment keys inside the sequencer (I1/I3 pattern break; real if seed identities were real), and the insurer/seed-party private keys are reconstructable from source, so the sequencer (or anyone) can decrypt seed-party messages.
+**Impact.** The fixture path puts raw PII and enrollment keys inside the sequencer (I1/I3 pattern break; real if seed identities were real), and the insurer/seed-party private keys are reconstructable from source, so the sequencer (or anyone) can decrypt seed-party messages.
 **Fix sketch.** Keep the seed path out of production; derive insurer/seed keys from secrets, not literals.
 
 ### ENG-15 — MEDIUM — Per-handler CORS `*` overrides the restrictive server policy; 0.0.0.0 bind (I4)

@@ -232,5 +232,5 @@ Severity counts: CRITICAL 1 · HIGH 10 · MEDIUM 17 · LOW 5 (33 total).
 4. Is `ZKTRIDENT_GOSSIP_SECRET` required to be hex? If not, BOOT-05 silently shortens the attestation key (node:350).
 5. Operational recovery for a poisoned pool in l2Only (SEQ-03): is there any intended path, or does a single forged proof require a full restart from a pre-poison checkpoint?
 6. `pcpAssignments` and `entityRegistry` live only in the RPC-server process and are not in the checkpoint (rpc:239,236; 2688-2699) — are PCP links and wallet→displayName intentionally lost on restart?
-7. Is `l2_recordFill` (no proof, no audit event) a production path or demo-only? Only `scripts/e2e-verify/run.ts` calls it.
+7. Is `l2_recordFill` (no proof, no audit event) a production path or fixture-only? Only `scripts/e2e-verify/run.ts` calls it.
 8. `atypes:34` documents an 8-field audit commitment; `audit:66-77` hashes 10 (last two always 0). Which is canonical for external verifiers (affects SEQ-08)?
