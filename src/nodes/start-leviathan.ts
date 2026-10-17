@@ -276,8 +276,30 @@ async function main(): Promise<void> {
   // messages wait to be processed.
   try {
     const { formularyRaw } = await import('../data/formulary-loader.js');
-    node.getSequencer().getFormularyService().loadFromNadac(formularyRaw);
-    console.log('  [formulary] Loaded %d NADAC drugs into FormularyService', node.getSequencer().getFormularyService().drugCount);
+    const { readFormularyTreeCache, writeFormularyTreeCache } =
+      await import('../l2/formulary-tree-cache.js');
+    const formulary = node.getSequencer().getFormularyService();
+
+    // The tree is identical for identical input, so it is built once and reused. On the full
+    // 32,768-drug set that is the difference between minutes and seconds, and it is the longest
+    // single step in this boot. A cache that does not describe this exact data is refused and
+    // the tree is rebuilt; see FormularyTreeCache for the checks.
+    const startedAt = Date.now();
+    formulary.loadFromNadac(formularyRaw, readFormularyTreeCache(checkpointDir));
+    const loadMs = Date.now() - startedAt;
+
+    if (formulary.treeCameFromCache) {
+      console.log('  [formulary] Loaded %d NADAC drugs in %d ms (tree restored from cache)',
+        formulary.drugCount, loadMs);
+    } else {
+      console.log('  [formulary] Loaded %d NADAC drugs in %d ms (tree built)',
+        formulary.drugCount, loadMs);
+      const cache = formulary.exportTreeCache();
+      if (cache && writeFormularyTreeCache(checkpointDir, cache)) {
+        console.log('  [formulary] Tree cached for the next boot (root %s…)',
+          cache.root.slice(0, 12));
+      }
+    }
   } catch (err) {
     console.error('  [formulary] Failed to load NADAC formulary:', err);
   }

@@ -141,13 +141,50 @@ Two things that fell out of doing this, both recorded rather than fixed:
   server can open its port.** That is the ten-minute boot, essentially in its entirety. With the
   limit honoured the same boot reaches "ready" in about one minute.
 
-  **Two further wins, not yet done.** `MerkleTree` exposes `fill(leaves)`, which builds
-  bottom-up: one pass per level instead of a root-path rehash per leaf, so roughly 65,000 hashes
-  instead of 491,000, about 7× less. And the tree is identical on every boot for identical input,
-  so it can be cached to disk and restored. The cache has to be keyed on a digest of the exact
-  records that produced it and refuse to load on a mismatch, because this tree is a commitment —
-  note that the current boot already prints a formulary root mismatch against its own
-  checkpoint, so a wrong root is a live failure mode, not a hypothetical one.
+  **Both further wins are now done, and measured on the full set.** `MerkleTree.fill()` turned
+  out to be no help — it is a plain loop over `setLeaf`, so it costs exactly the same — and
+  o1js offers no bottom-up builder, so `buildTreeBottomUp` in `formulary-service.ts` writes one
+  through the public `nodes` field. `formulary-tree.test.ts` asserts it produces the identical
+  tree, not merely an equal root: same root, every internal node, and the same witnesses, across
+  sizes including the odd counts that leave a lone child at some level.
+
+  | full 32,768 drugs | before | after |
+  |---|---|---|
+  | build the tree | ~700 s (extrapolated from `setLeaf`) | **178 s** (measured) |
+  | boot again, same data | ~700 s | **56 s** (restored from cache) |
+
+  So about 12× end to end, and the cache file is 5.4 MB. The restored root is byte-identical to
+  the built one.
+
+  **What is deliberately *not* cached, and why it cost 51 of those 56 seconds.** The first
+  version cached the per-NDC Poseidon hashes as well, which would have taken the restore to
+  about 5 s. A test caught why that is wrong. The cache's digest binds it to the *records*, and
+  SHA-256 cannot attest a Poseidon hash, so a cached `ndcHash` can only be verified by
+  recomputing it — which is the cost being avoided. Sampling left the rest unverified, and an
+  `ndcHash` is a **lookup key**: a wrong one makes `getDrug` return another drug's tier and copay
+  for a given NDC while the committed root stays perfectly valid. That is an adjudication fault
+  no root check would ever surface, so the hashes are recomputed on every load and the question
+  disappears. The residual 51 s is one Poseidon per drug.
+
+  **The way to get that 51 s back is a worker, not a weaker cache.** The formulary load is the
+  third thing in this process that wants its own o1js context, after batch proving and proof
+  verification. Moving it to a child process would unblock the main thread entirely — the RPC
+  server could open its port immediately and the formulary would be ready in parallel with the
+  ZkProgram compiles — and the hashes would come from a process spawned in this same boot rather
+  than from disk, which is a completely different trust question from a cached file. Not done.
+
+- **The formulary root check could never pass — fixed 2026-10-17.** Every boot printed
+  `[Formulary] Root mismatch after restore: expected 19755… got 5791…`. Both numbers are now
+  accounted for: `5791…` is exactly the root of an **empty** `FormularyService`, and `19755…`
+  is exactly what the real 32,768-drug set produces. The sequencer restores its checkpoint
+  *before* it loads the formulary, so the check compared a recorded root against a tree with
+  nothing in it, on every boot, forever. That is worse than having no check at all, because a
+  genuine mismatch would have produced an identical-looking warning in the same noisy place.
+  The expected root is now held and checked at the end of `loadFromNadac`, where the tree
+  exists; `formulary-cache.test.ts` pins that it stays silent on a match, warns once on a real
+  mismatch, and never compares against an empty tree. Note this is **separate** from
+  `[sequencer] Restored roots do not match the rebuilt witness trees`, which concerns the wallet
+  and lifecycle trees and is a documented consequence of checkpoints not carrying wallet states.
 - **The server's 30 s request timeout is the operative ceiling on verification**, not
   throughput. At about 5 s per submission there is comfortable headroom, but the 20 s verifier
   watchdog has to stay below the request timeout or a stalled verification reappears as a 504

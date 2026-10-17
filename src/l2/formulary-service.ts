@@ -28,6 +28,7 @@
  */
 
 import { Field, Poseidon, MerkleTree, MerkleWitness } from 'o1js';
+import { createHash } from 'crypto';
 import { hashString } from '../zkp/hash-utils.js';
 
 // ─── Tree Constants ──────────────────────────────────────────
@@ -37,6 +38,49 @@ export const FORMULARY_TREE_HEIGHT = 16;
 
 /** Merkle witness for the formulary tree */
 export class FormularyWitness extends MerkleWitness(FORMULARY_TREE_HEIGHT) {}
+
+/**
+ * Fill a MerkleTree from contiguous leaves in one bottom-up pass.
+ *
+ * Why this exists. `MerkleTree.setLeaf` rehashes the whole path to the root on every call, and
+ * o1js's `fill()` is just a loop over `setLeaf`, so filling N leaves costs N × (height − 1)
+ * hashes. For the formulary that is 32,768 drugs × 15 = about 491,000 Poseidon hashes, measured
+ * at roughly 20 ms per drug, or eleven to thirteen minutes on the sequencer's main thread before
+ * the RPC server can open its port.
+ *
+ * Building level by level instead computes each internal node exactly once: ceil(N/2) parents,
+ * then ceil(N/4), and so on, which sums to about N hashes. Same tree, same root, roughly fifteen
+ * times fewer hashes.
+ *
+ * The result is identical rather than merely equivalent, and `formulary-tree.test.ts` asserts
+ * that against `setLeaf` for several sizes including odd counts, because this tree is a
+ * commitment and a subtly different root would be a silent integrity failure.
+ *
+ * Nodes outside the filled range are left unset, which is what `setLeaf` also does: `getNode`
+ * falls back to the level's canonical empty hash, so a partially filled tree has the same root
+ * either way.
+ */
+export function buildTreeBottomUp(tree: MerkleTree, leaves: Field[]): void {
+  // `nodes` is MerkleTree's public field; `setNode` is private, so write the same shape it
+  // writes — level → index string → Field.
+  const put = (level: number, index: number, value: Field): void => {
+    (tree.nodes[level] ??= {})[index.toString()] = value;
+  };
+
+  for (let i = 0; i < leaves.length; i++) put(0, i, leaves[i]);
+
+  let width = leaves.length;
+  for (let level = 0; level < tree.height - 1 && width > 0; level++) {
+    const parents = Math.ceil(width / 2);
+    for (let p = 0; p < parents; p++) {
+      put(level + 1, p, Poseidon.hash([
+        tree.getNode(level, BigInt(2 * p)),
+        tree.getNode(level, BigInt(2 * p + 1)),
+      ]));
+    }
+    width = parents;
+  }
+}
 
 /**
  * Compute the Poseidon hash of a formulary leaf (6 Fields → 1 hash).
@@ -206,6 +250,83 @@ export interface FormularyServiceState {
 
 const DEFAULT_PAGE_SIZE = 100;
 
+/**
+ * A reusable build of the formulary tree.
+ *
+ * Loading the formulary is the sequencer's longest boot step and it produces the same tree
+ * every time for the same input, so it is worth keeping. Measured on the full 32,768-drug set
+ * the cost splits roughly: one `hashString` per NDC about a sixth, one six-field leaf hash per
+ * drug about a half, and the tree build the rest. The cached nodes cover the last two, so a hit
+ * removes about five sixths of the work.
+ *
+ * **What is deliberately not cached: the NDC hashes.** An earlier version of this cached them
+ * too, to remove the remaining sixth, and a test caught why that was wrong. The digest below
+ * binds the cache to the *records*, and a Poseidon hash cannot be checked with SHA-256, so a
+ * cached `ndcHash` could only be verified by recomputing it — which is the cost being avoided.
+ * A sampled check left the unsampled entries unverified, and a wrong `ndcHash` is not a harmless
+ * error: it is a lookup key, so it would make `getDrug` return a different drug's tier and copay
+ * for a given NDC while the committed root stayed perfectly valid. That is an adjudication
+ * fault that no root check would ever surface. Recomputing them costs about a sixth of the load
+ * and removes the question entirely, so that is what happens.
+ *
+ * This tree is a commitment, so a stale or tampered cache would not fail loudly, it would
+ * silently commit the sequencer to a formulary nobody can produce a valid witness against.
+ * Three checks, all in `verifyRestoredTree` and `cacheIsUsableFor`:
+ *
+ *   1. `inputDigest` must match a digest recomputed from the records now being loaded. SHA-256
+ *      over the raw fields that determine every leaf, so one cheap pass binds the cache to this
+ *      exact input: a changed price, tier, copay, prior-auth flag or day supply invalidates it.
+ *   2. The root recomputed from the restored nodes must equal the `root` the cache claims,
+ *      which catches a truncated or corrupted node set.
+ *   3. A sample of leaves, plus the last leaf specifically, is recomputed from the records with
+ *      `computeFormularyLeafHash` and compared against the restored level-0 nodes. This is what
+ *      catches nodes that do not correspond to the data even when the first two checks were
+ *      satisfied on purpose.
+ *
+ * Any failure logs and falls back to a full rebuild. The cache is an optimisation and is never
+ * trusted to be right.
+ */
+export interface FormularyTreeCache {
+  version: 1;
+  height: number;
+  drugCount: number;
+  /** SHA-256 over the leaf-determining fields of every record, in order. */
+  inputDigest: string;
+  /** The root this cache claims, checked against the nodes it carries. */
+  root: string;
+  /** level → index → Field, as decimal strings. */
+  nodes: Record<string, Record<string, string>>;
+}
+
+/** How many leaves to re-derive and check on a cache hit. Cheap, and probabilistically decisive. */
+const CACHE_LEAF_SAMPLE = 32;
+
+/** The record fields that determine a leaf. Anything else can change without invalidating the tree. */
+interface LeafDefiningRecord {
+  ndc: string;
+  classification: string;
+  tierLevel: number;
+  copayAmount: number;
+  requiresPriorAuth: boolean;
+  maxDaySupply: number;
+}
+
+/**
+ * Digest of the input that produced a tree. SHA-256, not Poseidon: this has to be cheap enough
+ * to compute on every boot, including the boots that then use the cache.
+ */
+export function formularyInputDigest(records: readonly LeafDefiningRecord[]): string {
+  // '|' separates fields and '~' terminates a record; neither occurs in an NDC code or in
+  // any of the numeric fields, so the encoding is unambiguous without escaping.
+  const h = createHash('sha256');
+  h.update('zkpcare-formulary-v1~');
+  for (const r of records) {
+    h.update(`${r.ndc}|${r.classification}|${r.tierLevel}|${r.copayAmount}|` +
+             `${r.requiresPriorAuth ? 1 : 0}|${r.maxDaySupply}~`);
+  }
+  return h.digest('hex');
+}
+
 export class FormularyService {
   /** All 32K drugs indexed by ndcHash */
   private drugsByNdcHash: Map<string, FormularyDrug> = new Map();
@@ -228,6 +349,12 @@ export class FormularyService {
   private leafIndexByNdcHash: Map<string, bigint> = new Map();
   /** Next available leaf index */
   private nextLeafIndex: bigint = 0n;
+  /** Digest of the records behind the current tree; the cache key. */
+  private inputDigest = '';
+  /** Whether the current tree was restored from a cache rather than built. */
+  private usedCache = false;
+  /** A root a checkpoint recorded, checked once the tree exists. See checkRootAgainstCheckpoint. */
+  private expectedRootFromCheckpoint: string | null = null;
 
   get drugCount(): number { return this.allDrugs.length; }
   get overlayCount(): number { return this.overlays.size; }
@@ -251,6 +378,17 @@ export class FormularyService {
   }
 
   /**
+   * The committed leaf for a drug. Needed to check a witness from `getWitness`, which is
+   * otherwise only half usable: the caller gets the path but has no way to get the value it
+   * proves.
+   */
+  getLeaf(ndcHash: string): Field | null {
+    const leafIndex = this.leafIndexByNdcHash.get(ndcHash);
+    if (leafIndex === undefined) return null;
+    return this.tree.getNode(0, leafIndex);
+  }
+
+  /**
    * Load the canonical formulary from raw NADAC records.
    * Called once at sequencer startup.
    */
@@ -268,7 +406,7 @@ export class FormularyService {
     maxQuantityPerFill: number;
     maxDaySupply: number;
     stepTherapyRequired: boolean;
-  }>): void {
+  }>, cache?: FormularyTreeCache | null): void {
     this.drugsByNdcHash.clear();
     this.allDrugs = [];
     this.byClassification.clear();
@@ -279,9 +417,20 @@ export class FormularyService {
     this.leafIndexByNdcHash.clear();
     this.nextLeafIndex = 0n;
 
-    for (const r of records) {
+    // Computed either way: it is cheap, it decides whether the cache may be used, and it goes
+    // into the cache this load writes.
+    this.inputDigest = formularyInputDigest(records);
+    this.usedCache = cache ? this.cacheIsUsableFor(cache, records.length) : false;
+
+    /** Leaf hashes in index order. Empty on a cache hit, where nothing is hashed. */
+    const leafHashes: Field[] = [];
+
+    for (let i = 0; i < records.length; i++) {
+      const r = records[i];
       const { genericName, strength, dosageForm } = parseDescription(r.description);
       const route = guessRoute(dosageForm);
+      // Always computed, never cached. See FormularyTreeCache for why: this is a lookup key,
+      // and a cached one could not be verified without recomputing it anyway.
       const ndcHash = hashString(r.ndc).toString();
 
       const drug: FormularyDrug = {
@@ -327,19 +476,135 @@ export class FormularyService {
       if (!this.byNamePrefix.has(prefix)) this.byNamePrefix.set(prefix, []);
       this.byNamePrefix.get(prefix)!.push(drug);
 
-      // Merkle tree — compute leaf hash and insert
-      const leafHash = computeFormularyLeafHash(
-        ndcHash,
-        r.classification,
-        r.tierLevel,
-        r.copayAmount,
-        r.requiresPriorAuth,
-        r.maxDaySupply,
-      );
-      this.tree.setLeaf(this.nextLeafIndex, leafHash);
+      // Collect the leaf hash; the tree is built in one pass after the loop, not per drug.
+      // Skipped entirely on a cache hit — this is the single most expensive step on the full set.
+      if (!this.usedCache) {
+        leafHashes.push(computeFormularyLeafHash(
+          ndcHash,
+          r.classification,
+          r.tierLevel,
+          r.copayAmount,
+          r.requiresPriorAuth,
+          r.maxDaySupply,
+        ));
+      }
       this.leafIndexByNdcHash.set(ndcHash, this.nextLeafIndex);
       this.nextLeafIndex++;
     }
+
+    if (this.usedCache && cache) {
+      // Restore, then prove the restored tree is the one this input describes. If any check
+      // fails the cache is discarded and the tree is rebuilt, because a wrong root here would
+      // not throw anywhere — it would commit the sequencer to a formulary no witness matches.
+      this.restoreTreeNodes(cache);
+      if (!this.verifyRestoredTree(cache, records)) {
+        console.warn(
+          '  [formulary] the cached tree did not match the data it claims to describe; ' +
+          'discarding it and rebuilding.',
+        );
+        this.usedCache = false;
+        this.rebuildTreeFromRecords(records);
+      }
+    } else {
+      buildTreeBottomUp(this.tree, leafHashes);
+    }
+
+    // Now that the tree exists, a root recorded by a checkpoint can actually be checked.
+    this.checkRootAgainstCheckpoint();
+  }
+
+  /**
+   * Rebuild the tree when a cache is rejected after the main loop has already run. Only the
+   * tree needs rebuilding: the drug objects and every index were built from the records, not
+   * from the cache, so they are already correct.
+   */
+  private rebuildTreeFromRecords(records: readonly LeafDefiningRecord[]): void {
+    this.tree = new MerkleTree(FORMULARY_TREE_HEIGHT);
+    buildTreeBottomUp(this.tree, records.map((r) => computeFormularyLeafHash(
+      hashString(r.ndc).toString(),
+      r.classification, r.tierLevel, r.copayAmount, r.requiresPriorAuth, r.maxDaySupply,
+    )));
+  }
+
+  /** Shape and digest checks. True when the cache may be restored. */
+  private cacheIsUsableFor(cache: FormularyTreeCache, drugCount: number): boolean {
+    const reasons: string[] = [];
+    if (cache.version !== 1) reasons.push(`version ${String(cache.version)}`);
+    if (cache.height !== FORMULARY_TREE_HEIGHT) reasons.push(`height ${cache.height}`);
+    if (cache.drugCount !== drugCount) reasons.push(`${cache.drugCount} drugs, loading ${drugCount}`);
+    if (cache.inputDigest !== this.inputDigest) reasons.push('the formulary data has changed');
+    if (!cache.nodes || !cache.root) reasons.push('no nodes');
+
+    if (reasons.length > 0) {
+      console.log('  [formulary] not using the cached tree: %s', reasons.join('; '));
+      return false;
+    }
+    return true;
+  }
+
+  private restoreTreeNodes(cache: FormularyTreeCache): void {
+    this.tree = new MerkleTree(FORMULARY_TREE_HEIGHT);
+    for (const [level, nodes] of Object.entries(cache.nodes)) {
+      const target: Record<string, Field> = (this.tree.nodes[Number(level)] ??= {});
+      for (const [index, value] of Object.entries(nodes)) {
+        target[index] = Field(value);
+      }
+    }
+  }
+
+  /** The two checks that cannot be satisfied by a cache that does not match the data. */
+  private verifyRestoredTree(
+    cache: FormularyTreeCache,
+    records: readonly LeafDefiningRecord[],
+  ): boolean {
+    if (this.tree.getRoot().toString() !== cache.root) return false;
+
+    // Re-derive a sample of leaves from the records and check them against what was restored.
+    const n = records.length;
+    if (n === 0) return true;
+    const step = Math.max(1, Math.floor(n / CACHE_LEAF_SAMPLE));
+    for (let i = 0; i < n; i += step) {
+      const r = records[i];
+      const expected = computeFormularyLeafHash(
+        hashString(r.ndc).toString(),
+        r.classification, r.tierLevel, r.copayAmount, r.requiresPriorAuth, r.maxDaySupply,
+      );
+      if (this.tree.getNode(0, BigInt(i)).toString() !== expected.toString()) return false;
+    }
+    // The last leaf specifically, because an off-by-one in the cached range would otherwise
+    // survive a sample that happens to skip it.
+    const last = records[n - 1];
+    const expectedLast = computeFormularyLeafHash(
+      hashString(last.ndc).toString(),
+      last.classification, last.tierLevel, last.copayAmount, last.requiresPriorAuth,
+      last.maxDaySupply,
+    );
+    return this.tree.getNode(0, BigInt(n - 1)).toString() === expectedLast.toString();
+  }
+
+  /** True when the last load restored a cached tree instead of building one. */
+  get treeCameFromCache(): boolean { return this.usedCache; }
+
+  /**
+   * The current tree, in a form that can be written to disk and passed back to `loadFromNadac`.
+   * Returns null before anything has been loaded.
+   */
+  exportTreeCache(): FormularyTreeCache | null {
+    if (this.allDrugs.length === 0 || !this.inputDigest) return null;
+    const nodes: Record<string, Record<string, string>> = {};
+    for (const [level, levelNodes] of Object.entries(this.tree.nodes)) {
+      const out: Record<string, string> = {};
+      for (const [index, value] of Object.entries(levelNodes)) out[index] = value.toString();
+      nodes[level] = out;
+    }
+    return {
+      version: 1,
+      height: FORMULARY_TREE_HEIGHT,
+      drugCount: this.allDrugs.length,
+      inputDigest: this.inputDigest,
+      root: this.tree.getRoot().toString(),
+      nodes,
+    };
   }
 
   // ─── Drug Lookup ─────────────────────────────────────────
@@ -595,11 +860,45 @@ export class FormularyService {
       }
     }
 
-    // Verify root integrity after restore
-    const rebuiltRoot = this.tree.getRoot().toString();
-    if (state.formularyRoot && rebuiltRoot !== state.formularyRoot) {
-      console.warn(`[Formulary] Root mismatch after restore: expected ${state.formularyRoot}, got ${rebuiltRoot}`);
+    /*
+     * Root integrity, deferred until there is something to check.
+     *
+     * This used to compare the checkpoint's root against `this.tree` right here, and it could
+     * never pass: the sequencer restores a checkpoint before it loads the formulary, so the
+     * tree is empty at this point and the comparison was always empty-root versus real-root.
+     * Every boot printed a mismatch naming two unrelated values, which is worse than no check,
+     * because a real mismatch would have looked exactly the same.
+     *
+     * So the expected root is kept and checked at the end of `loadFromNadac`, where the tree
+     * exists. Then it means what it says.
+     */
+    this.expectedRootFromCheckpoint = state.formularyRoot || null;
+    if (this.allDrugs.length > 0) this.checkRootAgainstCheckpoint();
+  }
+
+  /**
+   * Compare the built tree against the root a checkpoint recorded, if one did.
+   *
+   * A mismatch means the formulary this sequencer just loaded is not the formulary it was
+   * adjudicating against before the restart, so previously issued witnesses will not verify.
+   * It is reported and not thrown: refusing to boot would strand the node, and the operator
+   * needs the node up to publish a corrected formulary.
+   */
+  private checkRootAgainstCheckpoint(): void {
+    const expected = this.expectedRootFromCheckpoint;
+    if (!expected) return;
+    const actual = this.tree.getRoot().toString();
+    if (actual === expected) {
+      this.expectedRootFromCheckpoint = null;
+      return;
     }
+    console.warn(
+      '[Formulary] the loaded formulary does not match the one this checkpoint was taken ' +
+      'against. Checkpoint root %s, loaded root %s over %d drugs. Witnesses issued before the ' +
+      'restart will not verify against this tree.',
+      expected, actual, this.allDrugs.length,
+    );
+    this.expectedRootFromCheckpoint = null;
   }
 
   // ─── Internal ────────────────────────────────────────────
