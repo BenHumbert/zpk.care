@@ -84,6 +84,52 @@ Certification is required before the software processes its first controlled-sub
 
 ---
 
+## Product
+
+### PRD-1 — A lost phone permanently destroys the wallet, the claims history and the accumulator
+
+| | |
+|---|---|
+| **Severity** | high. Re-rated from the audit's medium, which judged it as dead code rather than as a benefit-entitlement failure |
+| **Status** | open. Design agreed 2026-10-16, card writing moves into phase A |
+
+There is no recovery path today. The inputs work and the proof exists; every piece of plumbing between them is broken or uncalled.
+
+| Piece | State |
+|---|---|
+| `reconstructAccumulator`, the source for carrying totals across | works, verified live |
+| `WalletMigrationProgram`, proves identity continuity | correct, never compiled at runtime |
+| `WalletMigrationService` | no runtime caller |
+| `exportRecoveryCard` | **never called, so no card is ever written** |
+| Browser backup tab | encrypts the literal `server-managed`, so the artifact is worthless |
+| Browser restore | PBKDF2 against the server's scrypt, incompatible regardless |
+| `EnrollmentService.processMigration` | reads a field absent from `TokenRecord`; would throw |
+
+**The harm, in the plan's own numbers.** With a 500 dollar deductible and an 8,000 dollar out-of-pocket maximum, a member whose accumulator does not carry over pays the deductible a second time and loses their out-of-pocket progress. A dropped phone becomes a 500 dollar charge plus the rest of the year's exposure. Accumulators are contractual, so this produces a regulatory complaint rather than a support ticket.
+
+**Design (owner, 2026-10-16): one card written at enrollment, two functions, different protection.** The card is written during the enrollment tap, which is the only clean moment, because that is when the key is generated and in memory. This is why it belongs in phase A and not phase C: a card cannot be issued retroactively for a key that is already gone.
+
+| Half | Contents | Protection | Purpose |
+|---|---|---|---|
+| Public attestation | wallet ID, credential commitment, lifecycle, expiry, nonce, sequencer signature | none, and none needed | Proves coverage at a pharmacy. A thief who reads it learns a wallet ID, which is already public. This is `nfc-attestation.ts`, already built |
+| Recovery blob | one **share** of the enrollment key | PIN typed on the phone, plus an online release of the second share | Restores the wallet onto a new phone. This is `recovery-card.ts`, built but unwired |
+
+**The trap to avoid: the card must not be a bearer instrument,** for medication or for the wallet. If the card alone dispenses, a stolen card dispenses, which is diversion for controlled substances and fraud for specialty drugs. If the card alone restores the wallet, a stolen card is an account takeover. So access is tiered:
+
+| Situation | Presented | Allowed |
+|---|---|---|
+| Normal | Phone, biometric, QR | Everything: any medication, finalize settlement, identity disclosure for a controlled script |
+| Emergency, no phone | Card alone | Non-controlled only, dispensing against the already-priced script. **The pharmacy checks photo identification against the name it already holds from the script.** Settlement finalizes on the pharmacy's attestation instead of the member's |
+| Recovery | Card plus PIN on a new phone | Restores the wallet and carries the accumulator |
+
+The emergency path needs no new cryptography. The pharmacy already has the patient's name from the script that arrived through its normal channel, so checking photo identification against it is the control pharmacies already apply every day. A stolen card with no matching identification gets nothing.
+
+**Why the split share matters, and why it is affordable here.** A passive card holding ciphertext with its salt and initialization vector beside it permits an **offline** brute force of a short PIN, the same flaw as the provider badge. The asymmetry that solves it: the point-of-sale path must work offline, but **recovery can require connectivity**, because the member is setting up a new phone when they use it. So the card carries one share and the second is released online, rate-limited. A stolen card alone yields nothing to unlimited offline compute.
+
+**Two further requirements.** Issue **two cards at enrollment**, one kept at home, because losing the card and the phone together is otherwise unrecoverable; this matches the two-authenticator rule for providers. And the card must be **revocable**, because a member who rotates their enrollment key after a suspected compromise would otherwise leave an old card as a live path back into the wallet. The attestation format already carries a nonce intended as the revocation handle.
+
+---
+
 ## Technical
 
 Full detail in `docs/AUDIT.md`. Listed here because each needs a decision or carries release risk.
