@@ -286,6 +286,57 @@ LAN address refuses; an allowlisted browser origin is echoed back exactly; a for
 header at all; a node's `/rpc` is refused. A port that is not listening is reported as skipped, never
 as a pass, because a closed port proves nothing about the policy it would have applied.
 
+**A11 implementation record.** Done 2026-10-17.
+
+*Six routes, one Set.* `interactive-routes.ts` already had a `reg()` helper that applies
+`adminOnly` to anything listed in `ADMIN_ROUTES`, so this item is mostly a question of what belongs
+in that list. Added: `/interactive/state` (A-13), `update-provider-network` (A-19), and the four
+ledger controls `force-batch`, `save-checkpoint`, `retry-batch` and `simulate-batch-failure`
+(ENG-11). The harness had already proved `force-batch` open on a live run — it asserts a refusal
+and received a 200.
+
+*Gating the dump costs nothing, because it had no production client.* `GET /interactive/state`
+returns 137,035 bytes of identity data. Every reader is in `visualizer/src` or `visualizer/dist`,
+and the production launcher serves neither; it serves `dashboard-leviathan` and the entity
+dashboards, none of which touch the route. So this is another case where the dangerous surface had
+no user in the product — the same shape as A2's proxies, with the opposite answer, because here
+the non-production reader is a real tool someone runs.
+
+*Departure from the item, stated plainly: the fixture PII is not stripped.* The item says
+"admin-gate `/interactive/state` **and strip identity-linked fields from it**". I did the first and
+not the second. The reason is what the fields are for. `demoData.members` carries each fixture
+member's name, cardholder ID, date of birth, gender and home address, and the visualizer's member
+screen **displays exactly those** — it is the screen that shows an operator what PHI looks like
+before it is hashed, which is the thing the product claims to protect. Three facts follow:
+
+- these are fictional fixture records in every build, not real members, so the data is not PHI in
+  the sense I1 means;
+- stripping them breaks the tool that exists to explain the model, and does not remove a single
+  byte from the binary, because `MEMBERS` is compiled in either way;
+- the fix that actually removes them is **F1**, relocating fixtures to a test-only tree with an
+  import-graph test, which the plan already owns.
+
+So gating is the real mitigation here and stripping would be a cosmetic trade against a working
+tool. Recorded rather than quietly skipped. If the owner wants the fields masked anyway, the member
+picker reads `index`, `firstName`, `lastName`, `cardholderId` and `familyId`, so masking the
+cardholder ID to its last four characters is the one change that costs nothing.
+
+*The harness had to be split, and the split is the interesting part.* It reads
+`/interactive/state` for two unrelated reasons. Readiness, prescription status and enrolled-member
+checks are the harness acting as an operator, and those now carry the admin token through new
+`httpAdmin`/`quietAdmin` clients. The PHI sweep near the end reads it **deliberately
+unauthenticated**, because its job is to measure what an outsider can collect. That call keeps the
+bare client, and a refusal there is now the result we want. Switching it with the others would have
+made the sweep silently start passing for the wrong reason, which is the kind of change that turns
+an acceptance test into decoration.
+
+*Acceptance test.* `tests/interactive-admin-gates.test.ts`, 13 tests, reading the registration
+table rather than making requests, because the question is which routes carry the flag. It asserts
+each newly gated route is in the set, that the pre-existing gates survived, that the console stream
+stays open, and three things that keep the test honest: that every path in the set is a path this
+file actually registers (a typo in the Set gates nothing and nothing complains), that the helper
+still consults the set at all, and that the harness's PHI sweep still uses the **bare** client.
+
 **A8 implementation record.** Done 2026-10-17. **Closes critical A-4.**
 
 *The cause is sharper than the finding states, and the sharper version changes the fix.* The

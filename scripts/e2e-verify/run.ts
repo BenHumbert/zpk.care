@@ -58,6 +58,18 @@ const trace = new Trace(OUT);
 const http = makeHttp(trace);
 const quiet = makeHttp(new Trace(path.join(OUT, 'polls')));   // polling noise goes to a side trace
 const bearer = { Authorization: `Bearer ${ADMIN}` };
+/*
+ * A11 admin-gated `GET /interactive/state`, and this harness uses it two different ways.
+ *
+ * Bookkeeping reads — readiness, prescription status, enrolled members — are the harness acting as
+ * an operator, so they carry the admin token through these clients.
+ *
+ * The PHI sweep near the end reads it **deliberately unauthenticated**, because its job is to
+ * measure what an outsider can collect. That call keeps using the bare client, and a refusal
+ * there is the result we want.
+ */
+const httpAdmin = makeHttp(trace, { headers: bearer });
+const quietAdmin = makeHttp(new Trace(path.join(OUT, 'polls')), { headers: bearer });
 const RUN = Date.now().toString(36).toUpperCase();
 
 // Fictional member. Nothing here refers to a real person.
@@ -69,6 +81,15 @@ const DECOY = { employeeId: `E2E-${RUN}-2`, familyId: `FAM-${RUN}-B`, firstName:
 
 const results: Record<string, any> = { run: RUN, startedAt: new Date().toISOString(), claims: [] as any[], findings: [] as any[] };
 const unwrap = (j: any) => (j && typeof j === 'object' && 'ok' in j && 'data' in j ? j.data : j);
+
+/**
+ * JSON.stringify refuses BigInt, and several sequencer RPC results carry them. The PHI sweep at
+ * the end of this run used to crash with "Do not know how to serialize a BigInt" before it had
+ * searched anything, so the run reported nothing for its final and most important phase. The
+ * fatal-error handler at the bottom of this file already used this replacer; the sweep did not.
+ */
+const jsonSafe = (value: unknown): string =>
+  JSON.stringify(value, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)) ?? '';
 async function rpc(method: string, params: Record<string, unknown> = {}, auth = true) {
   const r = await http('POST', `${SEQ}/rpc`, { jsonrpc: '2.0', id: 1, method, params }, auth ? bearer : {});
   const parsed = r.text ? l2Parse(r.text) as any : null;
@@ -117,7 +138,7 @@ async function main() {
 
   // ── 1. Readiness ────────────────────────────────────────────
   trace.begin('harness', 'Wait until the network has compiled every circuit');
-  const ready = await poll(quiet, `${SEQ}/interactive/state`, j => j?.compiled === true, 1_800_000, 10_000);
+  const ready = await poll(quietAdmin, `${SEQ}/interactive/state`, j => j?.compiled === true, 1_800_000, 10_000);
   trace.check('Adjudication service compiled all 10 circuits', ready.json?.compiled === true, true, ready.json?.compiled);
   const status = await rpc('l2_getStatus', {}, false);
   results.vkCommitment = status.result?.vkCommitment;
@@ -317,7 +338,7 @@ async function main() {
   results.secrets = { enrollmentKey, preimageFields: dev?.preimageFields, enrollmentKeyHash: hashString(enrollmentKey).toString() };
 
   // ── 8. Prescriptions and fills ──────────────────────────────
-  const st = await http('GET', `${SEQ}/interactive/state`);
+  const st = await httpAdmin('GET', `${SEQ}/interactive/state`);
   const meds = (st.json?.demoData?.medications ?? st.json?.medications ?? []) as any[];
   const med = meds.find(m => m.active !== false && !m.requiresPriorAuth && !m.stepTherapyRequired && !m.deaSchedule && (m.maxQuantityPerFill ?? 999) >= 30) ?? meds[0];
   const ndcRaw = String(med.ndc).replace(/-/g, '');
@@ -362,7 +383,7 @@ async function main() {
       prescriptionId = sp.json?.prescriptionId;
       if (!prescriptionId) {
         const isMine = (x: any) => x.id === rxId || x.rxId === rxId || x.prescriptionId === rxId;
-        const found = await poll(quiet, `${SEQ}/interactive/state`, j => (j?.prescriptions ?? []).some((x: any) => isMine(x) && x.status === 'ADJUDICATED'), 900_000, 5000);
+        const found = await poll(quietAdmin, `${SEQ}/interactive/state`, j => (j?.prescriptions ?? []).some((x: any) => isMine(x) && x.status === 'ADJUDICATED'), 900_000, 5000);
         const p = (found.json?.prescriptions ?? []).find(isMine);
         prescriptionId = p?.id ?? p?.prescriptionId;
       }
@@ -436,7 +457,7 @@ async function main() {
   const oon = await http('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: outIdx, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId: oonRx });
   let oonStatus: string | undefined = oon.json?.status;
   if (oon.status === 504 || (!oon.json?.error && !oonStatus)) {
-    const f = await poll(quiet, `${SEQ}/interactive/state`, j => (j?.prescriptions ?? []).some((x: any) => x.id === oonRx && x.status), 600_000, 5000);
+    const f = await poll(quietAdmin, `${SEQ}/interactive/state`, j => (j?.prescriptions ?? []).some((x: any) => x.id === oonRx && x.status), 600_000, 5000);
     oonStatus = (f.json?.prescriptions ?? []).find((x: any) => x.id === oonRx)?.status;
   }
   const oonName = prescribers[outIdx] ? `${prescribers[outIdx].firstName ?? ''} ${prescribers[outIdx].lastName ?? ''}`.trim() : `#${outIdx}`;
@@ -566,8 +587,8 @@ async function main() {
   };
   const sources: Array<[string, string]> = [];
   sources.push(['sequencer /interactive/state', (await http('GET', `${SEQ}/interactive/state`)).text]);
-  for (const m of ['l2_getClaimsByMember', 'l2_getReceiptsByWallet', 'l2_getMessagesByWallet']) sources.push([`sequencer RPC ${m}`, JSON.stringify((await rpc(m, { walletId }, false)).result ?? '')]);
-  sources.push(['sequencer RPC l2_getAuditLog', JSON.stringify((await rpc('l2_getAuditLog', {}, false)).result ?? '')]);
+  for (const m of ['l2_getClaimsByMember', 'l2_getReceiptsByWallet', 'l2_getMessagesByWallet']) sources.push([`sequencer RPC ${m}`, jsonSafe((await rpc(m, { walletId }, false)).result ?? '')]);
+  sources.push(['sequencer RPC l2_getAuditLog', jsonSafe((await rpc('l2_getAuditLog', {}, false)).result ?? '')]);
   sources.push(['insurer /claims/member', (await http('GET', `${INS}/claims/member/${walletId}`)).text]);
   sources.push(['insurer /roster', (await insAdmin('GET', '/roster')).text]);
   const walk = (dir: string, label: string) => {

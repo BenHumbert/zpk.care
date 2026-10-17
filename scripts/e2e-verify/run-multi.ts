@@ -60,6 +60,18 @@ function lane(name: string) {
   return { t, http: makeHttp(t) };
 }
 const quiet = makeHttp(new Trace(path.join(OUT, '_polls')));
+/*
+ * A11 admin-gated `GET /interactive/state`, and this harness uses it two different ways.
+ *
+ * Bookkeeping reads — readiness, prescription status, enrolled members — are the harness acting as
+ * an operator, so they carry the admin token through these clients.
+ *
+ * The PHI sweep near the end reads it **deliberately unauthenticated**, because its job is to
+ * measure what an outsider can collect. That call keeps using the bare client, and a refusal
+ * there is the result we want.
+ */
+const httpAdmin = makeHttp(new Trace(path.join(OUT, '_admin')), { headers: bearer });
+const quietAdmin = makeHttp(new Trace(path.join(OUT, '_polls')), { headers: bearer });
 const main = lane('main');
 const results: Record<string, any> = { run: RUN, startedAt: new Date().toISOString(), employers: {}, members: {}, claims: [], invariant: [], findings: [] as any[] };
 
@@ -176,7 +188,7 @@ async function enrollMember(p: Person, token: { tokenId: string; tokenPIN: strin
   let registered = false;
   for (const start = Date.now(); Date.now() - start < 900_000;) {
     const rr = (await rpc('l2_getReceiptsByWallet', { walletId }, quiet)).result;
-    const st = (await quiet('GET', `${SEQ}/interactive/state`)).json;
+    const st = (await quietAdmin('GET', `${SEQ}/interactive/state`)).json;
     const inAdj = (st?.enrolledMembers ?? []).some((m: any) => m.walletId === walletId);
     if ((rr?.receipts ?? rr ?? []).length > 0 && inAdj) { registered = true; break; }
     if (reg.status >= 400 && reg.status !== 504 && !/timeout/i.test(String(reg.json?.error ?? ''))) break;
@@ -212,7 +224,7 @@ async function fileClaim(memberKey: string, walletId: string, ndcHash: string, c
   let prescriptionId: string | undefined = sp.json?.prescriptionId;
   const stillRunning = sp.status === 504 || /timeout/i.test(String(sp.json?.error ?? ''));
   if (!prescriptionId && (!sp.json?.error || stillRunning)) {
-    const f = await poll(quiet, `${SEQ}/interactive/state`, j => (j?.prescriptions ?? []).some((x: any) => isMine(x) && x.status === 'ADJUDICATED'), 900_000, 4000);
+    const f = await poll(quietAdmin, `${SEQ}/interactive/state`, j => (j?.prescriptions ?? []).some((x: any) => isMine(x) && x.status === 'ADJUDICATED'), 900_000, 4000);
     prescriptionId = (f.json?.prescriptions ?? []).find(isMine)?.id;
   }
   const prescribeMs = Date.now() - tp;
@@ -254,7 +266,7 @@ async function mainFlow() {
   if (!ADMIN) throw new Error('Set ZKTRIDENT_ADMIN_TOKEN');
   const t = main.t, http = main.http;
   t.begin('harness', 'Wait for the network');
-  const ready = await poll(quiet, `${SEQ}/interactive/state`, j => j?.compiled === true, 2_400_000, 10_000);
+  const ready = await poll(quietAdmin, `${SEQ}/interactive/state`, j => j?.compiled === true, 2_400_000, 10_000);
   t.check('All circuits compiled', ready.json?.compiled === true, true, ready.json?.compiled);
   await checkInvariant('boot (seed providers provisioned)', []);
 
@@ -298,7 +310,7 @@ async function mainFlow() {
   await checkInvariant('3 concurrent registrations', enrolled);
 
   // Drug choice.
-  const st = (await http('GET', `${SEQ}/interactive/state`)).json;
+  const st = (await httpAdmin('GET', `${SEQ}/interactive/state`)).json;
   const med = (st?.demoData?.medications ?? []).find((m: any) => m.active !== false && !m.requiresPriorAuth && !m.stepTherapyRequired && !m.deaSchedule && (m.maxQuantityPerFill ?? 999) >= 30);
   const ndcHash = hashString(String(med.ndc).replace(/-/g, '')).toString();
   const copay = BigInt(med.currentCopayAmountCents ?? med.copayAmountCents);
@@ -354,7 +366,7 @@ async function verifyAll(credentialWallet: string, people: Person[]) {
       t.check(`Leaf ${ce.leafIndex}: recomputed root equals the claim root`, h.toString() === cp.root && cp.root === rootNow, rootNow, h.toString());
     }
     const recon = (await rpc('l2_reconstructAccumulator', { walletId: m.walletId })).result;
-    const eng = ((await http('GET', `${SEQ}/interactive/state`)).json?.enrolledMembers ?? []).find((x: any) => x.walletId === m.walletId)?.accumulator;
+    const eng = ((await httpAdmin('GET', `${SEQ}/interactive/state`)).json?.enrolledMembers ?? []).find((x: any) => x.walletId === m.walletId)?.accumulator;
     t.check(`${m.walletId.slice(0, 10)}…: accumulator rebuilt from the ledger = the engine's totals (what NFC recovery relies on)`,
       String(recon?.oopPaidCents) === String(eng?.oopPaidCents) && String(recon?.deductiblePaidCents) === String(eng?.deductiblePaidCents),
       { engineOop: eng?.oopPaidCents, engineDeductible: eng?.deductiblePaidCents }, { ledgerOop: String(recon?.oopPaidCents), ledgerDeductible: String(recon?.deductiblePaidCents), claims: String(recon?.claimCount) });
@@ -450,19 +462,19 @@ async function resumeFromMembers(peopleTemplate: Person[], _planId: string) {
     results.members[p.key] = { employer: p.employer, port: p.port, walletId, secrets: { enrollmentKey, preimage: dev?.preimageFields ?? [] } };
     wallets[p.key] = walletId;
     // Is the member known to the adjudication engine? If not, send the same call the device makes.
-    const st = (await http('GET', `${SEQ}/interactive/state`)).json;
+    const st = (await httpAdmin('GET', `${SEQ}/interactive/state`)).json;
     if (!(st?.enrolledMembers ?? []).some((m: any) => m.walletId === walletId)) {
       results.findings.push({ id: `adjudication-registration-${p.key}`, severity: 'medium', title: 'Device registered on chain but not with the adjudication engine', evidence: `${p.key}: the credential mint lost the race 4 times during concurrent onboarding; the member node treats this step as non-critical and does not retry.` });
       t.note(`${p.key} is on chain but missing from the adjudication engine — re-sending /interactive/register-member as the device would`);
       await http('POST', `${SEQ}/interactive/register-member`, { walletId, preimageFields: dev?.preimageFields, displayName: `Member device ${p.port}` });
-      const ok = await poll(quiet, `${SEQ}/interactive/state`, j => (j?.enrolledMembers ?? []).some((m: any) => m.walletId === walletId), 600_000, 4000);
+      const ok = await poll(quietAdmin, `${SEQ}/interactive/state`, j => (j?.enrolledMembers ?? []).some((m: any) => m.walletId === walletId), 600_000, 4000);
       t.check(`${p.key} registered with the adjudication engine after the retry`, !ok.timedOut, true, !ok.timedOut);
     }
   }
   const enrolled = Object.values(wallets);
   await checkInvariant('resume (4 members)', enrolled);
 
-  const st = (await http('GET', `${SEQ}/interactive/state`)).json;
+  const st = (await httpAdmin('GET', `${SEQ}/interactive/state`)).json;
   // Expected totals start from what the engine already holds for each member.
   for (const [k, w] of Object.entries(wallets)) {
     const m = (st?.enrolledMembers ?? []).find((x: any) => x.walletId === w);

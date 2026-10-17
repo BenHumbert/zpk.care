@@ -78,6 +78,32 @@ export function registerInteractiveRoutes(
     '/interactive/update-formulary',
     '/interactive/plan-year-rollover',
     '/interactive/reset',
+
+    /*
+     * Added by phase A item A11.
+     *
+     * `/interactive/state` — finding A-13. Open, and 137,035 bytes measured on a live run: every
+     * enrolled member's wallet ID beside their display name, employee ID and family ID, their
+     * accumulators, their portable credential JSON and attestations, prescriptions linking a
+     * wallet to a drug, and the fixture members' names, cardholder IDs, dates of birth and home
+     * addresses. One unauthenticated GET returned all of it. No production dashboard reads this
+     * route; the readers are the visualizer, which the production launcher does not serve.
+     *
+     * `update-provider-network` — finding A-19. Admin-class work on an open route: a per-member
+     * cascade that rewrites every member's eligibility and submits a proof for each. Its sibling
+     * `update-formulary` was already gated, which is what made the omission visible.
+     *
+     * The batch and checkpoint controls — ENG-11. `force-batch` was confirmed open on a live run
+     * by the e2e harness, which asserts it should be refused and got a 200. A caller who can
+     * force batches, retry them, simulate failures or write checkpoints controls when and whether
+     * the ledger advances.
+     */
+    '/interactive/state',
+    '/interactive/update-provider-network',
+    '/interactive/force-batch',
+    '/interactive/save-checkpoint',
+    '/interactive/retry-batch',
+    '/interactive/simulate-batch-failure',
   ]);
 
   // Helper: register route with automatic admin gating for Tier 3 routes
