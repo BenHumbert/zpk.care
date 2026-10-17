@@ -43,6 +43,7 @@ import {
   buildAgreementTerms,
   verifyAttestationSignature,
   generateAgreementDocx,
+  deriveInsurerKeypair,
 } from '../../onboarding/employer-attestation.js';
 
 // ─── Shared Application Store (persisted to stateDir) ───────
@@ -156,14 +157,10 @@ const ED25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'he
  * The signing seed should be configured via environment variable in production.
  */
 function insurerSign(message: Buffer, signingSecret: string): { signature: string; publicKeyHex: string } {
-  if (!signingSecret) throw new Error('No insurer signing secret configured');
-  const seed = createHash('sha256').update('zkpcare-insurer-signing:' + signingSecret).digest();
-  const pkDer = Buffer.concat([ED25519_PKCS8_PREFIX, seed]);
-  const privateKey = createPrivateKey({ key: pkDer, format: 'der', type: 'pkcs8' });
+  // Derivation lives in employer-attestation.ts so the signer and anything that needs to pin the
+  // public half cannot drift apart.
+  const { privateKey, publicKeyHex } = deriveInsurerKeypair(signingSecret);
   const sig = ed25519Sign(null, message, privateKey);
-  const pubKey = createPublicKey(privateKey);
-  const spkiDer = pubKey.export({ type: 'spki', format: 'der' });
-  const publicKeyHex = Buffer.from(spkiDer).subarray(12).toString('hex');
   return { signature: Buffer.from(sig).toString('hex'), publicKeyHex };
 }
 
@@ -634,11 +631,24 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
         return server.sendResponse(res, 403, false, undefined, 'Invalid employer signature');
       }
 
-      // Insurer counter-signs with dedicated signing key
+      /*
+       * Insurer counter-signs with its **dedicated** signing seed (A9, finding A-14).
+       *
+       * This line read `server.getConfig().adminToken`, while the helper's own comment said "NOT
+       * the admin token" — the helper was right and the caller was wrong. The admin token is given
+       * to every child node at boot and is `admin123` in unsecure mode, so anyone holding it could
+       * counter-sign as the insurer. Refusing to sign when the two are the same is a guard against
+       * a deployment wiring them back together.
+       */
       const message = buildAttestationMessage(attestationBase);
-      const signingSecret = server.getConfig().adminToken;
+      const signingSecret = server.getConfig().insurerSigningSeed;
       if (!signingSecret) {
-        return server.sendResponse(res, 500, false, undefined, 'Insurer signing not configured');
+        return server.sendResponse(res, 500, false, undefined,
+          'Insurer signing is not configured: set ZKTRIDENT_INSURER_SIGNING_SEED.');
+      }
+      if (signingSecret === server.getConfig().adminToken) {
+        return server.sendResponse(res, 500, false, undefined,
+          'Insurer signing seed must not be the admin token. See A-14.');
       }
 
       let insurerSig: { signature: string; publicKeyHex: string };

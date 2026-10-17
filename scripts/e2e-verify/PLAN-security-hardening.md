@@ -286,6 +286,61 @@ LAN address refuses; an allowlisted browser origin is echoed back exactly; a for
 header at all; a node's `/rpc` is refused. A port that is not listening is reported as skipped, never
 as a pass, because a closed port proves nothing about the policy it would have applied.
 
+**A9, third clause: the insurer gets a signing key of its own.** Done 2026-10-17. Closes A-29 and
+the sharpest part of A-14.
+
+*Two defects that compounded into an employer attestation chain with no integrity at all.*
+
+**A-14's sharpest edge.** Employer attestations were counter-signed with `ZKTRIDENT_ADMIN_TOKEN`.
+A bearer token reused as a signing seed is worse than one that is merely shared: a bearer token is
+something you *present*, a signing key is what makes statements *attributable to you*. That token
+is handed to all four child nodes at boot and is the literal string `admin123` in unsecure mode,
+so anyone holding it could counter-sign as the insurer. The signing helper's own doc comment
+already read "Uses a deterministic key derived from a dedicated signing seed (NOT the admin
+token)" — the helper was right and the **caller** was wrong, which is the kind of defect a code
+review catches and a reading of the comment does not.
+
+**A-29.** The sequencer verified the counter-signature against `att.insurerPublicKeyHex`, the key
+carried inside the attestation, so the signed document supplied its own trust anchor. Anyone could
+generate a keypair, sign an employer attestation and have `l2_registerEmployer` accept it — which
+is how a tenant comes into existence.
+
+Together: forge a keypair, sign an attestation, register a tenant. Neither defect required a
+secret of any kind.
+
+*The trust chain, now that it is real.* The insurer is the attestation authority, so its key is
+the one anchor that has to be pinned out of band. The sequencer pins it and **refuses employer
+registration when it is unset**, rather than accepting a self-signed attestation. The boot
+generates the seed and derives the pinned public half **in one place**, hands the seed only to the
+insurer child and the public key only to the sequencer, so the two cannot drift apart.
+
+`verifyEmployerSignature` still reads the employer's key from the attestation, and that is now
+documented rather than silent: it is sound **only** beside the pinned insurer check, because the
+insurer verifies the employer's signature against the public key in its own approved application
+record before it counter-signs. A caller that checks only the employer signature is checking
+nothing, which is why the sequencer checks both.
+
+*A caveat a deployment needs to know.* An unconfigured seed is generated randomly per boot, so a
+default boot is correct rather than merely convenient — but a new seed means a new public key, which
+invalidates attestations signed under the previous one. Any deployment that keeps employer
+attestations across restarts must set `ZKTRIDENT_INSURER_SIGNING_SEED`. Said in the boot's own
+header text as well as here.
+
+*What remains of A-14, stated so the finding is not read as closed.* The same bearer token is
+still the sequencer's admin credential, every node's own admin credential, and is still shipped to
+all four children at boot. Compromising the most exposed node still yields the credential that
+administers the others. Splitting those into per-node credentials, with the sequencer accepting a
+scoped token per role rather than one that opens every admin method, is the rest of this item.
+The dead Ed25519 admin-key registry already in `l2-rpc-server.ts` is the designed mechanism for it.
+
+*Acceptance test.* `tests/insurer-signing-key.test.ts`, 17 tests. The two that carry the findings:
+a key derived from `admin123` no longer verifies as the insurer, and an attacker's self-signed
+attestation is refused against the pinned key **while verifying perfectly against its own author's
+key** — which proves the refusal comes from the anchor and not from a malformed object. Plus three
+structural checks that the wiring holds: the sequencer refuses with no pinned key and passes the
+pinned one, the insurer refuses to sign with the admin token and the old line is gone, and the boot
+derives the pinned key from the same seed it gives the insurer.
+
 **A12 implementation record.** Done 2026-10-17. Three broken features, not two.
 
 *Credential generation (A-24, ENG-23).* The proof pool deserialises each argument using **its own

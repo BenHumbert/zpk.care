@@ -32,6 +32,9 @@
  *   ZKTRIDENT_PARTITION_INDEX  — This sequencer's partition index (default: 0)
  *   ZKTRIDENT_SEED_PEERS       — Comma-separated peer URLs (default: none)
  *   ZKTRIDENT_ADMIN_TOKEN      — Bearer token for admin RPC methods (default: none)
+ *   ZKTRIDENT_INSURER_SIGNING_SEED — Insurer's Ed25519 attestation seed. NOT the admin
+ *                                token (A-14). Random per boot if unset, which
+ *                                invalidates attestations from a previous run.
  *   ZKTRIDENT_GOSSIP_SECRET    — HMAC-SHA256 shared secret for gossip auth (default: none)
  *   ZKTRIDENT_CHECKPOINT_DIR   — Directory for checkpoint files (default: ./l2-data)
  *   ZKTRIDENT_MAX_CHECKPOINTS  — Max checkpoint files to keep (default: 10)
@@ -68,6 +71,8 @@ import type { PartitionConfig } from '../l2/l2-partition.js';
 import type { VizEvent } from '../l2/l2-rpc-server.js';
 import http from 'http';
 import { resolveBindHost, resolveAllowedOrigins } from '../security/network-policy.js';
+import crypto from 'crypto';
+import { insurerPublicKeyFromSeed } from '../onboarding/employer-attestation.js';
 
 // ─── Environment Parsing ──────────────────────────────────────
 
@@ -85,6 +90,26 @@ const seedPeers = env.ZKTRIDENT_SEED_PEERS
 const unsecureMode = env.ZKTRIDENT_UNSECURE === 'true';
 const adminToken = unsecureMode ? (env.ZKTRIDENT_ADMIN_TOKEN ?? 'admin123') : env.ZKTRIDENT_ADMIN_TOKEN;
 const gossipSecret = env.ZKTRIDENT_GOSSIP_SECRET;
+
+/*
+ * The insurer's attestation signing seed, and its public half — phase A item A9, findings A-14
+ * and A-29.
+ *
+ * Employer attestations used to be counter-signed with the admin token, which every child node
+ * receives at boot and which is `admin123` in unsecure mode. And the sequencer verified the
+ * counter-signature against the key carried **inside** the attestation, so anyone could sign one
+ * with their own keypair and register an employer.
+ *
+ * Both halves are now generated here, in one place, because they have to agree: the insurer child
+ * gets the seed and the sequencer gets the public key to pin. Generated randomly when not
+ * configured, so a default boot is correct rather than convenient — but note that a random seed
+ * changes on every restart, which invalidates attestations signed under the previous one. A
+ * deployment that keeps employer attestations across restarts must set
+ * ZKTRIDENT_INSURER_SIGNING_SEED.
+ */
+const insurerSigningSeed = env.ZKTRIDENT_INSURER_SIGNING_SEED
+  ?? crypto.randomBytes(32).toString('base64url');
+const insurerAttestationPublicKeyHex = insurerPublicKeyFromSeed(insurerSigningSeed);
 const checkpointDir = env.ZKTRIDENT_CHECKPOINT_DIR ?? './l2-data';
 const maxCheckpoints = parseInt(env.ZKTRIDENT_MAX_CHECKPOINTS ?? '10', 10);
 const l2Only = (env.ZKTRIDENT_L2_ONLY ?? 'true') !== 'false';
@@ -132,6 +157,8 @@ const rpcOptions: Partial<L2RpcServerOptions> = {
   ...(adminToken ? { adminToken } : {}),
   ...(unsecureMode ? { unsecureMode: true } : {}),
   ...(hasDashboard ? { dashboardDir } : {}),
+  // A9: the insurer key the sequencer pins when verifying employer registrations.
+  insurerAttestationPublicKeyHex,
   // TLS is configuration, not code: set both paths and the server listens HTTPS. Left
   // unset it listens HTTP, which is why the default bind is loopback only.
   ...(env.ZKTRIDENT_TLS_CERT && env.ZKTRIDENT_TLS_KEY
@@ -702,6 +729,9 @@ async function main(): Promise<void> {
   console.log('  ── Boot Phase 1: Insurer (credentialing authority) ──');
   spawnEntity('insurer', 'start-insurer-nautilus.ts', 4004, {
     ...(adminToken ? { ZKTRIDENT_ADMIN_TOKEN: adminToken } : {}),
+    // A9: the insurer's own signing seed, which only the insurer gets. Its public half is pinned
+    // on the sequencer above, so the two cannot drift.
+    ZKTRIDENT_INSURER_SIGNING_SEED: insurerSigningSeed,
     ...(unsecureMode ? { ZKTRIDENT_UNSECURE: 'true' } : {}),
   });
 

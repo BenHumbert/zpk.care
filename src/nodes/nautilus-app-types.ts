@@ -89,6 +89,16 @@ export interface NautilusAppConfig {
   employerUrl?: string;
   /** Admin token for admin methods (unsecure mode / backward compat) */
   adminToken?: string;
+  /**
+   * The insurer's dedicated Ed25519 attestation signing seed — phase A item A9, finding A-14.
+   *
+   * Employer attestations used to be counter-signed with `adminToken`. A bearer token reused as a
+   * signing seed is worse than one that is merely shared: a bearer token is something you present,
+   * a signing key is what makes statements attributable to you. That token is handed to every
+   * child node at boot and is the literal string `admin123` in unsecure mode, so anyone holding it
+   * could counter-sign as the insurer.
+   */
+  insurerSigningSeed?: string;
   /** Authorized client Ed25519 public keys: Map<clientId, publicKeyHex>. When set, admin routes require Ed25519 signature. */
   authorizedClientKeys?: Map<string, string>;
   /** Display name for logging */

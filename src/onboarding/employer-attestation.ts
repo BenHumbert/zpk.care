@@ -26,7 +26,14 @@
  *   - Officer attestation with signer name + title in Ed25519 signed payload
  *   - Scroll/review confirmation per ESIGN §7001(c)(1)
  */
-import { createHash, createPublicKey, verify as ed25519Verify } from 'crypto';
+import {
+  createHash,
+  createPublicKey,
+  createPrivateKey,
+  timingSafeEqual,
+  verify as ed25519Verify,
+  type KeyObject,
+} from 'crypto';
 import { Poseidon, Encoding, Field } from 'o1js';
 import { hashString, dateToField } from '../zkp/hash-utils.js';
 import type { AgreementTerms, EmployerAttestation, EmployerApplication, BenefitPlanConfig } from '../l2/l2-types.js';
@@ -139,12 +146,87 @@ export function verifyAttestationSignature(
   }
 }
 
+/**
+ * Verify the **employer's** signature, against the key recorded in the attestation.
+ *
+ * Reading the key from the signed document is normally meaningless — it lets the document carry
+ * its own trust anchor — and that is exactly what A-29 says. It is sound **only** in combination
+ * with `verifyInsurerSignature` against a pinned key, because the insurer counter-signs the whole
+ * attestation, and before it does so it verifies this employer signature against the public key in
+ * its own approved application record (`marketplace-routes.ts` sign handler). So the insurer's
+ * counter-signature is what attests that this key is the right one.
+ *
+ * A caller that checks only this function is checking nothing. The sequencer checks both.
+ */
 export function verifyEmployerSignature(att: EmployerAttestation): boolean {
   return verifyAttestationSignature(att, att.employerSignature, att.publicKeyHex);
 }
 
-export function verifyInsurerSignature(att: EmployerAttestation): boolean {
-  return verifyAttestationSignature(att, att.insurerSignature, att.insurerPublicKeyHex);
+/**
+ * Verify the **insurer's** counter-signature against a key the verifier already trusts.
+ *
+ * This used to read `att.insurerPublicKeyHex` — the key inside the attestation — so anyone could
+ * generate a keypair, sign an employer attestation with it, and have the sequencer accept the
+ * registration. That is finding A-29, and it is the same mistake A10a fixed for NFC attestations.
+ *
+ * The insurer is the attestation authority here, so its key is the one anchor that has to be
+ * pinned out of band. The sequencer gets it from configuration at boot.
+ */
+export function verifyInsurerSignature(
+  att: EmployerAttestation,
+  expectedInsurerPublicKeyHex: string,
+): boolean {
+  if (!expectedInsurerPublicKeyHex || expectedInsurerPublicKeyHex.length !== 64) {
+    // Fail closed. A verifier with no pinned insurer key cannot tell a real attestation from one
+    // an attacker signed with their own keypair, which is finding A-29.
+    return false;
+  }
+  // The attestation must name the key we already trust, compared in constant time and before the
+  // signature is checked.
+  const claimed = Buffer.from(att.insurerPublicKeyHex ?? '', 'hex');
+  const trusted = Buffer.from(expectedInsurerPublicKeyHex, 'hex');
+  if (claimed.length !== trusted.length || !timingSafeEqual(claimed, trusted)) return false;
+
+  return verifyAttestationSignature(att, att.insurerSignature, expectedInsurerPublicKeyHex);
+}
+
+
+// ─── Insurer signing identity (phase A item A9, findings A-14 and A-29) ────────────────────
+
+/** PKCS8 DER prefix for Ed25519 private keys. */
+const ED25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
+
+/*
+ * The insurer's attestation keypair, derived from a **dedicated** seed.
+ *
+ * It used to be derived from `ZKTRIDENT_ADMIN_TOKEN`. Finding A-14 is that one secret is the whole
+ * network's authority; this was its sharpest edge, because a bearer token being reused as a
+ * signing seed is worse than one being shared. A bearer token is something you present; a signing
+ * key is something that makes statements attributable to you. The admin token is given to every
+ * child node at boot and is the literal string `admin123` in unsecure mode, so anyone holding it
+ * could counter-sign employer attestations as the insurer.
+ *
+ * The signing helper's own comment already said "NOT the admin token"; only the caller was wrong.
+ */
+export function deriveInsurerKeypair(signingSeed: string): {
+  privateKey: KeyObject;
+  publicKeyHex: string;
+} {
+  if (!signingSeed) throw new Error('No insurer signing seed configured');
+  const seed = createHash('sha256').update('zkpcare-insurer-signing:' + signingSeed).digest();
+  const privateKey = createPrivateKey({
+    key: Buffer.concat([ED25519_PKCS8_PREFIX, seed]),
+    format: 'der',
+    type: 'pkcs8',
+  });
+  seed.fill(0);
+  const spkiDer = createPublicKey(privateKey).export({ type: 'spki', format: 'der' });
+  return { privateKey, publicKeyHex: Buffer.from(spkiDer).subarray(12).toString('hex') };
+}
+
+/** The public half only, for configuring a verifier that must pin it. */
+export function insurerPublicKeyFromSeed(signingSeed: string): string {
+  return deriveInsurerKeypair(signingSeed).publicKeyHex;
 }
 
 // ─── Verification Certificate ───────────────────────────────

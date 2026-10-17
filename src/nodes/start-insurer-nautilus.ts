@@ -68,6 +68,13 @@ const config: NautilusAppConfig = {
   rpcProxy: resolveRpcProxyPolicy(env, 'insurer node'),
   displayName: env.ZKTRIDENT_DISPLAY_NAME,
   adminToken: env.ZKTRIDENT_ADMIN_TOKEN,
+  /*
+   * A9, finding A-14: a dedicated seed for counter-signing employer attestations, separate from
+   * the bearer token. The seed's public half has to be pinned on the sequencer, which refuses
+   * employer registration without it, so the two are generated together at boot by
+   * start-leviathan. Set it explicitly in a deployment that runs the insurer on its own.
+   */
+  insurerSigningSeed: env.ZKTRIDENT_INSURER_SIGNING_SEED,
 };
 
 // Auto-detect dashboard directory

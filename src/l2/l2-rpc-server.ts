@@ -139,6 +139,16 @@ export interface L2RpcServerOptions {
   maxSseConnections?: number;
   /** Max proof submissions per IP per minute. Default 60. Set to 0 to disable. */
   proofRateLimitPerMinute?: number;
+  /**
+   * The insurer's attestation public key, 64 hex characters — phase A item A9, finding A-29.
+   *
+   * `l2_registerEmployer` verified the insurer's counter-signature against the key carried inside
+   * the attestation, so anyone could sign an employer attestation with their own keypair and have
+   * it registered. The insurer is the attestation authority, so its key is the anchor that has to
+   * be pinned out of band. Unset, employer registration is refused rather than accepting a
+   * self-signed attestation.
+   */
+  insurerAttestationPublicKeyHex?: string;
   /** TLS certificate file path (PEM). When set with tlsKey, enables HTTPS. */
   tlsCert?: string;
   /** TLS private key file path (PEM). When set with tlsCert, enables HTTPS. */
@@ -1359,8 +1369,21 @@ export class L2RpcServer {
 
         // Verify both signatures before accepting (signatures bind the seq via canonical message)
         const { verifyEmployerSignature, verifyInsurerSignature } = await import('../onboarding/employer-attestation.js');
+        /*
+         * A9/A-29: the insurer's counter-signature is checked against a **pinned** key, not the
+         * one inside the attestation. Refusing when none is configured is deliberate: without an
+         * anchor this check cannot distinguish a real attestation from a self-signed one, and
+         * registering an employer is how a tenant comes into existence.
+         */
+        const pinnedInsurerKey = this.options.insurerAttestationPublicKeyHex;
+        if (!pinnedInsurerKey) {
+          throw new Error(
+            'Employer registration refused: no insurer attestation key is pinned on this ' +
+            'sequencer, so an insurer counter-signature cannot be verified.',
+          );
+        }
         if (!verifyEmployerSignature(att)) throw new Error('Invalid employer signature');
-        if (!verifyInsurerSignature(att)) throw new Error('Invalid insurer signature');
+        if (!verifyInsurerSignature(att, pinnedInsurerKey)) throw new Error('Invalid insurer signature');
         this.node.getSequencer().storeEmployerAttestation(att);
         this.node.emit({ type: 'employer:registered', timestamp: Date.now(), data: { employerId: att.employerId, attestationSeq: att.attestationSeq } });
         return { success: true, employerId: att.employerId, attestationSeq: att.attestationSeq };
@@ -1394,7 +1417,9 @@ export class L2RpcServer {
         if (!att) return { valid: false, reason: 'No attestation found for employer' };
         const { verifyEmployerSignature, verifyInsurerSignature } = await import('../onboarding/employer-attestation.js');
         const empValid = verifyEmployerSignature(att);
-        const insValid = verifyInsurerSignature(att);
+        // Same pinned key as registration; an unconfigured sequencer reports invalid rather than
+        // vouching for a signature it cannot anchor.
+        const insValid = verifyInsurerSignature(att, this.options.insurerAttestationPublicKeyHex ?? '');
         return { valid: empValid && insValid, attestation: att, employerSigValid: empValid, insurerSigValid: insValid };
       }
 
