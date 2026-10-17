@@ -81,11 +81,37 @@ The largest phase, and the one that changes the pipeline. Section 7 covers the c
 | B1 | **The device proves its own wallet updates.** Move wallet-update proving out of the engine and into the member app. The engine stops holding member preimages and stops proving on members' behalf | I2 | A-1, C-1, ENG-02 |
 | B2 | **Stop sending the preimage.** `register-member` takes a verified registration proof and a wallet ID, nothing else. Delete the preimage fields from the engine's state and from `adjudication-state.json`, and purge the existing file | I2 | A-1, A-6, C-2 |
 | B3 | **Split the fill into adjudicate-then-finalize.** The accumulator stays on the member's credential, where the design puts it. The pharmacy adjudicates on the member's prescribing-time authorization and commits a **pending** settlement; the member's offline attestation at pickup finalizes it and applies the accumulator delta; an unclaimed fill reverses after a window using the reversal path that already exists. See section 7 | I2 | A-1, A-11 |
-| B4 | Providers prove with their own provisioned keys. Remove the committed seed enrollment keys and the NPI-derived provider keys from every runtime path | I3 | A-14, ENG-14 |
+| B4 | Providers prove with their own provisioned keys, split so no single party can reconstruct one. Remove the committed fixture enrollment keys and the NPI-derived provider keys from every runtime path. See the design note below | I3 | A-14, ENG-14 |
 | B5 | Enforce PCP consent at prescribing: a prescriber who is not the member's consented PCP needs member approval. Add the lifecycle check that today lets revoked and terminated members be billed | I7, correctness | A-16, A-18 |
 | B6 | Stop sending the wallet ID to the employer. Remove `/enrollment/confirm`'s wallet storage and the roster's wallet column, so I6 holds by construction rather than by a 401 | I6 | A-9, PHI-9, C-2 |
 | B7 | Fire the lifecycle transition the design specifies: ELIGIBLE to ACTIVE on first claim | correctness | C-2 (FIG. 5 §D) |
 | B8 | Remove the post-proof settlement rewrite so the committed amounts and the recorded amounts agree. If family pooling must adjust a split, it is computed inside the circuit | integrity | A-23, C-4 |
+
+**Phase B design note: provider authentication and e-prescribing.**
+
+The constraint is that clinicians will not adopt a new ritual, so the credential has to ride on something already on the lanyard. The instinct to bind to the employer badge is right, and it also matches this system's trust model: the provider's key should be in the provider's physical possession so that no central party can prescribe as them.
+
+Three things it has to get right.
+
+*Two cards are one factor.* A zpk.care tag and an employer RFID badge on the same lanyard are both "something you have," they travel together, and they are lost together. Both are passive, so anything that can read one can read it. This matters beyond good practice: DEA EPCS (21 CFR 1311) already mandates two-factor at the moment of signing for controlled substances and explicitly does not accept two possession factors. It wants two of possession, knowledge and biometric. The engine already special-cases Schedule II, so this regime applies.
+
+*The key must not sit whole on a passive tag.* Today `createProviderBadge` writes the entire enrollment key to the tag, AES-256-GCM under scrypt of a six-character PIN, with the salt and IV beside it. A passive read yields everything needed to brute-force the PIN offline, where no rate limit or lockout applies. One million candidates is hours on commodity hardware.
+
+*The fix makes the check unforgeable rather than merely present.* Split the provider's enrollment key into two shares. One share lives on the provider's tag, the other on the plan's credentialing service, released only after an online PIN verification that is rate-limited and locks out. The tag alone is useless, the server alone is useless, and there is no local code path that can answer "verified" because the server's share is required to reconstruct. Reconstruct in memory for the duration of the signing and zeroize after, the way `ObfuscatedKey` already does for member state.
+
+| Element | Role | Factor type |
+|---|---|---|
+| Employer RFID badge | Identifies who is at the workstation. Not a secret, so its serial is an identifier only | none, it is a lookup key |
+| zpk.care tag | Holds one share of the enrollment key | possession |
+| PIN, or biometric on a paired device | Releases the second share, verified online with rate limiting and lockout | knowledge or inherence |
+
+Whether to keep the second tag at all is a real choice. Dropping it means the plan's service holds the only share and the provider authenticates with badge plus PIN, which is simpler and still satisfies EPCS, but it means the service could act alone if it ever captured a PIN. Keeping it means the service genuinely cannot prescribe as a provider, which is consistent with everything else in this design. The cost is a replacement workflow when a tag is lost.
+
+*Onboarding that is not prohibitive.* Credentialing already exists as a one-time step with NPI, DEA and a lifecycle state in the provider registry. Add to it: the provider generates their enrollment key at the provisioning station or on their own device, never derived from the NPI, which is public; the key is split and one share written to the tag; the tag's identifier and the employer badge's identifier are both bound to the provider's wallet. Day to day is then tap, PIN, prescribe.
+
+*What actually makes an eScript safe to rely on.* Authentication has to happen at signing, not at session start, which is also what EPCS requires. And the prescriber's identity proof has to be **submitted and verified rather than discarded**, which is finding A-22: today the proof is generated and thrown away, so a pharmacy cannot verify that the named prescriber authorized the script. Fixing A-22 is what makes the eScript verifiable, not new machinery. The DEA number check and the Schedule II refill rule already exist and stay.
+
+*Decisions this needs:* whether EPCS certification is in scope for the first production release, which changes the identity-proofing requirements; and what badge technology the target customers actually carry, because a 125 kHz proximity card exposes only a serial while a PIV or Seos card can do challenge-response and would be a stronger identifier.
 
 ### Phase C — Salt the identity fields and migrate
 
