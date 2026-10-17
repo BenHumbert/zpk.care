@@ -47,5 +47,29 @@ export interface FormularyJson {
   stepTherapyRequired: boolean;
 }
 
-const filePath = path.join(_dataDir, 'formulary.json');
-export const formularyRaw: FormularyJson[] = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+/**
+ * `ZKTRIDENT_FORMULARY_LIMIT` was documented and passed by three npm scripts, and this loader
+ * ignored it, so every sequencer boot loaded all 32,768 NADAC drugs no matter what was asked
+ * for. That is not mainly a parse cost: `FormularyService.loadFromNadac` inserts each drug into
+ * a height-16 MerkleTree one leaf at a time, and every `setLeaf` rehashes the path to the root,
+ * so the full set is about 491,000 Poseidon hashes on the main thread before the RPC server
+ * can open its port.
+ *
+ * `src/data/index.ts` already had this and already shipped `formulary-100.json`; only this file,
+ * the one the sequencer actually imports, was missing it. Same convention: a limit at or below
+ * the prepared subset's size reads the subset, and any other positive limit slices the full set.
+ * Unset, nothing changes and the whole formulary loads.
+ */
+const limit = parseInt(process.env.ZKTRIDENT_FORMULARY_LIMIT || '0', 10);
+const SUBSET_SIZE = 100;
+
+function load(name: string): FormularyJson[] {
+  return JSON.parse(fs.readFileSync(path.join(_dataDir, name), 'utf-8')) as FormularyJson[];
+}
+
+export const formularyRaw: FormularyJson[] =
+  limit > 0 && limit <= SUBSET_SIZE
+    ? load('formulary-100.json').slice(0, limit)
+    : limit > 0
+      ? load('formulary.json').slice(0, limit)
+      : load('formulary.json');

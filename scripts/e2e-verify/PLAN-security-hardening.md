@@ -127,9 +127,27 @@ process needs a worker, not a function call.**
 
 Two things that fell out of doing this, both recorded rather than fixed:
 
-- **`ZKTRIDENT_FORMULARY_LIMIT` is ignored.** Every boot loads all 32,768 NADAC drugs on the
-  main thread regardless, which is most of why a genesis boot takes about ten minutes here. A
-  cheap boot-time win, and it would have made this whole debugging loop faster.
+- **`ZKTRIDENT_FORMULARY_LIMIT` was ignored — fixed 2026-10-17, and it was the whole boot.**
+  The variable was documented in the starter's header and passed by three npm scripts, and
+  `src/data/formulary-loader.ts`, the loader the sequencer actually imports, never read it, so
+  every boot loaded all 32,768 NADAC drugs. `src/data/index.ts` already had the mechanism and
+  `src/data/formulary-100.json` already existed; only this file was missing it.
+
+  Measured, because the obvious suspect was wrong: parsing the 13 MB JSON takes **0.4 s**.
+  Building the Merkle tree from it takes **about 20 ms per drug**, because `loadFromNadac`
+  inserts one leaf at a time and every `setLeaf` rehashes the path to the root of a height-16
+  tree. Sampled at 100, 500 and 2,000 drugs the rate is 24.5, 23.3 and 19.5 ms, so the full set
+  is **640 to 800 seconds — eleven to thirteen minutes, on the main thread, before the RPC
+  server can open its port.** That is the ten-minute boot, essentially in its entirety. With the
+  limit honoured the same boot reaches "ready" in about one minute.
+
+  **Two further wins, not yet done.** `MerkleTree` exposes `fill(leaves)`, which builds
+  bottom-up: one pass per level instead of a root-path rehash per leaf, so roughly 65,000 hashes
+  instead of 491,000, about 7× less. And the tree is identical on every boot for identical input,
+  so it can be cached to disk and restored. The cache has to be keyed on a digest of the exact
+  records that produced it and refuse to load on a mismatch, because this tree is a commitment —
+  note that the current boot already prints a formulary root mismatch against its own
+  checkpoint, so a wrong root is a live failure mode, not a hypothetical one.
 - **The server's 30 s request timeout is the operative ceiling on verification**, not
   throughput. At about 5 s per submission there is comfortable headroom, but the 20 s verifier
   watchdog has to stay below the request timeout or a stalled verification reappears as a 504
