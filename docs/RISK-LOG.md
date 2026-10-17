@@ -194,6 +194,31 @@ Full detail in `docs/AUDIT.md`. Listed here because each needs a decision or car
 
 **Geography matters for disaster resilience and essentially nothing else.** A cross-country round trip is tens of milliseconds while proving takes tens of seconds, so network latency is three orders of magnitude below the dominant cost. Note that partition assignment is `walletId mod partitionCount`, which is geography-blind: a member's leader may be anywhere. That is fine for the reason just given, and it is worth not "fixing" it into a geographic scheme that would break the clean client-side routing for no measurable gain.
 
+## Can the quorum and the audit checks detect a bad transaction? (2026-10-16)
+
+**No, and not by accident: the design says so.** The quorum vote is signed over the proposal identifier, the write-ahead-log entry hash, the voter identifier and a timestamp. It attests *I logged this*, not *I checked this*. Claim 13(c) is explicit that correctness comes from the proving system and "not by any node voting on proof validity." **Quorum catches data loss, not fraud.**
+
+Adding per-node verification (phase E7) makes a quorum certificate mean "a majority independently checked this proof", which is worth having. But ten nodes running one build under one operator does not protect against **that operator**, who controls the build. Independent verification protects against bugs, corruption and a compromised single node. It cannot protect against the party who ships the software.
+
+**What does work: the party who is harmed does the verifying.** This is mostly already designed and it is a stronger position than trusting either the operator or the quorum.
+
+| Who verifies | What they check | Already in the design? |
+|---|---|---|
+| The pharmacy | The adjudication proof attached to the priced script, offline, against a cached key | **Yes.** It is step 2 of the priced-script pipeline |
+| The member's device | Its own wallet state and accumulator, against a Merkle witness | Yes in principle; needs the device-side check wired |
+| The plan | The chain proof over global state | Needs E6, which is currently switched off |
+| An employer, or an auditor | A signed state certificate at a batch boundary | Needs E4 |
+
+The operator cannot forge a price the pharmacy will accept, because the pharmacy checks the proof. It cannot forge an accumulator the member will accept, because the member checks the witness.
+
+**The one residual risk, and the place where having no L1 genuinely costs something: equivocation.** An operator could show different states to different parties. A single global commitment cannot hold two values, but nothing stops publishing two chains to two audiences, and there is no neutral public place to anchor the commitment.
+
+The cheap and effective answer needs no blockchain: **hand the signed state certificate to every customer.** Employers are mutually untrusting and hold no stake in each other's data. If the operator equivocates, two employers end up holding contradictory certificates signed by the same keys, which is self-proving evidence of misbehaviour. Distribution turns equivocation from undetectable into undeniable.
+
+**On secret backups of seeds: do not.** A backup of every node's quorum seed concentrates exactly the risk it is meant to mitigate, because one breach of the backup forges anything. The standard answer is to make keys non-exportable and **nodes disposable**: generate the seed in the node's own keystore or HSM so there is nothing to export, recover state from peers through the existing snapshot and initial-download path, and treat node loss as *replacement* rather than *key restore*, provisioning a fresh key and re-admitting it. The admission flow for that already exists as `l2_requestAdmission` and `l2_approveAdmission`, currently dormant because no genesis admin key is ever registered. Back up **state**, which is already encrypted at rest after D6; never back up signing keys.
+
+**On the audit checks already in place: they are reports, not gates, and one is hollow.** `l2_verifyChainIntegrity` genuinely recomputes the hash chain. `l2_detectDuplicateClaims` exists, yet the live run still paid a duplicate and dropped it from the ledger, so it is not wired into the accept path. And `l2_verifyFinancialBalance` is **vacuous**: it reports balanced over zero claims, because the audit commitment's amount fields are never populated and the function that would fill them has no callers. So financial fraud detection does not currently work at all, and **D5 is a prerequisite** for any of this: until amounts are bound into the audit chain, there is nothing for a balance check to check.
+
 ## Open decisions blocking work
 
 | ID | Decision | Blocks | Owner |
