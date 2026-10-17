@@ -164,10 +164,10 @@ export class MemberNode extends EntityNodeBase {
   /**
    * Submit a proof to the sequencer (auto-routes to correct partition).
    */
-  async submitProof(proof: StateTransitionProof): Promise<L2Receipt> {
+  async submitProof(proof: StateTransitionProof, opts?: { newCredentialInventoryRoot?: string }): Promise<L2Receipt> {
     return this.withPartitionRetry(
       this.config.walletId!,
-      (client) => client.submitProof(proof),
+      (client) => client.submitProof(proof, opts),
     );
   }
 

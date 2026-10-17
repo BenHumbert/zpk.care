@@ -639,7 +639,7 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
       }
 
       // Sequencer confirmed — now safe to update status
-      server.registerClientKey(app.employerId, app.publicKeyHex);
+      server.registerPartnerKey(app.employerId, app.publicKeyHex);
       // On first signing, advance to 'signed'. On renewal, preserve the
       // existing 'active' status (a renewed active employer stays active).
       if (!isRenewal) {
@@ -988,7 +988,7 @@ export function buildEmployerAdminRoutes(server: NautilusAppServer): RouteRegist
       agreementCache.delete(params.applicationId);
       docxCache.delete(params.applicationId);
       saveApplicationStore();
-      server.registerClientKey(app.employerId, b.publicKeyHex);
+      server.registerPartnerKey(app.employerId, b.publicKeyHex);
 
       console.log('[marketplace] Post-sign rekey: %s (%s)', app.employerId, app.companyName);
       server.sendResponse(res, 200, true, {

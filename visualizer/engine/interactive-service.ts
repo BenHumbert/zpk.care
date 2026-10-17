@@ -443,8 +443,10 @@ export class AdjudicationService {
   private proofPool: import('./proof-pool.js').ProofPool | null = null;
 
   // Infrastructure
-  private walletRegistry!: WalletRegistry;
-  private lifecycleTree!: MerkleTree;
+  /** The sequencer's wallet registry — the only copy. Read here; change via sequencer.adminMutate(). */
+  private get walletRegistry(): WalletRegistry { return this.l2Node.getSequencer().getStateTrees().registry; }
+  /** The sequencer's lifecycle tree — the only copy. Read here; change via sequencer.adminMutate(). */
+  private get lifecycleTree(): MerkleTree { return this.l2Node.getSequencer().getStateTrees().lifecycle; }
   private benefitPlanRegistry!: BenefitPlanRegistry;
   private tokenAuthority!: TokenAuthority;
   private groupRegistry!: GroupRegistry;
@@ -569,31 +571,24 @@ export class AdjudicationService {
     this.emit('info', 'init', 'Initializing infrastructure...');
 
     this.adminWalletId = hashString('ADMIN-INSURER-2026');
-    this.walletRegistry = new WalletRegistry();
-    this.lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
     this.benefitPlanRegistry = new BenefitPlanRegistry();
 
-    // Register prescribers + pharmacies (pre-enrolled entities)
-    let entityIdx = 0n;
+    // Register prescribers + pharmacies (pre-enrolled entities) directly in the sequencer's
+    // trees. provision() is idempotent, so a session reset doesn't re-register them.
     for (let i = 0; i < PRESCRIBERS.length; i++) {
       const p = PRESCRIBERS[i];
-      const wid = derivePrescriberWalletId(p.localData, p.enrollmentKey);
-      this.prescriberWalletIds.set(i, wid);
+      this.prescriberWalletIds.set(i, derivePrescriberWalletId(p.localData, p.enrollmentKey));
       this.prescriberPreimages.set(i, prescriberWalletPreimage(p.localData, p.enrollmentKey));
-      this.walletRegistry.register(wid);
-      this.lifecycleTree.setLeaf(entityIdx, lifecycleLeafCommitment(wid, LIFECYCLE_ELIGIBLE));
-      entityIdx++;
     }
-
     for (let i = 0; i < PHARMACIES.length; i++) {
       const p = PHARMACIES[i];
-      const wid = derivePharmacyWalletId(p.localData, p.enrollmentKey);
-      this.pharmacyWalletIds.set(i, wid);
+      this.pharmacyWalletIds.set(i, derivePharmacyWalletId(p.localData, p.enrollmentKey));
       this.pharmacyPreimages.set(i, pharmacyWalletPreimage(p.localData, p.enrollmentKey));
-      this.walletRegistry.register(wid);
-      this.lifecycleTree.setLeaf(entityIdx, lifecycleLeafCommitment(wid, LIFECYCLE_ELIGIBLE));
-      entityIdx++;
     }
+    this.l2Node.getSequencer().adminMutate('provision seed providers', ({ provision }) => {
+      for (const [, wid] of this.prescriberWalletIds) provision(wid, LIFECYCLE_ELIGIBLE);
+      for (const [, wid] of this.pharmacyWalletIds) provision(wid, LIFECYCLE_ELIGIBLE);
+    });
 
     // Create provider badges (simulated NFC badge payloads)
     for (let i = 0; i < PRESCRIBERS.length; i++) {
@@ -792,21 +787,8 @@ export class AdjudicationService {
     const adminKp = deriveEncryptionKeyPair('ADMIN-INSURER-ENCRYPTION-KEY-2026');
     this.encryptionKeys.set(999, adminKp);
 
-    // Sync L2 sequencer roots AND internal witness trees with pre-enrolled entities.
-    // Without this, the sequencer's MerkleTrees would be empty while its roots reflect
-    // 31 admin-provisioned entities, causing witness mismatches on the first ZK enrollment.
-    const provisionedWallets: Array<{ walletId: Field; lifecycleState: Field }> = [];
-    for (const [, wid] of this.prescriberWalletIds) {
-      provisionedWallets.push({ walletId: wid, lifecycleState: LIFECYCLE_ELIGIBLE });
-    }
-    for (const [, wid] of this.pharmacyWalletIds) {
-      provisionedWallets.push({ walletId: wid, lifecycleState: LIFECYCLE_ELIGIBLE });
-    }
-    this.l2Node.getSequencer().applyAdminRootUpdate({
-      newRegistryRoot: this.walletRegistry.getRoot(),
-      newLifecycleRoot: this.lifecycleTree.getRoot(),
-      provisionedWallets,
-    });
+    // Seed providers were provisioned into the sequencer's trees above (adminMutate),
+    // so there is no separate copy to sync.
 
     this.emit('info', 'init', `Infrastructure ready. ${PRESCRIBERS.length} prescribers, ${PHARMACIES.length} pharmacies pre-enrolled.`);
     this.emit('info', 'init', `L2 sequencer synced: registry + lifecycle roots updated.`);
@@ -1125,15 +1107,13 @@ export class AdjudicationService {
     });
 
     this.emit('offchain', 'enroll', 'Step 4a: Capturing pre-registration roots...', 'start');
+    // Witnesses come from the sequencer's trees; the sequencer inserts the wallet itself
+    // when it accepts the registration proof.
     const preRegRoot = this.walletRegistry.getRoot();
     const preLcRoot = this.lifecycleTree.getRoot();
     const regWitness = this.walletRegistry.getNextSlotWitness();
     const walletIndex = Number(this.walletRegistry.count);
     const lcWitness = new LifecycleWitness(this.lifecycleTree.getWitness(BigInt(walletIndex)));
-
-    // Register wallet in local registry + lifecycle
-    this.walletRegistry.register(walletId);
-    this.lifecycleTree.setLeaf(BigInt(walletIndex), lifecycleLeafCommitment(walletId, LIFECYCLE_REGISTERED));
 
     this.emit('proof', 'enroll', 'Step 4a: Generating StateTransitionProof.proveRegistration...', 'start');
     const startReg = performance.now();
@@ -1288,16 +1268,12 @@ export class AdjudicationService {
     this.emit('info', 'enroll', `  │    newLifecycleRoot: ${truncStr(mintOutput.newLifecycleRoot)}`);
     this.emit('info', 'enroll', `  └─ Wallet state updated: nonce=1, credential inventory root set (${elapsedMint.toFixed(0)}ms)`);
 
-    // Update wallet registry with new state (nonce=1, inventoryRoot)
-    this.walletRegistry.updateState(walletId, new WalletState({
-      walletId,
-      credentialInventoryRoot: inventoryRoot,
-      nonce: Field(1),
-    }));
-
-    // Submit credential mint proof to L2
+    // Submit credential mint proof to L2. The sequencer updates the wallet's state
+    // (nonce=1, inventoryRoot) in its tree after checking it against the proof.
     const mintProof = await StateTransitionProof.fromJSON(JSON.parse(mintDispatch.proofJson!));
-    const mintReceipt = await this.l2Node.submitProof(mintProof);
+    const mintReceipt = await this.l2Node.submitProof(mintProof, {
+      newCredentialInventoryRoot: inventoryRoot.toString(),
+    } as unknown as import('../../src/l2/l2-types.js').ClaimSubmissionMetadata);
     this.emit('info', 'enroll', `  ┌─ L2 RECEIPT #2 (Credential Mint)`);
     this.emit('info', 'enroll', `  │  Receipt ID:  ${mintReceipt.receiptId}`);
     this.emit('info', 'enroll', `  │  Sequence #:  ${mintReceipt.sequenceNumber}`);
@@ -1330,9 +1306,8 @@ export class AdjudicationService {
     // 4c. PHASE C: Admin lifecycle transition (REGISTERED → ELIGIBLE)
     // Deferred to after both proofs are batched so the proof chain is continuous.
     this.emit('offchain', 'enroll', 'Step 4c: Admin lifecycle transition REGISTERED → ELIGIBLE...', 'start');
-    this.lifecycleTree.setLeaf(BigInt(walletIndex), lifecycleLeafCommitment(walletId, LIFECYCLE_ELIGIBLE));
-    this.l2Node.getSequencer().applyAdminRootUpdate({
-      newLifecycleRoot: this.lifecycleTree.getRoot(),
+    this.l2Node.getSequencer().adminMutate('enroll: REGISTERED → ELIGIBLE', ({ setLifecycle }) => {
+      setLifecycle(walletId, LIFECYCLE_ELIGIBLE);
     });
     this.emit('offchain', 'enroll', 'Step 4c: Lifecycle updated to ELIGIBLE (admin op)', 'complete');
 
@@ -1395,7 +1370,7 @@ export class AdjudicationService {
 
     // Register encryption key in KeyRegistry
     const memberKp = deriveEncryptionKeyPair(member.enrollmentKey);
-    const memberWalletIndex = this.walletRegistry.count - 1;
+    const memberWalletIndex = Number(this.walletRegistry.getIndex(walletId));
     this.encryptionKeys.set(memberWalletIndex, memberKp);
     const { pubKeyX, pubKeyY } = publicKeyToFields(memberKp.publicKey);
     this.keyRegistry.registerKey(BigInt(memberWalletIndex), walletId, pubKeyX, pubKeyY);
@@ -1614,26 +1589,17 @@ export class AdjudicationService {
     credentialInventory.mint(credentialData);
     const inventoryRoot = credentialInventory.getRoot();
 
-    // Ensure wallet is in the registry (may have been registered via L2 proof)
-    if (!this.walletRegistry.isRegistered(walletId)) {
-      this.walletRegistry.register(walletId);
-      const walletIndex = BigInt(this.walletRegistry.count - 1);
-      this.lifecycleTree.setLeaf(walletIndex, lifecycleLeafCommitment(walletId, LIFECYCLE_ELIGIBLE));
+    // Insurer admin op: the wallet becomes ELIGIBLE in the sequencer's trees. It is normally
+    // already registered by the member's own registration proof; provision() also covers a
+    // wallet enrolled without one.
+    this.l2Node.getSequencer().adminMutate('register member: ELIGIBLE', ({ provision }) => {
+      provision(walletId, LIFECYCLE_ELIGIBLE);
+    });
 
-      // Sync L2 sequencer roots
-      this.l2Node.getSequencer().applyAdminRootUpdate({
-        newRegistryRoot: this.walletRegistry.getRoot(),
-        newLifecycleRoot: this.lifecycleTree.getRoot(),
-        provisionedWallets: [{ walletId, lifecycleState: LIFECYCLE_ELIGIBLE }],
-      });
-    }
-
-    // Update wallet state in registry (nonce=1, credential minted)
-    this.walletRegistry.updateState(walletId, new WalletState({
-      walletId,
-      credentialInventoryRoot: inventoryRoot,
-      nonce: Field(1),
-    }));
+    // Credential mint is a proven wallet update (current credential root → inventoryRoot,
+    // nonce + 1) that the sequencer checks against its own tree, like any other change.
+    const mintReceipt = await this.proveAndSubmitWalletUpdate(walletId, preimageFields, inventoryRoot, LIFECYCLE_ELIGIBLE, 'register: credential mint');
+    const mintedNonce = Number(this.walletRegistry.getState(walletId).nonce.toBigInt());
 
     const walletIndex = Number(this.walletRegistry.getIndex(walletId));
 
@@ -1687,10 +1653,10 @@ export class AdjudicationService {
       inNetworkPharmacyIndices: network.pharmacyIndices,
       lifecycle: 'ELIGIBLE',
       walletIndex,
-      nonce: 1,
+      nonce: mintedNonce,
       credentialInventoryRoot: inventoryRoot,
       cachedProofGateProof: proofGateDispatch.proofJson,
-      l2Receipts: [],
+      l2Receipts: [mintReceipt.receiptId],
     };
     this.enrolledMembers.set(opts.walletId, enrolled);
 
@@ -4102,14 +4068,12 @@ export class AdjudicationService {
     // 1. Call EnrollmentService.terminateMember
     //    This handles: credential revocation, lifecycle→REVOKED, roster→TERMINATED, group count--
     this.emit('offchain', 'terminate', 'Step 1: Revoking eligibility credential and updating lifecycle...', 'start');
-    const result = this.enrollmentService.terminateMember(enrolled.walletId, termDate);
+    // terminateMember changes the sequencer's trees (it was constructed with them), so it runs
+    // inside adminMutate, which takes the new roots from the trees.
+    const result = this.l2Node.getSequencer().adminMutate('terminate member', () =>
+      this.enrollmentService.terminateMember(enrolled.walletId, termDate),
+    );
     this.emit('offchain', 'terminate', 'Step 1: Credential revoked, lifecycle set to REVOKED', 'complete');
-
-    // Sync L2 sequencer with admin lifecycle change
-    this.l2Node.getSequencer().applyAdminRootUpdate({
-      newLifecycleRoot: this.lifecycleTree.getRoot(),
-      newRegistryRoot: this.walletRegistry.getRoot(),
-    });
 
     // 2. Revoke NFC attestation nonce (if one exists)
     if (enrolled.lastAttestation) {
@@ -5076,90 +5040,89 @@ export class AdjudicationService {
     phase: string,
     claimMetadata?: import('../../src/l2/l2-types.js').ClaimSubmissionMetadata,
   ): Promise<L2Receipt> {
-    const walletIndex = BigInt(enrolled.walletIndex);
-
-    // Fetch ALL current state from the sequencer (source of truth).
-    // The local enrolled object may be stale if other proof paths
-    // (e.g., PCP assignment, external enrollment) advanced the wallet state.
-    const seq = this.l2Node.getSequencer();
-
-    // Get the wallet's CURRENT nonce + credentialInventoryRoot from the sequencer's tree
-    const liveWalletState = seq.getWalletStateForRpc(enrolled.walletId.toString());
-    const oldRoot = Field(BigInt(liveWalletState.credentialInventoryRoot));
-    const oldNonce = Field(BigInt(liveWalletState.nonce));
-    const currentRegRoot = seq.getCurrentRegistryRoot();
-    const currentLcRoot = seq.getCurrentLifecycleRoot();
-
-    // Get witnesses from the sequencer's live trees
-    let regWitness: WalletRegistryWitness;
-    let lcWitness: LifecycleWitness;
-    try {
-      const witnesses = seq.getWalletWitnesses(enrolled.walletId.toString());
-      regWitness = new WalletRegistryWitness(JSON.parse(witnesses.registryWitnessJson));
-      lcWitness = new LifecycleWitness(JSON.parse(witnesses.lifecycleWitnessJson));
-    } catch {
-      // Fallback to local trees if sequencer lookup fails
-      regWitness = this.walletRegistry.getWitnessByIndex(walletIndex);
-      lcWitness = new LifecycleWitness(this.lifecycleTree.getWitness(walletIndex));
-    }
-
-    this.emit('proof', phase, 'Generating StateTransitionProof.proveWalletUpdate...', 'start');
-    const start = performance.now();
-    const pi = enrolled.preimageFields;
-    const stDispatch = await this.dispatchProof(
-      'StateTransition', 'proveWalletUpdate',
-      ['Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'WalletRegistryWitness', 'LifecycleWitness', 'Field', 'Field', 'Field'],
-      [DOMAIN_TAG_MEMBER, pi[0]!, pi[1]!, pi[2]!, pi[3]!, pi[4]!, pi[5]!, oldRoot, oldNonce, newInventoryRoot, regWitness, lcWitness, currentRegRoot, currentLcRoot, LIFECYCLE_ELIGIBLE],
-      () => StateTransitionProgram.proveWalletUpdate(DOMAIN_TAG_MEMBER, pi[0]!, pi[1]!, pi[2]!, pi[3]!, pi[4]!, pi[5]!, oldRoot, oldNonce, newInventoryRoot, regWitness, lcWitness, currentRegRoot, currentLcRoot, LIFECYCLE_ELIGIBLE),
+    const receipt = await this.proveAndSubmitWalletUpdate(
+      enrolled.walletId, enrolled.preimageFields, newInventoryRoot, LIFECYCLE_ELIGIBLE, phase, claimMetadata,
     );
-    const elapsed = performance.now() - start;
-    this.emit('proof', phase, `StateTransitionProof generated`, 'complete', elapsed);
-
-    // ─── Patent Evidence: Proof Details ──────────────────────
-    const stOutput = stDispatch.publicOutput!;
-    this.emit('info', phase, `  ┌─ PROOF: StateTransitionProgram.proveWalletUpdate`);
-    this.emit('info', phase, `  │  Wallet:         ${truncField(enrolled.walletId)} (index ${enrolled.walletIndex})`);
-    this.emit('info', phase, `  │  Nonce:           ${enrolled.nonce} → ${enrolled.nonce + 1}`);
-    this.emit('info', phase, `  │  Credential Root: ${truncField(oldRoot)} → ${truncField(newInventoryRoot)}`);
-    this.emit('info', phase, `  │  Registry Root:   ${truncField(currentRegRoot)}`);
-    this.emit('info', phase, `  │  Lifecycle Root:  ${truncField(currentLcRoot)}`);
-    this.emit('info', phase, `  │  Public Output:`);
-    this.emit('info', phase, `  │    oldRegistryRoot:  ${truncStr(stOutput.oldRegistryRoot)}`);
-    this.emit('info', phase, `  │    newRegistryRoot:  ${truncStr(stOutput.newRegistryRoot)}`);
-    this.emit('info', phase, `  │    oldLifecycleRoot: ${truncStr(stOutput.oldLifecycleRoot)}`);
-    this.emit('info', phase, `  │    newLifecycleRoot: ${truncStr(stOutput.newLifecycleRoot)}`);
-    this.emit('info', phase, `  └─ Proof verified: constraints satisfied (${elapsed.toFixed(0)}ms)`);
-
-    // Submit to L2 sequencer FIRST — sequencer is the authority
-    // Attach newCredentialInventoryRoot so the sequencer can update its witness tree
-    const enrichedMetadata = {
-      ...(claimMetadata || {}),
-      newCredentialInventoryRoot: newInventoryRoot.toString(),
-    } as any;
-    const stProof = await StateTransitionProof.fromJSON(JSON.parse(stDispatch.proofJson!));
-    const receipt = await this.l2Node.submitProof(stProof, enrichedMetadata);
-
-    // Sync local state from sequencer AFTER successful submission
-    const newNonce = Number(oldNonce.toBigInt()) + 1;
-    try {
-      this.walletRegistry.updateState(enrolled.walletId, new WalletState({
-        walletId: enrolled.walletId,
-        credentialInventoryRoot: newInventoryRoot,
-        nonce: Field(newNonce),
-      }));
-    } catch {
-      // Local tree out of sync — sequencer state is the authority
-    }
-    enrolled.nonce = newNonce;
+    // The sequencer has applied the new state to its tree; mirror it on the enrolled record.
+    enrolled.nonce = Number(this.walletRegistry.getState(enrolled.walletId).nonce.toBigInt());
     enrolled.credentialInventoryRoot = newInventoryRoot;
     enrolled.l2Receipts.push(receipt.receiptId);
-    this.emit('info', phase, `  ┌─ L2 RECEIPT`);
-    this.emit('info', phase, `  │  Receipt ID:     ${receipt.receiptId}`);
-    this.emit('info', phase, `  │  Sequence #:     ${receipt.sequenceNumber}`);
-    this.emit('info', phase, `  │  New Reg Root:   ${truncStr(stOutput.newRegistryRoot)}`);
-    this.emit('info', phase, `  └─ Proof accepted by sequencer`);
-
     return receipt;
+  }
+
+  /**
+   * Prove a wallet update against the sequencer's live tree and submit it. If another change
+   * lands between reading the witnesses and submitting (root mismatch), read fresh witnesses
+   * and prove again. The sequencer updates its own tree when it accepts the proof.
+   */
+  private async proveAndSubmitWalletUpdate(
+    walletId: Field,
+    preimageFields: Field[],
+    newInventoryRoot: Field,
+    lifecycleState: Field,
+    phase: string,
+    claimMetadata?: import('../../src/l2/l2-types.js').ClaimSubmissionMetadata,
+  ): Promise<L2Receipt> {
+    const seq = this.l2Node.getSequencer();
+    const pi = preimageFields;
+    const MAX_ATTEMPTS = 4;
+    for (let attempt = 1; ; attempt++) {
+      // Current nonce, credential root, roots and witnesses — all from the sequencer's tree.
+      const live = seq.getWalletStateForRpc(walletId.toString());
+      const oldRoot = Field(BigInt(live.credentialInventoryRoot));
+      const oldNonce = Field(BigInt(live.nonce));
+      const currentRegRoot = seq.getCurrentRegistryRoot();
+      const currentLcRoot = seq.getCurrentLifecycleRoot();
+      const witnesses = seq.getWalletWitnesses(walletId.toString());
+      const regWitness = WalletRegistryWitness.fromJSON(JSON.parse(witnesses.registryWitnessJson));
+      const lcWitness = LifecycleWitness.fromJSON(JSON.parse(witnesses.lifecycleWitnessJson));
+
+      this.emit('proof', phase, 'Generating StateTransitionProof.proveWalletUpdate...', 'start');
+      const start = performance.now();
+      const stDispatch = await this.dispatchProof(
+        'StateTransition', 'proveWalletUpdate',
+        ['Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'WalletRegistryWitness', 'LifecycleWitness', 'Field', 'Field', 'Field'],
+        [DOMAIN_TAG_MEMBER, pi[0]!, pi[1]!, pi[2]!, pi[3]!, pi[4]!, pi[5]!, oldRoot, oldNonce, newInventoryRoot, regWitness, lcWitness, currentRegRoot, currentLcRoot, lifecycleState],
+        () => StateTransitionProgram.proveWalletUpdate(DOMAIN_TAG_MEMBER, pi[0]!, pi[1]!, pi[2]!, pi[3]!, pi[4]!, pi[5]!, oldRoot, oldNonce, newInventoryRoot, regWitness, lcWitness, currentRegRoot, currentLcRoot, lifecycleState),
+      );
+      const elapsed = performance.now() - start;
+      this.emit('proof', phase, `StateTransitionProof generated`, 'complete', elapsed);
+
+      const stOutput = stDispatch.publicOutput!;
+      this.emit('info', phase, `  ┌─ PROOF: StateTransitionProgram.proveWalletUpdate`);
+      this.emit('info', phase, `  │  Wallet:         ${truncField(walletId)} (index ${witnesses.slotIndex})`);
+      this.emit('info', phase, `  │  Nonce:           ${oldNonce.toString()} → ${oldNonce.add(1).toString()}`);
+      this.emit('info', phase, `  │  Credential Root: ${truncField(oldRoot)} → ${truncField(newInventoryRoot)}`);
+      this.emit('info', phase, `  │  Registry Root:   ${truncField(currentRegRoot)}`);
+      this.emit('info', phase, `  │  Lifecycle Root:  ${truncField(currentLcRoot)}`);
+      this.emit('info', phase, `  │  Public Output:`);
+      this.emit('info', phase, `  │    oldRegistryRoot:  ${truncStr(stOutput.oldRegistryRoot)}`);
+      this.emit('info', phase, `  │    newRegistryRoot:  ${truncStr(stOutput.newRegistryRoot)}`);
+      this.emit('info', phase, `  │    oldLifecycleRoot: ${truncStr(stOutput.oldLifecycleRoot)}`);
+      this.emit('info', phase, `  │    newLifecycleRoot: ${truncStr(stOutput.newLifecycleRoot)}`);
+      this.emit('info', phase, `  └─ Proof verified: constraints satisfied (${elapsed.toFixed(0)}ms)`);
+
+      // newCredentialInventoryRoot lets the sequencer update its tree and check the result.
+      const enrichedMetadata = {
+        ...(claimMetadata || {}),
+        newCredentialInventoryRoot: newInventoryRoot.toString(),
+      } as any;
+      const stProof = await StateTransitionProof.fromJSON(JSON.parse(stDispatch.proofJson!));
+      try {
+        const receipt = await this.l2Node.submitProof(stProof, enrichedMetadata);
+        this.emit('info', phase, `  ┌─ L2 RECEIPT`);
+        this.emit('info', phase, `  │  Receipt ID:     ${receipt.receiptId}`);
+        this.emit('info', phase, `  │  Sequence #:     ${receipt.sequenceNumber}`);
+        this.emit('info', phase, `  │  New Reg Root:   ${truncStr(stOutput.newRegistryRoot)}`);
+        this.emit('info', phase, `  └─ Proof accepted by sequencer`);
+        return receipt;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const contended = /root mismatch|does not match the sequencer tree|state changed while/i.test(msg);
+        if (!contended || attempt >= MAX_ATTEMPTS) throw err;
+        this.emit('info', phase, `  Another change landed first (attempt ${attempt}/${MAX_ATTEMPTS}) — re-proving against the new root`);
+      }
+    }
   }
 
   /**

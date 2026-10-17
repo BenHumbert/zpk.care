@@ -494,39 +494,43 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       }
 
       try {
-      // Fetch witnesses from sequencer
-      const witnesses = await node.getClient().getRegistrationWitnesses();
-
       // Reconstruct transition preimage: [domainTag, ...walletFields padded to 5]
       const walletFields = data.preimageFields.map((s: string) => Field(BigInt(s)));
       const padded = [...walletFields];
       while (padded.length < 6) padded.push(Field(0));
       const preimage = [Field(data.domainTag ?? 0), ...padded];
 
-      // Deserialize witnesses from RPC JSON
-      const regWitnessData = typeof witnesses.registryWitnessJson === 'string'
-        ? JSON.parse(witnesses.registryWitnessJson)
-        : witnesses.registryWitnessJson;
-      const lcWitnessData = typeof witnesses.lifecycleWitnessJson === 'string'
-        ? JSON.parse(witnesses.lifecycleWitnessJson)
-        : witnesses.lifecycleWitnessJson;
-      const regWitness = WalletRegistryWitness.fromJSON(regWitnessData);
-      const lcWitness = LifecycleWitness.fromJSON(lcWitnessData);
+      // Registration proofs commit to the current registry root and the next free slot.
+      // If another member registers first, the sequencer reports a root mismatch; fetch
+      // fresh witnesses and prove again. This is what lets several employers enroll at once.
+      const MAX_ATTEMPTS = 6;
+      let receipt: Awaited<ReturnType<typeof node.submitProof>> | undefined;
+      for (let attempt = 1; ; attempt++) {
+        const witnesses = await node.getClient().getRegistrationWitnesses();
+        const regWitnessData = typeof witnesses.registryWitnessJson === 'string'
+          ? JSON.parse(witnesses.registryWitnessJson)
+          : witnesses.registryWitnessJson;
+        const lcWitnessData = typeof witnesses.lifecycleWitnessJson === 'string'
+          ? JSON.parse(witnesses.lifecycleWitnessJson)
+          : witnesses.lifecycleWitnessJson;
+        const regWitness = WalletRegistryWitness.fromJSON(regWitnessData);
+        const lcWitness = LifecycleWitness.fromJSON(lcWitnessData);
+        const regRoot = Field(BigInt(String(witnesses.currentRegistryRoot)));
+        const lcRoot = Field(BigInt(String(witnesses.currentLifecycleRoot)));
 
-      const regRootStr = typeof witnesses.currentRegistryRoot === 'string'
-        ? witnesses.currentRegistryRoot
-        : String(witnesses.currentRegistryRoot);
-      const lcRootStr = typeof witnesses.currentLifecycleRoot === 'string'
-        ? witnesses.currentLifecycleRoot
-        : String(witnesses.currentLifecycleRoot);
-      const regRoot = Field(BigInt(regRootStr));
-      const lcRoot = Field(BigInt(lcRootStr));
-
-      // Generate real ZK proof (~30-120s)
-      const proof = await node.proveRegistration(preimage, regWitness, lcWitness, regRoot, lcRoot);
-
-      // Submit proof to sequencer
-      const receipt = await node.submitProof(proof);
+        // Generate real ZK proof (~20-120s)
+        const proof = await node.proveRegistration(preimage, regWitness, lcWitness, regRoot, lcRoot);
+        try {
+          receipt = await node.submitProof(proof);
+          break;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          const contended = /root mismatch|does not match the sequencer tree|state changed while/i.test(msg);
+          if (!contended || attempt >= MAX_ATTEMPTS) throw err;
+          console.log(`[registration] another registration landed first (attempt ${attempt}/${MAX_ATTEMPTS}); re-proving against the new root`);
+          await new Promise(r => setTimeout(r, 250 + Math.floor(Math.random() * 1500)));
+        }
+      }
 
       // Register proving context with adjudication engine AFTER proof is accepted.
       // This must happen after submitProof so the wallet is already in the
@@ -565,7 +569,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       }
 
       server.sendResponse(res, 200, true, {
-        receiptId: receipt.receiptId,
+        receiptId: receipt!.receiptId,
         walletId: data.walletId,
         proofGenerated: true,
         submittedToSequencer: true,
@@ -1062,8 +1066,8 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
           currentLifecycle,
         );
 
-        // 9. Submit proof to sequencer
-        const receipt = await node.submitProof(proof);
+        // 9. Submit proof to sequencer, with the new credential root so it can update its tree
+        const receipt = await node.submitProof(proof, { newCredentialInventoryRoot: newCredentialRoot.toString() });
         console.log('[pcp-proof] PCP assignment proof submitted, receipt:', receipt.receiptId);
 
         // 10b. Notify sequencer of new wallet state so its witness tree stays in sync

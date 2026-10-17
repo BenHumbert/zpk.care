@@ -51,6 +51,16 @@
   function qs(sel) { return document.querySelector(sel); }
   function qsa(sel) { return document.querySelectorAll(sel); }
 
+  // Normalize a value into a safe error message string (avoids "[object Object]")
+  function errMsg(e) {
+    if (e == null) return '';
+    if (typeof e === 'string') return e;
+    if (typeof e.message === 'string') return e.message;
+    if (typeof e.error === 'string') return e.error;
+    if (e.error && typeof e.error.message === 'string') return e.error.message;
+    try { return JSON.stringify(e); } catch (_) { return String(e); }
+  }
+
   function shortHash(h) {
     if (!h) return '--';
     var s = String(h);
@@ -262,7 +272,7 @@
         method: 'POST', headers: { 'Content-Type': 'application/json' },
       });
       var data = await resp.json();
-      if (!data.ok) throw new Error(data.error || 'Eject failed');
+      if (!data.ok) throw new Error(errMsg(data.error) || 'Eject failed');
     } catch (e) {
       // If the server eject fails (e.g. state already locked), still clear frontend state
       console.warn('[eject] Server eject failed:', e.message, '— clearing frontend anyway');
@@ -333,7 +343,7 @@
             await fetch(location.origin + '/onboarding/unlock', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ pin: pin }),
-            }).then(function (r) { return r.json(); }).then(function (j) { if (!j.ok) throw new Error(j.error || 'Unlock failed'); });
+            }).then(function (r) { return r.json(); }).then(function (j) { if (!j.ok) throw new Error(errMsg(j.error) || 'Unlock failed'); });
           } catch (e) { toast('Unlock error: ' + e.message, 'error'); return; }
           onboardStep = 1;
           renderOnboardStep();
@@ -363,7 +373,7 @@
             await fetch(location.origin + '/onboarding/accept-token', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ tokenId: v }),
-            }).then(function (r) { return r.json(); }).then(function (j) { if (!j.ok) throw new Error(j.error || 'Failed'); });
+            }).then(function (r) { return r.json(); }).then(function (j) { if (!j.ok) throw new Error(errMsg(j.error) || 'Failed'); });
           } catch (e) { toast('Token error: ' + e.message, 'error'); return; }
           onboardStep = 2;
           renderOnboardStep();
@@ -481,7 +491,7 @@
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       }).then(function (r) { return r.json(); });
-      if (!keyRes.ok) throw new Error(keyRes.error || 'Key generation failed');
+      if (!keyRes.ok) throw new Error(errMsg(keyRes.error) || 'Key generation failed');
 
       // Step 2: Derive wallet via server-side Poseidon hashing (PHI sent to local device only)
       if ($('ob-keygen-msg')) $('ob-keygen-msg').textContent = 'Deriving wallet ID (Poseidon hash)...';
@@ -503,7 +513,7 @@
           },
         }),
       }).then(function (r) { return r.json(); });
-      if (!deriveRes.ok) throw new Error(deriveRes.error || 'Wallet derivation failed');
+      if (!deriveRes.ok) throw new Error(errMsg(deriveRes.error) || 'Wallet derivation failed');
 
       onboardState.walletId = deriveRes.data.walletId;
 
@@ -530,7 +540,7 @@
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tokenPIN: onboardState.enrollPIN || undefined }),
       }).then(function (r) { return r.json(); });
-      if (!enrollRes.ok) throw new Error(enrollRes.error || 'Enrollment failed');
+      if (!enrollRes.ok) throw new Error(errMsg(enrollRes.error) || 'Enrollment failed');
 
       // Step 2: Compile programs (transitions phase: enrolled → ready)
       // Must happen before proof generation since /proof/registration requires phase=ready
@@ -542,7 +552,7 @@
       }).then(function (r) { return r.json(); });
       if (!compileRes.ok) {
         console.error('Compile failed:', compileRes.error);
-        throw new Error('Program compilation failed: ' + (compileRes.error || 'unknown error'));
+        throw new Error('Program compilation failed: ' + (errMsg(compileRes.error) || 'unknown error'));
       }
 
       // Step 3: Generate + submit registration proof via member node
@@ -557,7 +567,7 @@
       if (!proofRes.ok) {
         // Proof generation is critical — if it fails, enrollment is incomplete
         console.error('Registration proof failed:', proofRes.error);
-        throw new Error('Registration proof failed: ' + (proofRes.error || 'unknown error'));
+        throw new Error('Registration proof failed: ' + (errMsg(proofRes.error) || 'unknown error'));
       }
       console.log('Registration proof submitted, receipt:', proofRes.data?.receiptId);
       onProofSubmitted('Registration proof');
@@ -1181,7 +1191,7 @@
         logSystem('pcp_assign', 'PCP proof submitted, receipt: ' + (proofRes.data?.receiptId || 'ok'), shortHash(wid));
         console.log('[PCP] Wallet update proof submitted:', proofRes.data);
       } else {
-        toast('PCP saved but proof failed: ' + (proofRes.error || 'unknown'), 'error');
+        toast('PCP saved but proof failed: ' + (errMsg(proofRes.error) || 'unknown'), 'error');
         console.error('[PCP] Proof failed:', proofRes.error);
       }
     } catch (proofErr) {
@@ -1494,7 +1504,7 @@
             '</div>';
           logSystem('nfc_write', 'NFC write queued', 'Format: ' + (data.format || 'attestation'));
         } else {
-          throw new Error(data.error || 'NFC write failed');
+          throw new Error(errMsg(data.error) || 'NFC write failed');
         }
       } catch (e) {
         result.innerHTML =

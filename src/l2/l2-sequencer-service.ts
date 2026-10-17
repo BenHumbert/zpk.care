@@ -47,7 +47,7 @@ import type { ProviderRegistryEntry, ProviderLeaf, ProviderMetadata, ProviderReg
 import { ProviderLifecycle } from './provider-registry-types.js';
 import type { PartitionConfig } from './l2-partition.js';
 import { isMyPartition, getPartition } from './l2-partition.js';
-import { WalletRegistry, WALLET_TREE_HEIGHT } from '../wallets/wallet-state.js';
+import { WalletRegistry, WalletState, WALLET_TREE_HEIGHT } from '../wallets/wallet-state.js';
 import { lifecycleLeafCommitment, LIFECYCLE_REGISTERED, LifecycleWitness } from '../engine/lifecycle.js';
 import type { IWalProvider, WalEntry } from './l2-wal.js';
 import type { ProvingJobRequest, ProvingJobResult } from './l2-proving-pool-types.js';
@@ -167,16 +167,20 @@ export class L2SequencerService {
   // Proof fingerprint deduplication — prevents replay of identical transitions
   private seenProofFingerprints: Set<string> = new Set();
 
-  // Witness trees — maintained in parallel with root Fields for proof generation.
-  // These let the sequencer produce MerkleWitnesses for entity nodes building
-  // registration proofs. The trees stay in sync with currentRegistryRoot /
-  // currentLifecycleRoot by applying the same mutations after each submitProof().
+  // Witness trees — the only copy of wallet registry and lifecycle state.
+  // Every proof and every admin change is applied here, and currentRegistryRoot /
+  // currentLifecycleRoot must always equal these trees' roots (assertTreesMatchRoots).
+  // Other in-process services read these trees through getStateTrees() and change
+  // them only through adminMutate().
   private walletRegistry: WalletRegistry = new WalletRegistry();
   private lifecycleTree: MerkleTree = new MerkleTree(WALLET_TREE_HEIGHT);
   /** Tracks current lifecycle state per wallet (walletId string → Field).
    *  The lifecycle tree stores Poseidon commitments so the raw state isn't
    *  recoverable from the leaf — we track it here for getWalletWitnesses(). */
   private walletLifecycleStates: Map<string, Field> = new Map();
+  /** False after a restore or reset that set roots without rebuilding the trees.
+   *  While false the tree/root invariant is reported but not enforced. */
+  private treesAuthoritative = true;
 
   // Pre-batch snapshots for rollback on batch failure
   private preBatchAuditLogLength = 0;
@@ -184,7 +188,7 @@ export class L2SequencerService {
   private preBatchClaimLeafCount = 0n;
   private preBatchAuditMerkleLeafCount = 0n;
   private preBatchFingerprints: Set<string> = new Set();
-  private preBatchWalletSnapshot: Map<string, { walletId: string; lifecycleState: bigint }> = new Map();
+  private preBatchWalletSnapshot: Map<string, { walletId: string; lifecycleState: bigint; credentialInventoryRoot?: string; nonce?: string }> = new Map();
 
   // Formulary store — published formularies indexed by planIdHash
   private formularyStore: Map<string, {
@@ -262,6 +266,10 @@ export class L2SequencerService {
     this.l2Only = l2Only;
     this.latestChainHash = Field(BigInt(AuditService.GENESIS_HASH));
     this.preBatchChainHash = this.latestChainHash;
+    // A fresh network starts from empty trees, so the invariant holds and is enforced.
+    // Callers that start from arbitrary roots get the legacy, unenforced behaviour until
+    // the first adminMutate() rebuilds consistent state.
+    this.treesAuthoritative = this.treesMatchRoots();
   }
 
   // ─── Core Flow ──────────────────────────────────────────
@@ -306,6 +314,9 @@ export class L2SequencerService {
       }
     }
 
+    // 1c. The witness trees must hash to the published roots before anything is applied.
+    this.assertTreesMatchRoots('before applying a proof');
+
     // 2. Assert old roots match current L2 state
     const oldRegRoot = output.oldRegistryRoot;
     const oldLifeRoot = output.oldLifecycleRoot;
@@ -328,6 +339,10 @@ export class L2SequencerService {
       );
     }
 
+    // 2a. Work out how this transition changes the witness trees and refuse it, before
+    //     anything is mutated, if the result would not hash to the roots the proof claims.
+    const treeUpdate = this.planTreeUpdate(output, metadata);
+
     // 2b. WAL: write entry BEFORE applying mutations (crash-safe durability)
     const walPartitionIndex = this.partitionConfig?.partitionIndex ?? 0;
     let walEntryId: string | undefined;
@@ -349,66 +364,18 @@ export class L2SequencerService {
       });
     }
 
-    // 3. Apply the transition
+    // 2c. The WAL append awaited; another change may have landed in the meantime.
+    if (oldRegRoot.toString() !== this.currentRegistryRoot.toString() ||
+        oldLifeRoot.toString() !== this.currentLifecycleRoot.toString()) {
+      throw new Error('Registry root mismatch: state changed while the proof was being logged — rebuild the proof against the current roots');
+    }
+
+    // 3. Apply the transition to the witness trees, then take the roots from the trees.
+    const isRegistration = treeUpdate.kind === 'registration';
+    treeUpdate.apply();
     this.currentRegistryRoot = output.newRegistryRoot;
     this.currentLifecycleRoot = output.newLifecycleRoot;
-
-    // 4. Detect registration (both roots changed)
-    const registryChanged =
-      oldRegRoot.toString() !== output.newRegistryRoot.toString();
-    const lifecycleChanged =
-      oldLifeRoot.toString() !== output.newLifecycleRoot.toString();
-    const isRegistration = registryChanged && lifecycleChanged;
-
-    if (isRegistration) {
-      // Early guard: reject re-registration of a wallet the sequencer already knows
-      if (this.walletRegistry.isRegistered(output.walletId)) {
-        // Roll back root mutations applied above (step 3)
-        this.currentRegistryRoot = oldRegRoot;
-        this.currentLifecycleRoot = oldLifeRoot;
-        throw new Error(`Wallet already registered: ${output.walletId.toString()}`);
-      }
-      this.currentWalletCount = this.currentWalletCount.add(1);
-      // Update witness trees to stay in sync with root Fields
-      const regIndex = this.walletRegistry.register(output.walletId);
-      this.lifecycleTree.setLeaf(
-        regIndex,
-        lifecycleLeafCommitment(output.walletId, LIFECYCLE_REGISTERED),
-      );
-      this.walletLifecycleStates.set(output.walletId.toString(), LIFECYCLE_REGISTERED);
-    } else if (registryChanged) {
-      // Wallet update (credential mutation, nonce increment) — sync witness tree
-      // The proof verified a valid transition; reconstruct the new wallet state
-      // by incrementing nonce and computing the new commitment that produces newRegistryRoot.
-      try {
-        const wid = output.walletId;
-        const oldState = this.walletRegistry.getState(wid);
-        const newNonce = oldState.nonce.add(1);
-        // Compute what the new credentialInventoryRoot must be:
-        // newRegistryRoot = witness.calculateRoot(Poseidon.hash([walletId, newCredRoot, newNonce]))
-        // We don't have newCredRoot directly, but we can derive it by finding the commitment
-        // that makes the witness produce newRegistryRoot.
-        // Simpler approach: just set the tree leaf to the commitment that produces the correct root.
-        const walletIndex = this.walletRegistry.getIndex(wid);
-        // The new commitment is the value that, when placed at walletIndex in the tree,
-        // produces newRegistryRoot. We can find it by noting that the proof already verified this.
-        // Since MerkleTree.setLeaf updates the root, we set the leaf to a commitment
-        // that we compute from the known walletId + newNonce, and the newCredRoot is unknown.
-        // BUT we know the tree root MUST equal newRegistryRoot after the update.
-        // The only way to achieve this is to directly set the tree root — but MerkleTree doesn't support that.
-        // Instead, we compute the new leaf value by working backward from the root.
-        // Actually — the simplest correct approach: brute-force set the leaf and check the root.
-        // The new credential root IS available in the metadata if provided.
-        if (metadata && (metadata as any).newCredentialInventoryRoot) {
-          const newCredRoot = Field(BigInt((metadata as any).newCredentialInventoryRoot));
-          const newState = new WalletState({ walletId: wid, credentialInventoryRoot: newCredRoot, nonce: newNonce });
-          this.walletRegistry.updateState(wid, newState);
-        }
-      } catch {
-        // Non-critical: witness tree may drift, but roots are still correct
-        // Proofs using getWalletWitnesses() may fail until next registration syncs the tree
-      }
-    }
+    this.assertTreesMatchRoots('after applying a proof');
 
     // 5. Issue receipt
     const sequenceNumber = this.nextSequenceNumber++;
@@ -457,8 +424,9 @@ export class L2SequencerService {
 
     this.receipts.set(receiptId, receipt);
 
-    // 6b. Append to Claim Accumulator Tree (if claim metadata provided)
-    if (metadata) {
+    // 6b. Append to Claim Accumulator Tree (if claim metadata provided). Metadata that only
+    //     carries newCredentialInventoryRoot (credential mint, PCP update) is not a claim.
+    if (metadata && metadata.memberWalletId && metadata.ndcHash) {
       const claimEntry = this.claimAccumulator.appendClaim(
         {
           memberWalletId: metadata.memberWalletId,
@@ -530,10 +498,7 @@ export class L2SequencerService {
     this.preBatchClaimLeafCount = this.claimAccumulator.getLeafCount();
     this.preBatchAuditMerkleLeafCount = this.auditMerkleIndex.getEventCount();
     this.preBatchFingerprints = new Set(this.seenProofFingerprints);
-    this.preBatchWalletSnapshot = new Map();
-    for (const [walletIdStr, lcState] of this.walletLifecycleStates) {
-      this.preBatchWalletSnapshot.set(walletIdStr, { walletId: walletIdStr, lifecycleState: lcState.toBigInt() });
-    }
+    this.preBatchWalletSnapshot = this.snapshotWallets();
 
     if (this.pendingPool.length === 0) {
       // Create an empty batch record so the UI shows that a batch cycle ran
@@ -747,10 +712,7 @@ export class L2SequencerService {
     this.preBatchClaimLeafCount = this.claimAccumulator.getLeafCount();
     this.preBatchAuditMerkleLeafCount = this.auditMerkleIndex.getEventCount();
     this.preBatchFingerprints = new Set(this.seenProofFingerprints);
-    this.preBatchWalletSnapshot = new Map();
-    for (const [walletIdStr, lcState] of this.walletLifecycleStates) {
-      this.preBatchWalletSnapshot.set(walletIdStr, { walletId: walletIdStr, lifecycleState: lcState.toBigInt() });
-    }
+    this.preBatchWalletSnapshot = this.snapshotWallets();
 
     // Empty pool — create empty batch record (no proving needed)
     if (this.pendingPool.length === 0) {
@@ -1120,10 +1082,7 @@ export class L2SequencerService {
     this.preBatchClaimLeafCount = this.claimAccumulator.getLeafCount();
     this.preBatchAuditMerkleLeafCount = this.auditMerkleIndex.getEventCount();
     // Snapshot witness tree state for rollback
-    this.preBatchWalletSnapshot = new Map();
-    for (const [walletIdStr, lcState] of this.walletLifecycleStates) {
-      this.preBatchWalletSnapshot.set(walletIdStr, { walletId: walletIdStr, lifecycleState: lcState.toBigInt() });
-    }
+    this.preBatchWalletSnapshot = this.snapshotWallets();
 
     // Evict settled fingerprints — rebuild from pending pool only.
     // Settled proofs are protected by L1 root chain (replay impossible).
@@ -1247,7 +1206,30 @@ export class L2SequencerService {
         lifecycleLeafCommitment(walletId, lcState),
       );
       this.walletLifecycleStates.set(walletIdStr, lcState);
+      if (snap.credentialInventoryRoot !== undefined && snap.nonce !== undefined) {
+        this.walletRegistry.updateState(walletId, new WalletState({
+          walletId,
+          credentialInventoryRoot: Field(BigInt(snap.credentialInventoryRoot)),
+          nonce: Field(BigInt(snap.nonce)),
+        }));
+      }
     }
+  }
+
+  /** Snapshot every registered wallet (lifecycle + state) in registration order. */
+  private snapshotWallets(): Map<string, { walletId: string; lifecycleState: bigint; credentialInventoryRoot?: string; nonce?: string }> {
+    const snap = new Map<string, { walletId: string; lifecycleState: bigint; credentialInventoryRoot?: string; nonce?: string }>();
+    for (const [walletIdStr, lcState] of this.walletLifecycleStates) {
+      const entry: { walletId: string; lifecycleState: bigint; credentialInventoryRoot?: string; nonce?: string } = { walletId: walletIdStr, lifecycleState: lcState.toBigInt() };
+      const wid = Field(BigInt(walletIdStr));
+      if (this.walletRegistry.isRegistered(wid)) {
+        const st = this.walletRegistry.getState(wid);
+        entry.credentialInventoryRoot = st.credentialInventoryRoot.toString();
+        entry.nonce = st.nonce.toString();
+      }
+      snap.set(walletIdStr, entry);
+    }
+    return snap;
   }
 
   /** Rebuild fingerprint set from only the current pending pool entries. */
@@ -1345,55 +1327,165 @@ export class L2SequencerService {
     /** Pre-provisioned wallets to sync into internal witness trees (admin-enrolled entities). */
     provisionedWallets?: Array<{ walletId: Field; lifecycleState: Field }>;
   }): void {
-    // Sync internal witness trees with admin-provisioned wallets BEFORE updating roots.
-    // This ensures the sequencer's MerkleTrees match the roots being set.
-    if (opts.provisionedWallets) {
-      for (const pw of opts.provisionedWallets) {
-        if (!this.walletRegistry.isRegistered(pw.walletId)) {
-          const regIndex = this.walletRegistry.register(pw.walletId);
-          this.lifecycleTree.setLeaf(
-            regIndex,
-            lifecycleLeafCommitment(pw.walletId, pw.lifecycleState),
-          );
+    // Kept for compatibility. The roots are always taken from the sequencer's own trees;
+    // a caller-supplied root is only checked against them, never copied in.
+    this.adminMutate('applyAdminRootUpdate', ({ provision }) => {
+      for (const pw of opts.provisionedWallets ?? []) provision(pw.walletId, pw.lifecycleState);
+    });
+    const mismatch: string[] = [];
+    if (opts.newRegistryRoot && opts.newRegistryRoot.toString() !== this.currentRegistryRoot.toString()) mismatch.push('registry');
+    if (opts.newLifecycleRoot && opts.newLifecycleRoot.toString() !== this.currentLifecycleRoot.toString()) mismatch.push('lifecycle');
+    if (mismatch.length) {
+      throw new Error(
+        `applyAdminRootUpdate: the supplied ${mismatch.join(' and ')} root does not match the sequencer's tree. ` +
+        'Apply leaf changes through adminMutate() instead of passing roots.',
+      );
+    }
+  }
+
+  // ─── Single source of truth for wallet state ───────────
+
+  /**
+   * The sequencer's registry and lifecycle trees. In-process services (the adjudication
+   * engine, EnrollmentService) read witnesses and wallet state from these objects.
+   * Any change to them must happen inside adminMutate(), which re-derives the roots.
+   */
+  getStateTrees(): { registry: WalletRegistry; lifecycle: MerkleTree } {
+    return { registry: this.walletRegistry, lifecycle: this.lifecycleTree };
+  }
+
+  /**
+   * Apply an insurer-side (admin) change to the wallet trees — provisioning providers,
+   * advancing lifecycle (REGISTERED → ELIGIBLE), revoking at termination — and take the
+   * published roots from the trees afterwards. `fn` must be synchronous so no proof can
+   * be accepted between the tree change and the root update.
+   *
+   * Transitions already in the pending pool are not discarded: the batch builder takes
+   * the chainable prefix, so they are still batch-proven.
+   */
+  adminMutate<T>(
+    reason: string,
+    fn: (ctx: {
+      registry: WalletRegistry;
+      lifecycle: MerkleTree;
+      /** Register (if new) and set the lifecycle state of a wallet. */
+      provision: (walletId: Field, lifecycleState: Field) => bigint;
+      /** Set the lifecycle state of a registered wallet. */
+      setLifecycle: (walletId: Field, lifecycleState: Field) => void;
+      /** Replace a registered wallet's state (credential inventory root, nonce). */
+      setWalletState: (walletId: Field, state: WalletState) => void;
+    }) => T,
+  ): T {
+    const before = { reg: this.currentRegistryRoot.toString(), lc: this.currentLifecycleRoot.toString() };
+    const setLifecycle = (walletId: Field, lifecycleState: Field) => {
+      const idx = this.walletRegistry.getIndex(walletId);
+      this.lifecycleTree.setLeaf(idx, lifecycleLeafCommitment(walletId, lifecycleState));
+      this.walletLifecycleStates.set(walletId.toString(), lifecycleState);
+    };
+    const provision = (walletId: Field, lifecycleState: Field): bigint => {
+      if (!this.walletRegistry.isRegistered(walletId)) this.walletRegistry.register(walletId);
+      setLifecycle(walletId, lifecycleState);
+      return this.walletRegistry.getIndex(walletId);
+    };
+    const setWalletState = (walletId: Field, state: WalletState) => this.walletRegistry.updateState(walletId, state);
+
+    const result = fn({ registry: this.walletRegistry, lifecycle: this.lifecycleTree, provision, setLifecycle, setWalletState });
+    if (result && typeof (result as any).then === 'function') {
+      throw new Error(`adminMutate(${reason}): fn must be synchronous`);
+    }
+
+    this.currentRegistryRoot = this.walletRegistry.getRoot();
+    this.currentLifecycleRoot = this.lifecycleTree.getRoot();
+    this.currentWalletCount = Field(this.walletRegistry.count);
+    this.treesAuthoritative = true;
+    if (before.reg !== this.currentRegistryRoot.toString() || before.lc !== this.currentLifecycleRoot.toString()) {
+      this.adminChangeLog.push({ reason, at: Date.now(), ...before, newReg: this.currentRegistryRoot.toString(), newLc: this.currentLifecycleRoot.toString() });
+      if (this.adminChangeLog.length > 1000) this.adminChangeLog.splice(0, this.adminChangeLog.length - 1000);
+    }
+    return result;
+  }
+
+  /** Admin changes applied through adminMutate (most recent 1,000). */
+  private adminChangeLog: Array<{ reason: string; at: number; reg: string; lc: string; newReg: string; newLc: string }> = [];
+  getAdminChangeLog() { return [...this.adminChangeLog]; }
+
+  /** True when the witness trees hash to the published roots. */
+  treesMatchRoots(): boolean {
+    return this.walletRegistry.getRoot().toString() === this.currentRegistryRoot.toString() &&
+      this.lifecycleTree.getRoot().toString() === this.currentLifecycleRoot.toString();
+  }
+
+  /** Throw if the witness trees and the published roots have diverged. */
+  private assertTreesMatchRoots(context: string): void {
+    if (this.treesMatchRoots()) return;
+    const msg = `Wallet state divergence ${context}: registry tree ${this.walletRegistry.getRoot()} vs root ${this.currentRegistryRoot}, ` +
+      `lifecycle tree ${this.lifecycleTree.getRoot()} vs root ${this.currentLifecycleRoot}`;
+    if (!this.treesAuthoritative) {
+      console.warn(`[sequencer] ${msg} (trees not rebuilt after restore — not enforced)`);
+      return;
+    }
+    throw new Error(msg);
+  }
+
+  /**
+   * Decide how a transition changes the witness trees and check, without mutating
+   * anything, that the result hashes to the roots the proof claims.
+   */
+  private planTreeUpdate(
+    output: TransitionOutput,
+    metadata?: ClaimSubmissionMetadata,
+  ): { kind: 'registration' | 'update' | 'none'; apply: () => void } {
+    const wid = output.walletId;
+    const registryChanged = output.oldRegistryRoot.toString() !== output.newRegistryRoot.toString();
+    const lifecycleChanged = output.oldLifecycleRoot.toString() !== output.newLifecycleRoot.toString();
+    const enforce = this.treesAuthoritative;
+
+    if (registryChanged && lifecycleChanged) {
+      if (this.walletRegistry.isRegistered(wid)) {
+        throw new Error(`Wallet already registered: ${wid.toString()}`);
+      }
+      const index = BigInt(this.walletRegistry.count);
+      const expectedReg = this.walletRegistry.getNextSlotWitness().calculateRoot(WalletState.init(wid).commitment());
+      const lcLeaf = lifecycleLeafCommitment(wid, LIFECYCLE_REGISTERED);
+      const expectedLc = new LifecycleWitness(this.lifecycleTree.getWitness(index)).calculateRoot(lcLeaf);
+      if (enforce && (expectedReg.toString() !== output.newRegistryRoot.toString() ||
+          expectedLc.toString() !== output.newLifecycleRoot.toString())) {
+        throw new Error('Registration does not match the sequencer tree: the proof was built against a different slot or root');
+      }
+      return {
+        kind: 'registration',
+        apply: () => {
+          this.walletRegistry.register(wid);
+          this.lifecycleTree.setLeaf(index, lcLeaf);
+          this.walletLifecycleStates.set(wid.toString(), LIFECYCLE_REGISTERED);
           this.currentWalletCount = this.currentWalletCount.add(1);
-        } else {
-          // Wallet already registered — advance lifecycle state (e.g. REGISTERED → ELIGIBLE)
-          const regIndex = this.walletRegistry.getIndex(pw.walletId);
-          this.lifecycleTree.setLeaf(
-            regIndex,
-            lifecycleLeafCommitment(pw.walletId, pw.lifecycleState),
-          );
-        }
-        this.walletLifecycleStates.set(pw.walletId.toString(), pw.lifecycleState);
-      }
+        },
+      };
     }
 
-    if (opts.newLifecycleRoot) this.currentLifecycleRoot = opts.newLifecycleRoot;
-    if (opts.newRegistryRoot) this.currentRegistryRoot = opts.newRegistryRoot;
-
-    // Purge stale transitions orphaned by the root gap.
-    // After submitProof() accepts a transition it advances currentRegistryRoot /
-    // currentLifecycleRoot, so the last pending transition's newRoots == the
-    // pre-admin current roots. If the admin update changes those roots, a gap
-    // exists between the pool's tail and the new current state. New proofs will
-    // chain from the post-admin roots, so stale transitions can never pair with
-    // them. Rather than letting them pile up across enrollment cycles, drain them
-    // now and mark receipts settled (L2-only — state changes already applied).
-    if (this.pendingPool.length > 0 && this.l2Only) {
-      const tail = this.pendingPool[this.pendingPool.length - 1].proof.publicOutput;
-      const gapExists =
-        tail.newRegistryRoot.toString() !== this.currentRegistryRoot.toString() ||
-        tail.newLifecycleRoot.toString() !== this.currentLifecycleRoot.toString();
-
-      if (gapExists) {
-        const stale = this.pendingPool.splice(0);
-        for (const t of stale) {
-          t.receipt.l1Status = 'settled';
-          t.receipt.l1TxHash = `admin-settled-${t.sequenceNumber}`;
-          this.receipts.set(t.receipt.receiptId, t.receipt);
+    if (registryChanged) {
+      const newCred = (metadata as any)?.newCredentialInventoryRoot;
+      if (!this.walletRegistry.isRegistered(wid) || !newCred) {
+        if (!enforce) return { kind: 'update', apply: () => {} };   // legacy, unenforced state
+        if (!this.walletRegistry.isRegistered(wid)) {
+          throw new Error(`Wallet update for an unregistered wallet: ${wid.toString()}`);
         }
+        throw new Error('Wallet update rejected: submit newCredentialInventoryRoot with the proof so the sequencer can update its tree');
       }
+      const oldState = this.walletRegistry.getState(wid);
+      const newState = new WalletState({ walletId: wid, credentialInventoryRoot: Field(BigInt(newCred)), nonce: oldState.nonce.add(1) });
+      const expected = this.walletRegistry.getWitness(wid).calculateRoot(newState.commitment());
+      if (enforce && expected.toString() !== output.newRegistryRoot.toString()) {
+        throw new Error('Wallet update does not match the sequencer tree: newCredentialInventoryRoot or nonce disagrees with the proof');
+      }
+      return { kind: 'update', apply: () => this.walletRegistry.updateState(wid, newState) };
     }
+
+    if (lifecycleChanged) {
+      if (!enforce) return { kind: 'none', apply: () => {} };   // legacy, unenforced state
+      throw new Error('Lifecycle-only transitions are not accepted from proofs; lifecycle changes are admin operations');
+    }
+    return { kind: 'none', apply: () => {} };
   }
 
   /**
@@ -1428,6 +1520,10 @@ export class L2SequencerService {
     this.walletRegistry = new WalletRegistry();
     this.lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
     this.walletLifecycleStates = new Map();
+    // Roots always come from the (now empty) trees. Callers re-fetch getStateTrees().
+    this.currentRegistryRoot = this.walletRegistry.getRoot();
+    this.currentLifecycleRoot = this.lifecycleTree.getRoot();
+    this.treesAuthoritative = true;
     this.preBatchAuditLogLength = 0;
     this.preBatchChainHash = Field(0);
     this.preBatchClaimLeafCount = 0n;
@@ -1865,11 +1961,17 @@ export class L2SequencerService {
    * (e.g., PCP assignment) and the sequencer's witness tree needs to match the new root.
    */
   syncWalletState(walletId: Field, newState: WalletState): void {
-    try {
-      this.walletRegistry.updateState(walletId, newState);
-    } catch {
-      // Wallet may not be registered yet — non-critical
+    // submitProof() now updates the tree itself, so this is normally a no-op confirmation.
+    // A state is only applied if it reproduces the published root; anything else is refused
+    // so an outside caller cannot rewrite the sequencer's tree.
+    if (!this.walletRegistry.isRegistered(walletId)) throw new Error('Wallet not registered');
+    const current = this.walletRegistry.getState(walletId);
+    if (current.commitment().toString() === newState.commitment().toString()) return;
+    const resulting = this.walletRegistry.getWitness(walletId).calculateRoot(newState.commitment());
+    if (resulting.toString() !== this.currentRegistryRoot.toString()) {
+      throw new Error('syncWalletState refused: this state does not reproduce the published registry root');
     }
+    this.walletRegistry.updateState(walletId, newState);
   }
 
   /** Last-settled registry root (matches L1 state) */
@@ -2503,10 +2605,7 @@ export class L2SequencerService {
     }
 
     // Snapshot witness tree state for rollback (batch is now in-flight)
-    this.preBatchWalletSnapshot = new Map();
-    for (const [walletIdStr, lcState] of this.walletLifecycleStates) {
-      this.preBatchWalletSnapshot.set(walletIdStr, { walletId: walletIdStr, lifecycleState: lcState.toBigInt() });
-    }
+    this.preBatchWalletSnapshot = this.snapshotWallets();
 
     // Track in-flight
     this.inFlightBatchNumber = batch.batchNumber;
@@ -2955,12 +3054,15 @@ export class L2SequencerService {
       // scalar walletCount stays in sync with the witness tree after recovery.
       this.currentWalletCount = Field(BigInt(this.walletRegistry.count));
     }
+    // Checkpoints carry registrations and lifecycle states but not wallet states, so the
+    // rebuilt trees can differ from the restored roots. Enforce the invariant only if they match.
+    this.treesAuthoritative = this.treesMatchRoots();
+    if (!this.treesAuthoritative) {
+      console.warn('[sequencer] Restored roots do not match the rebuilt witness trees; tree/root checks are relaxed until the next admin rebuild.');
+    }
 
     // Initialize pre-batch wallet snapshot from restored witness trees
-    this.preBatchWalletSnapshot = new Map();
-    for (const [walletIdStr, lcState] of this.walletLifecycleStates) {
-      this.preBatchWalletSnapshot.set(walletIdStr, { walletId: walletIdStr, lifecycleState: lcState.toBigInt() });
-    }
+    this.preBatchWalletSnapshot = this.snapshotWallets();
 
     // Pending pool is NOT restored — proofs are transient
     this.pendingPool = [];

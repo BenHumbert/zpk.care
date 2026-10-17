@@ -60,6 +60,16 @@ const API = (() => {
     return obj;
   }
 
+  // Normalize a value into a safe error message string (avoids "[object Object]")
+  function errMsg(e) {
+    if (e == null) return '';
+    if (typeof e === 'string') return e;
+    if (typeof e.message === 'string') return e.message;
+    if (typeof e.error === 'string') return e.error;
+    if (e.error && typeof e.error.message === 'string') return e.error.message;
+    try { return JSON.stringify(e); } catch (_) { return String(e); }
+  }
+
   function headers(admin = false) {
     const h = { 'Content-Type': 'application/json' };
     if (admin && adminToken) {
@@ -86,7 +96,7 @@ const API = (() => {
       data = text;
     }
     if (!res.ok) {
-      const msg = (data && data.error) || (data && data.message) || text || ('HTTP ' + res.status);
+      const msg = (data && data.error != null ? errMsg(data.error) : '') || (data && typeof data.message === 'string' ? data.message : '') || (typeof text === 'string' ? text : '') || ('HTTP ' + res.status);
       const err = new Error(msg);
       err.status = res.status;
       throw err;

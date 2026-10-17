@@ -205,12 +205,28 @@ export class NautilusAppServer {
     return timingSafeEqual(a, b);
   }
 
-  /** Register a client's Ed25519 public key at runtime */
+  /**
+   * Register a key that may act as this node's own admin (for example the HR Tool on an
+   * employer node). Registering one switches admin auth to signatures.
+   */
   registerClientKey(clientId: string, publicKeyHex: string): void {
     if (!this.config.authorizedClientKeys) {
       this.config.authorizedClientKeys = new Map();
     }
     this.config.authorizedClientKeys.set(clientId, publicKeyHex);
+  }
+
+  /**
+   * Record another organization's signing key (an employer signing its agreement with the
+   * insurer). These keys identify that organization; they never grant this node's admin
+   * rights and do not change how this node's own admin authenticates.
+   */
+  private partnerKeys = new Map<string, string>();
+  registerPartnerKey(partnerId: string, publicKeyHex: string): void {
+    this.partnerKeys.set(partnerId, publicKeyHex);
+  }
+  getPartnerKey(partnerId: string): string | undefined {
+    return this.partnerKeys.get(partnerId);
   }
 
   /** Revoke a client's key */

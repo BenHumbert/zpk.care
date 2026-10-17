@@ -51,6 +51,16 @@
 
   // ─── Helpers ──────────────────────────────────────────────
 
+  // Normalize a value into a safe error message string (avoids "[object Object]")
+  function errMsg(e) {
+    if (e == null) return '';
+    if (typeof e === 'string') return e;
+    if (typeof e.message === 'string') return e.message;
+    if (typeof e.error === 'string') return e.error;
+    if (e.error && typeof e.error.message === 'string') return e.error.message;
+    try { return JSON.stringify(e); } catch (_) { return String(e); }
+  }
+
   function esc(s) { if (s == null) return ''; var d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
   function fmtCents(c) { return '$' + (c / 100).toFixed(2); }
 
@@ -71,7 +81,7 @@
     if (body && method !== 'GET') opts.body = JSON.stringify(body);
     var res = await fetch(path, opts);
     var data = await res.json();
-    if (!data.ok) throw new Error(data.error || 'Request failed');
+    if (!data.ok) throw new Error(errMsg(data.error) || 'Request failed');
     return data.data;
   }
 
@@ -480,7 +490,7 @@
             });
             var data = await resp.json();
             if (data.ok) { toast('Document uploaded. Your application is under review.', 'success'); renderSign(); }
-            else { toast(data.error || 'Upload failed', 'error'); statusEl.textContent = data.error || 'Upload failed'; }
+            else { var uploadErr = errMsg(data.error) || 'Upload failed'; toast(uploadErr, 'error'); statusEl.textContent = uploadErr; }
           } catch (e) { toast('Upload failed: ' + e.message, 'error'); statusEl.textContent = ''; }
         };
         return;
@@ -718,7 +728,7 @@
           break;
         }
         if (status.status === 'error') {
-          throw new Error(status.error || 'Activation failed');
+          throw new Error(errMsg(status.error) || 'Activation failed');
         }
         // pending — update progress message
         if (progressEl) {

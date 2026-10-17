@@ -52,6 +52,16 @@
   // Guard flag to prevent re-entering the router during async rehydration
   let _rehydrating = false;
 
+  // Normalize a value into a safe error message string (avoids "[object Object]")
+  function errMsg(e) {
+    if (e == null) return '';
+    if (typeof e === 'string') return e;
+    if (typeof e.message === 'string') return e.message;
+    if (typeof e.error === 'string') return e.error;
+    if (e.error && typeof e.error.message === 'string') return e.error.message;
+    try { return JSON.stringify(e); } catch (_) { return String(e); }
+  }
+
   // ─── API Client ───────────────────────────────────────────
 
   const API = {
@@ -62,7 +72,7 @@
       const data = await res.json();
       if (!data.ok) {
         if (res.status === 401) { showLockScreen(); }
-        throw new Error(data.error || 'Unknown error');
+        throw new Error(errMsg(data.error) || 'Unknown error');
       }
       return data.data;
     },

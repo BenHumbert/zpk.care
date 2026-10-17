@@ -194,6 +194,20 @@ async function main(): Promise<void> {
     poolWorkerCount = Math.min(MAX_POOL_WORKERS, Math.max(1, parseInt(poolSizeEnv, 10) || 0));
   }
 
+  // ── Load Canonical Formulary (Option C) ──
+  // Load all 32K NADAC drugs into FormularyService for paginated queries.
+  // Plan overlays are published later by the Insurer node.
+  // Runs before the proving pool starts: this load blocks the main thread for minutes,
+  // and the pool's compile timeout would otherwise expire while worker 'ready'
+  // messages wait to be processed.
+  try {
+    const { formularyRaw } = await import('../data/formulary-loader.js');
+    node.getSequencer().getFormularyService().loadFromNadac(formularyRaw);
+    console.log('  [formulary] Loaded %d NADAC drugs into FormularyService', node.getSequencer().getFormularyService().drugCount);
+  } catch (err) {
+    console.error('  [formulary] Failed to load NADAC formulary:', err);
+  }
+
   if (poolWorkerCount > 0) {
     const compileConcurrency = Math.max(1, Math.min(poolWorkerCount, Math.floor(os.cpus().length / 4)));
     const { ProvingPool } = await import('../l2/l2-proving-pool.js');
@@ -249,17 +263,6 @@ async function main(): Promise<void> {
     }).catch((err) => {
       console.error('  [pool] Failed to start proving pool:', err);
     });
-  }
-
-  // ── Load Canonical Formulary (Option C) ──
-  // Load all 32K NADAC drugs into FormularyService for paginated queries.
-  // Plan overlays are published later by the Insurer node.
-  try {
-    const { formularyRaw } = await import('../data/formulary-loader.js');
-    node.getSequencer().getFormularyService().loadFromNadac(formularyRaw);
-    console.log('  [formulary] Loaded %d NADAC drugs into FormularyService', node.getSequencer().getFormularyService().drugCount);
-  } catch (err) {
-    console.error('  [formulary] Failed to load NADAC formulary:', err);
   }
 
   // ── RPC Server (start before pool compilation to pass Render health check) ──

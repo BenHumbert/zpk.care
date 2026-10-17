@@ -46,7 +46,7 @@ import type { L2PeerNetwork } from './l2-peer-network.js';
 import type { GossipMessage, PeerInfo, StateDigest } from './l2-peer-types.js';
 import { ProviderLifecycle, PROVIDER_TYPE_TAG } from './provider-registry-types.js';
 import type { ProviderType } from './provider-registry-types.js';
-import type { BenefitPlanConfig } from './l2-types.js';
+import type { BenefitPlanConfig, ClaimSubmissionMetadata } from './l2-types.js';
 import { hashString } from '../zkp/hash-utils.js';
 import { AuditService } from '../audit/audit-service.js';
 
@@ -760,7 +760,14 @@ export class L2RpcServer {
         const proof = await StateTransitionProof.fromJSON(
           proofJson as Parameters<typeof StateTransitionProof.fromJSON>[0],
         );
-        const result = await this.node.submitProof(proof);
+        // Wallet updates must say what the new credential inventory root is, so the
+        // sequencer can update its tree and check it against the proof's new root.
+        // Only this field is accepted from outside callers (no claim metadata).
+        const newCred = params.newCredentialInventoryRoot;
+        const submitMeta = typeof newCred === 'string' && /^\d+$/.test(newCred)
+          ? ({ newCredentialInventoryRoot: newCred } as unknown as ClaimSubmissionMetadata)
+          : undefined;
+        const result = await this.node.submitProof(proof, submitMeta);
 
         // Auto-register entity metadata if provided alongside a registration proof.
         // The metadata is untrusted display data — the ZK proof guarantees the walletId.

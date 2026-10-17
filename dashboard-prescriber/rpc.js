@@ -45,6 +45,16 @@ const API = (() => {
     return obj;
   }
 
+  // Normalize a value into a safe error message string (avoids "[object Object]")
+  function errMsg(e) {
+    if (e == null) return '';
+    if (typeof e === 'string') return e;
+    if (typeof e.message === 'string') return e.message;
+    if (typeof e.error === 'string') return e.error;
+    if (e.error && typeof e.error.message === 'string') return e.error.message;
+    try { return JSON.stringify(e); } catch (_) { return String(e); }
+  }
+
   // ── Core request helper ────────────────────────────────────
 
   async function request(method, path, body) {
@@ -59,13 +69,13 @@ const API = (() => {
     const res = await fetch(`${baseUrl}${path}`, opts);
     if (!res.ok) {
       let msg = 'HTTP ' + res.status;
-      try { const j = await res.json(); msg = j.error || j.message || msg; } catch { /* use status */ }
+      try { const j = await res.json(); msg = j.error != null ? errMsg(j.error) : (typeof j.message === 'string' ? j.message : msg); } catch { /* use status */ }
       throw new Error(msg);
     }
     const json = await res.json();
     // Envelope: { ok, data, error, timestamp }
     if (!json.ok) {
-      throw new Error(json.error || `Request failed: ${method} ${path}`);
+      throw new Error(json.error != null ? errMsg(json.error) : `Request failed: ${method} ${path}`);
     }
     return stripBigints(json.data);
   }

@@ -35,6 +35,16 @@ const RPC = (() => {
 
   function headers() { return { 'Content-Type': 'application/json' }; }
 
+  // Normalize a value into a safe error message string (avoids "[object Object]")
+  function errMsg(e) {
+    if (e == null) return '';
+    if (typeof e === 'string') return e;
+    if (typeof e.message === 'string') return e.message;
+    if (typeof e.error === 'string') return e.error;
+    if (e.error && typeof e.error.message === 'string') return e.error.message;
+    try { return JSON.stringify(e); } catch (_) { return String(e); }
+  }
+
   // Strip __bigint__:NNN prefixes from serialized BigInt values
   function stripBigints(obj) {
     if (obj === null || obj === undefined) return obj;
@@ -139,7 +149,7 @@ const RPC = (() => {
       body: JSON.stringify({ recipientWalletId: recipientWalletId, body: body }),
     });
     var data = await res.json();
-    if (data.error) throw new Error(data.error);
+    if (data.error) throw new Error(errMsg(data.error) || 'Unknown error');
     return stripBigints(data.data || data);
   }
   function getMessageStoreRoot() { return call('l2_getMessageStoreRoot'); }
@@ -161,7 +171,7 @@ const RPC = (() => {
       body: JSON.stringify({ walletId, tokenId }),
     });
     const json = await res.json();
-    if (json && !json.ok && json.error) throw new Error(json.error);
+    if (json && !json.ok && json.error) throw new Error(errMsg(json.error) || 'Unknown error');
     return json.data || json;
   }
 

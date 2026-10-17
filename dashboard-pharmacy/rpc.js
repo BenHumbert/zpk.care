@@ -21,6 +21,16 @@ const BASE_URL = location.origin;
 
 // ── Helpers ───────────────────────────────────────────────────
 
+// Normalize a value into a safe error message string (avoids "[object Object]")
+function errMsg(e) {
+  if (e == null) return '';
+  if (typeof e === 'string') return e;
+  if (typeof e.message === 'string') return e.message;
+  if (typeof e.error === 'string') return e.error;
+  if (e.error && typeof e.error.message === 'string') return e.error.message;
+  try { return JSON.stringify(e); } catch (_) { return String(e); }
+}
+
 async function request(method, path, body) {
   const opts = {
     method,
@@ -33,7 +43,7 @@ async function request(method, path, body) {
   const res = await fetch(url, opts);
   if (!res.ok) {
     let msg = 'HTTP ' + res.status;
-    try { const j = await res.json(); msg = j.error || j.message || msg; } catch {}
+    try { const j = await res.json(); msg = (j.error != null ? errMsg(j.error) : (typeof j.message === 'string' ? j.message : '')) || msg; } catch {}
     const err = new Error(msg);
     err.status = res.status;
     throw err;
@@ -41,7 +51,7 @@ async function request(method, path, body) {
   const json = await res.json();
   // All responses use { ok, data, error, timestamp } envelope
   if (!json.ok) {
-    const err = new Error(json.error || 'Unknown API error');
+    const err = new Error(errMsg(json.error) || 'Unknown API error');
     err.status = res.status;
     err.response = json;
     throw err;

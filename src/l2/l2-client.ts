@@ -86,9 +86,12 @@ export class L2Client {
    *
    * @returns L2Receipt — instant confirmation from the sequencer
    */
-  async submitProof(proof: StateTransitionProof): Promise<L2Receipt> {
+  async submitProof(proof: StateTransitionProof, opts?: { newCredentialInventoryRoot?: string }): Promise<L2Receipt> {
     const proofJson = proof.toJSON();
-    return this.rpcCall<L2Receipt>('l2_submitProof', { proofJson });
+    return this.rpcCall<L2Receipt>('l2_submitProof', {
+      proofJson,
+      ...(opts?.newCredentialInventoryRoot ? { newCredentialInventoryRoot: opts.newCredentialInventoryRoot } : {}),
+    });
   }
 
   /** Query the sequencer's current chain status */

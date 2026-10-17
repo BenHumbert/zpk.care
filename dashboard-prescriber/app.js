@@ -59,6 +59,16 @@
   function $(sel) { return document.querySelector(sel); }
   function $$(sel) { return document.querySelectorAll(sel); }
 
+  // Normalize a value into a safe error message string (avoids "[object Object]")
+  function errMsg(e) {
+    if (e == null) return '';
+    if (typeof e === 'string') return e;
+    if (typeof e.message === 'string') return e.message;
+    if (typeof e.error === 'string') return e.error;
+    if (e.error && typeof e.error.message === 'string') return e.error.message;
+    try { return JSON.stringify(e); } catch (_) { return String(e); }
+  }
+
   function truncate(s, n) {
     if (!s) return '--';
     s = String(s);
@@ -533,8 +543,8 @@
           var badge = document.getElementById('rx-proof-badge');
           if (badge) { badge.className = 'badge badge-failed'; badge.textContent = 'ZK Proof: Failed'; }
           var detail = document.getElementById('rx-proof-detail');
-          if (detail) { detail.innerHTML = '<div style="color:#ef4444">' + esc(status.error || 'Unknown error') + '</div>'; }
-          toast('Prescription proof failed: ' + (status.error || 'Unknown'), 'error');
+          if (detail) { detail.innerHTML = '<div style="color:#ef4444">' + esc(errMsg(status.error) || 'Unknown error') + '</div>'; }
+          toast('Prescription proof failed: ' + (errMsg(status.error) || 'Unknown'), 'error');
           var btn = $('#rx-write-btn');
           if (btn) { btn.disabled = false; btn.textContent = 'Send Prescription'; }
         } else {

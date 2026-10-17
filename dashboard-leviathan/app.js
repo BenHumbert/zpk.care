@@ -32,6 +32,16 @@
 
   const MAX_LOG = 200;
 
+  // Normalize a value into a safe error message string (avoids "[object Object]")
+  function errMsg(e) {
+    if (e == null) return '';
+    if (typeof e === 'string') return e;
+    if (typeof e.message === 'string') return e.message;
+    if (typeof e.error === 'string') return e.error;
+    if (e.error && typeof e.error.message === 'string') return e.error.message;
+    try { return JSON.stringify(e); } catch (_) { return String(e); }
+  }
+
   // ── Pipeline State ──────────────────────────────────────────
   var entityCache = [];       // from /viz/entities
   var entityCacheTime = 0;
@@ -1168,7 +1178,7 @@
         typeClass: 'error',
         from: wIdD, fromColor: '#f85149',
         to: null, toColor: null,
-        detail: data.error || 'worker process crashed',
+        detail: errMsg(data.error) || 'worker process crashed',
         timestamp: ev.timestamp || Date.now()
       });
     }
@@ -1815,7 +1825,7 @@
     var text = await res.text();
     var data;
     try { data = JSON.parse(text); } catch (e) { data = text; }
-    if (data && data.ok === false && data.error) throw new Error(data.error);
+    if (data && data.ok === false && data.error) throw new Error(errMsg(data.error) || 'Unknown error');
     if (data && data.ok !== undefined && data.data !== undefined) return data.data;
     return data;
   }
