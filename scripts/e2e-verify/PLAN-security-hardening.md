@@ -286,6 +286,31 @@ Two consequences that hold regardless:
 
 Phases A, C, D, E and F do not change the pipeline's shape. C changes wallet IDs, which is a migration rather than a flow change. E changes where proofs are stored and how acknowledgment timing works: a client waits for a quorum majority instead of a single node, which adds a round trip and is the point.
 
+## 7b. Release one: recommendation, 2026-10-16
+
+**Shape.** The adjudication layer, operated by the sister company, for **non-controlled outpatient pharmacy benefit**, starting from genesis.
+
+**In scope:** verified proofs at submission; identity that never leaves the device, salted; the adjudication engine out of the sequencer process; access control on member data; the trust layer switched on and treated as disaster recovery; the money-correctness defects fixed; fixtures isolated and removed at tag.
+
+**Explicitly out, and the architecture leaves room for each:** controlled substances and EPCS certification; the counter QR disclosure; emergency-department or medication-history access; external quorum operators; and being the prescriber's system of record for e-prescribing.
+
+**Ordered recommendations, with the cost of skipping each.**
+
+| # | Recommendation | If skipped |
+|---|---|---|
+| R1 | **A1 next, alone.** Verify submitted proofs before any mutation. Twenty lines plus the check script | Every later phase builds on state any reachable caller can write. Replication and quorum would propagate it across ten nodes and sign certificates over it |
+| R2 | **Collapse B and C into one derivation change.** Genesis makes this free: salt, group binding and stopping the preimage send all land together on the final formula, then wipe | Two migrations instead of none, and a window where two derivations coexist |
+| R3 | **Move the engine out of the sequencer. Keep it in phase B** | The operator can impersonate any member, so I2 is false in substance whatever else lands. With a single named operator that is the central trust question, not a theoretical one |
+| R4 | **Phase E as disaster recovery, not decentralisation.** Replication, write-ahead log, failover, standby nodes joining by snapshot | A single machine loss loses live proof state. The ten-per-million plan is not executable, because nothing replicates today |
+| R5 | **Fix the money before scaling:** the duplicate-fill drop, the accumulator divergence, and binding amounts into the audit chain | Scaling a system that charges members for claims it has no record of, with no check able to detect it, because the balance check reports over zero claims |
+| R6 | **Measure transitions per batch before buying hardware.** The cap of two at 28.6 seconds is the throughput ceiling | Buying ten times the hardware needed, or discovering mid-launch that ten times more is needed |
+| R7 | **Write the two missing acceptance checks first:** the hash-reversal attack and the tampered-proof submission | Re-introducing the exact class of defect that this audit found, without noticing |
+| R8 | **Hold the non-goals.** No EPCS, no controlled substances, no QR, no medication-history service in release one | Scope creep into three separate regulatory surfaces, each with its own certification or consent model |
+
+**The one real fork.** R3 is the long pole: roughly 6,800 lines, the route mounting, the state file, the key holdings, and who proves what in three flows. The only genuine lever for a faster release is to ship without it and accept that the operator can write any member's state. My recommendation is to do it, because the product's claim is privacy from everyone including the operator, and the sister company is now a named party rather than an abstraction.
+
+**Honest cost.** Roughly sixteen to twenty-two sessions at one phase-slice per session: A1 alone, three or four for the rest of A, four to six for B including the engine move, one or two for C, three for D, two or three for E, one or two for F.
+
 ## 8. Decisions needed from the owner
 
 These are not engineering choices and they gate the phases named.
