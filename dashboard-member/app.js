@@ -267,18 +267,35 @@
       'This cannot be undone unless you have an NFC backup card.\n\nContinue?'
     )) return;
 
+    // A4: erasing the device needs the PIN, proved at the device, at the moment of erasing.
+    var pin = prompt('Enter your device PIN to confirm erasing this device:');
+    if (!pin) return;
+
     try {
       var resp = await fetch(location.origin + '/onboarding/eject', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: pin }),
       });
       var data = await resp.json();
-      if (!data.ok) throw new Error(errMsg(data.error) || 'Eject failed');
+      if (!data.ok) {
+        if (resp.status === 429) {
+          var wait = resp.headers.get('Retry-After');
+          toast('Too many PIN attempts. Try again in ' + (wait || 'a few') + ' seconds.', 'error');
+        } else {
+          toast(errMsg(data.error) || 'Eject failed. Nothing was erased.', 'error');
+        }
+        return;
+      }
     } catch (e) {
-      // If the server eject fails (e.g. state already locked), still clear frontend state
-      console.warn('[eject] Server eject failed:', e.message, '— clearing frontend anyway');
+      // The browser state is NOT cleared on a failure. Clearing it while the device keeps its
+      // key leaves the member looking at an empty app that still has a live wallet behind it,
+      // which is worse than a visible error.
+      toast('Could not reach the device. Nothing was erased.', 'error');
+      console.warn('[eject] server eject failed:', e.message);
+      return;
     }
 
-    // Clear all browser state regardless of server result
+    // The device confirmed the erase, so the browser copy goes too.
     Object.values(LS).forEach(function (k) { lsRemove(k); });
     walletId = '';
     enrollmentKey = '';

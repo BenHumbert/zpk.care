@@ -223,7 +223,8 @@ async function main() {
   const ph0 = unwrap((await http('GET', `${MEM}/onboarding/status`)).json)?.phase;
   if (ph0 && ph0 !== 'awaiting_token' && ph0 !== 'locked') {
     trace.note(`member device holds an earlier member (phase ${ph0}); ejecting it first`);
-    await http('POST', `${MEM}/onboarding/eject`, {});
+    // A4: eject needs the PIN, proved at the moment of erasing.
+    await http('POST', `${MEM}/onboarding/eject`, { pin: MEMBER.memberPin });
   }
   const unl = await http('POST', `${MEM}/onboarding/unlock`, { pin: MEMBER.memberPin });
   trace.check('Device state unlocked', unl.status < 300, '2xx', unl.json);

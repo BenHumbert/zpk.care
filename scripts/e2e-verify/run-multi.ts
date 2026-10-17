@@ -144,7 +144,8 @@ async function enrollMember(p: Person, token: { tokenId: string; tokenPIN: strin
   t.begin(`member ${p.key}`, `Enroll ${p.firstName} ${p.lastName} on device :${p.port}`);
   t.secret('device PIN', p.pin);
   const ph0 = unwrap((await http('GET', `${MEM}/onboarding/status`)).json)?.phase;
-  if (ph0 && ph0 !== 'awaiting_token' && ph0 !== 'locked') await http('POST', `${MEM}/onboarding/eject`, {});
+  // A4: eject needs the PIN, proved at the moment of erasing.
+  if (ph0 && ph0 !== 'awaiting_token' && ph0 !== 'locked') await http('POST', `${MEM}/onboarding/eject`, { pin: p.pin });
   t.check('Device unlocked', (await http('POST', `${MEM}/onboarding/unlock`, { pin: p.pin })).status < 300, '2xx', 'unlock');
   t.check('Code accepted', (await http('POST', `${MEM}/onboarding/accept-token`, { tokenId: token.tokenId })).status < 300, '2xx', 'accept-token');
   t.check('Enrollment key generated on the device', (await http('POST', `${MEM}/onboarding/generate-key`, {})).status < 300, '2xx', 'generate-key');

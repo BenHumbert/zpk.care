@@ -286,6 +286,74 @@ LAN address refuses; an allowlisted browser origin is echoed back exactly; a for
 header at all; a node's `/rpc` is refused. A port that is not listening is reported as skipped, never
 as a pass, because a closed port proves nothing about the policy it would have applied.
 
+**A4 implementation record.** Done 2026-10-17.
+
+*The root cause was one sentence wide.* `unlock(pin)` derived a scrypt key and returned. Deriving
+a key **cannot fail** — scrypt is a key-derivation function, not a check — so the key was set for
+any input, including six characters of junk. `isUnlocked()` was literally `derivedKey !== null`,
+so it became true. The unlock handler's catch returned 400 without locking, so the key stayed set
+across requests. And that flag was the **only** gate on the route that deletes the device's state
+file. Four links, one request: any junk PIN armed the wipe. With the launcher's environment PIN the
+flag was already true at boot, so eject needed no PIN at all.
+
+*The fix is to make the function mean what its name says.* `unlock` now decrypts the state file
+with the derived key before reporting success. A wrong PIN wipes the candidate key, counts the
+attempt and throws, leaving the device exactly as locked as it was. A first run with no state file
+is still accepted, because there is nothing on the device to protect yet. `isUnlocked()` now
+reports a separate `pinVerified` flag rather than the presence of a key.
+
+*Eject asks again anyway.* It takes a PIN in the request body and checks it with a new `verifyPin`,
+which verifies without changing the lock state. `unlock` verifying would have been enough to close
+the finding, but an irreversible action should prove the owner is at the device **now**, not that
+someone unlocked it this morning. Both paths share one attempt counter, so neither can be used to
+grind the other's limit.
+
+*Attempt limiting, and where the counter had to live.* A six-digit PIN is a million guesses and
+scrypt at N=2^15 costs about a tenth of a second, so an unbounded attacker finishes the space in
+roughly a day. Three failures are free, then the delay doubles from 2 s to a 15-minute ceiling.
+**The counter cannot live inside the encrypted state file**, because that file is encrypted under
+the very PIN being guessed — a counter in there could not be read until the guess had already
+succeeded. So it is a plaintext sidecar, mode 0600, beside the state, which also means it survives
+a process restart. A wipe clears it, so a fresh enrollment on the same device is not born locked
+out.
+
+**Backoff, never a wipe.** The obvious design, erase after N failures, would have converted this
+very finding — a device wipeable by an unauthenticated caller — from a bug into a documented
+feature reachable by anyone able to send ten requests. Delay is the only safe lever.
+
+*A damaged file is not a wrong PIN.* The check distinguishes a malformed envelope from a failed
+authentication tag, and only the second counts against the limit. Otherwise the owner of a
+corrupted state file would be locked out of their own device by the corruption.
+
+*A fifth link, which the audit did not have and reading the code would not have found.* Probing
+the running node turned up that the unlock route returned `{ unlocked: true, alreadyUnlocked: true
+}` the moment the state was unlocked, **without looking at the PIN at all**. The launcher
+auto-unlocks from the environment, so that is a device's normal condition after boot, which means
+the member-facing PIN screen accepted any PIN for the life of the process. It granted a caller
+nothing they did not already have, so it is not a privilege escalation; what it did was make the
+PIN gate decorative, and a prompt that accepts anything is worse than no prompt because it implies
+a check happened. The route now verifies either way, rate-limited on the same counter, and a wrong
+PIN does not lock a device that was legitimately open. **This is the second finding this session
+that only a live probe would surface** — the first was A2's `/rpc` proxies having clients that a
+grep could not see. Read the code, then poke the thing.
+
+*A failure no longer half-erases the app.* The member dashboard used to clear all browser state
+"regardless of server result", so a refused eject still emptied the app while the device kept its
+key and wallet. It now prompts for the PIN, sends it, and clears the browser copy **only** when the
+device confirms the erase.
+
+*Known limit, recorded rather than hidden.* The backoff is wall-clock, so moving the device clock
+forward skips it. Whoever can set the clock already holds the device, which is not a threat this
+mechanism can address; a monotonic counter would survive a clock change but not a file delete, and
+the same holder can delete the file.
+
+*Acceptance test.* `tests/pin-custody.test.ts`, 24 tests. It walks the original chain step by step
+against a real HTTP server with a real encrypted state: a junk unlock is refused, eject with no PIN
+is refused, eject with a wrong PIN is refused, repeated wrong PINs start answering 429 with a
+`Retry-After`, and the state file still exists after every one of them. Only the right PIN erases
+it. It also pins the properties that are easy to regress: a correct PIN is refused while throttled,
+the counter survives a new instance, and the counter is never written inside the encrypted file.
+
 **A3 implementation record.** Done 2026-10-17.
 
 *The finding was scoped too narrowly.* The audit recorded `backup-key`, `restore-key` and the

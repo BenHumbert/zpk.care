@@ -44,6 +44,7 @@ import { MemberNode } from '../member-node.js';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
 import type { RouteRegistration } from '../nautilus-app-types.js';
 import type { MemberLocalData } from '../../models/member.js';
+import { PinAttemptThrottled } from '../nautilus-local-state.js';
 
 /** Domain tag for members */
 const DOMAIN_TAG_MEMBER = 0;
@@ -63,14 +64,38 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
     handler: async (_req, res, _params, _query, body) => {
       const state = server.getLocalState();
 
-      // Already unlocked — skip
-      if (state.isUnlocked()) {
-        return server.sendResponse(res, 200, true, { unlocked: true, alreadyUnlocked: true });
-      }
-
       const b = body as { pin?: string } | undefined;
       if (!b?.pin) {
         return server.sendResponse(res, 400, false, undefined, 'Missing pin');
+      }
+
+      /*
+       * Already unlocked still means checking the PIN (A4, found by probing a live node).
+       *
+       * This used to return `{ unlocked: true, alreadyUnlocked: true }` the moment the state was
+       * unlocked, without looking at the PIN. Since the launcher auto-unlocks from the
+       * environment, that is the device's normal state after boot, so the app's PIN screen
+       * accepted **any** PIN for the rest of the process's life. It granted nothing a caller did
+       * not already have, but it did make the member-facing PIN gate decorative, and a PIN screen
+       * that accepts anything is worse than no PIN screen because it implies a check.
+       *
+       * So the PIN is verified either way. The attempt is rate-limited on the same counter, and
+       * a wrong PIN here does not lock a device that was legitimately unlocked: it is refused,
+       * counted, and the state is left as it was.
+       */
+      if (state.isUnlocked()) {
+        try {
+          if (!(await state.verifyPin(b.pin))) {
+            return server.sendResponse(res, 401, false, undefined, 'Incorrect PIN.');
+          }
+        } catch (err: unknown) {
+          if (err instanceof PinAttemptThrottled) {
+            res.setHeader('Retry-After', String(Math.ceil(err.retryAfterMs / 1000)));
+            return server.sendResponse(res, 429, false, undefined, err.message);
+          }
+          throw err;
+        }
+        return server.sendResponse(res, 200, true, { unlocked: true, alreadyUnlocked: true });
       }
 
       try {
@@ -88,6 +113,18 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         }
         server.sendResponse(res, 200, true, { unlocked: true });
       } catch (err: unknown) {
+        /*
+         * A4: a failed unlock leaves the device locked, and the failure is counted.
+         *
+         * `unlock()` wipes the derived key before throwing, so there is nothing to clear here
+         * and no partially-unlocked state for a later request to inherit. The separate status
+         * for throttling is so the app can show a wait rather than repeat "wrong PIN" while
+         * every attempt is being refused unread.
+         */
+        if (err instanceof PinAttemptThrottled) {
+          res.setHeader('Retry-After', String(Math.ceil(err.retryAfterMs / 1000)));
+          return server.sendResponse(res, 429, false, undefined, err.message);
+        }
         const msg = err instanceof Error ? err.message : String(err);
         server.sendResponse(res, 400, false, undefined, msg);
       }
@@ -1305,18 +1342,43 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   routes.push({
     method: 'POST',
     path: '/onboarding/eject',
-    handler: async (_req, res) => {
+    handler: async (_req, res, _params, _query, body) => {
       const state = server.getLocalState();
       if (!state) {
         return server.sendResponse(res, 503, false, undefined, 'State manager not initialized');
       }
 
-      // Only allow eject if the state is currently unlocked (user has already
-      // proven identity by entering their PIN). This prevents a stray HTTP
-      // request from wiping a device without the owner's knowledge.
-      if (!state.isUnlocked()) {
-        return server.sendResponse(res, 401, false, undefined,
-          'State is locked. Unlock with your PIN first, then eject.');
+      /*
+       * A fresh PIN, every time (A4, finding A-20).
+       *
+       * This used to accept `isUnlocked()` as proof that the owner was present. That flag meant
+       * only that a key had been derived at some point, and deriving a key cannot fail, so one
+       * unlock attempt with six characters of junk made it true and this route then deleted the
+       * device's state. The launcher's environment PIN made it true at boot, so eject needed no
+       * PIN at all.
+       *
+       * `unlock()` now verifies, which closes that path. This route asks again anyway, because
+       * an irreversible action should prove the person is at the device *now* rather than that
+       * someone unlocked it this morning. The check is rate-limited on the same counter as
+       * unlocking, so eject cannot be used to grind through PINs.
+       */
+      const b = body as { pin?: string } | undefined;
+      if (!b?.pin) {
+        return server.sendResponse(res, 400, false, undefined,
+          'Ejecting erases this device. Send your PIN to confirm.');
+      }
+
+      try {
+        if (!(await state.verifyPin(b.pin))) {
+          return server.sendResponse(res, 401, false, undefined,
+            'Incorrect PIN. Nothing was erased.');
+        }
+      } catch (err: unknown) {
+        if (err instanceof PinAttemptThrottled) {
+          res.setHeader('Retry-After', String(Math.ceil(err.retryAfterMs / 1000)));
+          return server.sendResponse(res, 429, false, undefined, err.message);
+        }
+        throw err;
       }
 
       try {
