@@ -1,0 +1,110 @@
+# Risk log
+
+Opened 2026-10-16. Workflow diagram with both compliance gates marked in place: https://claude.ai/artifact/GWKGdPQXpYkUpTUAPCCQPi
+
+One entry per risk that could stop the product working, expose PHI or PII, or block a release. Technical defects live in `docs/AUDIT.md` as findings `A-n`; this log carries the ones that need a decision, a budget or an external party, and it references rather than repeats them.
+
+**Status values.** `open` needs a decision or work. `mitigated` has a remedy in the plan with a phase assigned. `accepted` is a known cost someone chose. `closed` is done and verified.
+
+**Severity.** `blocking` stops a release. `high` damages the core promise or the money. `medium` needs handling before scale. `low` worth fixing.
+
+---
+
+## Compliance
+
+### CMP-1 — A zero-knowledge proof cannot satisfy a signature requirement on a regulated record
+
+| | |
+|---|---|
+| **Severity** | high, deferred with controlled substances |
+| **Status** | mitigated by design, not yet built |
+| **Applies to** | controlled-substance prescribing only. Not release one |
+
+DEA EPCS specifies FIPS-approved cryptography for the signing and token side. Poseidon and the Pickles proof system are not FIPS-validated and will not become so. Being cryptographically stronger does not satisfy a rule that names mechanisms rather than properties.
+
+Three distinct reasons, because only one of them is bureaucratic:
+
+1. **FIPS validation is a process, not a judgment.** It certifies a named implementation, tested by an accredited lab, with a certificate number. The auditor is not asked to assess cryptography; they are asked to confirm a certificate exists. A proof system has no certificate number to show.
+2. **The rule predates the technology.** The EPCS rule dates from 2010, before practical general-purpose proof systems existed in deployable form. Nobody rejected zero-knowledge proofs; nobody contemplated them.
+3. **A signature and a proof answer different questions, and the regulator needs the signature's question.** A signature says a specific named person holding a specific key asserted this specific record. A proof of knowledge says somebody holding a satisfying witness produced this. For a prescription that may become evidence in a diversion investigation, the DEA needs attributability to a licensed human with a registration number. This part is not absurd and will not be amended away.
+
+**Remedy.** Dual layer. Put a FIPS-approved signature on the regulated artifact, binding the licensed prescriber's legal identity to the prescription record. Let the zero-knowledge layer do the adjudication beside it. The NFC attestation code already uses Ed25519 through Node's crypto, which is the right primitive and is covered by FIPS 186-5. Never plan on a proof discharging a signature obligation.
+
+**Note on scope, because it is easy to overstate.** This constrains the *prescriber* side, where attribution is the point of licensure and was never meant to be private. It does not touch patient privacy. See CMP-3.
+
+### CMP-2 — Controlled-substance prescriptions must carry the patient's name and address
+
+| | |
+|---|---|
+| **Severity** | high, deferred with controlled substances |
+| **Status** | mitigated by design, not yet built |
+| **Applies to** | controlled-substance prescribing only. Not release one |
+
+Federal rules require a controlled-substance prescription to contain the patient's full name and address, along with directions for use, drug strength and dosage form, and the prescriber's address. `PrescriptionData` carries none of those: it has a drug hash, two wallet IDs, dates, quantity and refills. The architecture deliberately never transmits patient identity, so the content requirement and the privacy design collide head-on.
+
+**Remedy.** The member's device releases the required elements directly to the dispensing pharmacy at pickup, under the member's consent, where they remain in that pharmacy's own records as a covered entity already holding that data. The network never sees them. Rule I2 therefore holds for the network, with one explicit consented carve-out to one pharmacy for one controlled script. Decide this deliberately rather than discovering it in an audit.
+
+**Does not arise on the adjudication side**, because the pharmacy already holds the patient's details from the script that reached it through its normal channel. This is one reason release one is scoped to adjudication.
+
+### CMP-3 — Compliance is widely assumed to defeat the privacy model, and it does not
+
+| | |
+|---|---|
+| **Severity** | medium, strategic |
+| **Status** | open, worth settling before any customer conversation |
+
+The concern is reasonable and the conclusion is wrong, which makes it a risk in its own right: believing compliance is fatal to the design would drive bad scoping.
+
+What compliance actually costs:
+
+| Requirement | Falls on | Privacy cost |
+|---|---|---|
+| Prescriber attribution, FIPS signature | the prescriber | none. Prescribers are licensed professionals with public registration numbers. Attributability is the point of licensure, not a privacy loss |
+| Patient name and address on a controlled script | the member, to one pharmacy, with consent | narrow. That pharmacy already holds this data from its normal channel |
+| Certification audit, identity proofing, two-person access control | the operator | none. These are process obligations |
+
+What it does **not** cost: the network still sees no PHI, there is still no central database to breach, and no party can still link employee to wallet to medication history. The core promise survives intact. The prescriber and the patient have opposite requirements, and recognising that is the whole resolution: the prescriber must be attributable, the patient must not be.
+
+### CMP-4 — EPCS certification mechanics and scope boundary unresolved
+
+| | |
+|---|---|
+| **Severity** | medium, deferred |
+| **Status** | open, needs a regulatory attorney |
+
+Certification is required before the software processes its first controlled-substance prescription, and again whenever controlled-substance functionality changes or every two years. With the signing path due to be rewritten three times, certifying early means paying twice. Whether an adjudicate-and-route service counts as the prescribing application, the pharmacy application or an intermediary turns on definitions that need a lawyer, not an engineering reading. Also unresolved: identity proofing at the required NIST level through an approved credential service provider, and two-person authorization for granting signing privileges, neither of which exists today.
+
+**Remedy.** Controlled substances out of release one. Keep the signing path certification-ready, which the FIDO2 decision already does at no extra cost. Revisit after phase E, when the architecture stops moving.
+
+---
+
+## Technical
+
+Full detail in `docs/AUDIT.md`. Listed here because each needs a decision or carries release risk.
+
+| ID | Risk | Severity | Status | Where |
+|---|---|---|---|---|
+| TEC-1 | Stored identity hashes are unsalted and reversible. Names and birth dates recovered from one file in 75 seconds | blocking | mitigated, phases B and C | A-1 |
+| TEC-2 | A state change is accepted on Merkle arithmetic alone; no cryptographic verification before mutation | blocking | mitigated, phase A item A1, specified | A-3 |
+| TEC-3 | Any wallet ID returns that member's full record with no credential | blocking | mitigated, phases C and D | A-2 |
+| TEC-4 | Gossip replication non-functional. Live proof state exists on one process; the failover meant to prevent loss has never run outside tests | blocking | mitigated, A13 then phase E | A-8, C-3 |
+| TEC-5 | Every clinical and financial rule is enforced only in TypeScript; the proofs attesting to them are discarded, so no relying party can verify an adjudication | high | mitigated, phase D | A-22 |
+| TEC-6 | A duplicate fill charged a member and recorded no claim. Money moved with no ledger entry | high | mitigated, phase D | A-10 |
+| TEC-7 | Ledger and engine accumulators disagree for half the test members | high | open, cause isolated for one of two | A-11 |
+| TEC-8 | One shared secret is the sequencer bearer, every node's bearer and the insurer's signing seed, and it ships to the member device | high | mitigated, phase A item A9 | A-14 |
+| TEC-9 | The read-then-write accumulator window is now days or weeks, because adjudication happens at prescribing. Normal path for anyone on several medications | high | open, needs the reservation design | plan §7 |
+| TEC-10 | Poseidon and Pickles are not FIPS-validated, which also limits any future federal or state programme that specifies approved cryptography, not only EPCS | medium | accepted, dual-layer remedy | CMP-1 |
+
+---
+
+## Open decisions blocking work
+
+| ID | Decision | Blocks | Owner |
+|---|---|---|---|
+| DEC-1 | Is there live member data to preserve, or can production start from genesis? The migration must be designed before phase B deletes the stored preimages | phase B | owner |
+| DEC-2 | Who operates the leviathan nodes? Three under one operator is durability, not trust | phase E quorum | owner, business decision |
+| DEC-3 | Does the adjudication engine move out of the sequencer process? It is the largest refactor and what makes B1 and B2 real | phase B completion | owner |
+| DEC-4 | Quote honoured as a ceiling, confirmed? Charge the lower of quoted and re-adjudicated, with a pharmacy decline when the price rose materially | phase B3 | owner |
+| DEC-5 | Member app platform and keystore target | phase B1 | owner |
+| DEC-6 | Per-provider authenticator budget and replacement workflow | phase B4 | owner |
+| DEC-7 | Key management for attestation and quorum keys: KMS, HSM or operator-held | phases A9, E4, F5 | owner |
