@@ -28,5 +28,7 @@ Rules that have held since session 1:
 - The harness output directory (`e2e-out/`) holds device PINs and tokens and is ignored by git.
 - Compare failures by name against the previous run; a run is accepted when the set is identical
   or smaller and every new check passes.
-- The regression batch is the suite list in the plan's state of work; `tests/l2-network.test.ts`
-  is outside it and must be run by hand when the sequencer's gates change.
+- The regression batch is the suite list in `scripts/dev/regression-suites.txt`; a new acceptance
+  suite is added to it with its commit. Run it with the harness stopped:
+  `npx jest $(cat scripts/dev/regression-suites.txt | tr '\n' ' ')`. `tests/l2-network.test.ts`
+  is outside it, because it is slow, and must be run by hand when the sequencer's gates change.
