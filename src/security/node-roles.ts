@@ -32,9 +32,9 @@
 import { createHmac, createPublicKey, randomBytes } from 'crypto';
 import { privateKeyFromSeedHex } from './signed-request.js';
 
-export type NodeRole = 'operator' | 'insurer' | 'member' | 'prescriber' | 'pharmacy' | 'replica' | 'employer';
+export type NodeRole = 'operator' | 'insurer' | 'member' | 'prescriber' | 'pharmacy' | 'replica' | 'sequencer' | 'employer';
 
-export const NODE_ROLES: readonly NodeRole[] = ['operator', 'insurer', 'member', 'prescriber', 'pharmacy', 'replica', 'employer'];
+export const NODE_ROLES: readonly NodeRole[] = ['operator', 'insurer', 'member', 'prescriber', 'pharmacy', 'replica', 'sequencer', 'employer'];
 
 export function isNodeRole(value: unknown): value is NodeRole {
   return typeof value === 'string' && (NODE_ROLES as readonly string[]).includes(value);
@@ -57,7 +57,10 @@ export const RPC_METHODS_BY_ROLE: Readonly<Record<Exclude<NodeRole, 'operator'>,
   member: new Set(['l2_registerEntity']),
   prescriber: new Set(['l2_registerEntity']),
   pharmacy: new Set(['l2_registerEntity']),
-  replica: new Set(['l2_gossipRelay']),
+  // A13: a replica relays gossip to the leader and pulls a snapshot from it when it connects; the
+  // leader, as a principal on its replicas' servers, pushes gossip and nothing else.
+  replica: new Set(['l2_gossipRelay', 'l2_requestSnapshot']),
+  sequencer: new Set(['l2_gossipRelay']),
   employer: new Set<string>(),
 };
 
@@ -76,6 +79,7 @@ export const ROUTES_BY_ROLE: Readonly<Record<Exclude<NodeRole, 'operator'>, Read
   prescriber: new Set<string>(),
   pharmacy: new Set<string>(),
   replica: new Set<string>(),
+  sequencer: new Set<string>(),
   employer: new Set<string>(),
 };
 

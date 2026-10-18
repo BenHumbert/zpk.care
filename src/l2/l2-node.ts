@@ -55,7 +55,7 @@ import type {
 import { L2PeerNetwork, generateMessageId } from './l2-peer-network.js';
 import type { PartitionConfig } from './l2-partition.js';
 import { PartitionRouter } from './l2-partition.js';
-import type { GossipMessage, L2NodeRole } from './l2-peer-types.js';
+import type { GossipMessage, L2NodeRole, StateRootsPayload } from './l2-peer-types.js';
 import type {
   ProofAcceptedPayload,
   BatchBuiltPayload,
@@ -122,6 +122,8 @@ export interface L2NodeOptions {
   partitionRouter?: PartitionRouter;
   /** Bearer token for admin RPC methods. Passed to peer L2Client instances for authenticated calls. */
   adminToken?: string;
+  /** This node's own key (A13): peer calls are signed with it instead of carrying the operator's token. */
+  nodeKey?: { nodeId: string; seedHex: string };
   /** Shared secret for HMAC-SHA256 gossip authentication between peers. */
   gossipSecret?: string;
   /** When true, replicas verify BatchProof from gossip before applying state.
@@ -393,9 +395,47 @@ export class L2Node {
   // ─── Lifecycle ──────────────────────────────────────────
 
   /** Start the L2 node — begins the batch timer and connects to peers */
+  /** Counter that keeps two admin mutations in the same millisecond apart in their gossip ids (A13). */
+  private stateRootsSeq = 0;
+
+  /**
+   * Gossip the roots an admin mutation produced (A13). A receipt carries the roots its proof made;
+   * an admin write makes none, so without this a replica would stand at the previous receipt's
+   * roots until the next proof. Sequencers send, replicas apply (`handleGossip`).
+   */
+  private broadcastStateRoots(info: { reason: string; registryRoot: string; lifecycleRoot: string; walletCount: string }): void {
+    if (this.role !== 'sequencer' || !this.peerNetwork) return;
+    const payload: StateRootsPayload = { reason: info.reason, registryRoot: info.registryRoot, lifecycleRoot: info.lifecycleRoot, walletCount: info.walletCount };
+    const message: GossipMessage = {
+      messageId: generateMessageId('state:roots', this.nodeId, Date.now(), `${info.reason}#${++this.stateRootsSeq}`),
+      type: 'state:roots',
+      senderId: this.nodeId,
+      timestamp: Date.now(),
+      payload,
+    };
+    this.peerNetwork.broadcast(message).catch(() => {});
+  }
+
+  /**
+   * A replica takes the leader's whole state when it connects (A13). Receipts and root gossip only
+   * cover what happens after the connection; whatever the leader did before (seed provisioning at
+   * boot, a checkpoint it restored) is reached this way, as `fromPeerSync` does for a fresh node.
+   */
+  private async syncStateFrom(peerId: string): Promise<void> {
+    if (!this.peerNetwork) return;
+    const state = await this.peerNetwork.requestStateSync(peerId);
+    this.sequencer.restoreState(state);
+    // restoreState stands at the last *settled* roots (a checkpoint's view); a live replica must stand
+    // where the leader stands now, admin mutations included, which is what the snapshot's current roots say.
+    this.sequencer.applyReplicatedRoots(state.currentRegistryRoot, state.currentLifecycleRoot, state.currentWalletCount);
+    const receipts = (state as { receipts?: unknown }).receipts;
+    if (Array.isArray(receipts)) this.totalProofsAccepted = Math.max(this.totalProofsAccepted, receipts.length);
+  }
+
   start(): void {
     if (this.running) return;
     this.running = true;
+    this.sequencer.setAdminMutationListener((info) => this.broadcastStateRoots(info));
     this.startedAt = Date.now();
     this.lastBatchTickAt = Date.now();
 
@@ -907,6 +947,19 @@ export class L2Node {
   }
 
   /**
+   * The peer network, created now if `start()` did not (a node started without seed peers has none).
+   * `seedPeers`, when given, become the seeds before it is created. The launcher uses this to give the
+   * leader its replicas as peers (A13); before, it reached into private state to do it.
+   */
+  async ensurePeerNetwork(seedPeers?: string[]): Promise<L2PeerNetwork> {
+    if (seedPeers && seedPeers.length > 0) {
+      this.options.seedPeers = [...new Set([...(this.options.seedPeers ?? []), ...seedPeers])];
+    }
+    if (!this.peerNetwork) await this.initPeerNetwork();
+    return this.peerNetwork!;
+  }
+
+  /**
    * Initialize the peer network: create it, connect to seeds, subscribe to gossip.
    * Called during start() when seedPeers are configured.
    */
@@ -921,6 +974,7 @@ export class L2Node {
       syncOnConnect: true,
       ...(this.options.gossipSecret ? { gossipSecret: this.options.gossipSecret } : {}),
       ...(this.options.adminToken ? { adminToken: this.options.adminToken } : {}),
+      ...(this.options.nodeKey ? { nodeKey: this.options.nodeKey } : {}),
     };
 
     this.peerNetwork = new L2PeerNetwork(config);
@@ -932,10 +986,18 @@ export class L2Node {
 
     this.peerNetwork.start();
 
-    // Connect to seed peers
+    // Connect to seed peers; a replica also takes the seed's state (A13), so it starts where the
+    // leader stands instead of at genesis.
     for (const url of config.seedPeers) {
       try {
-        await this.peerNetwork.connectToPeer(url);
+        const peer = await this.peerNetwork.connectToPeer(url);
+        if (this.role === 'replica' && config.syncOnConnect) {
+          try {
+            await this.syncStateFrom(peer.peerId);
+          } catch (err) {
+            console.warn(`[peer] ${this.nodeId}: could not take ${peer.peerId}'s state on connect: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
       } catch {
         // Seed unreachable — will retry on next announce cycle
       }
@@ -953,6 +1015,13 @@ export class L2Node {
     if (msg.senderId === this.nodeId) return;
 
     switch (msg.type) {
+      case 'state:roots': {
+        if (this.role !== 'replica') return;
+        const roots = msg.payload as StateRootsPayload;
+        this.sequencer.applyReplicatedRoots(roots.registryRoot, roots.lifecycleRoot, roots.walletCount);
+        return;
+      }
+
       case 'proof:accepted': {
         if (this.role !== 'replica') return;
         const payload = msg.payload as ProofAcceptedPayload;
@@ -1136,6 +1205,7 @@ export class L2Node {
       nodeId: 'ibd-temp',
       role: (options?.role ?? 'replica'),
       ...(options?.adminToken ? { adminToken: options.adminToken } : {}),
+      ...(options?.nodeKey ? { nodeKey: options.nodeKey } : {}),
       ...(options?.gossipSecret ? { gossipSecret: options.gossipSecret } : {}),
     });
     const peerInfo = await tempNetwork.connectToPeer(peerUrl);

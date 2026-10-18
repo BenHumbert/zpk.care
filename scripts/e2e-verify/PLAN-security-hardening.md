@@ -1288,6 +1288,76 @@ Not here, by design: the preimage still reaches the engine and the engine still 
 on it; the insurer's approval and the real plan in the engine are commit two. State from before this
 commit is not readable by design (C4, genesis).
 
+**A13 implementation record: the replicas have credentials, and someone is watching.** Done
+2026-10-18. Closes **A-8** and the replication half of **C-3**; the last phase A item, so phase A
+is closed.
+
+*What was wrong, in two layers.* Gossip travels over `l2_gossipRelay`, an admin method. The replica
+servers were built with no credential and the leader's peer clients carried the operator's token,
+which a replica server could not check, so every relay died at the gate: 29 hours, 20 proofs, 19
+batches, and both replicas at the genesis root. Under that, a second fault the gate had hidden: no
+server in the launcher was ever given its node's peer network, so a relay that passed the gate
+would have answered "Peer network not configured". Nothing watched either.
+
+*Keys.* The leader and each replica get a node key at boot (`generateNodeKey`), like every node the
+launcher issues. The leader's server registers the replicas under the `replica` role; each replica's
+server registers the leader under a new `sequencer` role and its sibling replicas under `replica`. A
+peer network now signs every call with its node's own key (`PeerNetworkConfig.nodeKey`,
+`L2NodeOptions.nodeKey`), in the one wire format and with the operator's token only as the fallback
+of a network started without keys. `replica` may call `l2_gossipRelay` and `l2_requestSnapshot` (it
+pulls the leader's state when it connects); `sequencer` may call `l2_gossipRelay` and nothing else,
+so the operator's token opens nothing on a replica and the leader's key opens no operator method
+there. The gossip HMAC under `ZKTRIDENT_GOSSIP_SECRET` stays as the inner check; signatures over the
+payload itself are phase E (E2).
+
+*Wiring.* After the replicas start, each replica server is given its node's peer network, and the
+leader's server its own, so `l2_gossipRelay` reaches `handleIncomingAndRelay` on both sides.
+
+*The monitor.* `src/l2/invariant-monitor.ts` reads the leader and both replicas in-process every
+five seconds. A replica is in step when both its roots equal the leader's; out of step for longer
+than the grace period (30 s) is an alarm. Proofs pending with no batch built for longer than three
+batch intervals (at least a minute) is an alarm; a batch built restarts that clock. Alarms are
+logged once on raise and once on clear, and the last report rides on the leader's `l2_getStatus` as
+`invariants`, where the harness reads it. The proof counters are reported as a hint, not as the
+invariant, because a leader restored from a checkpoint keeps its lifetime count while an in-memory
+replica starts from zero.
+
+*What the first live run showed, and the second half.* With credentials in place the monitor fired
+within 37 seconds of boot, and it was right. Four faults the gate had hidden, all in the peer
+network rather than the keys: a replica answered a relay only after relaying onward, and that
+relay waited on a leader whose event loop was busy proving in-process, so the leader's own relay
+timed out; one timeout marked the replica disconnected, silently and for good; the leader's admin
+mutations (seed providers at boot, ELIGIBLE after registration) never travelled, so a replica's
+roots lagged until the next receipt overwrote them; and a replica never took the leader's state
+when it connected, so it started at genesis although `syncOnConnect` said otherwise. Now a relay
+is answered first and relayed onward in the background, with the sender named so nobody relays a
+message back to where it came from; a peer stays connected until three relays in a row fail, is
+then marked disconnected and said so once, and is tried again on every announce (and the url it was
+reached at is kept for that); the sequencer tells its node about every `adminMutate` and the node
+gossips the roots as `state:roots`, which replicas apply as they apply a receipt's; and a replica
+takes the seed's snapshot when it connects. The launcher gives the leader its peer network through a
+new public `L2Node.ensurePeerNetwork(seedPeers)` instead of reaching into private state. The monitor
+stays as it was: the invariant is real now.
+
+*Verified.* `tests/replica-credentials.test.ts` (5, a real leader and replica with servers and peer
+networks: an unsigned relay, the operator's token and a stranger's key refused by the replica, the
+leader's signature accepted and limited to gossip, the replica's gossip and snapshot request
+accepted by the leader and its operator method refused, a broadcast crossing the peer network on
+the leader's key and a keyless network unable to deliver, the report on `l2_getStatus`),
+`tests/invariant-monitor.test.ts` (7, a fake clock through in step, out of step inside and beyond
+the grace, recovery, stall, batch built, nothing pending, defaults), `tests/replication-liveness.test.ts`
+(4: a replica with a slow peer answers the leader at once and relays in the background; a peer
+survives two failed relays, is given up after the third with one warning, and comes back on
+reconnection; a replica connecting after the leader has state takes that state and then follows
+each admin mutation; a sequencer ignores roots gossip). `tests/node-roles.test.ts` now
+states the two new facts (a replica may pull a snapshot; a sequencer relays gossip only). Widening
+the regression set to the gossip and Leviathan suites turned up three stale expectations that fail
+on the previous commit as well: the peer-network suite expected `l2_getPeerInfo` without a peer
+network to answer `unknown` where the handler has long answered the node's own id, and two Leviathan
+tests looked for promotion and demotion under `node:started` where the implementation emits
+`leader:promoted` / `leader:demoted`. The tests were corrected; the implementation was right. All
+191 tests across those three suites pass. Typecheck src 20, scripts 2. Live: 146 of 159 checks across 28 steps on a clean secured genesis boot; the ten A13 checks all pass (both replicas hold the leader's registry and lifecycle roots and every accepted proof, the monitor reports them in step with no stalled batch, a replica refuses an unsigned relay and the operator's token); the 13 failing checks identical by name to the A10b run; both replicas took the leader's snapshot at connect, no alarm during the run, and one transient relay failure per replica was tolerated and logged as recovered instead of dropping the peer.
+
 **A10b implementation record: the wallet speaks for itself.** Done 2026-10-18. Closes **A-15**,
 **A-16**, the open half of **A-12**, **A-30**, and **A-32** (new, found on the way). A-17 stays
 mitigated, on purpose; see below.
@@ -2058,3 +2128,14 @@ Acceptance suites added this session: 26, 356 tests, all passing. Typecheck src 
 Pipeline 136 of 149 checks across 27 steps on a clean secured genesis boot; the nine A10b checks all pass (a forged message, a forged PCP link, and a bare and an operator-token attestation request are refused; the member's own node obtains an attestation that states the ledger's lifecycle and verifies against the pinned key, and sends a message the sequencer lists under it); 13 failing checks, the previous run's 14 minus the attestation probe that now passes, nothing new; both provider nodes registered their entity with both keys at boot. Git: with this commit, 38 commits on local `dev`, nothing pushed,
 `origin/main` untouched. **Next:** A13 (one `registerNodeKey` per replica under the `replica` role,
 and the invariant monitor), then B1 step two with phase B, then phase D.
+
+**Addendum, 2026-10-18: A13 done; phase A closed.** The leader and both replicas sign peer calls with
+their own node keys (roles `sequencer` and `replica`), every server is wired to its peer network, so
+gossip lands for the first time, and the invariant monitor on the leader alarms when a replica is
+out of step for 30 s or a batch is overdue, reporting on `l2_getStatus`. Scoreboard: 32 findings;
+21 fixed (the A10b list plus A-8); 1 partly fixed (A-1, until B1 step two); 1 mitigated (A-17, until
+B1 step two); 9 open (A-2, A-10, A-11, A-18, A-22, A-23, A-25, A-26, A-27), one of them critical
+(A-2). Phase A: closed. Acceptance suites added this session: 29, 372 tests, all passing. Typecheck
+src 20, scripts 2. Pipeline 146 of 159 checks across 28 steps on a clean secured genesis boot; the ten A13 checks all pass (both replicas hold the leader's registry and lifecycle roots and every accepted proof, the monitor reports them in step with no stalled batch, a replica refuses an unsigned relay and the operator's token); the 13 failing checks identical by name to the A10b run; both replicas took the leader's snapshot at connect, no alarm during the run, and one transient relay failure per replica was tolerated and logged as recovered instead of dropping the peer. Git: with this commit, 39 commits on local `dev`, nothing
+pushed, `origin/main` untouched. **Next:** B1 step two with phase B (the engine stops proving for
+members and providers; the preimage leaves the engine, closing A-1), then phase D.

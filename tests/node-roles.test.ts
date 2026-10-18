@@ -20,7 +20,8 @@ describe('role tables', () => {
     for (const role of NODE_ROLES) {
       if (role === 'operator') continue;
       expect(roleMayCall(role, { kind: 'rpc', method: 'l2_forceBatch' })).toBe(false);
-      expect(roleMayCall(role, { kind: 'rpc', method: 'l2_requestSnapshot' })).toBe(false);
+      // A13: a replica pulls the leader's snapshot when it connects; no other role may
+      expect(roleMayCall(role, { kind: 'rpc', method: 'l2_requestSnapshot' })).toBe(role === 'replica');
       expect(roleMayCall(role, { kind: 'rpc', method: 'l2_revokeAdminKey' })).toBe(false);
       expect(roleMayCall(role, { kind: 'route', method: 'POST', path: '/interactive/reset' })).toBe(false);
       expect(roleMayCall(role, { kind: 'route', method: 'POST', path: '/interactive/decrypt-thread' })).toBe(false);
@@ -43,19 +44,25 @@ describe('role tables', () => {
     }
   });
 
-  test('member, prescriber and pharmacy may register their encryption key and nothing else; the replica relays gossip; the employer nothing', () => {
+  test('member, prescriber and pharmacy may register their keys and nothing else; the replica relays gossip and pulls a snapshot; the sequencer relays gossip only; the employer nothing', () => {
     for (const role of ['member', 'prescriber', 'pharmacy'] as const) {
       expect(roleMayCall(role, { kind: 'rpc', method: 'l2_registerEntity' })).toBe(true);
       expect(RPC_METHODS_BY_ROLE[role].size).toBe(1);
       expect(ROUTES_BY_ROLE[role].size).toBe(0);
     }
     expect(roleMayCall('replica', { kind: 'rpc', method: 'l2_gossipRelay' })).toBe(true);
-    expect(RPC_METHODS_BY_ROLE.replica.size).toBe(1);
+    expect(roleMayCall('replica', { kind: 'rpc', method: 'l2_requestSnapshot' })).toBe(true);
+    expect(RPC_METHODS_BY_ROLE.replica.size).toBe(2);
+    // A13: the leader is a principal on its replicas' servers, for gossip and nothing else
+    expect(roleMayCall('sequencer', { kind: 'rpc', method: 'l2_gossipRelay' })).toBe(true);
+    expect(roleMayCall('sequencer', { kind: 'rpc', method: 'l2_requestSnapshot' })).toBe(false);
+    expect(RPC_METHODS_BY_ROLE.sequencer.size).toBe(1);
+    expect(ROUTES_BY_ROLE.sequencer.size).toBe(0);
     expect(RPC_METHODS_BY_ROLE.employer.size).toBe(0);
     expect(ROUTES_BY_ROLE.employer.size).toBe(0);
   });
 
-  test('isNodeRole accepts the seven roles and nothing else', () => {
+  test('isNodeRole accepts the eight roles and nothing else', () => {
     for (const r of NODE_ROLES) expect(isNodeRole(r)).toBe(true);
     expect(isNodeRole('admin')).toBe(false);
     expect(isNodeRole('')).toBe(false);

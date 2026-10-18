@@ -82,6 +82,7 @@ export type GossipMessageType =
   | 'batch:settled'       // L1 tx hash + settlement confirmation
   | 'batch:failed'        // Batch failure + reason
   | 'state:snapshot'      // Full state for IBD (response to sync request)
+  | 'state:roots'         // The leader's roots after an admin mutation, so replicas follow writes that carry no proof (A13)
   | 'peer:announce'       // Peer discovery + exchange peer lists
   | 'message:stored'      // New encrypted message stored in Message Store
   | 'plan:updated'        // Benefit plan created or updated
@@ -247,6 +248,17 @@ export interface EvictionPayload {
 }
 
 /** Union of all gossip payload types */
+/**
+ * The leader's roots after an admin mutation (A13). Receipts carry the roots a proof produced; an
+ * admin write (provisioning, a lifecycle change) produces none, so the leader says where it stands.
+ */
+export interface StateRootsPayload {
+  reason: string;
+  registryRoot: string;
+  lifecycleRoot: string;
+  walletCount: string;
+}
+
 export type GossipPayload =
   | ProofAcceptedPayload
   | BatchBuiltPayload
@@ -259,6 +271,7 @@ export type GossipPayload =
   | PeerAnnouncePayload
   | EvictionPayload
   | L2SequencerState         // For state:snapshot (IBD)
+  | StateRootsPayload        // For state:roots (A13)
   | LeaderHeartbeatPayload   // For leader:heartbeat (leviathan)
   | LeaderPromotionPayload   // For leader:promotion (leviathan)
   | QuorumProposal           // For quorum:propose
@@ -359,6 +372,12 @@ export interface PeerNetworkConfig {
   gossipPublicKeyHex?: string;
   /** Map of peerId → Ed25519 public key hex. Used to verify gossip signatures from known peers. */
   gossipPeerPublicKeys?: Map<string, string>;
+  /**
+   * This node's own key (A13). Every RPC call to a peer is signed with it, in the one wire format the
+   * servers verify, and authorised there by the role the peer registered it with. When set, it
+   * replaces `adminToken` for node-to-node calls.
+   */
+  nodeKey?: { nodeId: string; seedHex: string };
 }
 
 /** Default peer network configuration */

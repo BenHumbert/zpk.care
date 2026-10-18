@@ -932,8 +932,8 @@ describe('RPC Peer Methods', () => {
     }));
 
     const rpc = l2Parse<{ result: PeerInfo }>(res.body);
-    // Without setPeerNetwork, peerId falls back to 'unknown'
-    expect(rpc.result.peerId).toBe('unknown');
+    // Without setPeerNetwork, peerId falls back to the node's own id ('unknown' only when it has none)
+    expect(rpc.result.peerId).toBe('rpc-node-8');
     expect(rpc.result.role).toBe('sequencer');
   });
 

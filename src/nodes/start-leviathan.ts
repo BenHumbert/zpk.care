@@ -74,6 +74,7 @@ import { resolveBindHost, resolveAllowedOrigins } from '../security/network-poli
 import crypto from 'crypto';
 import { insurerPublicKeyFromSeed } from '../onboarding/employer-attestation.js';
 import { generateNodeKey, childEnvironment, deriveNodeAdminToken, NODE_ID_ENV, NODE_KEY_SEED_ENV, type NodeRole } from '../security/node-roles.js';
+import { InvariantMonitor, snapshotOf } from '../l2/invariant-monitor.js';
 import { AdjudicationService } from '../adjudication/interactive-service.js';
 import { registerInteractiveRoutes } from '../adjudication/interactive-routes.js';
 import { ProofPool } from '../adjudication/proof-pool.js';
@@ -135,6 +136,8 @@ const allowedOrigins = resolveAllowedOrigins(env, {
   allowWildcard: unsecureMode,
 });
 
+const leaderKey = generateNodeKey(nodeId ?? 'sequencer');
+
 // ─── Build Options ────────────────────────────────────────────
 
 const partitionConfig: PartitionConfig | undefined =
@@ -154,6 +157,9 @@ const nodeOptions: Partial<L2NodeOptions> = {
   ...(partitionConfig ? { partitionConfig } : {}),
   ...(adminToken ? { adminToken } : {}),
   ...(gossipSecret ? { gossipSecret } : {}),
+  // A13: the leader's own key; its replicas register it under the `sequencer` role and it signs the
+  // gossip it pushes to them. Fresh on every boot, like every node key the launcher issues.
+  nodeKey: leaderKey,
 };
 
 // Resolve dashboard directory (relative to project root)
@@ -581,8 +587,15 @@ async function main(): Promise<void> {
 
   const replicaNodes: L2Node[] = [];
   const replicaServers: L2RpcServer[] = [];
-  const REPLICA_COUNT = 2;
+  // A13: one key per replica, registered on the leader under the `replica` role; each replica's own
+  // server registers the leader under `sequencer` and its sibling replicas under `replica`, so gossip
+  // travels node-to-node on signatures and the operator's token opens nothing on a replica.
+  const replicaKeys = Array.from({ length: 2 }, (_, i) => generateNodeKey(`replica-${i + 1}`));
+  const REPLICA_COUNT = replicaKeys.length;
   const sequencerUrl = `http://localhost:${port}`;
+  for (const key of replicaKeys) {
+    rpcServer.registerNodeKey(key.nodeId, key.publicKeyHex, 'replica', 'in-process replica of this leader');
+  }
 
   for (let ri = 0; ri < REPLICA_COUNT; ri++) {
     const replicaPort = port + 1 + ri;
@@ -598,6 +611,7 @@ async function main(): Promise<void> {
       seedPeers: [sequencerUrl],
       batchIntervalMs,
       ...(gossipSecret ? { gossipSecret } : {}),
+      nodeKey: replicaKeys[ri],
     };
 
     const replica = new L2Node(replicaOpts, replicaStore, emptyRoot, emptyRoot, Field(0));
@@ -612,6 +626,10 @@ async function main(): Promise<void> {
         : {}),
     };
     const replicaRpc = new L2RpcServer(replica, replicaRpcOpts);
+    replicaRpc.registerNodeKey(leaderKey.nodeId, leaderKey.publicKeyHex, 'sequencer', 'the leader this replica follows');
+    for (const key of replicaKeys) {
+      if (key.nodeId !== replicaId) replicaRpc.registerNodeKey(key.nodeId, key.publicKeyHex, 'replica', 'sibling replica');
+    }
     await replicaRpc.start();
     replica.start();
 
@@ -623,18 +641,35 @@ async function main(): Promise<void> {
   // Wait for replicas to initialize their peer networks before connecting
   await new Promise(resolve => setTimeout(resolve, 1000));
 
-  // Connect sequencer to replicas so it knows about them
-  if (!node.getPeerNetwork()) {
-    // Force peer network init on sequencer by adding replica URLs as seed peers
-    (node as any).options.seedPeers = replicaNodes.map((_, i) => `http://localhost:${port + 1 + i}`);
-    await (node as any).initPeerNetwork();
-  } else {
-    for (let ri = 0; ri < REPLICA_COUNT; ri++) {
-      try {
-        await node.getPeerNetwork()!.connectToPeer(`http://localhost:${port + 1 + ri}`);
-      } catch { /* replica may still be starting */ }
-    }
+  // A13: a server relays gossip through its node's peer network; until now no server here was ever
+  // given one, so l2_gossipRelay could only answer "Peer network not configured" once past the gate.
+  for (let ri = 0; ri < REPLICA_COUNT; ri++) {
+    const peerNet = replicaNodes[ri].getPeerNetwork();
+    if (peerNet) replicaServers[ri].setPeerNetwork(peerNet);
+    else console.warn('  [replica] %s has no peer network yet; gossip to it will be refused', `replica-${ri + 1}`);
   }
+
+  // Connect the leader to its replicas (A13: through the node's own call, with the replicas as seeds)
+  const leaderPeerNet = await node.ensurePeerNetwork(replicaNodes.map((_, i) => `http://localhost:${port + 1 + i}`));
+  for (let ri = 0; ri < REPLICA_COUNT; ri++) {
+    try {
+      await leaderPeerNet.connectToPeer(`http://localhost:${port + 1 + ri}`);
+    } catch { /* replica may still be starting; the announce loop reconnects */ }
+  }
+  rpcServer.setPeerNetwork(leaderPeerNet);
+
+  // A13: the invariant monitor. Every replica's roots must equal the leader's once gossip has had
+  // its grace period, and a leader with proofs pending must build a batch within three intervals;
+  // a breach is logged once and carried on l2_getStatus as `invariants`.
+  const invariantMonitor = new InvariantMonitor({
+    leader: () => snapshotOf(node.getStatus(), leaderKey.nodeId),
+    replicas: () => replicaNodes.map((r, i) => snapshotOf(r.getStatus(), replicaKeys[i].nodeId)),
+    divergenceGraceMs: 30_000,
+    batchStallMs: Math.max(60_000, batchIntervalMs * 3),
+    log: (line) => console.log('  ' + line),
+  });
+  invariantMonitor.start(5_000);
+  rpcServer.setInvariantMonitor(invariantMonitor);
 
   // ── Child Processes ──
 
@@ -853,6 +888,7 @@ async function main(): Promise<void> {
   console.log('  Insurer token: %s', env.ZKTRIDENT_INSURER_ADMIN_TOKEN ? 'configured (ZKTRIDENT_INSURER_ADMIN_TOKEN)' : insurerAdminToken ? 'derived from the operator token' : 'NONE');
   console.log('  Node keys:     one per child, registered by role; no child holds the operator token');
   console.log('  Gossip secret: %s', gossipSecret ? 'configured' : 'NONE (unauthenticated gossip)');
+  console.log('  Replicas:      %d, each with its own key (A13); invariant monitor every 5 s, divergence grace 30 s', REPLICA_COUNT);
   console.log('');
 
   // ── Graceful Shutdown ──
@@ -874,6 +910,7 @@ async function main(): Promise<void> {
       proverChild.kill('SIGTERM');
       console.log('  [shutdown] Proof delegate stopped');
     }
+    invariantMonitor.stop();
     // Stop replicas
     for (let ri = 0; ri < replicaNodes.length; ri++) {
       await replicaNodes[ri].stop();

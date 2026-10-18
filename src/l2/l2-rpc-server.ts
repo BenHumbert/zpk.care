@@ -54,6 +54,7 @@ import { verifySignedRequest, signerIdFromHeaders, ReplayCache } from '../securi
 import { roleMayCall, type NodeRole, type AuthScope } from '../security/node-roles.js';
 import { readRequestBody } from '../security/request-body.js';
 import { RequestRefused } from './request-refused.js';
+import type { InvariantReport } from './invariant-monitor.js';
 import { AuditService } from '../audit/audit-service.js';
 
 // ─── Visualization Types ──────────────────────────────────
@@ -449,6 +450,13 @@ export class L2RpcServer {
   /** Set the peer network for gossip relay and peer queries */
   setPeerNetwork(network: L2PeerNetwork): void {
     this.peerNetwork = network;
+  }
+
+  /** The invariant monitor (A13); its last report rides on l2_getStatus as `invariants`. */
+  private invariantMonitor: { report(): InvariantReport } | null = null;
+
+  setInvariantMonitor(monitor: { report(): InvariantReport } | null): void {
+    this.invariantMonitor = monitor;
   }
 
   // ─── Request Handling ─────────────────────────────────
@@ -1096,7 +1104,11 @@ export class L2RpcServer {
 
       case 'l2_getStatus': {
         const status = this.node.getStatus();
-        return { ...status, vkCommitment: this.vkCommitment };
+        return {
+          ...status,
+          vkCommitment: this.vkCommitment,
+          ...(this.invariantMonitor ? { invariants: this.invariantMonitor.report() } : {}),
+        };
       }
 
       case 'l2_getHealth': {

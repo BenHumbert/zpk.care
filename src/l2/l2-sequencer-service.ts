@@ -1399,6 +1399,20 @@ export class L2SequencerService {
     return null;
   }
 
+  /** Called after every `adminMutate` with the roots it produced (A13): the node gossips them to its replicas. */
+  private adminMutationListener: ((info: { reason: string; registryRoot: string; lifecycleRoot: string; walletCount: string }) => void) | null = null;
+
+  setAdminMutationListener(listener: ((info: { reason: string; registryRoot: string; lifecycleRoot: string; walletCount: string }) => void) | null): void {
+    this.adminMutationListener = listener;
+  }
+
+  /** A replica takes the leader's roots after an admin mutation (A13), the way it takes a receipt's. */
+  applyReplicatedRoots(registryRoot: string, lifecycleRoot: string, walletCount: string): void {
+    this.currentRegistryRoot = Field(BigInt(registryRoot));
+    this.currentLifecycleRoot = Field(BigInt(lifecycleRoot));
+    this.currentWalletCount = Field(BigInt(walletCount));
+  }
+
   getStateTrees(): { registry: WalletRegistry; lifecycle: MerkleTree } {
     return { registry: this.walletRegistry, lifecycle: this.lifecycleTree };
   }
@@ -1447,6 +1461,12 @@ export class L2SequencerService {
     this.currentLifecycleRoot = this.lifecycleTree.getRoot();
     this.currentWalletCount = Field(this.walletRegistry.count);
     this.treesAuthoritative = true;
+    this.adminMutationListener?.({
+      reason,
+      registryRoot: this.currentRegistryRoot.toString(),
+      lifecycleRoot: this.currentLifecycleRoot.toString(),
+      walletCount: this.currentWalletCount.toString(),
+    });
     if (before.reg !== this.currentRegistryRoot.toString() || before.lc !== this.currentLifecycleRoot.toString()) {
       this.adminChangeLog.push({ reason, at: Date.now(), ...before, newReg: this.currentRegistryRoot.toString(), newLc: this.currentLifecycleRoot.toString() });
       if (this.adminChangeLog.length > 1000) this.adminChangeLog.splice(0, this.adminChangeLog.length - 1000);

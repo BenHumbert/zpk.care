@@ -12,7 +12,7 @@ Abbreviations: RPC = `src/l2/l2-rpc-server.ts`; CLI = `src/l2/l2-client.ts`; SEQ
 | Options | `L2RpcServerOptions`: port, host, maxBodyBytes, enableSSE, adminToken, adminKeys, unsecureMode, allowedOrigins, maxSseConnections, proofRateLimitPerMinute, tlsCert, tlsKey, dashboardDir | RPC:119-147 |
 | Defaults | port 3030, host `127.0.0.1`, maxBodyBytes 20 MB (doc comment at 125 still says 10 MB), enableSSE true | RPC:149-154 |
 | Live config (sequencer :3030) | host default `0.0.0.0` (`ZKTRIDENT_HOST`); unsecureMode = `ZKTRIDENT_UNSECURE==='true'`; adminToken = unsecure ? (`ZKTRIDENT_ADMIN_TOKEN` ?? `'admin123'`) : `ZKTRIDENT_ADMIN_TOKEN`; allowedOrigins = `ZKTRIDENT_CORS_ORIGINS` split, else unsecure ? `['*']` : `['http://localhost','http://127.0.0.1']`; dashboardDir = `dashboard-leviathan/` if it has index.html; no adminKeys, no TLS passed. **Changed by A2 (2026-10-17):** host defaults to `127.0.0.1`; allowedOrigins comes from `resolveAllowedOrigins` (local dashboard origins with ports), `*` honoured only in unsecure mode and only when asked for; TLS now passed from `ZKTRIDENT_TLS_CERT`/`_KEY` | LEV:72,80-81,87-90,115-127,270 |
-| Live config (replicas :3031/:3032) | `{port, host, enableSSE:false, allowedOrigins}` only — no adminToken/unsecureMode, so every ADMIN method on a replica is default-denied | LEV:481-487 |
+| Live config (replicas :3031/:3032) | `{port, host, enableSSE:false, allowedOrigins}` — no adminToken, so the operator's token opens nothing on a replica; the leader's key is registered under the `sequencer` role (gossip only) and the sibling replicas' under `replica`; the server is wired to the replica's peer network (A13) | start-leviathan.ts, replica loop |
 | HTTP vs HTTPS | https only when both tlsCert and tlsKey set; else plain http | RPC:281-288 |
 | Unhandled error | `handleRequest().catch` → 500 `Internal Server Error` | RPC:271-277 |
 | Request timeout | 30 s timer on every non-SSE request (`/events`, `/viz/events`, `/interactive/console` exempt by prefix); writes 504 JSON if not yet ended; does not abort the handler | RPC:410-418 |
@@ -209,10 +209,10 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 ### Peers / gossip
 | Method | Auth | Params | Reads/writes | Member | Line |
 |---|---|---|---|---|---|
-| l2_gossipRelay | ADMIN | message{messageId,type,…}, fromPeerId? | `peerNetwork.handleIncomingAndRelay` | depends on gossip payload | 2202-2216 |
+| l2_gossipRelay | ADMIN (roles `sequencer` on a replica, `replica` on the leader — A13) | message{messageId,type,…}, fromPeerId? | `peerNetwork.handleIncomingAndRelay` | depends on gossip payload | 2202-2216 |
 | l2_getPeerInfo | OPEN | — | PeerInfo (nodeId, role, latest seq/batch, vkCommitment) | no | 2218-2238 |
 | l2_getPeerList | OPEN | — | peers as {nodeId,id,url,role,status,lastSeen} | no | 2240-2252 |
-| l2_requestSnapshot | ADMIN | — | `seq.exportState()`: roots, counters, receipts, blocks, batches, auditLog, adminQueue, chain-proof state, audit index, claim accumulator (and further store states) | yes: entire member-linked state | 2254-2256; SEQ:2738-2775 |
+| l2_requestSnapshot | ADMIN (role `replica` may, since A13) | — | `seq.exportState()`: roots, counters, receipts, blocks, batches, auditLog, adminQueue, chain-proof state, audit index, claim accumulator (and further store states) | yes: entire member-linked state | 2254-2256; SEQ:2738-2775 |
 | l2_getStateDigest | OPEN | — | seq/batch numbers, auditChainHash, claim root, registry/lifecycle roots, walletCount | no | 2258-2270 |
 
 ### Leviathan / quorum (throw `Not a leviathan node` on plain L2Node)

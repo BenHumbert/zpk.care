@@ -406,6 +406,10 @@ async function main() {
     await sleep(5000);
   }
   results.registrationMs = Date.now() - tr;
+  // The member node registers with the engine after the receipt, inside the same handler, so the
+  // record follows the receipt by a moment that grows with load; wait for it rather than race it.
+  const memberRecordOf = (state: any) => ((state?.enrolledMembers ?? []) as any[]).find(m => m.walletId === walletId || (typeof m.walletIdDisplay === 'string' && walletId.startsWith(m.walletIdDisplay.replace(/\.\.\.$/, ''))));
+  await poll(quietAdmin, `${SEQ}/interactive/state`, j => !!memberRecordOf(unwrap(j) ?? j), 180_000, 3000);
 
   // ── Step 2 commit two: the engine bound the member to the plan the insurer sold, and the A-6 door ──
   trace.begin('verifier', 'The engine binds the member to the insurer\'s plan, and refuses a wallet the insurer never approved');
@@ -755,6 +759,34 @@ async function main() {
   const bySender = await rpc('l2_getMessagesBySender', { walletId }, false);
   const sentCount = Array.isArray(bySender.result) ? bySender.result.length : (bySender.result?.messages?.length ?? 0);
   trace.check('The sequencer lists that message under the member as its sender', sentCount >= 1, '≥1', sentCount);
+
+
+  // ── 13c. Replication (A13) ───────────────────────────────
+  trace.begin('verifier', 'The replicas mirror the leader, and the invariant monitor is quiet');
+  const replicaStatus = async (p: number) => {
+    const r = await http('POST', `http://localhost:${p}/rpc`, { jsonrpc: '2.0', id: 1, method: 'l2_getStatus', params: {} });
+    return r.text ? (l2Parse(r.text) as any)?.result : null;
+  };
+  let leaderStatus = (await rpc('l2_getStatus', {}, false)).result;
+  for (const p of [3031, 3032]) {
+    let rs = await replicaStatus(p);
+    for (let i = 0; i < 12 && rs?.currentRegistryRoot !== leaderStatus?.currentRegistryRoot; i++) {
+      await sleep(5000);
+      leaderStatus = (await rpc('l2_getStatus', {}, false)).result;
+      rs = await replicaStatus(p);
+    }
+    trace.check(`The replica on :${p} holds the leader's registry root`, !!rs && rs.currentRegistryRoot === leaderStatus?.currentRegistryRoot, abbrev(String(leaderStatus?.currentRegistryRoot), 14), rs ? abbrev(String(rs.currentRegistryRoot), 14) : 'no status');
+    trace.check(`The replica on :${p} holds the leader's lifecycle root`, !!rs && rs.currentLifecycleRoot === leaderStatus?.currentLifecycleRoot, abbrev(String(leaderStatus?.currentLifecycleRoot), 14), rs ? abbrev(String(rs.currentLifecycleRoot), 14) : 'no status');
+    trace.check(`The replica on :${p} applied every accepted proof`, !!rs && Number(leaderStatus?.totalProofsAccepted) > 0 && Number(rs.totalProofsAccepted) >= Number(leaderStatus?.totalProofsAccepted), leaderStatus?.totalProofsAccepted, rs?.totalProofsAccepted);
+  }
+  const inv = leaderStatus?.invariants;
+  trace.check('The invariant monitor runs on the leader and reports both replicas in step', inv?.ok === true && Array.isArray(inv?.replicas) && inv.replicas.length === 2 && inv.replicas.every((x: any) => x.inSync === true), 'ok, 2 in sync', inv ? { ok: inv.ok, replicas: inv.replicas, alarms: inv.alarms } : 'no invariants in status');
+  trace.check('No batch is stalled', inv?.batch?.stalled === false, false, inv?.batch);
+  const relayBody = { jsonrpc: '2.0', id: 1, method: 'l2_gossipRelay', params: { message: { messageId: `probe-${RUN}`, type: 'peer:announce', senderId: 'nobody', timestamp: Date.now(), payload: {} } } };
+  const unsignedRelay = await http('POST', 'http://localhost:3031/rpc', relayBody);
+  trace.check('A replica refuses gossip that no registered peer signed', !!unsignedRelay.json?.error, 'error', unsignedRelay.json?.error?.message ?? unsignedRelay.json);
+  const bearerRelay = await http('POST', 'http://localhost:3031/rpc', relayBody, bearer);
+  trace.check('The network operator token opens nothing on a replica', !!bearerRelay.json?.error, 'error', bearerRelay.json?.error?.message ?? bearerRelay.json);
 
 
   // ── 14. Where do the member's secrets live? ─────────────────

@@ -150,7 +150,11 @@ export class L2PeerNetwork {
     const client = new L2Client({
       sequencerUrl: url,
       timeoutMs: 10_000,
-      ...(this.config.adminToken ? { adminToken: this.config.adminToken } : {}),
+      // A13: this node's own key signs every call to a peer; the operator's token is the fallback
+      // for a network started without keys.
+      ...(this.config.nodeKey
+        ? { adminPrivateKeyHex: this.config.nodeKey.seedHex, adminNodeId: this.config.nodeKey.nodeId }
+        : this.config.adminToken ? { adminToken: this.config.adminToken } : {}),
     });
 
     // If we have a disconnected peer for this URL, re-verify VK before reconnecting
@@ -178,6 +182,7 @@ export class L2PeerNetwork {
     let peerInfo: PeerInfo;
     try {
       peerInfo = await client.getPeerInfo();
+      if (!peerInfo.url) peerInfo.url = url; // the server does not know how it is reached; the caller does (A13: reconnection needs it)
       peerInfo.status = 'connected';
       peerInfo.lastSeen = Date.now();
     } catch {
@@ -303,14 +308,9 @@ export class L2PeerNetwork {
       if (!peer || peer.status !== 'connected') continue;
 
       promises.push(
-        client.gossipRelay(message).then(
-          () => {
-            peer.lastSeen = Date.now();
-          },
-          () => {
-            // Peer unreachable — mark disconnected
-            peer.status = 'disconnected';
-          },
+        client.gossipRelay(message, this.config.nodeId).then(
+          () => this.noteRelaySuccess(peer),
+          (err) => this.noteRelayFailure(peer, err),
         ),
       );
     }
@@ -341,13 +341,9 @@ export class L2PeerNetwork {
       if (!peer || peer.status !== 'connected') continue;
 
       promises.push(
-        client.gossipRelay(message).then(
-          () => {
-            peer.lastSeen = Date.now();
-          },
-          () => {
-            peer.status = 'disconnected';
-          },
+        client.gossipRelay(message, this.config.nodeId).then(
+          () => this.noteRelaySuccess(peer),
+          (err) => this.noteRelayFailure(peer, err),
         ),
       );
     }
@@ -372,13 +368,62 @@ export class L2PeerNetwork {
     this.markSeen(message.messageId);
 
     try {
-      await client.gossipRelay(message);
-      peer.lastSeen = Date.now();
+      await client.gossipRelay(message, this.config.nodeId);
+      this.noteRelaySuccess(peer);
       return true;
-    } catch {
-      peer.status = 'disconnected';
+    } catch (err) {
+      this.noteRelayFailure(peer, err);
       return false;
     }
+  }
+
+  // ─── Relay outcomes and reconnection (A13) ─────────────
+
+  /** Consecutive failed relays per peer; a peer is given up on, until the next reconnection, after this many. */
+  private relayFailures: Map<string, { count: number; reason: string }> = new Map();
+  static readonly RELAY_FAILURES_BEFORE_DISCONNECT = 3;
+
+  private noteRelaySuccess(peer: PeerInfo): void {
+    peer.lastSeen = Date.now();
+    const failing = this.relayFailures.get(peer.peerId);
+    if (failing && failing.count > 0) {
+      console.log(`[peer] ${this.config.nodeId}: ${peer.peerId} answers again after ${failing.count} failed relay(s)`);
+    }
+    this.relayFailures.delete(peer.peerId);
+  }
+
+  /**
+   * One failed relay is a busy peer, not a lost one: the peer stays connected until three in a row
+   * fail, then it is marked disconnected, said so once, and tried again on the next announce.
+   * Before this, a single timeout dropped a peer silently and for good.
+   */
+  private noteRelayFailure(peer: PeerInfo, err: unknown): void {
+    const reason = err instanceof Error ? err.message : String(err);
+    const entry = this.relayFailures.get(peer.peerId) ?? { count: 0, reason };
+    entry.count += 1;
+    entry.reason = reason;
+    this.relayFailures.set(peer.peerId, entry);
+    if (entry.count >= L2PeerNetwork.RELAY_FAILURES_BEFORE_DISCONNECT && peer.status === 'connected') {
+      peer.status = 'disconnected';
+      console.warn(`[peer] ${this.config.nodeId}: ${peer.peerId} unreachable after ${entry.count} failed relays (${reason}); will retry on the next announce`);
+    }
+  }
+
+  /** Try every disconnected peer whose url is known; returns how many came back. Runs before each announce. */
+  async reconnectDisconnectedPeers(): Promise<number> {
+    let restored = 0;
+    for (const peer of [...this.peers.values()]) {
+      if (peer.status !== 'disconnected' || !peer.url || this.bannedPeers.has(peer.peerId)) continue;
+      try {
+        await this.connectToPeer(peer.url);
+        this.relayFailures.delete(peer.peerId);
+        restored += 1;
+        console.log(`[peer] ${this.config.nodeId}: reconnected to ${peer.peerId}`);
+      } catch {
+        // still unreachable; the next announce tries again
+      }
+    }
+    return restored;
   }
 
   // ─── Gossip Reception ─────────────────────────────────
@@ -487,11 +532,11 @@ export class L2PeerNetwork {
   ): Promise<boolean> {
     const isNew = this.handleIncoming(message);
 
+    // A13: answer the sender now and relay onward in the background. Awaiting the relay here made a
+    // replica's reply wait on every other peer, including a leader whose event loop was busy
+    // proving, which timed the leader's own relay out and cost the replica its connection.
     if (isNew && this.config.gossipRelayEnabled) {
-      // Relay to all peers except the sender
-      if (fromPeerId) {
-        await this.broadcastExcept(message, fromPeerId);
-      }
+      this.broadcastExcept(message, fromPeerId ?? '').catch(() => {});
     }
 
     return isNew;
@@ -733,7 +778,9 @@ export class L2PeerNetwork {
   private scheduleAnnounce(): void {
     if (!this.running) return;
     this.announceTimer = setTimeout(() => {
-      this.announceToAllPeers().catch(() => {});
+      this.reconnectDisconnectedPeers()
+        .catch(() => 0)
+        .then(() => this.announceToAllPeers().catch(() => {}));
       this.scheduleAnnounce();
     }, this.config.announceIntervalMs);
   }

@@ -691,7 +691,7 @@ describe('L2Leviathan — Heartbeat & Failover', () => {
     lev.promoteToLeader(1, 'b');
 
     const promotionEvent = events.find(
-      (e) => e.type === 'node:started' && e.data.action === 'leader_promotion',
+      (e) => e.type === 'leader:promoted' && e.data.action === 'leader_promotion',
     );
     expect(promotionEvent).toBeDefined();
     expect(promotionEvent.data.partitionIndex).toBe(1);
@@ -709,7 +709,7 @@ describe('L2Leviathan — Heartbeat & Failover', () => {
     lev.demoteFromLeader(1, 'b');
 
     const demotionEvent = events.find(
-      (e) => e.type === 'node:started' && e.data.action === 'leader_demotion',
+      (e) => e.type === 'leader:demoted' && e.data.action === 'leader_demotion',
     );
     expect(demotionEvent).toBeDefined();
     expect(demotionEvent.data.partitionIndex).toBe(1);
