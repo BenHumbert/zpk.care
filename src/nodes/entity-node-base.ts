@@ -177,7 +177,7 @@ export abstract class EntityNodeBase {
 
   /** Look up a receipt by ID */
   async getReceipt(receiptId: string): Promise<L2Receipt | null> {
-    return this.client.getReceipt(receiptId);
+    return this.client.getReceipt(receiptId, this.walletSigner() ?? undefined);
   }
 
   /**
@@ -247,26 +247,26 @@ export abstract class EntityNodeBase {
   async getInbox(): Promise<MessageStoreEntry[]> {
     const walletId = this.config.walletId;
     if (!walletId) return [];
-    return this.client.getMessagesByRecipient(walletId);
+    return this.client.getMessagesByRecipient(walletId, this.walletSigner() ?? undefined);
   }
 
   /** Get messages sent by this wallet */
   async getSentMessages(): Promise<MessageStoreEntry[]> {
     const walletId = this.config.walletId;
     if (!walletId) return [];
-    return this.client.getMessagesBySender(walletId);
+    return this.client.getMessagesBySender(walletId, this.walletSigner() ?? undefined);
   }
 
   /** Get all messages in a thread */
   async getMessagesByThread(threadIdHash: string): Promise<MessageStoreEntry[]> {
-    return this.client.getMessagesByThread(threadIdHash);
+    return this.client.getMessagesByThread(threadIdHash, this.walletSigner() ?? undefined);
   }
 
   /** Get all messages involving this wallet (sent + received) */
   async getAllMessages(): Promise<MessageStoreEntry[]> {
     const walletId = this.config.walletId;
     if (!walletId) return [];
-    return this.client.getMessagesByWallet(walletId);
+    return this.client.getMessagesByWallet(walletId, this.walletSigner() ?? undefined);
   }
 
   /** Get the Message Store root and count */

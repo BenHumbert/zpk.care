@@ -16,7 +16,7 @@ Working tree as read on 2026-10-16; paths updated 2026-10-17 when B1 step one mo
 | ~~Every handler writes `Access-Control-Allow-Origin: *` itself, overriding the server CORS policy~~ **Fixed by A2 (2026-10-17): all 77 removed. No handler sets the header; `L2RpcServer.handleRequest` applies the deployment allowlist once.** | R:top-of-file note; RPC:420-424 |
 | `GET /interactive/badge/:key` is registered as the literal key `GET:/interactive/badge/`; exact-match dispatch means `/interactive/badge/prescriber-0` never reaches it (falls through to dashboard static files) — dead route | R:2013-2043; RPC:392, 500 |
 | Helpers: `readBody` (no size limit), `sendError`, BigInt-safe `safeJsonStringify`; console emitter stashed on the server object | R:2061-2093, 2045-2053 |
-| Server-side 30 s request timeout except SSE paths | RPC:408-418 |
+| Server-side 30 s request timeout except SSE paths | RPC:408-418 Since D1 every POST route the engine registers carries a 180 s budget (`registerRoute` `timeoutMs`, `ENGINE_ROUTE_BUDGET_MS`): prescribing makes four proofs in about 35 s. |
 
 Counts: 49 distinct `/interactive/*` paths (44 registered in the leviathan path + 5 NFC-only) + 16 `/node/*` paths. ADMIN = 9. OPEN = 35 interactive + 16 node = 51 in the leviathan path.
 

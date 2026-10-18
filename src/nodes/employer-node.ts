@@ -456,13 +456,8 @@ export class EmployerNode extends EntityNodeBase {
     let ephemeralPublicKeyHex: string | undefined;
 
     try {
-      // Fetch recipient's X25519 public key from sequencer (direct fetch — L2Client has no generic call())
-      const seqUrl = (this.client as any).options.sequencerUrl.replace(/\/+$/, '');
-      const keyResp = await fetch(`${seqUrl}/rpc`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getEncryptionKey', params: { walletId: recipientWalletId } }),
-      });
-      const keyJson = await keyResp.json() as any;
+      // The recipient's X25519 public key, read through the client so the request carries this node's key (D1: signed callers only)
+      const keyJson = { result: await this.client.getEncryptionKey(recipientWalletId) } as any;
 
       if (keyJson.result?.encryptionPublicKeyHex) {
         // Employer has no enrollment key — use ephemeral X25519 keypair per message

@@ -64,18 +64,15 @@ export function buildPrescriberRoutes(
       throw new Error('Cannot send eScript: enrollment key not available');
     }
     const { deriveEncryptionKeyPair, deriveSharedSecret, encryptMessage } = await import('../../messaging/encryption.js');
-    const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
 
-    // Step 1 (async): fetch recipient's X25519 encryption public key from sequencer
+    // Step 1 (async): the recipient's X25519 public key, read through the client signed as this
+    // prescriber's wallet, else with its node key (D1: the sequencer answers signed callers only).
     let recipientPubKeyHex: string | null = null;
     try {
-      const keyResp = await fetch(`${seqUrl}/rpc`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getEncryptionKey', params: { walletId: recipientWalletId } }),
-      });
-      const keyJson = await keyResp.json() as any;
-      recipientPubKeyHex = keyJson.result?.encryptionPublicKeyHex ?? null;
-    } catch { /* sequencer unreachable */ }
+      const node = server.getEntityNode() as PrescriberNode | null;
+      const key = node ? await node.getClient().getEncryptionKey(recipientWalletId, node.walletSigner() ?? undefined) : null;
+      recipientPubKeyHex = key?.encryptionPublicKeyHex ?? null;
+    } catch { /* sequencer unreachable or refused */ }
 
     if (!recipientPubKeyHex) {
       throw new Error('Cannot send eScript: recipient encryption key not registered');
@@ -131,12 +128,8 @@ export function buildPrescriberRoutes(
       // Query PCP assignments for each wallet
       for (const wid of walletsToCheck) {
         try {
-          const res = await fetch(seqUrl + '/rpc', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getPcpAssignments', params: { prescriberWalletId: wid } }),
-          });
-          const json = await res.json() as any;
+          // D1: a prescriber's patient list answers that prescriber's own signature (or the plan); other lists are refused and skipped.
+          const json = { result: node ? await node.getClient().getPcpAssignments(wid, node.walletSigner() ?? undefined) : [] } as any;
           if (json.result && Array.isArray(json.result)) {
             for (const a of json.result) {
               if (!pcpPatients.has(a.memberWalletId)) {

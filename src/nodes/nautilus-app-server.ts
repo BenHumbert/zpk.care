@@ -321,7 +321,10 @@ export class NautilusAppServer {
    */
   walletSigner(): RequestSigner | null {
     const state = this.getLocalState();
-    const walletId = (state.getState() as { walletId?: string } | null)?.walletId;
+    // The wallet id comes from the device state, or from the node itself for a node whose identity was
+    // seeded in memory and never written to a state file (the provider nodes), which until D1 left
+    // every provider unable to sign as its wallet.
+    const walletId = (state.getState() as { walletId?: string } | null)?.walletId ?? this.entityNode?.getWalletId();
     if (!walletId || !state.hasEnrollmentKey()) return null;
     return state.useEnrollmentKey((enrollmentKey) => walletSignerFor(enrollmentKey, walletId));
   }
@@ -725,9 +728,15 @@ export class NautilusAppServer {
         return;
       }
 
+      // D1: the dashboard's reads of this node's own member data are signed as the wallet when the
+      // device is unlocked, else with the node's key, which the sequencer accepts for what a node may read.
+      const signer = this.walletSigner();
+      const signed = signer
+        ? signRequest({ signerId: signer.signerId, privateKey: signer.privateKey, method: 'POST', path: '/rpc', body })
+        : this.sequencerAuthHeaders('POST', '/rpc', body);
       const upstream = await fetch(seqUrl.replace(/\/+$/, '') + '/rpc', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...signed },
         body,
       });
       const text = await upstream.text();

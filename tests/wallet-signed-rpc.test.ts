@@ -194,7 +194,7 @@ describe('l2_registerPcpAssignment speaks for the member', () => {
     expect((await rpcWith(byWallet(EK.bob, W.bob, body), body)).error?.code).toBe(RPC_UNAUTHORIZED);
     const ok = await rpcWith(byWallet(EK.alice, W.alice, body), body);
     expect(ok.error).toBeUndefined();
-    const list = await rpcWith({}, envelope('l2_getPcpAssignments', { prescriberWalletId: W.drP }));
+    const list = await rpcWith(bearer, envelope('l2_getPcpAssignments', { prescriberWalletId: W.drP }));
     expect(list.result.map((a: any) => a.memberWalletId)).toEqual([W.alice]);
   });
 });

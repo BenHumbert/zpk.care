@@ -67,6 +67,8 @@ export const RPC_METHODS_BY_ROLE: Readonly<Record<Exclude<NodeRole, 'operator'>,
 /** The admin-gated HTTP routes (`METHOD:path`) each non-operator role may call. */
 export const ROUTES_BY_ROLE: Readonly<Record<Exclude<NodeRole, 'operator'>, ReadonlySet<string>>> = {
   insurer: new Set([
+    'GET:/viz/entities',
+    'GET:/viz/state',
     'POST:/interactive/approve-prior-auth',
     'POST:/interactive/deny-prior-auth',
     'POST:/interactive/terminate-member',

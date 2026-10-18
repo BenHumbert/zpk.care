@@ -1094,14 +1094,14 @@ describe('L2Leviathan — RPC Integration', () => {
     injectReceipts(lev, 0, 3, 2, 1n);
     injectReceipts(lev, 1, 3, 3, 10n);
 
-    const resp = await rawRpc(port, 'l2_getAllReceipts');
+    const resp = await rawRpc(port, 'l2_getAllReceipts', {}, TEST_ADMIN_TOKEN);
     const parsed = l2Parse<any>(resp.body);
     expect(parsed.result).toHaveLength(5);
   });
 
   test('l2_getReceipt finds receipt from any partition', async () => {
     const receipts = injectReceipts(lev, 2, 3, 1, 1n);
-    const resp = await rawRpc(port, 'l2_getReceipt', { receiptId: receipts[0].receiptId });
+    const resp = await rawRpc(port, 'l2_getReceipt', { receiptId: receipts[0].receiptId }, TEST_ADMIN_TOKEN);
     const parsed = l2Parse<any>(resp.body);
     expect(parsed.result).toBeDefined();
     expect(parsed.result.receiptId).toBe(receipts[0].receiptId);

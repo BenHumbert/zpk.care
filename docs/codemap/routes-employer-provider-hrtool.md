@@ -294,9 +294,9 @@ Same shape: port 4003 (59), host 127.0.0.1 since A2 (60), CORS the local allowli
 | GET | /dispensing/fill-status | OPEN | `?jobKey` (693-694); prune (696); 404 (698) | — | — | 689-707 |
 | POST | /dispensing/reverse | OPEN | node; prescriptionId (725-727); reason default 'Pharmacy reversal'. GAP: I7 | `POST <seq>/interactive/reverse {prescriptionId, reason}` (737-744) | `reversalJobs`; 202 | 713-763 |
 | GET | /dispensing/reverse-status | OPEN | `?jobKey`; prune; 404 | — | — | 766-784 |
-| GET | /dur/patient/:memberWalletId/full-history | OPEN | node. GAP: I7 — any wallet ID, no consent/credential check | `l2_getClaimsByMember(member)` = every claim across all pharmacies (pharmacy-node.ts:216-221) | — | 790-798 |
-| GET | /dur/patient/:memberWalletId/active-medications | OPEN | node. GAP: I7 | same, fills−reversals per NDC (242-271) | — | 800-808 |
-| GET | /dur/patient/:memberWalletId/check/:ndcHash | OPEN | node. GAP: I7 | same (227-236) | — | 810-823 |
+| GET | /dur/patient/:memberWalletId/full-history | X-Member-Attestation: the member’s tap, forwarded signed as the pharmacy; 403 without it (D1) | node. Was: any wallet ID, no consent/credential check | `l2_getClaimsByMember(member)` = every claim across all pharmacies (pharmacy-node.ts:216-221) | — | 790-798 |
+| GET | /dur/patient/:memberWalletId/active-medications | X-Member-Attestation (D1) | node | same, fills−reversals per NDC (242-271) | — | 800-808 |
+| GET | /dur/patient/:memberWalletId/check/:ndcHash | X-Member-Attestation (D1) | node | same (227-236) | — | 810-823 |
 | GET | /dur/claim/:leafIndex | OPEN | node; 404 | `l2_getClaimWithProof` (366-379) | — | 825-835 |
 | POST | /nfc/scan | OPEN | §5.4 | `getPatientActiveMedications` + `getPatientFullDrugHistory` (943-946) | — | 841-963 |
 | GET | /proof-timings | OPEN | node | — | — | 967-975 |

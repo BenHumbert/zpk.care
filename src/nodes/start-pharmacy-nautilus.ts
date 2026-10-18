@@ -145,6 +145,7 @@ async function main(): Promise<void> {
       walletId,
       sequencerUrl: config.sequencerUrl,
       displayName: pharmacy.storeName,
+      clientOptions: server.sequencerClientOptions(),
     });
     server.setEntityNode(node);
 
@@ -209,6 +210,7 @@ async function main(): Promise<void> {
         walletId: data.walletId,
         sequencerUrl: config.sequencerUrl,
         displayName: config.displayName,
+        clientOptions: server.sequencerClientOptions(),
       });
       server.setEntityNode(node);
       server.setOnboardingPhase(data.onboarding.phase as any ?? 'ready');

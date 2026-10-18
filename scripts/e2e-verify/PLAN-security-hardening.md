@@ -1288,6 +1288,57 @@ Not here, by design: the preimage still reaches the engine and the engine still 
 on it; the insurer's approval and the real plan in the engine are commit two. State from before this
 commit is not readable by design (C4, genesis).
 
+**D1 — implementation record: a member's data answers no bare wallet ID.**
+Done 2026-10-18. Closes **A-2**, the last critical finding. The seventh of seven criticals.
+
+*What was wrong.* Twenty read methods on the sequencer answered anyone who knew a wallet ID: a
+member's claims with drug names and amounts, receipts, the accumulator, wallet state and witnesses,
+messages, the X25519 key, the directory entry; and the receipt list, the audit log and the entity
+list enumerated every wallet, so the ID was not even a secret. The premise that only opaque wallet
+IDs go outward did not survive it, because the wallet ID was the key to everything.
+
+*Now.* `L2RpcServer.MEMBER_DATA_METHODS` names each method, whose data it returns and who may read
+it, and `authorizeRead` enforces it before dispatch. Readers: the wallet itself, by the signing key
+its entity registration carries (A10b); the plan, by a node key with the insurer role, and the
+operator, always; a prescriber the member named as primary care (the sequencer's own PCP links),
+for the member's claims, receipts and directory entry; and any signed caller presenting the member's
+own unexpired attestation, the tap at a counter, verified against the network's attestation key, for
+claims, receipts, accumulator and wallet state. A thread answers any signed caller with that
+caller's own messages only. The receipt list, the audit log, claims by drug and the visualizer's
+entity list answer the plan and the operator alone. A provider's directory entry, a cost estimate
+that names no member, and an unknown receipt or leaf stay open, because they return no member's
+data. Refusals say who may read.
+
+The nodes sign their reads as their wallets: every member-data read on `L2Client` takes a signer;
+`EntityNodeBase`, the member, prescriber and pharmacy nodes and the member routes pass theirs; the
+employer node and the prescriber's patient sync use the client instead of raw fetches; each node's
+`/rpc` proxy signs the dashboard's calls as the wallet when the device is unlocked, else with the
+node's key. The pharmacy's drug-history routes take the member's tapped attestation
+(`X-Member-Attestation`, the JSON the member's device received, base64) and refuse without it; the
+sequencer verifies it. The operator dashboard and the explorer send their token for the directory,
+the receipt list and the audit log. The harness reads as the plan where it audits, and its probes
+show the bare reads refused, the plan still reading, the member's node reading as the wallet, and
+the pharmacy reading only with the tap.
+
+*Found on the way.* The provider nodes had never signed as their wallets: `walletSigner()` read the
+wallet id from a device state the seed path never writes, so every provider call that needed the
+wallet's own signature went out unsigned (which is also why the prescriber's eScript path had failed
+since A10b); it now falls back to the node's own wallet id. The provider and member nodes' clients
+also carried no node key, where the insurer's did; they do now, so a node's reads carry a credential
+even before its wallet exists. `production-showcase` returns to its recorded baseline, 26 of 35,
+once its apps hold node keys as the launcher's do. With the prescriber signing, its eScript path reached
+the engine for the first time and died at 35 s: `/interactive/prescribe` makes four proofs behind the
+sequencer's fixed 30 s request timer. The engine's write routes now carry a 180 s budget
+(`registerRoute` `timeoutMs`, re-armed once the route is known), as the nodes' proof routes do.
+
+*Verified.* `tests/member-data-reads.test.ts` (11: anonymous and wrong-bearer refused on every
+member read; the operator and the plan read; the wallet reads its own and not another's; a node key
+is neither a wallet nor the member; the named PCP reads that member only, and the directory follows
+the same rule with providers public; a signed caller with the member's attestation reads, a foreign
+or forged one does not; threads, enumerations, the patient list, the encryption key and the entity
+list each answer exactly who they should). Six existing suites changed with it: five read as the operator or hold node keys where they
+audit, one expectation follows the route helper. Regression batch 46 suites, 731 tests. Typecheck src 20, scripts 2. Live: 186/191 checks across 32 steps on a clean secured genesis boot — five failing checks, the previous seven minus two: the drug-history probe now passes as a refusal and the prescriber's own eScript path completes for the first time; every bare read refused, the plan still reads, the member's node reads as the wallet, the pharmacy reads only with the tap.
+
 **B6 — implementation record: the employer never learns the wallet ID, by construction.**
 Done 2026-10-18. Rule I6; finding PHI-9 moves from "holds today" to "holds by construction".
 
@@ -2519,3 +2570,14 @@ since it needs none of the decisions above. Then B3 (adjudicate, then finalize a
 (ELIGIBLE to ACTIVE on the first claim) and B8 (no settlement rewrite after the proof) once the
 decisions are in. After phase B: C is largely free at genesis (Step 2 already salted the identity
 fields), D1 is the remaining critical (any wallet ID yields the member's record), then E and F.
+
+**Addendum, 2026-10-18: D1 done, Session 7.** A member's data answers no bare wallet ID:
+`MEMBER_DATA_METHODS` and `authorizeRead` on the sequencer; the nodes and their proxies sign reads
+as their wallets; the pharmacy presents the member's tapped attestation. A-2 closed, the seventh of
+seven criticals. Scoreboard: 32 findings; 25 fixed; 7 open (A-10, A-11, A-22, A-23, A-25, A-26,
+A-27), none critical. Acceptance suites added this program: 38, 420 tests, all passing. Typecheck
+src 20, scripts 2. Pipeline 186/191 checks across 32 steps on a clean secured genesis boot — five failing checks, the previous seven minus two: the drug-history probe now passes as a refusal and the prescriber's own eScript path completes for the first time; every bare read refused, the plan still reads, the member's node reads as the wallet, the pharmacy reads only with the tap. Git: with this commit, 47 commits on local `dev`, nothing
+pushed, `origin/main` untouched. **Next:** D2 (the remaining open write routes and `recordFill`'s
+no-proof path, A-27), then D4 and D5 (the money: duplicate fill, ledger reconciliation, amounts in
+the audit chain), B8, then B4; B3/B7 wait on the §7 decisions. Remaining enumeration path to close
+with D2: the SSE event streams still carry wallet IDs to any subscriber.

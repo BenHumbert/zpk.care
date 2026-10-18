@@ -151,6 +151,7 @@ export class PrescriberNode extends EntityNodeBase {
   async getPrescribingHistory(): Promise<EntityClaimView[]> {
     const entries = await this.client.getClaimsByPrescriber(
       this.config.walletId!,
+      this.walletSigner() ?? undefined,
     );
     return this.toClaimViews(entries);
   }
@@ -217,7 +218,7 @@ export class PrescriberNode extends EntityNodeBase {
 
   /** Get all L2 receipts for this prescriber */
   async getMyReceipts(): Promise<L2Receipt[]> {
-    return this.client.getReceiptsByWallet(this.config.walletId!);
+    return this.client.getReceiptsByWallet(this.config.walletId!, this.walletSigner() ?? undefined);
   }
 
   /** Look up a formulary by plan ID hash */

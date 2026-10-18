@@ -136,10 +136,19 @@ export function registerInteractiveRoutes(
     'POST:/interactive/prescriber-authorization': { from: 'body', param: 'walletId' },
   };
 
-  // Helper: register route with automatic admin gating for Tier 3 routes, and the wallet gate for wallet routes
+  /**
+   * How long one of the engine's write routes may run before the sequencer answers 504. Prescribing
+   * makes four proofs in about 35 s on a workstation; the default budget is 30 s. The same budget the
+   * nodes' proof routes carry (PROVING_BUDGET_MS); a lookup finishes long before it matters.
+   */
+  const ENGINE_ROUTE_BUDGET_MS = 180_000;
+
+  // Helper: register route with automatic admin gating for Tier 3 routes, the wallet gate for wallet
+  // routes, and the proving budget for every write route
   function reg(method: string, path: string, handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>): void {
     const walletSigned = WALLET_ROUTES[`${method.toUpperCase()}:${path}`];
-    server.registerRoute(method, path, handler, ADMIN_ROUTES.has(path) ? { adminOnly: true } : walletSigned ? { walletSigned } : undefined);
+    const timeoutMs = method.toUpperCase() === 'POST' ? ENGINE_ROUTE_BUDGET_MS : undefined;
+    server.registerRoute(method, path, handler, ADMIN_ROUTES.has(path) ? { adminOnly: true, timeoutMs } : walletSigned ? { walletSigned, timeoutMs } : timeoutMs ? { timeoutMs } : undefined);
   }
 
   // Console SSE clients

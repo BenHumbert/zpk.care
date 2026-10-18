@@ -96,13 +96,13 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 |---|---|---|---|---|---|
 | l2_getStatus | OPEN | — | `node.getStatus()` + `vkCommitment` | no | 1040-1043 |
 | l2_getHealth | OPEN | — | process memory, proving pool + worker statuses, entity proof pool | no | 1045-1067 |
-| l2_getReceipt | OPEN (GAP I7) | receiptId | receipt lookup (Leviathan: all partitions) | yes: L2Receipt.walletId | 1069-1079 |
+| l2_getReceipt | D1: the receipt’s wallet, the plan or operator; an unknown id stays open and answers null | receiptId | receipt lookup (Leviathan: all partitions) | yes: L2Receipt.walletId | 1069-1079 |
 | l2_getBlock | OPEN | blockNumber | block lookup | no (receiptIds only) | 1081-1091 |
 | l2_getBatch | OPEN | batchNumber | batch lookup | no | 1093-1103 |
 | l2_forceBatch | ADMIN | partitionIndex? | `node.forceBatch()` | no | 1105-1112 |
 | l2_getChainState | OPEN | — | roots, walletCount, globalStateRoot, blockHeight, auditChainHash, pending count, latest batch | no | 1171-1187 |
-| l2_getReceiptsByWallet | OPEN (GAP I7: no caller binding) | walletId | `getReceiptsByWallet` | yes: receipts for wallet | 1189-1199; SEQ:2043 |
-| l2_getAllReceipts | OPEN (GAP I7) | limit?(≤1000), offset? | all receipts, paginated | yes: every receipt walletId | 1201-1209 |
+| l2_getReceiptsByWallet | D1: the wallet itself, the plan or operator, its named PCP, or a signed caller with the member’s attestation | walletId | `getReceiptsByWallet` | yes: receipts for wallet | 1189-1199; SEQ:2043 |
+| l2_getAllReceipts | D1: the plan or the operator only | limit?(≤1000), offset? | all receipts, paginated | yes: every receipt walletId | 1201-1209 |
 | l2_getAllBatches | OPEN | limit?, offset? | all batches | no | 1211-1219 |
 | l2_getChainProof | OPEN | — | latest ChainProof JSON + globalStateRoot + blockHeight | no | 1221-1229 |
 | l2_getPartitionInfo | OPEN | — | partition config/router, l2Only | no | 2272-2281 |
@@ -110,7 +110,7 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 ### Audit
 | Method | Auth | Params | Reads/writes | Member | Line |
 |---|---|---|---|---|---|
-| l2_getAuditLog | OPEN (GAP I7) | limit?(≤1000), offset? | audit log, events paginated | yes: AuditEvent.walletId (`src/audit/audit-types.ts:37-43`) | 1114-1125 |
+| l2_getAuditLog | D1: the plan or the operator only | limit?(≤1000), offset? | audit log, events paginated | yes: AuditEvent.walletId (`src/audit/audit-types.ts:37-43`) | 1114-1125 |
 | l2_verifyChainIntegrity | OPEN | — | `AuditService.verifyReceiptChain` | no | 1127-1139 |
 | l2_verifyFinancialBalance | OPEN | — | `AuditService.verifyFinancialBalance` totals | no (aggregates) | 1141-1157 |
 | l2_detectDuplicateClaims | OPEN | — | `AuditService.detectDuplicateClaims` → duplicateGroups | audit-derived groups (fields not verified here) | 1159-1169 |
@@ -129,7 +129,7 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 | l2_getFormularyPage | OPEN | filter?, offset?, limit?(≤500, default 100) | paginated drug page | no | 1448-1453 |
 | l2_getDrugDetail | OPEN | ndcHash | drug record | no | 1455-1461 |
 | l2_checkCoverage | OPEN | planIdHash, ndcHash | plan coverage for drug | no | 1463-1471 |
-| l2_estimateCost | OPEN (GAP I7 when walletId given) | ndcHash, planId?, walletId?, quantity?(30), dispensingFeeCents?(300) | drug + coverage; if walletId: `seq.reconstructAccumulator(walletId)` and plan limits from plan store (caller limit params ignored) → member/employer split | yes: member-specific pay derived from accumulator | 1473-1576 |
+| l2_estimateCost | D1 when walletId is given: the wallet, the plan or operator, or the member’s attestation; without walletId open | ndcHash, planId?, walletId?, quantity?(30), dispensingFeeCents?(300) | drug + coverage; if walletId: `seq.reconstructAccumulator(walletId)` and plan limits from plan store (caller limit params ignored) → member/employer split | yes: member-specific pay derived from accumulator | 1473-1576 |
 | l2_publishPlanOverlay | ADMIN | planIdHash, planName?, overrides?, defaults | `formularyService.publishOverlay` + emit | no | 1578-1593 |
 | l2_getFormularyRoutes | OPEN | — | routes list | no | 1595-1597 |
 | l2_getFormularyDrugCount | OPEN | — | count | no | 1599-1601 |
@@ -153,11 +153,11 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 ### Claims (accumulator) / fills
 | Method | Auth | Params | Reads/writes | Member | Line |
 |---|---|---|---|---|---|
-| l2_getClaimsByMember | OPEN (GAP I7) | walletId | `node.getClaimsByMember` | yes: ClaimLeaf (member/pharmacy/prescriber wallet IDs, ndcHash, dateOfService, pay cents) + metadata (ndc, brandName, daysSupply, costs, planIdHash) | 1636-1642; `claim-accumulator-types.ts:47-66,147-156` |
-| l2_getClaimsByPharmacy | OPEN (GAP I7) | walletId | by pharmacy index | yes: same leaves | 1644-1650 |
-| l2_getClaimsByPrescriber | OPEN (GAP I7) | walletId | by prescriber index | yes | 1652-1658 |
-| l2_getClaimsByNdc | OPEN (GAP I7) | ndcHash | by NDC index | yes: all members on a drug | 1660-1666 |
-| l2_getClaimWithProof | OPEN (GAP I7) | leafIndex | entry + Merkle witness + root | yes | 1668-1675 |
+| l2_getClaimsByMember | D1: the wallet itself, the plan or operator, its named PCP, or a signed caller with the member’s attestation | walletId | `node.getClaimsByMember` | yes: ClaimLeaf (member/pharmacy/prescriber wallet IDs, ndcHash, dateOfService, pay cents) + metadata (ndc, brandName, daysSupply, costs, planIdHash) | 1636-1642; `claim-accumulator-types.ts:47-66,147-156` |
+| l2_getClaimsByPharmacy | D1: that pharmacy’s wallet, the plan or operator | walletId | by pharmacy index | yes: same leaves | 1644-1650 |
+| l2_getClaimsByPrescriber | D1: that prescriber’s wallet, the plan or operator | walletId | by prescriber index | yes | 1652-1658 |
+| l2_getClaimsByNdc | D1: the plan or the operator only | ndcHash | by NDC index | yes: all members on a drug | 1660-1666 |
+| l2_getClaimWithProof | D1: the leaf’s member, pharmacy or prescriber wallet, the plan or operator; an unknown leaf stays open | leafIndex | entry + Merkle witness + root | yes | 1668-1675 |
 | l2_getClaimAccumulatorRoot | OPEN | — | root + leafCount | no | 1677-1682 |
 | l2_recordFill | ADMIN | memberWalletId, ndcHash, pharmacyWalletId, prescriberWalletId?, dateOfService?, patientPayCents?, planPayCents?, operationType?, deductibleCreditCents?, ndc?, brandName?, daysSupply?, fillNumber?, ingredientCostCents?, dispensingFeeCents?, quantityDispensed?, planIdHash? | `seq.recordFill(leaf, metadata)` appends a ClaimLeaf without any proof; duplicate detected by unchanged leaf count; emits `viz:pharmacy:dispensed` with memberWalletId/ndcHash | yes (writes) | 1684-1727; SEQ:2140 |
 
@@ -165,16 +165,16 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 | Method | Auth | Params | Reads/writes | Member | Line |
 |---|---|---|---|---|---|
 | l2_getRegistrationWitnesses | OPEN | — | next-slot registry/lifecycle witnesses + roots | no | 1729-1731; SEQ:1893 |
-| l2_getWalletWitnesses | OPEN (GAP I7) | walletId (or params[0]) | witnesses, slotIndex, currentLifecycleState for the wallet | yes: wallet slot + lifecycle state | 1733-1737; SEQ:1917 |
-| l2_getWalletState | OPEN (GAP I7) | walletId (or params[0]) | credentialInventoryRoot + nonce | yes | 1739-1743; SEQ:1944 |
+| l2_getWalletWitnesses | D1: the wallet itself, the plan or operator, or a signed caller with the member’s attestation | walletId (or params[0]) | witnesses, slotIndex, currentLifecycleState for the wallet | yes: wallet slot + lifecycle state | 1733-1737; SEQ:1917 |
+| l2_getWalletState | D1: the wallet itself, the plan or operator, or a signed caller with the member’s attestation | walletId (or params[0]) | credentialInventoryRoot + nonce | yes | 1739-1743; SEQ:1944 |
 
 ### Messages
 | Method | Auth | Params | Reads/writes | Member | Line |
 |---|---|---|---|---|---|
-| l2_getMessagesByWallet | OPEN (GAP I7) | walletId | union index | yes: sender/recipient wallet IDs, type, threadIdHash, ciphertext/iv/tag | 1747-1753; `message-store-types.ts:52-63,109-118` |
-| l2_getMessagesBySender | OPEN (GAP I7) | walletId | sender index | yes | 1755-1761 |
-| l2_getMessagesByRecipient | OPEN (GAP I7) | walletId | recipient index | yes | 1763-1769 |
-| l2_getMessagesByThread | OPEN (GAP I7) | threadIdHash | thread index | yes | 1771-1777 |
+| l2_getMessagesByWallet | D1: the wallet itself, the plan or operator | walletId | union index | yes: sender/recipient wallet IDs, type, threadIdHash, ciphertext/iv/tag | 1747-1753; `message-store-types.ts:52-63,109-118` |
+| l2_getMessagesBySender | D1: the wallet itself, the plan or operator | walletId | sender index | yes | 1755-1761 |
+| l2_getMessagesByRecipient | D1: the wallet itself, the plan or operator | walletId | recipient index | yes | 1763-1769 |
+| l2_getMessagesByThread | D1: any signed caller; a wallet gets only its own messages | threadIdHash | thread index | yes | 1771-1777 |
 | l2_getMessageStoreRoot | OPEN | — | root + count | no | 1779-1784 |
 | l2_storeMessage | WALLET-SIGNED (A10b: only a request signed by `message.senderWalletId` with its registered key; see `authorizeWallet`) | message{messageCommitment, senderWalletId, recipientWalletId, messageType, threadIdHash}, payload{ciphertext, iv, tag, timestamp?, receiptId?} | maps type names→codes; `node.storeMessage` appends to message store under any claimed sender; emits `viz:message:sent` | yes (writes) | 1786-1841; NODE:653 |
 
@@ -182,8 +182,8 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 | Method | Auth | Params | Reads/writes | Member | Line |
 |---|---|---|---|---|---|
 | l2_registerEntity | ADMIN | walletId, displayName, type, specialty?, pharmacyType?, group?, encryptionPublicKeyHex?, npi? | writes `entityRegistry`; if prescriber/pharmacy also `seq.credentialProvider` ACTIVE (duplicates ignored); `node.registerKnownWallet` (attestation eligibility); emits `viz:enrollment:started` with walletId | yes (writes wallet→displayName) | 1843-1902 |
-| l2_getEntity | OPEN (GAP I7) | walletId | `entityRegistry` → displayName, type, group, specialty, pharmacyType | yes: wallet→display identity (member entries included) | 1904-1917 |
-| l2_getEncryptionKey | OPEN (GAP I7) | walletId | `entityRegistry[walletId].encryptionPublicKeyHex` | yes: wallet's X25519 key | 1434-1440 |
+| l2_getEntity | D1: a member’s entry answers the wallet, the plan or operator, its named PCP or the member’s attestation; a provider’s entry is public | walletId | `entityRegistry` → displayName, type, group, specialty, pharmacyType | yes: wallet→display identity (member entries included) | 1904-1917 |
+| l2_getEncryptionKey | D1: any signed caller | walletId | `entityRegistry[walletId].encryptionPublicKeyHex` | yes: wallet's X25519 key | 1434-1440 |
 | l2_credentialProvider | ADMIN | walletId, displayName, providerType, npi?, specialty?, pharmacyType?, deaNumber?, stateOfLicense?, verificationMethod?, initialState?, credentialedByHash?, applicationId? | `seq.credentialProvider` (npiHash = hash(npi) or walletId); mirrors into `entityRegistry`; emits `viz:credential:generated` incl. npi | provider only | 1921-1981; SEQ:2275 |
 | l2_updateProviderStatus | ADMIN | walletId, newState(0-4) | `seq.updateProviderStatus`; emits lifecycle viz | provider only | 1983-2010; SEQ:2280 |
 | l2_getProvider | OPEN | walletId | provider leaf+metadata (npi, state) | provider only | 2012-2029 |
@@ -196,12 +196,12 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 | Method | Auth | Params | Reads/writes | Member | Line |
 |---|---|---|---|---|---|
 | l2_registerPcpAssignment | WALLET-SIGNED (A10b: only a request signed by `memberWalletId`) | memberWalletId, prescriberWalletId, effectiveDate? | appends to in-memory `pcpAssignments[prescriber]` unless memberWalletId already present (dedupe per prescriber) | yes (writes member→prescriber link) | 2117-2131; map at 239 |
-| l2_getPcpAssignments | OPEN (GAP I7) | prescriberWalletId | list of {memberWalletId, effectiveDate, timestamp} | yes | 2133-2141 |
+| l2_getPcpAssignments | D1: that prescriber’s wallet, the plan or operator | prescriberWalletId | list of {memberWalletId, effectiveDate, timestamp} | yes | 2133-2141 |
 
 ### Accumulator / attestation
 | Method | Auth | Params | Reads/writes | Member | Line |
 |---|---|---|---|---|---|
-| l2_reconstructAccumulator | OPEN (GAP I7) | walletId, planIdHash? | `seq.reconstructAccumulator` sums claim leaves | yes: deductiblePaid/oopPaid/benefitUsed cents, claim counts | 2143-2151; SEQ:2167 |
+| l2_reconstructAccumulator | D1: the wallet itself, the plan or operator, its named PCP, or a signed caller with the member’s attestation | walletId, planIdHash? | `seq.reconstructAccumulator` sums claim leaves | yes: deductiblePaid/oopPaid/benefitUsed cents, claim counts | 2143-2151; SEQ:2167 |
 | l2_requestAttestation | WALLET-SIGNED (A10b: only a request signed by `walletId`; lifecycle from `lifecycleStateOf`, revoked refused, unregistered null) | walletId, expirySeconds? | if wallet in `entityRegistry` → `registerKnownWallet`; `node.requestAttestation` signs {w, cc, ls=3, fr, ts, exp, n, pk, sig} when wallet has receipts/provider/messages/known flag, and writes `attestationCache[walletId]` | yes: signed attestation for wallet | 2155-2174; NODE:356-381; `src/credentials/nfc-attestation.ts:55-78` |
 | l2_getAttestation | OPEN (GAP I7) | walletId | reads `attestationCache` | yes | 2176-2189; NODE:383-385 |
 | l2_getAttestationPublicKey | OPEN | — | authority Ed25519 pubkey | no | 2191-2198 |

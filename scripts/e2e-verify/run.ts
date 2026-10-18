@@ -422,7 +422,7 @@ async function main() {
   }
   trace.check('The device proved the credential mint it was handed; the engine never held its preimage', Number(mintRun?.pending) === 0 && (mintRun?.errors ?? []).length === 0 && (mintRun?.refused ?? []).length === 0, 'pending 0, no errors', mintRun);
   const emptyInventoryRoot = new MerkleTree(CREDENTIAL_INVENTORY_HEIGHT).getRoot().toString();
-  const afterMint = await rpc('l2_getWalletState', { walletId }, false);
+  const afterMint = await rpc('l2_getWalletState', { walletId });
   trace.check('The ledger holds a minted credential root for the wallet, proved by the device', typeof afterMint.result?.credentialInventoryRoot === 'string' && afterMint.result.credentialInventoryRoot !== emptyInventoryRoot && afterMint.result.credentialInventoryRoot !== '0', 'not the empty inventory root', abbrev(String(afterMint.result?.credentialInventoryRoot ?? afterMint), 14));
 
   // ── Step 2 commit two: the engine bound the member to the plan the insurer sold, and the A-6 door ──
@@ -444,7 +444,7 @@ async function main() {
   const forged = await http('POST', `${SEQ}/interactive/register-member`, { walletId: malloryWallet, ownershipProofJson: '{}', displayName: 'Mallory' });
   trace.check('register-member refuses a wallet the insurer never approved (A-6)', forged.status === 403, 403, forged.status);
   trace.check('…and says why without provisioning anything', /insurer approval/.test(JSON.stringify(forged.json ?? forged.text ?? '')), 'no insurer approval', forged.json ?? forged.text);
-  const receipts = await rpc('l2_getReceiptsByWallet', { walletId }, false);
+  const receipts = await rpc('l2_getReceiptsByWallet', { walletId });
   const recList = receipts.result?.receipts ?? receipts.result ?? [];
   trace.check('Sequencer issued a receipt for the registration proof', Array.isArray(recList) && recList.length > 0, '≥1 receipt', recList?.length ?? receipts);
   trace.note(`member node status after registration: ${JSON.stringify(unwrap(regDone.json))?.slice(0, 200)}`);
@@ -666,7 +666,7 @@ async function main() {
       await sleep(5000);
     }
     trace.check(`${sc.label}: the member's device finalized the fill by proving its own wallet update`, Number(fin?.pending) === 0 && (fin?.errors ?? []).length === 0 && (fin?.refused ?? []).length === 0, 'pending 0, no errors', fin);
-    const walletNow = await rpc('l2_getWalletState', { walletId }, false);
+    const walletNow = await rpc('l2_getWalletState', { walletId });
     trace.check(`${sc.label}: the ledger holds the credential root the device proved`, !!r.walletUpdate?.newInventoryRoot && walletNow.result?.credentialInventoryRoot === r.walletUpdate.newInventoryRoot, abbrev(String(r.walletUpdate?.newInventoryRoot ?? 'walletUpdate missing from the fill result'), 14), abbrev(String(walletNow.result?.credentialInventoryRoot ?? walletNow), 14));
     results.claims.push({ label: sc.label, prescriptionId, ingredient: sc.ingredient.toString(), fee: sc.fee.toString(), adjudication: adj, accumulator: r.accumulator, expected: { ...exp, total: exp.total.toString(), patientPay: exp.patientPay.toString(), planPay: exp.planPay.toString(), deductibleCredit: exp.deductibleCredit.toString() }, proofTimesMs: r.proofTimesMs, receiptId: r.l2Receipt?.receiptId, settlementCommitment: r.settlementCommitment });
     acc0 = { ...accNow, deductiblePaidCents: BigInt(after.deductiblePaidCents), oopPaidCents: BigInt(after.oopPaidCents), annualBenefitUsedCents: BigInt(after.benefitUsedCents ?? 0) };
@@ -701,13 +701,13 @@ async function main() {
   // ── 9. Claim accumulator inclusion proofs ───────────────────
   trace.begin('verifier', 'Recompute each claim leaf and its Merkle root from the sequencer witness');
   await http('POST', `${SEQ}/interactive/force-batch`, {});
-  const cbm = await rpc('l2_getClaimsByMember', { walletId }, false);
+  const cbm = await rpc('l2_getClaimsByMember', { walletId });
   const claimEntries = (cbm.result?.claims ?? cbm.result ?? []) as any[];
   trace.check('Sequencer lists this member\'s claims', claimEntries.length >= results.claims.filter((c: any) => c.adjudication).length, results.claims.length, claimEntries.length);
   const rootNow = (await rpc('l2_getClaimAccumulatorRoot', {}, false)).result?.root;
   for (const ce of claimEntries) {
     const idx = String(ce.leafIndex ?? ce.index);
-    const cp = (await rpc('l2_getClaimWithProof', { leafIndex: idx }, false)).result;
+    const cp = (await rpc('l2_getClaimWithProof', { leafIndex: idx })).result;
     if (!cp) { trace.check(`Leaf ${idx} has an inclusion proof`, false, 'proof', null); continue; }
     const leaf = cp.entry.leaf ?? cp.entry;
     const leafHash = Poseidon.hash([
@@ -733,7 +733,7 @@ async function main() {
     const ok = a.result && (a.result.valid === true || a.result.ok === true || a.result.passed === true || (Array.isArray(a.result.duplicates) && a.result.duplicates.length === 0) || a.result.balanced === true);
     trace.check(`${m}`, !!ok, 'pass', a.result ?? a.error);
   }
-  const recon = (await rpc('l2_reconstructAccumulator', { walletId }, false)).result;
+  const recon = (await rpc('l2_reconstructAccumulator', { walletId })).result;
   const sumPatient = results.claims.filter((c: any) => c.adjudication).reduce((s: bigint, c: any) => s + BigInt(c.adjudication.patientPayCents), 0n);
   const sumPlan = results.claims.filter((c: any) => c.adjudication).reduce((s: bigint, c: any) => s + BigInt(c.adjudication.planPayCents), 0n);
   const sumCredit = results.claims.filter((c: any) => c.adjudication).reduce((s: bigint, c: any) => s + BigInt(c.expected.deductibleCredit), 0n);
@@ -812,6 +812,19 @@ async function main() {
   trace.begin('attacker', 'Probe routes that touch this member without credentials');
   const dur = await http('GET', `${PHA}/dur/patient/${walletId}/full-history`);
   trace.check('Drug history for this member is refused without consent or credentials', dur.status === 401 || dur.status === 403, '401/403', dur.status, dur.status < 300 ? 'served to an unauthenticated caller' : undefined);
+  // D1 (A-2): a member's data answers no bare wallet ID; the plan still reads it, and the member's own node reads it signed as the wallet.
+  const bareClaims = await rpc('l2_getClaimsByMember', { walletId }, false);
+  trace.check('A bare wallet ID no longer returns the member\'s claims', !!bareClaims.error, 'error', bareClaims.error ? bareClaims.error.message : `${(bareClaims.result ?? []).length} claims served`);
+  const bareReceipts = await rpc('l2_getReceiptsByWallet', { walletId }, false);
+  trace.check('A bare wallet ID no longer returns the member\'s receipts', !!bareReceipts.error, 'error', bareReceipts.error ? bareReceipts.error.message : 'served');
+  const bareAll = await rpc('l2_getAllReceipts', {}, false);
+  trace.check('Wallets cannot be enumerated from the receipt list without a credential', !!bareAll.error, 'error', bareAll.error ? bareAll.error.message : 'served');
+  const bareEntities = await http('GET', `${SEQ}/viz/entities`);
+  trace.check('The entity directory is refused without a credential', bareEntities.status === 401 || bareEntities.status === 403, '401/403', bareEntities.status);
+  const planClaims = await rpc('l2_getClaimsByMember', { walletId });
+  trace.check('The plan, with its credential, still reads the member\'s claims for audit', Array.isArray(planClaims.result), 'array', planClaims.error?.message ?? `${planClaims.result?.length} claims`);
+  const ownReceipts = await mem('GET', '/receipts');
+  trace.check('The member\'s own node reads its receipts, signed as the wallet', ownReceipts.status === 200, 200, ownReceipts.status === 200 ? 200 : (unwrap(ownReceipts.json) ?? ownReceipts.status));
   const att = await rpc('l2_requestAttestation', { walletId }, false);
   trace.check('Signed NFC attestation for this member is refused without proof of ownership', !!att.error, 'error', att.error ? att.error.message : 'issued');
   // A10b: the three writes that speak for a wallet take only that wallet's own signature.
@@ -835,10 +848,16 @@ async function main() {
   trace.check('The attestation verifies against the sequencer\'s pinned key', attVerdict.valid === true, true, attVerdict);
   const sent = await mem('POST', '/messaging/send', { recipientWalletId: String(results.prescriberWalletId), body: `Hello from the harness, run ${RUN}` });
   trace.check('The member node sends a message signed as the wallet', sent.status === 200, 200, sent.status, sent.status === 200 ? undefined : JSON.stringify(sent.json ?? sent.text).slice(0, 200));
-  const bySender = await rpc('l2_getMessagesBySender', { walletId }, false);
+  const bySender = await rpc('l2_getMessagesBySender', { walletId });
   const sentCount = Array.isArray(bySender.result) ? bySender.result.length : (bySender.result?.messages?.length ?? 0);
   trace.check('The sequencer lists that message under the member as its sender', sentCount >= 1, '≥1', sentCount);
 
+
+  // D1: the pharmacy reads a member's drug history only with the member's tapped attestation.
+  const attHeader = { 'X-Member-Attestation': Buffer.from(JSON.stringify(ownAttData ?? {})).toString('base64') };
+  const durWithTap = await http('GET', `${PHA}/dur/patient/${walletId}/full-history`, undefined, attHeader);
+  const durRows = unwrap(durWithTap.json);
+  trace.check('With the member\'s tapped attestation the pharmacy reads the drug history', durWithTap.status === 200 && Array.isArray(durRows) && durRows.length >= 1, '200 and rows', durWithTap.status === 200 ? `${Array.isArray(durRows) ? durRows.length : 0} rows` : (unwrap(durWithTap.json) ?? durWithTap.status));
 
   // ── 13c. Replication (A13) ───────────────────────────────
   trace.begin('verifier', 'The replicas mirror the leader, and the invariant monitor is quiet');
@@ -906,7 +925,7 @@ async function main() {
   const sources: Array<[string, string]> = [];
   sources.push(['sequencer /interactive/state', (await http('GET', `${SEQ}/interactive/state`)).text]);
   for (const m of ['l2_getClaimsByMember', 'l2_getReceiptsByWallet', 'l2_getMessagesByWallet']) sources.push([`sequencer RPC ${m}`, jsonSafe((await rpc(m, { walletId }, false)).result ?? '')]);
-  sources.push(['sequencer RPC l2_getAuditLog', jsonSafe((await rpc('l2_getAuditLog', {}, false)).result ?? '')]);
+  sources.push(['sequencer RPC l2_getAuditLog', jsonSafe((await rpc('l2_getAuditLog', {})).result ?? '')]);
   sources.push(['insurer /claims/member', (await http('GET', `${INS}/claims/member/${walletId}`)).text]);
   sources.push(['insurer /roster', (await insAdmin('GET', '/roster')).text]);
   const walk = (dir: string, label: string) => {

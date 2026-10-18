@@ -840,7 +840,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
   });
 
   test('P10b — claim appears in accumulator', async () => {
-    const r = await rpc(rpcPort, 'l2_getClaimsByMember', { walletId: memberWalletId });
+    const r = await rpc(rpcPort, 'l2_getClaimsByMember', { walletId: memberWalletId }, AUTH);
     expect(r.status).toBe(200);
     expect((r.body as any).error).toBeUndefined();
     const claims = (r.body as any).result;
@@ -855,7 +855,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
   });
 
   test('P10c — claim has NADAC pricing metadata', async () => {
-    const r = await rpc(rpcPort, 'l2_getClaimsByMember', { walletId: memberWalletId });
+    const r = await rpc(rpcPort, 'l2_getClaimsByMember', { walletId: memberWalletId }, AUTH);
     const claim = (r.body as any).result[0];
     expect(claim.metadata.ingredientCostCents).toBe(2950);
     expect(claim.metadata.dispensingFeeCents).toBe(1300);
@@ -880,10 +880,10 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
 
   test('P11b — member can get claim with Merkle proof', async () => {
     // Get the leaf index from claims
-    const claimsR = await rpc(rpcPort, 'l2_getClaimsByMember', { walletId: memberWalletId });
+    const claimsR = await rpc(rpcPort, 'l2_getClaimsByMember', { walletId: memberWalletId }, AUTH);
     const leafIndex = (claimsR.body as any).result[0].leafIndex;
 
-    const r = await rpc(rpcPort, 'l2_getClaimWithProof', { leafIndex: String(leafIndex) });
+    const r = await rpc(rpcPort, 'l2_getClaimWithProof', { leafIndex: String(leafIndex) }, AUTH);
     expect(r.status).toBe(200);
     const result = (r.body as any).result;
     expect(result.entry).toBeDefined();

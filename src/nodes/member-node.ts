@@ -243,7 +243,7 @@ export class MemberNode extends EntityNodeBase {
 
   /** Get all claims for this member */
   async getDrugHistory(): Promise<EntityClaimView[]> {
-    const entries = await this.client.getClaimsByMember(this.config.walletId!);
+    const entries = await this.client.getClaimsByMember(this.config.walletId!, this.walletSigner() ?? undefined);
     return this.toClaimViews(entries);
   }
 
@@ -286,7 +286,7 @@ export class MemberNode extends EntityNodeBase {
 
   /** Get all L2 receipts for this member */
   async getMyReceipts(): Promise<L2Receipt[]> {
-    return this.client.getReceiptsByWallet(this.config.walletId!);
+    return this.client.getReceiptsByWallet(this.config.walletId!, this.walletSigner() ?? undefined);
   }
 
   /** Look up a formulary by plan ID hash */

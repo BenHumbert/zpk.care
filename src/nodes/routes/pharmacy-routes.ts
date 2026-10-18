@@ -820,38 +820,76 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
   //  DUR — Drug Utilization Review (cross-pharmacy)
   // ══════════════════════════════════════════════════════════
 
+  // D1 (A-2): a member's drug history answers the member's own tapped attestation, the JSON the
+  // member's device received from the sequencer, presented here base64 in X-Member-Attestation by
+  // the pharmacy's dashboard and forwarded by this node signed as its wallet. Without it the
+  // sequencer refuses, and so does this route, before asking.
+  const memberAttestationOf = (req: import('http').IncomingMessage): Record<string, unknown> | null => {
+    const raw = req.headers['x-member-attestation'];
+    if (typeof raw !== 'string' || raw.length === 0) return null;
+    try {
+      const parsed = JSON.parse(Buffer.from(raw, 'base64').toString('utf8')) as unknown;
+      return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+    } catch {
+      return null;
+    }
+  };
+  const refusedUpstream = (err: unknown): boolean => /Unauthorized|Forbidden/.test(err instanceof Error ? err.message : String(err));
+  const NO_TAP = "A member's drug history needs the member's tapped attestation (X-Member-Attestation)";
+
   routes.push({
     method: 'GET',
     path: '/dur/patient/:memberWalletId/full-history',
-    handler: async (_req, res, params) => {
+    handler: async (req, res, params) => {
       const node = server.getEntityNode() as PharmacyNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      server.sendResponse(res, 200, true, await node.getPatientFullDrugHistory(params.memberWalletId));
+      const attestation = memberAttestationOf(req);
+      if (!attestation) return server.sendResponse(res, 403, false, undefined, NO_TAP);
+      try {
+        server.sendResponse(res, 200, true, await node.getPatientFullDrugHistory(params.memberWalletId, attestation));
+      } catch (err) {
+        if (refusedUpstream(err)) return server.sendResponse(res, 403, false, undefined, err instanceof Error ? err.message : String(err));
+        throw err;
+      }
     },
   });
 
   routes.push({
     method: 'GET',
     path: '/dur/patient/:memberWalletId/active-medications',
-    handler: async (_req, res, params) => {
+    handler: async (req, res, params) => {
       const node = server.getEntityNode() as PharmacyNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      server.sendResponse(res, 200, true, await node.getPatientActiveMedications(params.memberWalletId));
+      const attestation = memberAttestationOf(req);
+      if (!attestation) return server.sendResponse(res, 403, false, undefined, NO_TAP);
+      try {
+        server.sendResponse(res, 200, true, await node.getPatientActiveMedications(params.memberWalletId, attestation));
+      } catch (err) {
+        if (refusedUpstream(err)) return server.sendResponse(res, 403, false, undefined, err instanceof Error ? err.message : String(err));
+        throw err;
+      }
     },
   });
 
   routes.push({
     method: 'GET',
     path: '/dur/patient/:memberWalletId/check/:ndcHash',
-    handler: async (_req, res, params) => {
+    handler: async (req, res, params) => {
       const node = server.getEntityNode() as PharmacyNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      const active = await node.hasActiveClaim(params.memberWalletId, params.ndcHash);
-      server.sendResponse(res, 200, true, {
-        memberWalletId: params.memberWalletId,
-        ndcHash: params.ndcHash,
-        activeClaim: active,
-      });
+      const attestation = memberAttestationOf(req);
+      if (!attestation) return server.sendResponse(res, 403, false, undefined, NO_TAP);
+      try {
+        const active = await node.hasActiveClaim(params.memberWalletId, params.ndcHash, attestation);
+        server.sendResponse(res, 200, true, {
+          memberWalletId: params.memberWalletId,
+          ndcHash: params.ndcHash,
+          activeClaim: active,
+        });
+      } catch (err) {
+        if (refusedUpstream(err)) return server.sendResponse(res, 403, false, undefined, err instanceof Error ? err.message : String(err));
+        throw err;
+      }
     },
   });
 

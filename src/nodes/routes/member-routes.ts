@@ -119,7 +119,7 @@ async function runWalletUpdates(server: NautilusAppServer): Promise<WalletUpdate
     // 2. Prove it against the live tree, re-proving if another change lands first.
     let receiptId: string | null = null;
     for (let attempt = 1; attempt <= 4 && !receiptId; attempt++) {
-      const live = await client.getWalletState(data.walletId);
+      const live = await client.getWalletState(data.walletId, node.walletSigner() ?? undefined);
       if (!live || typeof live.nonce !== 'string' || typeof live.credentialInventoryRoot !== 'string') {
         run.errors.push('the sequencer returned no wallet state');
         return run;
@@ -128,7 +128,7 @@ async function runWalletUpdates(server: NautilusAppServer): Promise<WalletUpdate
         run.errors.push(`${update.updateId}: starts from root ${update.oldInventoryRoot.slice(0, 12)}… but the ledger holds ${live.credentialInventoryRoot.slice(0, 12)}…`);
         return run;
       }
-      const witnesses = await client.getWalletWitnesses(data.walletId);
+      const witnesses = await client.getWalletWitnesses(data.walletId, node.walletSigner() ?? undefined);
       const regWitnessData = typeof witnesses.registryWitnessJson === 'string' ? JSON.parse(witnesses.registryWitnessJson) : witnesses.registryWitnessJson;
       const lcWitnessData = typeof witnesses.lifecycleWitnessJson === 'string' ? JSON.parse(witnesses.lifecycleWitnessJson) : witnesses.lifecycleWitnessJson;
       const regWitness = WalletRegistryWitness.fromJSON(regWitnessData);
@@ -1512,7 +1512,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
           return server.sendResponse(res, 409, false, undefined, 'No credential on this device yet: register first');
         }
         const rebuilt = rebuildCredential(parts);
-        const live = await node.getClient().getWalletState(data.walletId);
+        const live = await node.getClient().getWalletState(data.walletId, node.walletSigner() ?? undefined);
         if (!live || live.credentialInventoryRoot !== rebuilt.inventory.getRoot().toString()) {
           return server.sendResponse(res, 409, false, undefined, 'The ledger holds a different credential root than this device: sync first');
         }
@@ -1679,12 +1679,8 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
           if (lState.hasEnrollmentKey()) {
             try {
               const { deriveEncryptionKeyPair: dkp, deriveSharedSecret: dss, encryptMessage: em } = await import('../../messaging/encryption.js');
-              // Step 1 (async): fetch recipient pubkey
-              const keyResp = await fetch(`${seqUrl}/rpc`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getEncryptionKey', params: { walletId: b.recipientWalletId } }),
-              });
-              const keyJson = await keyResp.json() as any;
+              // Step 1 (async): the recipient's public key, read through the client signed as this wallet (D1: signed callers only)
+              const keyJson = { result: node ? await node.getClient().getEncryptionKey(b.recipientWalletId, node.walletSigner() ?? undefined) : null } as any;
               if (keyJson.result?.encryptionPublicKeyHex) {
                 const recipientPub = Buffer.from(keyJson.result.encryptionPublicKeyHex, 'hex');
                 // Step 2 (sync inside callback): encrypt

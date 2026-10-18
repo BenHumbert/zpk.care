@@ -840,7 +840,7 @@
 
   async function loadEntities() {
     try {
-      var resp = await fetch(location.origin + '/viz/entities');
+      var resp = await fetch(location.origin + '/viz/entities', { headers: RPC.headers(true) });
       var text = await resp.text();
       var data;
       try { data = JSON.parse(text); } catch (e) {
@@ -1922,7 +1922,7 @@
 
       L('Checking in-network providers...');
       try {
-        var entities = await (await fetch(location.origin + '/viz/entities')).json();
+        var entities = await (await fetch(location.origin + '/viz/entities', { headers: RPC.headers(true) })).json();
         var prescribers = entities.filter(function (e) { return e.type === 'prescriber'; });
         var pharmacies = entities.filter(function (e) { return e.type === 'pharmacy'; });
         L(prescribers.length + ' prescribers: ' +

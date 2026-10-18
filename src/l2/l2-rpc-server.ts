@@ -51,6 +51,15 @@ import { hashString } from '../zkp/hash-utils.js';
 import { ProofRejected } from './l2-proof-verifier.js';
 import { corsOriginHeader, resolveAllowedOrigins } from '../security/network-policy.js';
 import { verifySignedRequest, signerIdFromHeaders, ReplayCache } from '../security/signed-request.js';
+import { SequencerAttestationAuthority, type NfcCredentialAttestation } from '../credentials/nfc-attestation.js';
+
+/** Who may read a member-data method (D1): see L2RpcServer.MEMBER_DATA_METHODS. */
+type MemberDataReader = 'self' | 'pcp' | 'attestation' | 'signed';
+interface MemberDataSpec {
+  subject: 'wallet' | 'optional-wallet' | 'provider' | 'entity' | 'receipt' | 'leaf' | 'thread' | 'enumeration';
+  param?: string;
+  readers: readonly MemberDataReader[];
+}
 import { roleMayCall, type NodeRole, type AuthScope } from '../security/node-roles.js';
 import { readRequestBody } from '../security/request-body.js';
 import { RequestRefused } from './request-refused.js';
@@ -295,6 +304,8 @@ export class L2RpcServer {
 
   // Dynamic route registration
   private additionalRoutes: Map<string, (req: IncomingMessage, res: ServerResponse) => Promise<void>> = new Map();
+  /** A registered route's own request budget in ms, when it declared one (the engine's proving routes). */
+  private routeBudgets: Map<string, number> = new Map();
 
   // Dashboard static file directory
   private dashboardDir: string | null = null;
@@ -442,9 +453,13 @@ export class L2RpcServer {
     method: string,
     path: string,
     handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>,
-    options?: { adminOnly?: boolean; walletSigned?: WalletRouteSpec },
+    options?: { adminOnly?: boolean; walletSigned?: WalletRouteSpec; timeoutMs?: number },
   ): void {
     this.additionalRoutes.set(`${method.toUpperCase()}:${path}`, handler);
+    if (options?.timeoutMs) {
+      // A route that proves runs for longer than a lookup: its own budget replaces the 30 s default.
+      this.routeBudgets.set(`${method.toUpperCase()}:${path}`, options.timeoutMs);
+    }
     if (options?.adminOnly) {
       this.adminGatedRoutes.add(`${method.toUpperCase()}:${path}`);
     }
@@ -474,16 +489,23 @@ export class L2RpcServer {
   // ─── Request Handling ─────────────────────────────────
 
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    // M10 fix: Server-side request timeout (30s default, excludes SSE streams)
+    // M10 fix: Server-side request budget (30 s default, excludes SSE streams), re-armed to a
+    // registered route's own budget once the route is known: the engine's proving routes run for
+    // longer than a lookup, and a slow proof must not read as a dead request.
     const isSSE = req.url?.startsWith('/events') || req.url?.startsWith('/viz/events') || req.url?.startsWith('/interactive/console');
-    if (!isSSE) {
-      const timeout = setTimeout(() => {
+    let budgetTimer: ReturnType<typeof setTimeout> | null = null;
+    const armBudget = (ms: number): void => {
+      if (budgetTimer) clearTimeout(budgetTimer);
+      budgetTimer = setTimeout(() => {
         if (!res.writableEnded) {
           res.writeHead(504, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Request timeout' }));
         }
-      }, 30_000);
-      res.on('finish', () => clearTimeout(timeout));
+      }, ms);
+    };
+    if (!isSSE) {
+      armBudget(30_000);
+      res.on('finish', () => { if (budgetTimer) clearTimeout(budgetTimer); });
     }
 
     // CORS. The header is omitted entirely for a request with no Origin and for an origin
@@ -538,10 +560,15 @@ export class L2RpcServer {
     }
 
     if (pathname === '/viz/entities' && req.method === 'GET') {
+      // D1 (A-2): the entity list names every wallet; the operator and the plan read it, nobody anonymous.
+      const decision = await this.authorizeRoute(req, pathname);
+      if (!decision.ok) return L2RpcServer.denyRoute(res, decision);
       return this.handleVizEntitiesGet(res);
     }
 
     if (pathname === '/viz/state' && req.method === 'GET') {
+      const decision = await this.authorizeRoute(req, pathname);
+      if (!decision.ok) return L2RpcServer.denyRoute(res, decision);
       return this.handleVizState(res);
     }
 
@@ -558,6 +585,8 @@ export class L2RpcServer {
     // Check dynamically registered routes
     const routeKey = `${req.method}:${pathname}`;
     const customHandler = this.additionalRoutes.get(routeKey);
+    const routeBudget = customHandler ? this.routeBudgets.get(routeKey) : undefined;
+    if (routeBudget && !isSSE) armBudget(routeBudget);
     if (customHandler) {
       // Admin gate for routes registered with adminOnly (the engine's privileged routes)
       if (this.adminGatedRoutes.has(routeKey)) {
@@ -779,6 +808,20 @@ export class L2RpcServer {
       const walletDecision = this.authorizeWallet(req, rpcReq.method, walletSpokenFor, body);
       if (!walletDecision.ok) {
         return this.sendRpcError(res, rpcReq.id, RPC_UNAUTHORIZED, walletDecision.message);
+      }
+    }
+
+    // Read gate (D1, finding A-2): a method that returns a member's data answers only a credential
+    // that may read it — the wallet itself, the plan or the operator, a prescriber the member named
+    // as primary care, or any signed caller presenting the member's own unexpired attestation.
+    if (L2RpcServer.MEMBER_DATA_METHODS[rpcReq.method]) {
+      const readDecision = this.authorizeRead(req, rpcReq.method, (rpcReq.params ?? {}) as Record<string, unknown>, body);
+      if (readDecision && !readDecision.ok) {
+        return this.sendRpcError(res, rpcReq.id, readDecision.status === 403 ? RPC_FORBIDDEN : RPC_UNAUTHORIZED, readDecision.message);
+      }
+      if (readDecision?.ok) {
+        if (!rpcReq.params) rpcReq.params = {};
+        (rpcReq.params as Record<string, unknown>)._reader = readDecision.principal;
       }
     }
 
@@ -1884,7 +1927,14 @@ export class L2RpcServer {
         if (typeof threadIdHash !== 'string') {
           throw new Error('Missing or invalid threadIdHash parameter');
         }
-        return this.node.getSequencer().getMessagesByThread(threadIdHash);
+        const thread = this.node.getSequencer().getMessagesByThread(threadIdHash);
+        const reader = params._reader as { kind: string; walletId?: string } | undefined;
+        if (reader?.kind !== 'wallet') return thread;
+        // D1: a wallet reads only the messages it sent or received in this thread.
+        return thread.filter((entry: any) => {
+          const m = entry?.message ?? entry;
+          return m?.senderWalletId === reader.walletId || m?.recipientWalletId === reader.walletId;
+        });
       }
 
       case 'l2_getMessageStoreRoot': {
@@ -2851,6 +2901,175 @@ export class L2RpcServer {
     });
     if (!outcome.ok) return { ok: false, status: 401, message: `Unauthorized — ${outcome.reason}` };
     return { ok: true, principal: { kind: 'wallet', walletId } };
+  }
+
+  /**
+   * The methods that return a member's data, and who may read them (D1, finding A-2). Until this
+   * gate, a bare wallet ID returned a member's claims, receipts, messages, accumulator and keys to
+   * anyone, and the receipt and audit lists enumerated every wallet. Readers: the wallet itself (its
+   * registered signing key), the plan (a node key with the insurer role) and the operator, always; a
+   * prescriber the member named as primary care, for claims, receipts and the directory entry; and
+   * any signed caller presenting the member's own unexpired attestation, the tap at a counter, for
+   * claims, receipts, accumulator and wallet state. Enumerations answer the plan and the operator
+   * only. A thread answers any signed caller with that caller's own messages.
+   */
+  static readonly MEMBER_DATA_METHODS: Readonly<Record<string, MemberDataSpec>> = {
+    l2_getClaimsByMember: { subject: 'wallet', param: 'walletId', readers: ['self', 'pcp', 'attestation'] },
+    l2_getReceiptsByWallet: { subject: 'wallet', param: 'walletId', readers: ['self', 'pcp', 'attestation'] },
+    l2_reconstructAccumulator: { subject: 'wallet', param: 'walletId', readers: ['self', 'pcp', 'attestation'] },
+    l2_getWalletState: { subject: 'wallet', param: 'walletId|0', readers: ['self', 'attestation'] },
+    l2_getWalletWitnesses: { subject: 'wallet', param: 'walletId|0', readers: ['self', 'attestation'] },
+    l2_getMessagesByWallet: { subject: 'wallet', param: 'walletId', readers: ['self'] },
+    l2_getMessagesBySender: { subject: 'wallet', param: 'walletId', readers: ['self'] },
+    l2_getMessagesByRecipient: { subject: 'wallet', param: 'walletId', readers: ['self'] },
+    l2_getMessagesByThread: { subject: 'thread', readers: ['signed'] },
+    l2_getEntity: { subject: 'entity', param: 'walletId', readers: ['self', 'pcp', 'attestation'] },
+    l2_getEncryptionKey: { subject: 'wallet', param: 'walletId', readers: ['signed'] },
+    l2_getPcpAssignments: { subject: 'provider', param: 'prescriberWalletId', readers: ['self'] },
+    l2_getClaimsByPharmacy: { subject: 'provider', param: 'walletId', readers: ['self'] },
+    l2_getClaimsByPrescriber: { subject: 'provider', param: 'walletId', readers: ['self'] },
+    l2_getClaimsByNdc: { subject: 'enumeration', readers: [] },
+    l2_getAllReceipts: { subject: 'enumeration', readers: [] },
+    l2_getAuditLog: { subject: 'enumeration', readers: [] },
+    l2_getReceipt: { subject: 'receipt', param: 'receiptId', readers: ['self'] },
+    l2_getClaimWithProof: { subject: 'leaf', param: 'leafIndex', readers: ['self'] },
+    l2_estimateCost: { subject: 'optional-wallet', param: 'walletId', readers: ['self', 'attestation'] },
+  };
+
+  private static readParam(params: Record<string, unknown>, where: string | undefined): string | null {
+    if (!where) return null;
+    for (const key of where.split('|')) {
+      const value = params[key];
+      if (typeof value === 'string' && value.length > 0) return value;
+    }
+    return null;
+  }
+
+  /** Who signed a read: the operator's bearer, a registered node key with its role, or a registered wallet's own key. */
+  private readPrincipal(req: IncomingMessage, method: string, body: string | undefined): AuthDecision {
+    const authHeader = req.headers['authorization'];
+    if (typeof authHeader === 'string' && authHeader.length > 0) {
+      if (this.options.adminToken && L2RpcServer.safeEquals(authHeader, `Bearer ${this.options.adminToken}`)) {
+        return { ok: true, principal: { kind: 'operator' } };
+      }
+      return { ok: false, status: 401, message: 'Unauthorized' };
+    }
+    const signerId = signerIdFromHeaders(req.headers);
+    if (!signerId) {
+      return { ok: false, status: 401, message: `Unauthorized — ${method} returns a member's data and answers only a signed caller: the wallet itself, the plan, the operator, or a caller presenting the member's attestation` };
+    }
+    if (this.blacklistedNodes.has(signerId)) return { ok: false, status: 401, message: 'Unauthorized — unknown signer' };
+    const nodeEntry = this.adminKeyRegistry.get(signerId);
+    const publicKeyHex = nodeEntry?.publicKeyHex ?? this.entityRegistry.get(signerId)?.signingPublicKeyHex;
+    if (!publicKeyHex) return { ok: false, status: 401, message: 'Unauthorized — unknown signer' };
+    const outcome = verifySignedRequest({
+      method: req.method ?? 'POST',
+      path: '/rpc',
+      headers: req.headers,
+      expectedSignerId: signerId,
+      publicKeyHex,
+      body,
+      replayCache: this.replayCache,
+    });
+    if (!outcome.ok) return { ok: false, status: 401, message: `Unauthorized — ${outcome.reason}` };
+    if (nodeEntry) return { ok: true, principal: { kind: 'node', nodeId: signerId, role: nodeEntry.role ?? 'operator' } };
+    return { ok: true, principal: { kind: 'wallet', walletId: signerId } };
+  }
+
+  /**
+   * The gate for a member-data read (D1): see MEMBER_DATA_METHODS. Returns null when the call
+   * returns no member's data (a provider's directory entry, a cost estimate naming no member, an
+   * unknown receipt or leaf, a malformed parameter the handler rejects itself): those stay open.
+   */
+  private authorizeRead(req: IncomingMessage, method: string, params: Record<string, unknown>, body: string | undefined): AuthDecision | null {
+    const spec = L2RpcServer.MEMBER_DATA_METHODS[method];
+    if (!spec) return null;
+    // 1. Whose data this call returns.
+    let subject: string | null = null;
+    let parties: string[] = [];
+    let enumeration = false;
+    let thread = false;
+    switch (spec.subject) {
+      case 'enumeration':
+        enumeration = true;
+        break;
+      case 'thread':
+        thread = true;
+        break;
+      case 'wallet':
+      case 'provider':
+        subject = L2RpcServer.readParam(params, spec.param);
+        break;
+      case 'optional-wallet':
+        subject = L2RpcServer.readParam(params, spec.param);
+        if (!subject) return null;
+        break;
+      case 'entity': {
+        subject = L2RpcServer.readParam(params, spec.param);
+        const entity = subject ? this.entityRegistry.get(subject) : undefined;
+        if (!entity || entity.type !== 'member') return null; // providers, plans and employers are directory entries
+        break;
+      }
+      case 'receipt': {
+        const receiptId = L2RpcServer.readParam(params, spec.param);
+        const receipt = receiptId
+          ? (this.node instanceof L2Leviathan ? this.node.getReceipt(receiptId) : this.node.getSequencer().getReceipt(receiptId))
+          : undefined;
+        if (!receipt) return null; // the handler answers null
+        subject = receipt.walletId;
+        break;
+      }
+      case 'leaf': {
+        const leafIdx = params.leafIndex;
+        let found: { entry: Record<string, unknown> } | undefined;
+        try {
+          found = typeof leafIdx === 'string' || typeof leafIdx === 'bigint'
+            ? (this.node.getClaimWithProof(BigInt(leafIdx)) as { entry: Record<string, unknown> } | undefined)
+            : undefined;
+        } catch {
+          found = undefined;
+        }
+        if (!found) return null; // the handler answers null
+        const leaf = (found.entry.leaf ?? found.entry) as Record<string, unknown>; // the wallets live on the claim leaf
+        subject = String(leaf.memberWalletId);
+        parties = [String(leaf.pharmacyWalletId), String(leaf.prescriberWalletId)];
+        break;
+      }
+    }
+    if (!subject && !enumeration && !thread) return null; // a malformed parameter: the handler says so
+    // 2. Who asks, and whether they may.
+    const who = this.readPrincipal(req, method, body);
+    if (!who.ok) return who;
+    const p = who.principal;
+    if (p.kind === 'operator' || (p.kind === 'node' && (p.role === 'insurer' || p.role === 'operator'))) return who;
+    if (enumeration) return { ok: false, status: 403, message: `Forbidden — ${method} lists wallets across members and answers the plan or the operator only` };
+    if (thread) return who; // the handler returns only this caller's own messages
+    const short = (id: string) => (id.length > 12 ? `${id.slice(0, 12)}…` : id);
+    if (p.kind === 'wallet') {
+      if (spec.readers.includes('self') && (p.walletId === subject || parties.includes(p.walletId))) return who;
+      if (spec.readers.includes('pcp') && this.isPrimaryCareOf(p.walletId, subject!)) return who;
+    }
+    if (spec.readers.includes('attestation') && this.attestationCovers(params, subject!)) return who;
+    if (spec.readers.includes('signed')) return who;
+    const also = [
+      spec.readers.includes('pcp') ? 'its primary-care prescriber' : '',
+      spec.readers.includes('attestation') ? "a caller presenting the member's attestation" : '',
+    ].filter(Boolean);
+    return { ok: false, status: 403, message: `Forbidden — ${method} for wallet ${short(subject!)} answers that wallet, the plan or the operator${also.length ? ', or ' + also.join(', or ') : ''}` };
+  }
+
+  private isPrimaryCareOf(prescriberWalletId: string, memberWalletId: string): boolean {
+    return (this.pcpAssignments.get(prescriberWalletId) ?? []).some((a) => a.memberWalletId === memberWalletId);
+  }
+
+  /** The member's own unexpired attestation, issued by this network and naming the wallet read: the tap at a counter. */
+  private attestationCovers(params: Record<string, unknown>, walletId: string): boolean {
+    const att = params.memberAttestation;
+    if (!att || typeof att !== 'object') return false;
+    const publicKeyHex = 'getAttestationPublicKey' in this.node ? (this.node as L2Node).getAttestationPublicKey() : null;
+    if (!publicKeyHex) return false;
+    const verdict = SequencerAttestationAuthority.verifyAttestation(att as NfcCredentialAttestation, publicKeyHex);
+    return verdict.valid && !verdict.expired && (att as NfcCredentialAttestation).w === walletId;
   }
 
   private authorize(req: IncomingMessage, scope: AuthScope, body: string | undefined): AuthDecision {

@@ -305,7 +305,7 @@ const RPC = (() => {
   }
 
   return {
-    setBaseUrl, setAdminToken, getAdminToken,
+    setBaseUrl, setAdminToken, getAdminToken, headers,
     call, getHealth, getHealthRpc,
     getLeviathanStatus, getPartitionLeaders, getPartitionStatus, getStatus,
     getQuorumStatus, getStateCertificate, verifyStateCertificate,

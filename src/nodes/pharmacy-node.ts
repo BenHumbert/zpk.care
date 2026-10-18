@@ -168,6 +168,7 @@ export class PharmacyNode extends EntityNodeBase {
   async getDispensingHistory(): Promise<EntityClaimView[]> {
     const entries = await this.client.getClaimsByPharmacy(
       this.config.walletId!,
+      this.walletSigner() ?? undefined,
     );
     return this.toClaimViews(entries);
   }
@@ -215,8 +216,10 @@ export class PharmacyNode extends EntityNodeBase {
    */
   async getPatientFullDrugHistory(
     memberWalletId: string,
+    memberAttestation?: Record<string, unknown>,
   ): Promise<EntityClaimView[]> {
-    const entries = await this.client.getClaimsByMember(memberWalletId);
+    // D1: signed as this pharmacy and carrying the member's tapped attestation; the sequencer refuses otherwise.
+    const entries = await this.client.getClaimsByMember(memberWalletId, this.walletSigner() ?? undefined, memberAttestation);
     return this.toClaimViews(entries);
   }
 
@@ -227,8 +230,9 @@ export class PharmacyNode extends EntityNodeBase {
   async hasActiveClaim(
     memberWalletId: string,
     ndcHash: string,
+    memberAttestation?: Record<string, unknown>,
   ): Promise<boolean> {
-    const views = await this.getPatientFullDrugHistory(memberWalletId);
+    const views = await this.getPatientFullDrugHistory(memberWalletId, memberAttestation);
     const forMed = views.filter((v) => v.ndcHash === ndcHash);
     const fills = forMed.filter((v) => v.operationType === 'fulfillment').length;
     const reversals = forMed.filter((v) => v.operationType === 'reversal').length;
@@ -241,8 +245,9 @@ export class PharmacyNode extends EntityNodeBase {
    */
   async getPatientActiveMedications(
     memberWalletId: string,
+    memberAttestation?: Record<string, unknown>,
   ): Promise<EntityClaimView[]> {
-    const views = await this.getPatientFullDrugHistory(memberWalletId);
+    const views = await this.getPatientFullDrugHistory(memberWalletId, memberAttestation);
 
     // Count fills and reversals per NDC
     const ndcCounts = new Map<string, { fills: number; reversals: number; latestFill: EntityClaimView | null }>();
@@ -349,7 +354,7 @@ export class PharmacyNode extends EntityNodeBase {
 
   /** Get all L2 receipts for this pharmacy */
   async getMyReceipts(): Promise<L2Receipt[]> {
-    return this.client.getReceiptsByWallet(this.config.walletId!);
+    return this.client.getReceiptsByWallet(this.config.walletId!, this.walletSigner() ?? undefined);
   }
 
   /** Look up a formulary by plan ID hash */

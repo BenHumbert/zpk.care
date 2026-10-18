@@ -94,14 +94,15 @@ const RPC = (() => {
 
   // ── Receipts ─────────────────────────────────────
   function getReceipt(id)      { return call('l2_getReceipt', { receiptId: id }); }
-  function getReceiptsByWallet(w) { return call('l2_getReceiptsByWallet', { walletId: w }); }
+  // D1: member receipts and the receipt list answer a credential; the explorer sends its token when it holds one.
+  function getReceiptsByWallet(w) { return call('l2_getReceiptsByWallet', { walletId: w }, true); }
   function getAllReceipts(limit, offset) {
-    return call('l2_getAllReceipts', { limit: limit || 100, offset: offset || 0 });
+    return call('l2_getAllReceipts', { limit: limit || 100, offset: offset || 0 }, true);
   }
 
   // ── Audit ────────────────────────────────────────
   function getAuditLog(limit, offset) {
-    return call('l2_getAuditLog', { limit: limit || 200, offset: offset || 0 });
+    return call('l2_getAuditLog', { limit: limit || 200, offset: offset || 0 }, true);
   }
   function verifyChainIntegrity()   { return call('l2_verifyChainIntegrity'); }
   function verifyFinancialBalance() { return call('l2_verifyFinancialBalance'); }

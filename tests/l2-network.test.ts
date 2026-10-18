@@ -49,10 +49,13 @@ const INITIAL_REG_ROOT = emptyRegTree.getRoot();
 const INITIAL_LC_ROOT = emptyLcTree.getRoot();
 
 /** Helper: raw HTTP POST to the RPC endpoint */
-function rawRpc(port: number, body: string): Promise<{ status: number; body: string }> {
+const NET_ADMIN = 'net-test-admin';
+const asOperator = { Authorization: `Bearer ${NET_ADMIN}` };
+
+function rawRpc(port: number, body: string, headers: Record<string, string> = {}): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = http.request(
-      { hostname: '127.0.0.1', port, path: '/rpc', method: 'POST', headers: { 'Content-Type': 'application/json' } },
+      { hostname: '127.0.0.1', port, path: '/rpc', method: 'POST', headers: { 'Content-Type': 'application/json', ...headers } },
       (res) => {
         let data = '';
         res.on('data', (chunk) => { data += chunk; });
@@ -165,7 +168,7 @@ describe('L2RpcServer', () => {
       Field(0),
     );
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-network.test.ts'));
-    server = new L2RpcServer(node, { port: 0 }); // Random port
+    server = new L2RpcServer(node, { port: 0, adminToken: NET_ADMIN }); // Random port
     await server.start();
     port = server.getPort();
   });
@@ -230,7 +233,7 @@ describe('L2RpcServer', () => {
       jsonrpc: '2.0', id: 1, method: 'l2_getReceipt',
       params: { receiptId: 'nonexistent' },
     };
-    const res = await rawRpc(port, l2Stringify(rpcReq));
+    const res = await rawRpc(port, l2Stringify(rpcReq), asOperator);
     const rpcRes = l2Parse<RpcResponse>(res.body);
     expect(rpcRes.result).toBeNull();
   });
@@ -346,7 +349,7 @@ describe('L2RpcServer', () => {
       jsonrpc: '2.0', id: 1, method: 'l2_getReceiptsByWallet',
       params: { walletId: 'nonexistent-wallet' },
     };
-    const res = await rawRpc(port, l2Stringify(rpcReq));
+    const res = await rawRpc(port, l2Stringify(rpcReq), asOperator);
     const rpcRes = l2Parse<RpcResponse>(res.body);
     expect(rpcRes.error).toBeUndefined();
     expect(rpcRes.result).toEqual([]);
@@ -354,7 +357,7 @@ describe('L2RpcServer', () => {
 
   test('RPC l2_getAllReceipts returns empty array initially', async () => {
     const rpcReq: RpcRequest = { jsonrpc: '2.0', id: 1, method: 'l2_getAllReceipts' };
-    const res = await rawRpc(port, l2Stringify(rpcReq));
+    const res = await rawRpc(port, l2Stringify(rpcReq), asOperator);
     const rpcRes = l2Parse<RpcResponse>(res.body);
     expect(rpcRes.error).toBeUndefined();
     expect(rpcRes.result).toEqual([]);

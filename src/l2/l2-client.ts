@@ -102,8 +102,8 @@ export class L2Client {
   }
 
   /** Look up a receipt by ID */
-  async getReceipt(receiptId: string): Promise<L2Receipt | null> {
-    return this.rpcCall<L2Receipt | null>('l2_getReceipt', { receiptId });
+  async getReceipt(receiptId: string, signer?: RequestSigner): Promise<L2Receipt | null> {
+    return this.rpcCall<L2Receipt | null>('l2_getReceipt', { receiptId }, signer);
   }
 
   /** Look up a block by number */
@@ -121,8 +121,8 @@ export class L2Client {
   }
 
   /** Get the sequencer's audit log */
-  async getAuditLog(): Promise<AuditLog> {
-    return this.rpcCall<AuditLog>('l2_getAuditLog');
+  async getAuditLog(signer?: RequestSigner): Promise<AuditLog> {
+    return this.rpcCall<AuditLog>('l2_getAuditLog', undefined, signer);
   }
 
   /** Trigger a manual batch build on the sequencer */
@@ -138,13 +138,13 @@ export class L2Client {
   }
 
   /** Get all receipts for a specific wallet */
-  async getReceiptsByWallet(walletId: string): Promise<L2Receipt[]> {
-    return this.rpcCall<L2Receipt[]>('l2_getReceiptsByWallet', { walletId });
+  async getReceiptsByWallet(walletId: string, signer?: RequestSigner): Promise<L2Receipt[]> {
+    return this.rpcCall<L2Receipt[]>('l2_getReceiptsByWallet', { walletId }, signer);
   }
 
   /** Get all receipts (full list for light node sync) */
-  async getAllReceipts(): Promise<L2Receipt[]> {
-    return this.rpcCall<L2Receipt[]>('l2_getAllReceipts');
+  async getAllReceipts(signer?: RequestSigner): Promise<L2Receipt[]> {
+    return this.rpcCall<L2Receipt[]>('l2_getAllReceipts', undefined, signer);
   }
 
   /** Get all batches (full list for settlement tracking) */
@@ -224,7 +224,7 @@ export class L2Client {
     deductibleAmountCents?: number;
     oopMaxCents?: number;
     annualBenefitMaxCents?: number;
-  }): Promise<{
+  }, signer?: RequestSigner): Promise<{
     covered: boolean;
     drugName: string;
     ndcHash: string;
@@ -240,38 +240,38 @@ export class L2Client {
     employerPayCents?: number;
     reason?: string;
   }> {
-    return this.rpcCall('l2_estimateCost', params as unknown as Record<string, unknown>);
+    return this.rpcCall('l2_estimateCost', params as unknown as Record<string, unknown>, signer);
   }
 
   // ─── Claim Accumulator Queries ──────────────────────────
 
   /** Get all claims for a member wallet ID */
-  async getClaimsByMember(walletId: string): Promise<ClaimAccumulatorEntry[]> {
-    return this.rpcCall<ClaimAccumulatorEntry[]>('l2_getClaimsByMember', { walletId });
+  async getClaimsByMember(walletId: string, signer?: RequestSigner, memberAttestation?: Record<string, unknown>): Promise<ClaimAccumulatorEntry[]> {
+    return this.rpcCall<ClaimAccumulatorEntry[]>('l2_getClaimsByMember', memberAttestation ? { walletId, memberAttestation } : { walletId }, signer);
   }
 
   /** Get all claims for a pharmacy wallet ID */
-  async getClaimsByPharmacy(walletId: string): Promise<ClaimAccumulatorEntry[]> {
-    return this.rpcCall<ClaimAccumulatorEntry[]>('l2_getClaimsByPharmacy', { walletId });
+  async getClaimsByPharmacy(walletId: string, signer?: RequestSigner): Promise<ClaimAccumulatorEntry[]> {
+    return this.rpcCall<ClaimAccumulatorEntry[]>('l2_getClaimsByPharmacy', { walletId }, signer);
   }
 
   /** Get all claims for a prescriber wallet ID */
-  async getClaimsByPrescriber(walletId: string): Promise<ClaimAccumulatorEntry[]> {
-    return this.rpcCall<ClaimAccumulatorEntry[]>('l2_getClaimsByPrescriber', { walletId });
+  async getClaimsByPrescriber(walletId: string, signer?: RequestSigner): Promise<ClaimAccumulatorEntry[]> {
+    return this.rpcCall<ClaimAccumulatorEntry[]>('l2_getClaimsByPrescriber', { walletId }, signer);
   }
 
   /** Get all claims for an NDC hash */
-  async getClaimsByNdc(ndcHash: string): Promise<ClaimAccumulatorEntry[]> {
-    return this.rpcCall<ClaimAccumulatorEntry[]>('l2_getClaimsByNdc', { ndcHash });
+  async getClaimsByNdc(ndcHash: string, signer?: RequestSigner): Promise<ClaimAccumulatorEntry[]> {
+    return this.rpcCall<ClaimAccumulatorEntry[]>('l2_getClaimsByNdc', { ndcHash }, signer);
   }
 
   /** Get a claim with its Merkle inclusion proof */
-  async getClaimWithProof(leafIndex: bigint): Promise<{
+  async getClaimWithProof(leafIndex: bigint, signer?: RequestSigner): Promise<{
     entry: ClaimAccumulatorEntry;
     witnessJson: string;
     root: string;
   } | null> {
-    return this.rpcCall('l2_getClaimWithProof', { leafIndex: leafIndex.toString() });
+    return this.rpcCall('l2_getClaimWithProof', { leafIndex: leafIndex.toString() }, signer);
   }
 
   /** Get the Claim Accumulator Tree root and leaf count */
@@ -291,7 +291,7 @@ export class L2Client {
   }
 
   /** Get Merkle witnesses for an existing registered wallet (for wallet update proofs) */
-  async getWalletWitnesses(walletId: string): Promise<{
+  async getWalletWitnesses(walletId: string, signer?: RequestSigner): Promise<{
     registryWitnessJson: string;
     lifecycleWitnessJson: string;
     currentRegistryRoot: string;
@@ -299,16 +299,16 @@ export class L2Client {
     slotIndex: string;
     currentLifecycleState: string;
   }> {
-    return this.rpcCall('l2_getWalletWitnesses', { walletId });
+    return this.rpcCall('l2_getWalletWitnesses', { walletId }, signer);
   }
 
   /** Get the current wallet state (nonce + credentialInventoryRoot) */
-  async getWalletState(walletId: string): Promise<{
+  async getWalletState(walletId: string, signer?: RequestSigner): Promise<{
     walletId: string;
     credentialInventoryRoot: string;
     nonce: string;
   }> {
-    return this.rpcCall('l2_getWalletState', { walletId });
+    return this.rpcCall('l2_getWalletState', { walletId }, signer);
   }
 
   /**
@@ -317,7 +317,7 @@ export class L2Client {
    *
    * @returns Reconstructed totals, or null if no claims found for this wallet
    */
-  async reconstructAccumulator(walletId: string, planIdHash?: string): Promise<{
+  async reconstructAccumulator(walletId: string, planIdHash?: string, signer?: RequestSigner): Promise<{
     deductiblePaidCents: bigint;
     oopPaidCents: bigint;
     benefitUsedCents: bigint;
@@ -326,7 +326,7 @@ export class L2Client {
   } | null> {
     const rpcParams: Record<string, string> = { walletId };
     if (planIdHash) rpcParams.planIdHash = planIdHash;
-    return this.rpcCall('l2_reconstructAccumulator', rpcParams);
+    return this.rpcCall('l2_reconstructAccumulator', rpcParams, signer);
   }
 
   // ─── PCP Assignments ───────────────────────────────────
@@ -345,8 +345,13 @@ export class L2Client {
   }
 
   /** Get PCP assignments for a prescriber */
-  async getPcpAssignments(prescriberWalletId: string): Promise<{ memberWalletId: string; effectiveDate: string; timestamp: number }[]> {
-    return this.rpcCall('l2_getPcpAssignments', { prescriberWalletId });
+  async getPcpAssignments(prescriberWalletId: string, signer?: RequestSigner): Promise<{ memberWalletId: string; effectiveDate: string; timestamp: number }[]> {
+    return this.rpcCall('l2_getPcpAssignments', { prescriberWalletId }, signer);
+  }
+
+  /** A wallet's X25519 public key, for encrypting to it. Answers any signed caller (D1); null when none is registered. */
+  async getEncryptionKey(walletId: string, signer?: RequestSigner): Promise<{ walletId?: string; encryptionPublicKeyHex?: string | null } | null> {
+    return this.rpcCall('l2_getEncryptionKey', { walletId }, signer);
   }
 
   // ─── Claim Recording (Admin) ──────────────────────
@@ -379,23 +384,23 @@ export class L2Client {
   // ─── Message Store Queries ──────────────────────────────
 
   /** Get all messages involving a wallet (sent or received) */
-  async getMessagesByWallet(walletId: string): Promise<MessageStoreEntry[]> {
-    return this.rpcCall<MessageStoreEntry[]>('l2_getMessagesByWallet', { walletId });
+  async getMessagesByWallet(walletId: string, signer?: RequestSigner): Promise<MessageStoreEntry[]> {
+    return this.rpcCall<MessageStoreEntry[]>('l2_getMessagesByWallet', { walletId }, signer);
   }
 
   /** Get all messages sent by a wallet */
-  async getMessagesBySender(walletId: string): Promise<MessageStoreEntry[]> {
-    return this.rpcCall<MessageStoreEntry[]>('l2_getMessagesBySender', { walletId });
+  async getMessagesBySender(walletId: string, signer?: RequestSigner): Promise<MessageStoreEntry[]> {
+    return this.rpcCall<MessageStoreEntry[]>('l2_getMessagesBySender', { walletId }, signer);
   }
 
   /** Get all messages received by a wallet */
-  async getMessagesByRecipient(walletId: string): Promise<MessageStoreEntry[]> {
-    return this.rpcCall<MessageStoreEntry[]>('l2_getMessagesByRecipient', { walletId });
+  async getMessagesByRecipient(walletId: string, signer?: RequestSigner): Promise<MessageStoreEntry[]> {
+    return this.rpcCall<MessageStoreEntry[]>('l2_getMessagesByRecipient', { walletId }, signer);
   }
 
   /** Get all messages in a thread */
-  async getMessagesByThread(threadIdHash: string): Promise<MessageStoreEntry[]> {
-    return this.rpcCall<MessageStoreEntry[]>('l2_getMessagesByThread', { threadIdHash });
+  async getMessagesByThread(threadIdHash: string, signer?: RequestSigner): Promise<MessageStoreEntry[]> {
+    return this.rpcCall<MessageStoreEntry[]>('l2_getMessagesByThread', { threadIdHash }, signer);
   }
 
   /** Get the Message Store root and message count */

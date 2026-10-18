@@ -43,6 +43,7 @@ import { WALLET_TREE_HEIGHT, WalletRegistryWitness } from '../src/wallets/wallet
 import { LifecycleWitness } from '../src/engine/lifecycle.js';
 import { EMPTY_CREDENTIAL_ROOT, StateTransitionProgram } from '../src/engine/state-transition.js';
 import { NautilusAppServer } from '../src/nodes/nautilus-app-server.js';
+import { generateNodeKey, type NodeRole } from '../src/security/node-roles.js';
 import { NautilusLocalState } from '../src/nodes/nautilus-local-state.js';
 import { buildInsurerRoutes } from '../src/nodes/routes/insurer-routes.js';
 import { buildMemberRoutes } from '../src/nodes/routes/member-routes.js';
@@ -181,12 +182,18 @@ async function createApp(
   role: NautilusAppConfig['role'],
   sequencerUrl: string,
   displayName: string,
+  rpc: L2RpcServer,
 ): Promise<{ server: NautilusAppServer; stateDir: string }> {
   const stateDir = await makeTempDir(`showcase-${role}-`);
+  // As the launcher does: each node holds a key the sequencer registered with its role (A9), so its
+  // own reads carry a credential (D1).
+  const nodeKey = generateNodeKey(`showcase-${role}-${Date.now()}`);
+  rpc.registerNodeKey(nodeKey.nodeId, nodeKey.publicKeyHex, role as NodeRole);
   const config: NautilusAppConfig = {
     role, port: 0, host: '127.0.0.1', sequencerUrl, stateDir,
     enableSSE: false, maxSseConnections: 0, allowedOrigins: ['*'],
     adminToken: TEST_ADMIN_TOKEN, displayName,
+    nodeKey: { nodeId: nodeKey.nodeId, seedHex: nodeKey.seedHex },
   };
   const server = new NautilusAppServer(config);
   await server.getLocalState().unlock(TEST_PIN);
@@ -260,19 +267,19 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
     await rpcServer.start();
     rpcPort = rpcServer.getPort();
     sequencerUrl = `http://127.0.0.1:${rpcPort}`;
-    client = new L2Client({ sequencerUrl });
+    client = new L2Client({ sequencerUrl, adminToken: TEST_ADMIN_TOKEN });
 
     // 2. Create 4 Nautilus Apps
-    const ins = await createApp('insurer', sequencerUrl, 'ACME Insurance');
+    const ins = await createApp('insurer', sequencerUrl, 'ACME Insurance', rpcServer);
     insurerApp = ins.server; tempDirs.push(ins.stateDir);
 
-    const mem = await createApp('member', sequencerUrl, 'Alice Johnson');
+    const mem = await createApp('member', sequencerUrl, 'Alice Johnson', rpcServer);
     memberApp = mem.server; tempDirs.push(mem.stateDir);
 
-    const pre = await createApp('prescriber', sequencerUrl, 'Dr. Sarah Chen');
+    const pre = await createApp('prescriber', sequencerUrl, 'Dr. Sarah Chen', rpcServer);
     prescriberApp = pre.server; tempDirs.push(pre.stateDir);
 
-    const pha = await createApp('pharmacy', sequencerUrl, 'Main Street Pharmacy');
+    const pha = await createApp('pharmacy', sequencerUrl, 'Main Street Pharmacy', rpcServer);
     pharmacyApp = pha.server; tempDirs.push(pha.stateDir);
 
     // 3. Register routes
