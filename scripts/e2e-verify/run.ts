@@ -535,6 +535,31 @@ async function main() {
     { label: 'Claim 2 — crosses the deductible', ingredient: 60000n, fee: 200n, qty: 30 },
     { label: 'Claim 3 — copay only', ingredient: 4500n, fee: 200n, qty: 30 },
   ];
+  // ── 7b. Primary care, from the device (B1 step two, commit three; B5 put it before the claims) ──
+  trace.begin('member', 'The member names the prescriber node as primary care; the engine queues it, the device proves it');
+  const pcpPick = await mem('POST', '/pcp/assign', { pcpWalletId: String(results.prescriberWalletId), effectiveDate: '20261018', specialty: 'Internal Medicine' });
+  trace.check('The device records the choice locally', pcpPick.status === 200, 200, pcpPick.status);
+  const pcpProve = await mem('POST', '/proof/pcp-assignment', {});
+  const pcpOut = unwrap(pcpProve.json) ?? pcpProve.json;
+  const pcpRun = pcpOut?.walletUpdates ?? {};
+  trace.check('The engine recorded the assignment and the device proved the wallet update', pcpProve.status === 200 && Number(pcpRun.pending) === 0 && (pcpRun.errors ?? []).length === 0 && (pcpRun.refused ?? []).length === 0, 'pending 0, no errors', pcpProve.status === 200 ? pcpRun : (pcpOut ?? pcpProve.status));
+  trace.check('The device registered the link on the sequencer under its own signature', pcpOut?.registeredOnSequencer === true, true, pcpOut?.registeredOnSequencer ?? pcpOut);
+  const pcpLinks = await rpc('l2_getPcpAssignments', { prescriberWalletId: String(results.prescriberWalletId) });
+  trace.check('The sequencer lists the member under the prescriber as a primary-care patient', Array.isArray(pcpLinks.result) && pcpLinks.result.some((a: any) => a.memberWalletId === walletId), walletId.slice(0, 12) + '…', pcpLinks.result ?? pcpLinks.error);
+  const pcpState = unwrap((await httpAdmin('GET', `${SEQ}/interactive/state`)).json) ?? {};
+  const pcpMine = memberRecordOf(pcpState);
+  trace.check('The engine holds the assignment on the member record with nothing left to prove', pcpMine?.pcpAssigned === true && Number(pcpMine?.pendingWalletUpdates) === 0, 'pcpAssigned, 0 pending', pcpMine ? { pcpAssigned: pcpMine.pcpAssigned, pendingWalletUpdates: pcpMine.pendingWalletUpdates } : 'no record');
+
+
+  // ── 7c. Consent at prescribing (B5) ─────────────────────────
+  trace.begin('prescriber', 'An in-network doctor who is not the PCP and holds no authorization cannot prescribe for this member');
+  const strangerIdx = networkPrescriberIdx.find((i) => i !== 0)!;
+  const strangerRxId = `RX-${RUN}-STRANGER`;
+  const strangerRx = await http('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: strangerIdx, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId: strangerRxId });
+  trace.check('The engine refuses: not the primary-care prescriber, no authorization from the device', strangerRx.status === 403 && /primary-care prescriber/.test(String(strangerRx.json?.error ?? '')), '403 primary-care prescriber', `${strangerRx.status} ${strangerRx.json?.error ?? ''}`.trim());
+  const strangerState = unwrap((await httpAdmin('GET', `${SEQ}/interactive/state`)).json) ?? {};
+  trace.check('No prescription record was created for the refused request', !((strangerState.prescriptions ?? []) as any[]).some((x: any) => x.id === strangerRxId || x.rxId === strangerRxId), 'none', ((strangerState.prescriptions ?? []) as any[]).filter((x: any) => x.id === strangerRxId).length);
+
   for (let ci = 0; ci < scenarios.length; ci++) {
     const sc = scenarios[ci];
     trace.begin('prescriber', `${sc.label}: write the prescription`);
@@ -643,6 +668,12 @@ async function main() {
   const network = networkPrescriberIdx;   // the network this run's plan named (stage 3); the engine bound it from the plan overlay
   const outIdx = prescribers.findIndex((_p: any, i: number) => !network.includes(i));
   const oonRx = `RX-${RUN}-OON`;
+  // B5: the member's device authorizes this doctor for the visit, so what the engine judges next is the network, not consent.
+  const oonProviders = await rpc('l2_getNetworkProviders', { role: 'prescriber' });
+  const oonFixture = prescribers[outIdx] ?? {};
+  const oonDoctor = (Array.isArray(oonProviders.result) ? oonProviders.result : []).find((p: any) => typeof p.displayName === 'string' && (p.displayName === oonFixture.name || (p.displayName.includes(String(oonFixture.firstName ?? '\u0000')) && p.displayName.includes(String(oonFixture.lastName ?? '\u0000')))));
+  const oonAuth = oonDoctor ? await mem('POST', '/authorizations/prescriber', { prescriberWalletId: String(oonDoctor.walletId), hours: 2 }) : { status: 0, json: { error: 'the out-of-network doctor is not in the provider registry' } };
+  trace.check('The device authorizes the out-of-network doctor for this visit, so consent is not what is tested next', oonAuth.status === 200, 200, oonAuth.status === 200 ? 'authorized' : (unwrap(oonAuth.json) ?? oonAuth.json));
   const oon = await http('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: outIdx, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId: oonRx });
   let oonStatus: string | undefined = oon.json?.status;
   if (oon.status === 504 || (!oon.json?.error && !oonStatus)) {
@@ -651,8 +682,10 @@ async function main() {
   }
   const oonName = prescribers[outIdx] ? `${prescribers[outIdx].firstName ?? ''} ${prescribers[outIdx].lastName ?? ''}`.trim() : `#${outIdx}`;
   trace.note(`prescriber #${outIdx} (${oonName}) is outside the plan network; result: ${oon.json?.error ?? oonStatus}`);
-  trace.check('Out-of-network prescriber is refused (or priced out-of-network)', !!oon.json?.error || oon.status >= 400, 'refused', oonStatus ?? oon.json);
-  if (!oon.json?.error && oon.status < 400) {
+  const oonState = unwrap((await httpAdmin('GET', `${SEQ}/interactive/state`)).json) ?? {};
+  const oonRecorded = ((oonState.prescriptions ?? []) as any[]).some((x: any) => x.id === oonRx || x.rxId === oonRx);
+  trace.check('Out-of-network prescriber is refused by the plan network, before any record', oon.status === 403 && /plan network/.test(String(oon.json?.error ?? '')) && !oonRecorded, '403 plan network, no record', `${oon.status} ${oon.json?.error ?? oonStatus ?? ''}${oonRecorded ? ' (a record exists)' : ''}`.trim());
+  if (oonRecorded) {
     results.findings.push({ id: 'network-not-enforced', severity: 'high', title: 'Out-of-network prescribers are not checked', evidence: `Prescriber #${outIdx} (${oonName}) is not in the plan network, yet POST /interactive/prescribe returned status ${oonStatus ?? oon.status}. InNetworkProgram is not among the compiled circuits and createPrescription has no network check.` });
   }
 
@@ -766,22 +799,6 @@ async function main() {
     trace.check('Portable credential generated', false, 'credential.proofJson', unwrap(devCred.json) ?? devCred.json);
   }
 
-  // ── 12b. Primary care, from the device (B1 step two, commit three) ──
-  trace.begin('member', 'The member names the prescriber node as primary care; the engine queues it, the device proves it');
-  const pcpPick = await mem('POST', '/pcp/assign', { pcpWalletId: String(results.prescriberWalletId), effectiveDate: '20261018', specialty: 'Internal Medicine' });
-  trace.check('The device records the choice locally', pcpPick.status === 200, 200, pcpPick.status);
-  const pcpProve = await mem('POST', '/proof/pcp-assignment', {});
-  const pcpOut = unwrap(pcpProve.json) ?? pcpProve.json;
-  const pcpRun = pcpOut?.walletUpdates ?? {};
-  trace.check('The engine recorded the assignment and the device proved the wallet update', pcpProve.status === 200 && Number(pcpRun.pending) === 0 && (pcpRun.errors ?? []).length === 0 && (pcpRun.refused ?? []).length === 0, 'pending 0, no errors', pcpProve.status === 200 ? pcpRun : (pcpOut ?? pcpProve.status));
-  trace.check('The device registered the link on the sequencer under its own signature', pcpOut?.registeredOnSequencer === true, true, pcpOut?.registeredOnSequencer ?? pcpOut);
-  const pcpLinks = await rpc('l2_getPcpAssignments', { prescriberWalletId: String(results.prescriberWalletId) });
-  trace.check('The sequencer lists the member under the prescriber as a primary-care patient', Array.isArray(pcpLinks.result) && pcpLinks.result.some((a: any) => a.memberWalletId === walletId), walletId.slice(0, 12) + '…', pcpLinks.result ?? pcpLinks.error);
-  const pcpState = unwrap((await httpAdmin('GET', `${SEQ}/interactive/state`)).json) ?? {};
-  const pcpMine = memberRecordOf(pcpState);
-  trace.check('The engine holds the assignment on the member record with nothing left to prove', pcpMine?.pcpAssigned === true && Number(pcpMine?.pendingWalletUpdates) === 0, 'pcpAssigned, 0 pending', pcpMine ? { pcpAssigned: pcpMine.pcpAssigned, pendingWalletUpdates: pcpMine.pendingWalletUpdates } : 'no record');
-
-
   // ── 13. More security probes ────────────────────────────────
   trace.begin('attacker', 'Probe routes that touch this member without credentials');
   const dur = await http('GET', `${PHA}/dur/patient/${walletId}/full-history`);
@@ -841,6 +858,30 @@ async function main() {
   const bearerRelay = await http('POST', 'http://localhost:3031/rpc', relayBody, bearer);
   trace.check('The network operator token opens nothing on a replica', !!bearerRelay.json?.error, 'error', bearerRelay.json?.error?.message ?? bearerRelay.json);
 
+
+  // ── 13b. Termination (B5, A-18): a terminated member is not billable ──
+  trace.begin('insurer', 'Terminate the member; the engine refuses to prescribe for or dispense to them afterwards');
+  const lastRxId = `RX-${RUN}-LAST`;
+  const lastRx = await http('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId: lastRxId });
+  let lastRxOk = lastRx.status < 300 && !!lastRx.json?.prescriptionId;
+  if (!lastRxOk && (lastRx.status === 504 || !lastRx.json?.error)) {
+    const found = await poll(quietAdmin, `${SEQ}/interactive/state`, j => (j?.prescriptions ?? []).some((x: any) => (x.id === lastRxId || x.rxId === lastRxId) && x.status === 'ADJUDICATED'), 600_000, 5000);
+    lastRxOk = (found.json?.prescriptions ?? []).some((x: any) => x.id === lastRxId || x.rxId === lastRxId);
+  }
+  trace.check('A last prescription is written while the member is still eligible', lastRxOk, 'adjudicated', lastRx.json?.error ?? lastRx.status);
+  const lastPrescriptionId = lastRx.json?.prescriptionId ?? lastRxId;
+  await http('POST', `${PHA}/dispensing/mark-filled`, { prescriptionId: lastPrescriptionId });
+  const term = await httpAdmin('POST', `${SEQ}/interactive/terminate-member`, { memberWalletId: walletId, terminationDate: '20261018' });
+  trace.check('The operator terminates the member', term.status < 300, '2xx', term.status);
+  const afterTerm = await http('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId: `RX-${RUN}-AFTER` });
+  trace.check('No prescription can be written for a terminated member', afterTerm.status === 409 && /terminated/.test(String(afterTerm.json?.error ?? '')), '409 terminated', `${afterTerm.status} ${afterTerm.json?.error ?? ''}`.trim());
+  const lateDisp = await http('POST', `${PHA}/dispensing/dispense`, { prescriptionId: lastPrescriptionId, quantityDispensed: 30, ingredientCostCents: 4500, dispensingFeeCents: 200 });
+  let lateFill: any = unwrap(lateDisp.json);
+  if (lateDisp.status < 300 && lateFill?.jobKey) {
+    const ld = await poll(quiet, `${PHA}/dispensing/fill-status?jobKey=${encodeURIComponent(lateFill.jobKey)}`, j => ['complete', 'error'].includes(unwrap(j)?.status), 600_000, 5000);
+    lateFill = unwrap(ld.json);
+  }
+  trace.check('The filled prescription cannot be dispensed to a terminated member (termination cancels it)', (lateFill?.status === 'error' && /terminated|cancelled/.test(String(lateFill?.error ?? ''))) || lateDisp.status >= 400, 'error: terminated or cancelled', lateFill?.error ?? lateFill?.status ?? lateDisp.json);
 
   // ── 14. Where do the member's secrets live? ─────────────────
   trace.begin('verifier', 'Scan what the network stores and serves for the member\'s secrets');

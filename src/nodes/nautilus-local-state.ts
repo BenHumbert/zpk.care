@@ -144,6 +144,8 @@ export interface NautilusStateData {
   ownershipProofJson?: string;
   /** The last portable credential the device proved. */
   lastCredentialJson?: string;
+  /** B5: prescribers this device authorized beyond its PCP, as the engine recorded them. */
+  prescriberAuthorizations?: Array<{ prescriberWalletId: string; ndcHash: string | null; expiresAt: number }>;
   /** C1: the member's identity salt, 32 bytes of hex, generated here at derivation; never leaves the device except inside a recovery deposit */
   identitySalt?: string;
   /** C2: what the insurer answered when the enrollment code was redeemed, before the wallet was derived */

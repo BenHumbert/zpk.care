@@ -212,3 +212,7 @@ Member node: `POST /credential/generate` (device session, phase ready, programs 
 ## Proving budget (B1 step two, commit three, 2026-10-18)
 
 The Nautilus server answers 504 when a request outruns its budget: the server's default (`NautilusAppConfig.requestTimeoutMs`, 30 s) unless the matched route declares `timeoutMs`. The routes that prove in-request declare `PROVING_BUDGET_MS` (180 s): member `POST /proof/registration`, `/proof/wallet-updates`, `/proof/pcp-assignment`, `/credential/generate`; prescriber and pharmacy `POST /proof/registration`. Measured on the workstation: registration 25-27 s, credential 25-31 s, a wallet update 8-13 s. Acceptance test `tests/proving-budget.test.ts`.
+
+## Consent at prescribing (B5, 2026-10-18)
+
+Member node: `POST /authorizations/prescriber` (device session) `{prescriberWalletId, ndcHash?, hours?}` signs `POST /interactive/prescriber-authorization` as the wallet and keeps what the engine recorded in the device state (`prescriberAuthorizations`: prescriber, medication or null, expiry). No proof; the signature is the consent. The engine then accepts a prescription from that prescriber for the member until the grant expires; the PCP the member named needs no grant. Acceptance test `tests/prescriber-consent.test.ts`.

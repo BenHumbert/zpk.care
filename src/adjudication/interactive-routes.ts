@@ -133,6 +133,7 @@ export function registerInteractiveRoutes(
     'GET:/interactive/wallet-updates': { from: 'query', param: 'walletId' },
     'POST:/interactive/wallet-update-applied': { from: 'body', param: 'walletId' },
     'POST:/interactive/pcp-assignment': { from: 'body', param: 'walletId' },
+    'POST:/interactive/prescriber-authorization': { from: 'body', param: 'walletId' },
   };
 
   // Helper: register route with automatic admin gating for Tier 3 routes, and the wallet gate for wallet routes
@@ -285,6 +286,28 @@ export function registerInteractiveRoutes(
         effectiveDate: String(params.effectiveDate),
         specialty: typeof params.specialty === 'string' && params.specialty.length > 0 ? params.specialty : 'General Practice',
         consentScopeFlags: typeof params.consentScopeFlags === 'number' ? params.consentScopeFlags : 7,
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
+    } catch (err) {
+      if (err instanceof RegistrationRefused) return sendError(res, err.status, err.message);
+      sendError(res, 500, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  // B5: a member with a device authorizes a prescriber who is not its primary-care prescriber, for a
+  // visit. Wallet-signed: only the member's own key grants it.
+  reg('POST', '/interactive/prescriber-authorization', async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      const params = JSON.parse(await readBody(req) || '{}');
+      for (const field of ['walletId', 'prescriberWalletId']) {
+        if (typeof params[field] !== 'string' || params[field].length === 0) { sendError(res, 400, `Missing ${field}`); return; }
+      }
+      const result = await service.authorizePrescriber({
+        walletId: String(params.walletId),
+        prescriberWalletId: String(params.prescriberWalletId),
+        ndcHash: typeof params.ndcHash === 'string' && params.ndcHash.length > 0 ? params.ndcHash : null,
+        hours: typeof params.hours === 'number' ? params.hours : undefined,
       });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(result));
@@ -545,6 +568,7 @@ export function registerInteractiveRoutes(
       // Force batch to settle prescription proof immediately
       service.forceBatch().catch(() => {});
     } catch (err) {
+      if (err instanceof RegistrationRefused) return sendError(res, err.status, err.message);
       const message = err instanceof Error ? err.message : String(err);
       sendError(res, 500, message);
     }
@@ -762,6 +786,7 @@ export function registerInteractiveRoutes(
       });
       res.end(safeJsonStringify({ status: 'pending', prescriptionId: jobKey }, 'prescribe-and-fill'));
     } catch (err) {
+      if (err instanceof RegistrationRefused) return sendError(res, err.status, err.message);
       const message = err instanceof Error ? err.message : String(err);
       sendError(res, 500, message);
     }

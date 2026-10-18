@@ -1353,6 +1353,46 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
     },
   });
 
+  // ── Authorization: a prescriber who is not the PCP (B5) ──
+  // The member, at the visit, authorizes this prescriber from the device: wallet-signed to the engine,
+  // bound to one medication or any, for 1 to 72 hours. No proof; the signature is the consent.
+  routes.push({
+    method: 'POST',
+    path: '/authorizations/prescriber',
+    deviceOnly: true,
+    handler: async (_req, res, _params, _query, body) => {
+      const node = server.getEntityNode() as MemberNode | null;
+      if (!node) return server.sendResponse(res, 409, false, undefined, 'Node not initialized');
+      const state = server.getLocalState();
+      const data = state.getState() as any;
+      if (!data?.walletId) return server.sendResponse(res, 409, false, undefined, 'Wallet not derived — complete onboarding first');
+      const b = body as { prescriberWalletId?: string; ndcHash?: string; hours?: number } | undefined;
+      if (!b?.prescriberWalletId || !/^\d+$/.test(String(b.prescriberWalletId))) {
+        return server.sendResponse(res, 400, false, undefined, 'prescriberWalletId (decimal) is required');
+      }
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const r = await server.walletSignedFetch(`${seqUrl}/interactive/prescriber-authorization`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ walletId: data.walletId, prescriberWalletId: String(b.prescriberWalletId), ndcHash: b.ndcHash ?? null, hours: b.hours }),
+        });
+        const json = await r.json().catch(() => ({})) as { error?: string; prescriberWalletId?: string; ndcHash?: string | null; expiresAt?: number };
+        if (!r.ok) {
+          const status = r.status >= 400 && r.status < 500 ? r.status : 502;
+          return server.sendResponse(res, status, false, undefined, `The engine did not record the authorization: ${json?.error ?? r.status}`);
+        }
+        const kept = ((data.prescriberAuthorizations ?? []) as Array<{ prescriberWalletId: string; ndcHash: string | null; expiresAt: number }>)
+          .filter((a) => a.expiresAt > Date.now() && !(a.prescriberWalletId === json.prescriberWalletId && (a.ndcHash ?? null) === (json.ndcHash ?? null)));
+        data.prescriberAuthorizations = [...kept, { prescriberWalletId: String(json.prescriberWalletId), ndcHash: json.ndcHash ?? null, expiresAt: Number(json.expiresAt) }];
+        await state.save(data);
+        server.sendResponse(res, 200, true, json);
+      } catch (err) {
+        return server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : String(err));
+      }
+    },
+  });
+
   // ── Proof: PCP assignment (a wallet update through the engine's queue) ──
   // Asks the engine to record the assignment on the member's credential (wallet-signed), proves the
   // queued wallet update on this device, then registers the link on the sequencer signed as the wallet.

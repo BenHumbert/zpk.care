@@ -1288,6 +1288,57 @@ Not here, by design: the preimage still reaches the engine and the engine still 
 on it; the insurer's approval and the real plan in the engine are commit two. State from before this
 commit is not readable by design (C4, genesis).
 
+**B5 — implementation record: consent at prescribing, and the lifecycle check.**
+Done 2026-10-18. Closes **A-18**; closes the prescribing-authority half of **A-16**.
+
+*What was wrong.* `createPrescription` wrote a prescription for any enrolled member on any prescriber's
+say-so: no consent, no lifecycle. A consented PCP link (A-16) was therefore not what granted
+prescribing authority — nothing did — and a terminated member stayed billable at prescribe and
+dispense (A-18, ENG-04).
+
+*Now.* The design (§7) puts the member's authorization at prescribing: the member is with the
+prescriber, or the prescriber is the consented PCP. For a member with a device `createPrescription`
+accepts the primary-care prescriber the member named (the PCP leaf the device proved in B1 step two,
+commit three) or a prescriber the device authorized for the visit, and otherwise refuses with 403
+before any record is made. The authorization is granted from the device: `POST
+/authorizations/prescriber` on the member node signs `POST /interactive/prescriber-authorization`
+as the wallet; `AdjudicationService.authorizePrescriber` refuses a fixture member, a revoked member,
+a malformed hash or duration, and any wallet that is not a credentialed ACTIVE prescriber in the
+registry; it binds the grant to one medication or any, for 1 to 72 hours (24 by default), replaces
+an earlier grant for the same prescriber and medication, persists it in the engine's checkpoint and
+reports the live grants on the operator's member record. No proof is made: the wallet signature is
+the consent, and `createPrescription` consumes nothing. A terminated member (`lifecycle REVOKED`)
+is refused at prescribe (409) and at dispense (409); reversal stays open by design, since an
+unclaimed fill is reversed after termination too (§7). The engine's `prescribe` and
+`prescribe-and-fill` routes pass these refusals through with their status instead of 500. The
+console's fixture members, who have no device, keep the old prescribing path until F.
+
+*Two more defects the new stage caught.* The operator could not terminate a member with a device:
+`terminateMember` looked the wallet up in the enrollment service's fixture roster, which never held a
+member registered through Step 2b, and failed with "Wallet not in roster". A member with a device is
+now set REVOKED on the sequencer's lifecycle tree directly inside `adminMutate` (`setLifecycle`);
+the fixture path is unchanged. And the plan network was not enforced at prescribing: the harness's
+out-of-network prescription had been adjudicated every run since Step 2b, hidden behind the console
+route's 30 s timeout, which the harness counted as a refusal. For a member with a device
+`createPrescription` now refuses a prescriber or a pharmacy outside the network bound at
+registration (403, before any record), after the consent check; the harness demands the 403 and
+checks no record exists.
+
+*Harness.* The primary-care stage now runs before the claims, so the three claims are PCP
+prescriptions; an in-network doctor who is not the PCP is refused with 403 and no record; the device
+authorizes the out-of-network doctor for two hours before that stage, so what the engine judges
+there is the network; and a termination stage at the end writes a last prescription, terminates the
+member and shows prescribing and dispensing refused afterwards.
+
+*Verified.* `tests/prescriber-consent.test.ts` (7: the route takes only the named wallet's
+signature; it validates its body, passes the engine's refusal through and hands the service what the
+device sent with the documented defaults; createPrescription refuses a terminated member and then
+requires the PCP or an authorization and then the plan network before any record; dispense refuses a terminated member and
+reversal stays open; an authorization is bound to a prescriber, optionally one medication, and
+expires; the member node signs the authorization as the wallet; the operator can terminate a member
+with a device). Regression batch 44 suites, 717 tests.
+Typecheck src 20, scripts 2. Live: 174/181 checks across 31 steps on a clean secured genesis boot — the seven failing checks identical by name to the previous run; the claims are PCP prescriptions, the in-network stranger and the authorized out-of-network doctor are refused with no record, and after termination prescribing and dispensing are refused.
+
 **B1 step two, commit three — implementation record: the member's primary-care choice goes through the engine's queue.**
 Done 2026-10-18.
 
@@ -2365,3 +2416,18 @@ critical (A-2, item D1); A-18's lifecycle gap is closed on this one path. Accept
 this program: 35, 399 tests, all passing. Typecheck src 20, scripts 2. Pipeline 167/174 checks across 29 steps on a clean secured genesis boot — the seven failing checks identical by name to commit two's run; the five primary-care checks pass, the device's credential verifies offline (29.3 s of proving, inside the new budget) and a tampered copy is rejected. Git:
 with this commit, 43 commits on local `dev`, nothing pushed, `origin/main` untouched. **Next:**
 B3 (adjudicate then finalize, with the §7 questions settled first), then B5, B7, B8, B6, B4.
+
+**Addendum, 2026-10-18: B5 done.** Consent at prescribing: a member with a device is prescribed for
+by the primary-care prescriber it named, or by a prescriber its device authorized for the visit
+(wallet-signed `POST /interactive/prescriber-authorization` → `authorizePrescriber`, 1-72 h, one
+medication or any); otherwise `createPrescription` refuses with 403 before any record. A terminated
+member is refused at prescribe and dispense (A-18 fixed); reversal stays open by design. Scoreboard:
+32 findings; 24 fixed; 8 open (A-2, A-10, A-11, A-22, A-23, A-25, A-26, A-27), one critical (A-2,
+item D1). The same stage found that the operator could not terminate a member with a device (fixed:
+the lifecycle is set on the tree directly) and that the plan network was never enforced at
+prescribing (fixed for members with a device; the harness had taken the 30 s timeout for a refusal
+since Step 2b). Acceptance suites added this program: 36, 406 tests, all passing. Typecheck src 20,
+scripts 2. Pipeline 174/181 checks across 31 steps on a clean secured genesis boot — the seven failing checks identical by name to the previous run; the claims are PCP prescriptions, the in-network stranger and the authorized out-of-network doctor are refused with no record, and after termination prescribing and dispensing are refused. Git: with this commit, 44 commits on local `dev`, nothing pushed,
+`origin/main` untouched. **Next:** B3 (adjudicate then finalize) needs the §7 and §8.4 decisions;
+B7 and B8 touch the fill path B3 reshapes and follow it; B6 (no wallet ID to the employer) and B4
+(provider keys in an authenticator) are independent of those decisions and can go first.

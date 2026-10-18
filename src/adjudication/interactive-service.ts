@@ -430,6 +430,16 @@ interface SerializedPendingPrescription {
   startedAt: number;
 }
 
+/** A member's standing authorization for a prescriber who is not its PCP (B5), granted from the device. */
+export interface PrescriberAuthorization {
+  memberWalletId: string;
+  prescriberWalletId: string;
+  /** Decimal NDC hash the authorization is bound to, or null for any medication. */
+  ndcHash: string | null;
+  grantedAt: number;
+  expiresAt: number;
+}
+
 /** Full AdjudicationService checkpoint state (JSON-safe) */
 export interface AdjudicationCheckpointState {
   version: number;  // 1
@@ -437,6 +447,7 @@ export interface AdjudicationCheckpointState {
   fulfillments: Record<string, SerializedFulfillment[]>;
   pendingPrescriptions: SerializedPendingPrescription[];
   priorAuths: SerializedPriorAuth[];
+  prescriberAuthorizations?: PrescriberAuthorization[];  // B5; absent in older checkpoints
   enrolledMembers: SerializedEnrolledMember[];
   rxCounter: number;
   paCounter: number;
@@ -575,6 +586,8 @@ export class AdjudicationService {
   private prescriptions: Map<string, PrescriptionState> = new Map();
   private fulfillments: Map<string, FulfillmentState[]> = new Map();
   private priorAuths: Map<string, PriorAuthState> = new Map();
+  /** B5: per member wallet, the prescribers its device authorized beyond its PCP. */
+  private prescriberAuthorizations: Map<string, PrescriberAuthorization[]> = new Map();
   private rxCounter = 0;
   private paCounter = 0;
   /** Prescriptions currently being proved (visible to pharmacy as PENDING). */
@@ -1804,6 +1817,46 @@ export class AdjudicationService {
     };
   }
 
+  /** The authorization that lets this prescriber write for this member now, if any (B5). */
+  private prescriberAuthorizationFor(memberWalletId: string, prescriberWalletId: string, ndcHash: string, now = Date.now()): PrescriberAuthorization | undefined {
+    return (this.prescriberAuthorizations.get(memberWalletId) ?? []).find(a =>
+      a.prescriberWalletId === prescriberWalletId && a.expiresAt > now && (a.ndcHash === null || a.ndcHash === ndcHash));
+  }
+
+  /** The member's live authorizations, expired ones left out (B5). */
+  activePrescriberAuthorizations(memberWalletId: string, now = Date.now()): PrescriberAuthorization[] {
+    return (this.prescriberAuthorizations.get(memberWalletId) ?? []).filter(a => a.expiresAt > now);
+  }
+
+  /**
+   * A member with a device authorizes a prescriber who is not its primary-care prescriber (B5). The
+   * design puts the member's authorization at prescribing: the member is with the prescriber, or the
+   * prescriber is the consented PCP. The authorization is bound to one medication or any and lives
+   * for a visit (1 to 72 hours, 24 by default); createPrescription refuses without it and consumes
+   * nothing. Wallet-signed: only the member's own key grants it. No proof: the signature is the consent.
+   */
+  async authorizePrescriber(opts: { walletId: string; prescriberWalletId: string; ndcHash?: string | null; hours?: number }): Promise<PrescriberAuthorization> {
+    const enrolled = this.enrolledMembers.get(opts.walletId);
+    if (!enrolled) throw new RegistrationRefused(404, 'This wallet is not registered with the engine');
+    if (enrolled.memberIndex >= 0) throw new RegistrationRefused(409, 'A fixture member has no device to authorize from');
+    if (enrolled.lifecycle === 'REVOKED') throw new RegistrationRefused(409, 'A revoked member cannot authorize a prescriber');
+    if (!/^\d+$/.test(opts.prescriberWalletId)) throw new RegistrationRefused(400, 'prescriberWalletId must be a decimal wallet id');
+    const ndcHash = opts.ndcHash == null || opts.ndcHash === '' ? null : String(opts.ndcHash);
+    if (ndcHash !== null && !/^\d+$/.test(ndcHash)) throw new RegistrationRefused(400, 'ndcHash must be a decimal hash, or omitted for any medication');
+    const hours = opts.hours ?? 24;
+    if (!Number.isFinite(hours) || hours < 1 || hours > 72) throw new RegistrationRefused(400, 'hours must be between 1 and 72');
+    const provider = this.l2Node.getSequencer().getProvider(opts.prescriberWalletId);
+    if (!provider || provider.metadata.providerType !== 'prescriber') throw new RegistrationRefused(404, 'The named wallet is not a credentialed prescriber');
+    if (Number(provider.leaf.credentialState) !== ProviderLifecycle.ACTIVE) throw new RegistrationRefused(409, 'The named prescriber is not active');
+    const prescriberWalletId = BigInt(opts.prescriberWalletId).toString();
+    const now = Date.now();
+    const authorization: PrescriberAuthorization = { memberWalletId: opts.walletId, prescriberWalletId, ndcHash, grantedAt: now, expiresAt: now + hours * 3_600_000 };
+    const kept = this.activePrescriberAuthorizations(opts.walletId, now).filter(a => !(a.prescriberWalletId === prescriberWalletId && a.ndcHash === ndcHash));
+    this.prescriberAuthorizations.set(opts.walletId, [...kept, authorization]);
+    this.emit('info', 'prescribe', `  The member's device authorized prescriber ${prescriberWalletId.slice(0, 12)}… for ${hours} h${ndcHash ? ' (one medication)' : ''}`);
+    return authorization;
+  }
+
   async registerMemberFromEnrollment(opts: {
     walletId: string;
     /** ProofGate.verifyMember proof made on the device: the wallet is theirs. The identity preimage is never sent (B2). */
@@ -2384,6 +2437,27 @@ export class AdjudicationService {
     const prescriberName = `Dr. ${prescriber.firstName} ${prescriber.lastName}`;
     const pharmacyName = pharmacy.storeName;
 
+    // A-18: a terminated member is not billable.
+    if (enrolled.lifecycle === 'REVOKED') throw new RegistrationRefused(409, 'This member is terminated; no prescription can be written');
+    // B5: a member with a device is prescribed for by the primary-care prescriber it consented to, or by a
+    // prescriber its device authorized for this visit. The console's fixture members have no device.
+    if (enrolled.memberIndex < 0) {
+      const isPcp = enrolled.pcpAssignment !== undefined && enrolled.pcpAssignment.pcpWalletId.equals(prescriberWalletId).toBoolean();
+      const authorization = isPcp ? undefined : this.prescriberAuthorizationFor(opts.memberWalletId, prescriberWalletId.toString(), opts.ndcHash);
+      if (!isPcp && !authorization) {
+        throw new RegistrationRefused(403, `${prescriberName} is not this member's primary-care prescriber and holds no authorization from the member's device`);
+      }
+      this.emit('info', 'prescribe', isPcp ? "  Consent: the member's primary-care prescriber" : `  Consent: authorized from the member's device until ${new Date(authorization!.expiresAt).toISOString()}`);
+      // The plan's network, bound at registration from the plan overlay (Step 2b): a prescriber or a
+      // pharmacy outside it is refused here, where the price is attached (§7), not found out at the counter.
+      if (!enrolled.inNetworkPrescriberIndices.includes(opts.prescriberIndex)) {
+        throw new RegistrationRefused(403, `${prescriberName} is outside this member's plan network`);
+      }
+      if (!enrolled.inNetworkPharmacyIndices.includes(opts.pharmacyIndex)) {
+        throw new RegistrationRefused(403, `${pharmacyName} is outside this member's plan network`);
+      }
+    }
+
     this.emit('phase', 'prescribe', `═══ Prescription: ${prescriberName} → ${enrolled.displayName} ═══`);
 
     // PA enforcement: check if medication requires prior authorization
@@ -2942,6 +3016,8 @@ export class AdjudicationService {
     const prescriberWalletId = this.prescriberWalletIds.get(rxState.prescriberIndex)!;
     const prescriberPreimage = this.prescriberPreimages.get(rxState.prescriberIndex)!;
     const enrolled = this.enrolledMembers.get(rxState.memberWalletId)!;
+    // A-18: a terminated member is not billable; a reversal (which undoes a claim) stays open by design.
+    if (enrolled.lifecycle === 'REVOKED') throw new RegistrationRefused(409, 'This member is terminated; the prescription cannot be dispensed');
 
     const qtyDispensed = opts.quantityDispensed ?? rxState.quantity;
 
@@ -4369,9 +4445,16 @@ export class AdjudicationService {
     this.emit('offchain', 'terminate', 'Step 1: Revoking eligibility credential and updating lifecycle...', 'start');
     // terminateMember changes the sequencer's trees (it was constructed with them), so it runs
     // inside adminMutate, which takes the new roots from the trees.
-    const result = this.l2Node.getSequencer().adminMutate('terminate member', () =>
-      this.enrollmentService.terminateMember(enrolled.walletId, termDate),
-    );
+    // A fixture member sits in the enrollment service's roster; a member with a device never did
+    // (Step 2b registers it straight on the sequencer), so its lifecycle is set on the trees directly.
+    const result = enrolled.memberIndex >= 0
+      ? this.l2Node.getSequencer().adminMutate('terminate member', () =>
+          this.enrollmentService.terminateMember(enrolled.walletId, termDate),
+        )
+      : this.l2Node.getSequencer().adminMutate('terminate member', ({ setLifecycle, registry, lifecycle }) => {
+          setLifecycle(enrolled.walletId, LIFECYCLE_REVOKED);
+          return { newRegistryRoot: registry.getRoot(), newLifecycleRoot: lifecycle.getRoot() };
+        });
     this.emit('offchain', 'terminate', 'Step 1: Credential revoked, lifecycle set to REVOKED', 'complete');
 
     // 2. Revoke NFC attestation nonce (if one exists)
@@ -6157,6 +6240,7 @@ export class AdjudicationService {
       fulfillments: serializedFulfillments,
       pendingPrescriptions: serializedPending,
       priorAuths: serializedPriorAuths,
+      prescriberAuthorizations: [...this.prescriberAuthorizations.values()].flat(),
       enrolledMembers: serializedMembers,
       rxCounter: this.rxCounter,
       paCounter: this.paCounter,
@@ -6193,6 +6277,14 @@ export class AdjudicationService {
     this.nextPaLeafIndex.clear();
     for (const [walletId, idx] of Object.entries(state.nextPaLeafIndex)) {
       this.nextPaLeafIndex.set(walletId, BigInt(idx));
+    }
+
+    // --- Restore the device-granted prescriber authorizations (B5) ---
+    this.prescriberAuthorizations.clear();
+    for (const a of state.prescriberAuthorizations ?? []) {
+      const list = this.prescriberAuthorizations.get(a.memberWalletId) ?? [];
+      list.push({ memberWalletId: a.memberWalletId, prescriberWalletId: a.prescriberWalletId, ndcHash: a.ndcHash ?? null, grantedAt: Number(a.grantedAt), expiresAt: Number(a.expiresAt) });
+      this.prescriberAuthorizations.set(a.memberWalletId, list);
     }
 
     // --- Restore Prior Auths (before members, since member forest rebuild reads PA data) ---
@@ -6408,6 +6500,7 @@ export class AdjudicationService {
         pcpAssignment: pcpInfo,
         pendingWalletUpdates: this.pendingUpdatesFor(m.walletId.toString()).length,
         pcpAssigned: m.pcpAssignment !== undefined,
+        prescriberAuthorizations: this.activePrescriberAuthorizations(m.walletId.toString()).map(a => ({ prescriberWalletId: a.prescriberWalletId, ndcHash: a.ndcHash, expiresAt: a.expiresAt })),
         inNetworkPrescribers: m.inNetworkPrescriberIndices,
         inNetworkPharmacies: m.inNetworkPharmacyIndices,
         lifecycle: m.lifecycle,
