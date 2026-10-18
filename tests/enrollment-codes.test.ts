@@ -492,7 +492,7 @@ describe('the validate oracle answers only the insurer, and consumes what it val
     expect(e.node.getTokenRecord(e.code)!.status).toBe('consumed');
     const entry = e.node.listRoster().find((x) => x.tokenId === e.code)!;
     expect(entry.status).toBe('enrolled');
-    expect(entry.walletId).toBeNull();                       // I6: still no wallet on the employer
+    expect('walletId' in entry).toBe(false);          // I6: the roster has no wallet column at all (B6)
     expect(e.node.getGroup('G1')!.enrolledCount).toBe(1);
 
     // The identical signed request again is a replay.

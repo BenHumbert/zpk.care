@@ -73,14 +73,14 @@ export interface EmployerGroupStats {
 }
 
 /** Roster entry managed by the employer (pre-enrollment tracking).
- * Contains ONLY opaque hashes — no plaintext PII.
- * The HR Tool on the admin's machine holds the plaintext correlation table. */
+ * Contains ONLY opaque hashes — no plaintext PII, and no wallet ID (rule I6, B6): the employer learns
+ * that an enrollment happened, never which wallet it produced. The HR Tool on the admin's machine
+ * holds the plaintext correlation table. */
 export interface EmployerRosterEntry {
   employeeIdHash: string;
   groupIdHash: string;
   familyIdHash: string;
   tokenId: string | null;
-  walletId: string | null;
   status: 'pending' | 'enrolled' | 'terminated';
   createdAt: number;
 }
@@ -317,7 +317,6 @@ export class EmployerNode extends EntityNodeBase {
       groupIdHash: group.groupIdHash,
       familyIdHash,
       tokenId: result.tokenId,
-      walletId: null,
       status: 'pending',
       createdAt: Date.now(),
     });

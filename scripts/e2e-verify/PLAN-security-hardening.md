@@ -1288,6 +1288,31 @@ Not here, by design: the preimage still reaches the engine and the engine still 
 on it; the insurer's approval and the real plan in the engine are commit two. State from before this
 commit is not readable by design (C4, genesis).
 
+**B6 — implementation record: the employer never learns the wallet ID, by construction.**
+Done 2026-10-18. Rule I6; finding PHI-9 moves from "holds today" to "holds by construction".
+
+*What was wrong.* I6 held by a 401: the member node used to post `{tokenId, walletId}` to the
+employer's `/enrollment/confirm`, which was admin-gated, so the call failed and the roster stayed
+empty; a success would have written the wallet ID into the employer's roster, whose entry type
+carried a `walletId` column for it. A6 removed the confirm route and the member node's call. The
+column stayed, always null — a slot waiting for the wrong data.
+
+*Now.* `EmployerRosterEntry` has no wallet column; the employer's roster holds the employee hash,
+the group and family hashes, the code it issued and whether that code was used. The employer learns
+that an enrollment happened, never which wallet it produced. Nothing else in the employer path
+touches a member wallet: the insurer redeems the code with the employer by code and PIN hash and the
+employer answers with the group and plan hashes; the registration goes to the sequencer and the
+engine; the HR Tool holds names on the employer's machine and no wallet anywhere.
+
+*Harness.* After the member enrolls, the harness reads the live employer node's `/roster` with the
+employer's own admin token: the member's row is marked enrolled, no row has a wallet column, and the
+member's wallet ID appears nowhere in the response.
+
+*Verified.* `tests/employer-roster.test.ts` (3: a roster entry created through the node has exactly
+the hash, code and status columns and no wallet; the roster route serves those entries unchanged;
+the employer node's source carries no wallet column for a member). Regression batch 45 suites, 720 tests.
+Typecheck src 20, scripts 2. Live: 176/183 checks across 32 steps on a clean secured genesis boot — the seven failing checks identical by name to the B5 run; the employer's roster shows the member's row enrolled, no row has a wallet column, and the member's wallet id is nowhere in the response.
+
 **B5 — implementation record: consent at prescribing, and the lifecycle check.**
 Done 2026-10-18. Closes **A-18**; closes the prescribing-authority half of **A-16**.
 
@@ -2431,3 +2456,10 @@ scripts 2. Pipeline 174/181 checks across 31 steps on a clean secured genesis bo
 `origin/main` untouched. **Next:** B3 (adjudicate then finalize) needs the §7 and §8.4 decisions;
 B7 and B8 touch the fill path B3 reshapes and follow it; B6 (no wallet ID to the employer) and B4
 (provider keys in an authenticator) are independent of those decisions and can go first.
+
+**Addendum, 2026-10-18: B6 done.** The employer's roster has no wallet column; I6 holds by
+construction (PHI-9). Scoreboard unchanged: 32 findings; 24 fixed; 8 open, one critical (A-2, item
+D1). Acceptance suites added this program: 37, 409 tests, all passing. Typecheck src 20, scripts 2.
+Pipeline 176/183 checks across 32 steps on a clean secured genesis boot — the seven failing checks identical by name to the B5 run; the employer's roster shows the member's row enrolled, no row has a wallet column, and the member's wallet id is nowhere in the response. Git: with this commit, 45 commits on local `dev`, nothing pushed,
+`origin/main` untouched. **Next:** B4 (provider keys in an authenticator) is the last phase B item
+free of the §7/§8 decisions; B3, then B7 and B8, once those are settled.

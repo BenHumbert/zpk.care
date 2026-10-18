@@ -535,6 +535,15 @@ async function main() {
     { label: 'Claim 2 — crosses the deductible', ingredient: 60000n, fee: 200n, qty: 30 },
     { label: 'Claim 3 — copay only', ingredient: 4500n, fee: 200n, qty: 30 },
   ];
+  // ── 6b. The employer's roster (B6, I6) ──────────────────────
+  trace.begin('employer', 'The employer\'s roster knows the enrollment happened, never the wallet');
+  const roster = await http('GET', `${employerNodeUrl}/roster`, undefined, { Authorization: `Bearer ${empAdmin}` });
+  const rosterData = unwrap(roster.json) ?? {};
+  const rosterEntries = (rosterData.entries ?? []) as any[];
+  const myRow = rosterEntries.find((e: any) => e.tokenId === myToken.tokenId); // the row that carries the member's own code; the HR Tool keys rows by its own employee hash
+  trace.check('The roster row for this employee is marked enrolled', roster.status === 200 && myRow?.status === 'enrolled', 'enrolled', myRow?.status ?? roster.status);
+  trace.check('No roster row has a wallet column, and the member\'s wallet id is nowhere in the response', roster.status === 200 && rosterEntries.every((e: any) => !('walletId' in e)) && !roster.text.includes(walletId) && !/wallet/i.test(roster.text), 'no wallet', rosterEntries.length ? Object.keys(rosterEntries[0]).join(',') : roster.status);
+
   // ── 7b. Primary care, from the device (B1 step two, commit three; B5 put it before the claims) ──
   trace.begin('member', 'The member names the prescriber node as primary care; the engine queues it, the device proves it');
   const pcpPick = await mem('POST', '/pcp/assign', { pcpWalletId: String(results.prescriberWalletId), effectiveDate: '20261018', specialty: 'Internal Medicine' });
