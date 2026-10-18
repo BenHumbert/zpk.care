@@ -45,6 +45,7 @@ import { expectedAdjudication, findSecrets } from './reference.js';
 import { hashString, hashDate } from '../../src/zkp/hash-utils.js';
 import { NautilusLocalState } from '../../src/nodes/nautilus-local-state.js';
 import { l2Parse } from '../../src/l2/l2-json.js';
+import { deriveNodeAdminToken } from '../../src/security/node-roles.js';
 
 const SEQ = 'http://localhost:3030', INS = 'http://localhost:4004', MEM = 'http://localhost:4001', EXP = 'http://localhost:8000';
 const PRE = 'http://localhost:4002', PHA = 'http://localhost:4003';
@@ -94,6 +95,10 @@ const trace = new Trace(OUT);
 const http = makeHttp(trace);
 const quiet = makeHttp(new Trace(path.join(OUT, 'polls')));   // polling noise goes to a side trace
 const bearer = { Authorization: `Bearer ${ADMIN}` };
+// A9: the insurer node's own admin token. Explicit when the network was started with one, otherwise
+// the derivation the launcher uses; the operator token is accepted by the sequencer only.
+const INSURER_ADMIN = process.env.ZKTRIDENT_INSURER_ADMIN_TOKEN || (ADMIN ? deriveNodeAdminToken(ADMIN, 'insurer') : '');
+const insurerBearer = { Authorization: `Bearer ${INSURER_ADMIN}` };
 /*
  * A11 admin-gated `GET /interactive/state`, and this harness uses it two different ways.
  *
@@ -161,7 +166,7 @@ let insurerSigMode = false;
 async function insAdmin(method: string, urlPath: string, body?: unknown) {
   const url = `${INS}${urlPath}`;
   if (!insurerSigMode) {
-    const r = await http(method, url, body, bearer);
+    const r = await http(method, url, body, insurerBearer);
     if (r.status !== 401) return r;
     insurerSigMode = true;
     if (!results.findings.some((f: any) => f.id === 'insurer-lockout')) {
@@ -207,6 +212,12 @@ async function main() {
   trace.check('Sequencer refuses l2_recordFill (write a claim directly) without a token', !!noAuthRecord.error, 'error', noAuthRecord.error?.message ?? noAuthRecord.result);
   const badAuthBatch = await http('POST', `${SEQ}/rpc`, { jsonrpc: '2.0', id: 1, method: 'l2_forceBatch', params: {} }, { Authorization: 'Bearer admin123' });
   trace.check('Sequencer refuses the old demo token "admin123"', !!(badAuthBatch.json?.error), 'error', badAuthBatch.json?.error?.message ?? badAuthBatch.json);
+  // A9: one credential per principal. The operator's token opens nothing on the insurer node, and
+  // the insurer's token opens nothing on the sequencer.
+  const opOnInsurer = await http('POST', `${INS}/plans`, { planId: 'EVIL-2', name: 'x', coverageType: 1, copayAmountCents: 0, deductibleAmountCents: 0, oopMaxCents: 0, annualBenefitMaxCents: 0 }, bearer);
+  trace.check('The insurer node refuses the network operator token', opOnInsurer.status === 401, 401, opOnInsurer.status);
+  const insOnSeq = await http('POST', `${SEQ}/rpc`, { jsonrpc: '2.0', id: 1, method: 'l2_forceBatch', params: {} }, insurerBearer);
+  trace.check('The sequencer refuses the insurer node token', insOnSeq.json?.error?.code === -32003, -32003, insOnSeq.json?.error?.code ?? insOnSeq.json);
 
   // ── 3. Insurer creates a plan ───────────────────────────────
   trace.begin('insurer', 'Create and publish the benefit plan');

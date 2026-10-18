@@ -229,7 +229,7 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
         walletId: data.walletId,
         sequencerUrl: server.getConfig().sequencerUrl,
         displayName: server.getConfig().displayName,
-        clientOptions: server.getConfig().adminToken ? { adminToken: server.getConfig().adminToken } : undefined,
+        clientOptions: server.sequencerClientOptions(),
       });
       server.setEntityNode(node);
 
@@ -238,8 +238,6 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       if (b?.insurerUrl) {
         try {
           const enrollHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-          const adminToken = server.getConfig().adminToken;
-          if (adminToken) enrollHeaders['Authorization'] = `Bearer ${adminToken}`;
           const resp = await fetch(`${b.insurerUrl}/enrollment/process`, {
             method: 'POST',
             headers: enrollHeaders,

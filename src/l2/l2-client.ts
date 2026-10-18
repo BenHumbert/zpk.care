@@ -28,7 +28,7 @@
  *   const status = await client.getStatus();
  *   const disconnect = client.connectEvents((event) => console.log(event));
  */
-import { createHash, createPrivateKey, sign } from 'crypto';
+import { signRequest, privateKeyFromSeedHex } from '../security/signed-request.js';
 import http from 'http';
 import https from 'https';
 import type { StateTransitionProof } from '../engine/state-transition.js';
@@ -54,11 +54,11 @@ export interface L2ClientOptions {
   maxRetries: number;
   /** Base delay for exponential backoff in ms. Default 1000. */
   retryBaseDelayMs: number;
-  /** Bearer token for admin RPC methods (unsecure mode). When set, sent as Authorization header on all requests. */
+  /** The network operator's bearer token. Only the operator's own tools set this; nodes sign with their key (A9). */
   adminToken?: string;
-  /** Ed25519 private key hex for signing admin requests (secure mode). */
+  /** This node's Ed25519 private seed, 32 bytes of hex (`ZKTRIDENT_NODE_KEY_SEED`). Signs every request. */
   adminPrivateKeyHex?: string;
-  /** Node ID for admin request attribution. */
+  /** This node's id as the launcher registered it on the sequencer (`ZKTRIDENT_NODE_ID`). */
   adminNodeId?: string;
 }
 
@@ -634,17 +634,14 @@ export class L2Client {
     const body = l2Stringify(rpcReq);
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (this.options.adminPrivateKeyHex && this.options.adminNodeId) {
-      // Secure mode: sign the request with Ed25519
-      const timestamp = String(Date.now());
-      const paramsHash = createHash('sha256').update(JSON.stringify(params ?? {})).digest('hex');
-      const message = `${method}|${paramsHash}|${timestamp}`;
-      const pkDer = Buffer.from(
-        '302e020100300506032b657004220420' + this.options.adminPrivateKeyHex,
-        'hex',
-      );
-      const privateKey = createPrivateKey({ key: pkDer, format: 'der', type: 'pkcs8' });
-      const signature = sign(null, Buffer.from(message), privateKey);
-      headers['X-Admin-Signature'] = `${this.options.adminNodeId}:${timestamp}:${signature.toString('hex')}`;
+      // A9: this node's own key signs the exact bytes sent, in the one wire format every server verifies.
+      Object.assign(headers, signRequest({
+        signerId: this.options.adminNodeId,
+        privateKey: privateKeyFromSeedHex(this.options.adminPrivateKeyHex),
+        method: 'POST',
+        path: '/rpc',
+        body,
+      }));
     } else if (this.options.adminToken) {
       headers['Authorization'] = `Bearer ${this.options.adminToken}`;
     }

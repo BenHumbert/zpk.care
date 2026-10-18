@@ -356,3 +356,9 @@ Seed `PHARMACIES[providerIndex]` (1055); key from repo JSON (1061); derive walle
 9. `token-distribution.enc` (hr-tool-core.ts:598) is never written by the server; is the CLI (hr-tool.ts) still a supported path given it skips the PIN step?
 10. After an insurer restart `liveTenants` is empty; the orchestrator then refuses respawn while the old tenant answers `/health` (employer-orchestrator.ts:236-242) and the admin token is unrecoverable. Is a deregister-and-respawn operator flow documented?
 11. `GET /prescriptions/list` (pharmacy-routes.ts:453) and `/interactive/badge/tap` select identities by seed index, not by the node's own wallet. Is the pharmacy node meant to be bound to one identity in non-demo deployments?
+
+## Client keys and the HR Tool's credential (A9 remainder, 2026-10-17)
+
+Employer node, all admin-gated: `POST /admin/client-keys {clientId, publicKeyHex}` registers an Ed25519 client key (clientId `[A-Za-z0-9_.-]{1,64}`, key 64 hex) → 201; `GET /admin/client-keys` lists them; `DELETE /admin/client-keys/:clientId` revokes (404 when unknown). Keys live in memory; a tenant dies with its parent, so a restart forgets them.
+
+HR Tool (`src/tools/hr-tool-server.ts` `proxyToEmployer`): the workspace's client key (generated at setup, stored under the passphrase since A7) is registered at setup with the tenant admin token presented once, and every request after that is signed in the `signed-request.ts` format. A 401 to a signed request means the employer node restarted: the tool registers once more with the stored token and retries. A workspace with a token and no key falls back to the bearer. `/api/setup` and `/api/unlock` report `authMode: 'ed25519'` when a key is on file. Node side, `checkNautilusAdminAuth` accepts the node's own bearer or a registered key's signature, verified over the body received (AUTH-14 closed).

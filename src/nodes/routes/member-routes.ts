@@ -357,9 +357,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       // If insurer rejects, in-memory phase stays at 'wallet_derived' so retry works.
 
       // Build auth headers for cross-node calls
-      const adminToken = server.getConfig().adminToken;
       const rpcHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (adminToken) rpcHeaders['Authorization'] = `Bearer ${adminToken}`;
 
       // Compute enrollment PIN hash if PIN provided (enrollment 2FA)
       const b = body as { tokenPIN?: string } | undefined;
@@ -418,7 +416,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         walletId: data.walletId,
         sequencerUrl: server.getConfig().sequencerUrl,
         displayName: server.getConfig().displayName,
-        clientOptions: server.getConfig().adminToken ? { adminToken: server.getConfig().adminToken } : undefined,
+        clientOptions: server.sequencerClientOptions(),
       });
       server.setEntityNode(node);
       server.setOnboardingPhase('enrolled');
@@ -440,7 +438,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       let sequencerRegistered = false;
       try {
         const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
-        const regResp = await fetch(`${seqUrl}/rpc`, {
+        const regResp = await server.signedFetch(`${seqUrl}/rpc`, {
           method: 'POST',
           headers: rpcHeaders,
           body: JSON.stringify({

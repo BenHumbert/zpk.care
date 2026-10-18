@@ -70,7 +70,7 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
         displayName: server.getConfig().displayName,
         employerId: b.employerId,
         insurerUrl: (server.getConfig() as any).insurerUrl ?? null,
-        clientOptions: server.getConfig().adminToken ? { adminToken: server.getConfig().adminToken } : undefined,
+        clientOptions: server.sequencerClientOptions(),
       });
       server.setEntityNode(node);
 
@@ -589,6 +589,54 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
       } catch (err: any) {
         server.sendResponse(res, 502, false, undefined, 'Failed to fetch plans: ' + err.message);
       }
+    },
+  });
+
+  // ═════════════════════════════════════════════
+  //  CLIENT KEYS — plan item A9, finding A-14
+  //
+  //  The HR Tool generates an Ed25519 client key at setup and keeps it under its passphrase. This
+  //  node accepts that key for its admin routes once it is registered here, which the tenant's
+  //  admin token (presented once, at setup) authorises. After that the HR Tool signs every request
+  //  and the token is needed only to register again after this node has restarted: keys live in
+  //  memory, and a tenant dies with its parent.
+  // ═════════════════════════════════════════════
+
+  const CLIENT_ID_PATTERN = /^[A-Za-z0-9_.-]{1,64}$/;
+
+  routes.push({
+    method: 'POST',
+    path: '/admin/client-keys',
+    adminOnly: true,
+    handler: async (_req, res, _params, _query, body) => {
+      const b = body as { clientId?: string; publicKeyHex?: string } | undefined;
+      if (!b?.clientId || !CLIENT_ID_PATTERN.test(b.clientId)) {
+        return server.sendResponse(res, 400, false, undefined, 'clientId is required: 1-64 characters of letters, digits, dot, dash or underscore');
+      }
+      if (!b.publicKeyHex || !/^[0-9a-f]{64}$/i.test(b.publicKeyHex)) {
+        return server.sendResponse(res, 400, false, undefined, 'publicKeyHex is required: 64 hex characters');
+      }
+      server.registerClientKey(b.clientId, b.publicKeyHex.toLowerCase());
+      server.sendResponse(res, 201, true, { clientId: b.clientId, registered: true });
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/admin/client-keys',
+    adminOnly: true,
+    handler: async (_req, res) => {
+      server.sendResponse(res, 200, true, { clientKeys: server.listClientKeys() });
+    },
+  });
+
+  routes.push({
+    method: 'DELETE',
+    path: '/admin/client-keys/:clientId',
+    adminOnly: true,
+    handler: async (_req, res, params) => {
+      const removed = server.revokeClientKey(params.clientId);
+      server.sendResponse(res, removed ? 200 : 404, removed, removed ? { clientId: params.clientId, revoked: true } : undefined, removed ? undefined : 'No such client key');
     },
   });
 

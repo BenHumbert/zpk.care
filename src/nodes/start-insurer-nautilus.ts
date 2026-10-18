@@ -44,6 +44,8 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { NautilusAppServer } from './nautilus-app-server.js';
+import { parentPidFromEnv, watchParent } from './parent-watchdog.js';
+import { nodeKeyFromEnv } from '../security/node-roles.js';
 import type { NautilusAppConfig } from './nautilus-app-types.js';
 import { buildInsurerRoutes } from './routes/insurer-routes.js';
 import { buildMarketplaceRoutes, buildEmployerAdminRoutes } from './routes/marketplace-routes.js';
@@ -68,6 +70,8 @@ const config: NautilusAppConfig = {
   rpcProxy: resolveRpcProxyPolicy(env, 'insurer node'),
   displayName: env.ZKTRIDENT_DISPLAY_NAME,
   adminToken: env.ZKTRIDENT_ADMIN_TOKEN,
+  // A9: this node's own key, from the launcher; its public half is registered on the sequencer with this node's role.
+  nodeKey: nodeKeyFromEnv(env) ?? undefined,
   /*
    * A9, finding A-14: a dedicated seed for counter-signing employer attestations, separate from
    * the bearer token. The seed's public half has to be pinned on the sequencer, which refuses
@@ -111,7 +115,7 @@ async function main(): Promise<void> {
     role: 'insurer',
     sequencerUrl: config.sequencerUrl,
     displayName: config.displayName,
-    clientOptions: config.adminToken ? { adminToken: config.adminToken } : undefined,
+    clientOptions: server.sequencerClientOptions(),
   });
   server.setEntityNode(node);
   server.setOnboardingPhase('credentialing' as any);
@@ -131,14 +135,11 @@ async function main(): Promise<void> {
   // ══════════════════════════════════════════════════════════
 
   const seqUrl = config.sequencerUrl.replace(/\/+$/, '');
-  const adminToken = config.adminToken;
-
   async function rpcCall(method: string, params: Record<string, unknown>): Promise<unknown> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (adminToken) headers['Authorization'] = 'Bearer ' + adminToken;
-    const res = await fetch(seqUrl + '/rpc', {
+    // A9: signed with the insurer node's own key; the sequencer authorises by the insurer role.
+    const res = await server.signedFetch(seqUrl + '/rpc', {
       method: 'POST',
-      headers,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
     });
     const json = await res.json() as any;
@@ -272,6 +273,19 @@ async function main(): Promise<void> {
 
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+  // A9: a node must not outlive the launcher that keyed it. The launcher passes its PID; when that
+  // process is gone, so is this node's registration on the sequencer.
+  const parentPid = parentPidFromEnv();
+  if (parentPid) {
+    watchParent({
+      parentPid,
+      onGone: () => {
+        console.log('  [parent] the process that spawned this node (%d) is gone; shutting down', parentPid);
+        void shutdown('parent-gone');
+      },
+    });
+  }
 }
 
 main().catch((err) => {

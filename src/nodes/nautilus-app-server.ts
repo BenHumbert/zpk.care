@@ -40,7 +40,7 @@ import http from 'http';
 import https from 'https';
 import fs from 'fs';
 import path from 'path';
-import { timingSafeEqual, createHash, createPublicKey, verify as ed25519Verify, randomBytes } from 'crypto';
+import { timingSafeEqual, randomBytes } from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { EntityNodeBase } from './entity-node-base.js';
 import type { L2EventHandler, L2ChainEvent } from '../l2/l2-node.js';
@@ -55,6 +55,10 @@ import type {
   OnboardingPhase,
 } from './nautilus-app-types.js';
 import { corsOriginHeader } from '../security/network-policy.js';
+import { verifySignedRequest, signerIdFromHeaders, signRequest, privateKeyFromSeedHex, ReplayCache } from '../security/signed-request.js';
+import { readRequestBody } from '../security/request-body.js';
+import { signedFetch as signedFetchWith, type SignedFetchInit } from './sequencer-fetch.js';
+import type { L2ClientOptions } from '../l2/l2-client.js';
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -103,6 +107,8 @@ export class NautilusAppServer {
   private startTime = 0;
   private onboardingPhase: OnboardingPhase = 'awaiting_token';
   private tls = false;
+  /** Replayed signatures are refused for the verifier's window (A9). */
+  private readonly replayCache = new ReplayCache();
 
   // SSE
   private sseClients: Set<ServerResponse> = new Set();
@@ -159,53 +165,35 @@ export class NautilusAppServer {
   }
 
   /**
-   * Check admin auth — Ed25519 signature (secure) or Bearer token (legacy).
+   * Admin auth for this node's own routes — plan item A9, finding A-14 and AUTH-14.
    *
-   * Secure mode: X-Admin-Signature header with clientId:timestamp:signature.
-   * Legacy mode: Authorization: Bearer <token>.
-   * No auth configured: reject (default-deny).
+   * Two credentials, as alternatives rather than modes: this node's own bearer token, and a signed
+   * request from a client key this node registered (the HR Tool on an employer node). The
+   * signature is verified by `src/security/signed-request.ts`, which recomputes the content hash
+   * from the bytes received; the verifier this replaces trusted the caller's own `X-Content-Hash`
+   * header, so a signature was never bound to the request (AUTH-14). Reading the body here is
+   * safe: every later reader of this request gets the same cached bytes.
    */
-  private checkNautilusAdminAuth(req: IncomingMessage, method: string, path: string): boolean {
-    // Ed25519 mode — verify signature against registered client keys
-    if (this.config.authorizedClientKeys?.size) {
-      const sigHeader = req.headers['x-admin-signature'] as string | undefined;
-      if (!sigHeader) return false;
-
-      const parts = sigHeader.split(':');
-      if (parts.length < 3) return false;
-
-      const clientId = parts[0];
-      const timestamp = parts[1];
-      const signatureHex = parts.slice(2).join(':');
-
-      // 30-second replay window
-      const ts = parseInt(timestamp, 10);
-      if (isNaN(ts) || Math.abs(Date.now() - ts) > 30_000) return false;
-
-      const pubKeyHex = this.config.authorizedClientKeys.get(clientId);
-      if (!pubKeyHex) return false;
-
-      // Include content hash if provided (X-Content-Hash header, set by client)
-      // This binds the signature to the request body, preventing replay with altered content
-      const contentHash = req.headers['x-content-hash'] as string ?? '';
-      const message = `${method}:${path}|${timestamp}|${contentHash}`;
-      try {
-        const pubKeyDer = Buffer.from('302a300506032b6570032100' + pubKeyHex, 'hex');
-        const pubKey = createPublicKey({ key: pubKeyDer, format: 'der', type: 'spki' });
-        return ed25519Verify(null, Buffer.from(message), pubKey, Buffer.from(signatureHex, 'hex'));
-      } catch {
-        return false;
-      }
+  private async checkNautilusAdminAuth(req: IncomingMessage, method: string, path: string): Promise<boolean> {
+    const authHeader = req.headers['authorization'];
+    if (typeof authHeader === 'string' && authHeader.length > 0) {
+      if (!this.config.adminToken) return false; // Default-deny
+      const a = Buffer.from(authHeader);
+      const b = Buffer.from(`Bearer ${this.config.adminToken}`);
+      if (a.length !== b.length) return false;
+      return timingSafeEqual(a, b);
     }
-
-    // Bearer token mode (legacy / unsecure)
-    if (!this.config.adminToken) return false; // Default-deny
-    const authHeader = req.headers['authorization'] ?? '';
-    const expected = `Bearer ${this.config.adminToken}`;
-    const a = Buffer.from(authHeader);
-    const b = Buffer.from(expected);
-    if (a.length !== b.length) return false;
-    return timingSafeEqual(a, b);
+    const clientId = signerIdFromHeaders(req.headers);
+    if (!clientId) return false;
+    const publicKeyHex = this.config.authorizedClientKeys?.get(clientId);
+    if (!publicKeyHex) return false;
+    let body: string;
+    try {
+      body = await readRequestBody(req, MAX_BODY_BYTES);
+    } catch {
+      return false;
+    }
+    return verifySignedRequest({ method, path, headers: req.headers, expectedSignerId: clientId, publicKeyHex, body, replayCache: this.replayCache }).ok;
   }
 
   /**
@@ -290,6 +278,35 @@ export class NautilusAppServer {
   /** Revoke a client's key */
   revokeClientKey(clientId: string): boolean {
     return this.config.authorizedClientKeys?.delete(clientId) ?? false;
+  }
+
+  /** The client keys this node accepts for its own admin routes (public halves only). */
+  listClientKeys(): Array<{ clientId: string; publicKeyHex: string }> {
+    return [...(this.config.authorizedClientKeys ?? new Map<string, string>())].map(([clientId, publicKeyHex]) => ({ clientId, publicKeyHex }));
+  }
+
+  /**
+   * Headers that authenticate this node to the sequencer — plan item A9, finding A-14: a signature
+   * with the node's own key over the exact bytes about to be sent, verified on the sequencer against
+   * the key the launcher registered for this process, and authorised by the role it registered it
+   * with. A node started without a key sends no credential at all; it never presents its own admin
+   * token to the sequencer, because that token is not a sequencer credential.
+   */
+  sequencerAuthHeaders(method: string, path: string, body?: string): Record<string, string> {
+    const key = this.config.nodeKey;
+    if (!key) return {};
+    return signRequest({ signerId: key.nodeId, privateKey: privateKeyFromSeedHex(key.seedHex), method, path, body });
+  }
+
+  /** `fetch` with this node's signature over the exact request (A9). */
+  signedFetch(url: string, init: SignedFetchInit): Promise<Response> {
+    return signedFetchWith((m, p, b) => this.sequencerAuthHeaders(m, p, b), url, init);
+  }
+
+  /** The client options that make an L2Client sign with this node's key; undefined for a node without one. */
+  sequencerClientOptions(): Partial<L2ClientOptions> | undefined {
+    const key = this.config.nodeKey;
+    return key ? { adminPrivateKeyHex: key.seedHex, adminNodeId: key.nodeId } : undefined;
   }
 
   // ─── Route Registration ───────────────────────────────────
@@ -445,9 +462,9 @@ export class NautilusAppServer {
       const match = pathname.match(route.pattern);
       if (!match) continue;
 
-      // Admin auth check — Ed25519 signature (secure mode) or Bearer token (unsecure/legacy)
+      // Admin auth (A9): this node's own bearer token, or a signature from a client key it registered
       if (route.adminOnly) {
-        if (!this.checkNautilusAdminAuth(req, method, pathname)) {
+        if (!(await this.checkNautilusAdminAuth(req, method, pathname))) {
           return this.sendResponse(res, 401, false, undefined, 'Unauthorized');
         }
       }
@@ -455,7 +472,7 @@ export class NautilusAppServer {
       // A5: device session. Admin auth also satisfies it, so an operator tool with the node's
       // own credential is not locked out of its own routes.
       if (route.deviceOnly && !this.checkDeviceAuth(req)) {
-        if (!this.checkNautilusAdminAuth(req, method, pathname)) {
+        if (!(await this.checkNautilusAdminAuth(req, method, pathname))) {
           return this.sendResponse(res, 401, false, undefined,
             'This device is locked. Unlock with your PIN to obtain a device session.');
         }
@@ -574,13 +591,14 @@ export class NautilusAppServer {
    * would cost a working flow and buy nothing. What actually protects provider-keyed reads is
    * item D1, at the sequencer.
    */
-  private mayDiscloseIdentity(req: IncomingMessage, path: string): boolean {
+  private async mayDiscloseIdentity(req: IncomingMessage, path: string): Promise<boolean> {
     if (this.config.role !== 'member') return true;
-    return this.checkDeviceAuth(req) || this.checkNautilusAdminAuth(req, 'GET', path);
+    if (this.checkDeviceAuth(req)) return true;
+    return this.checkNautilusAdminAuth(req, 'GET', path);
   }
 
-  private handleHealth(req: IncomingMessage, res: ServerResponse): void {
-    const identified = this.mayDiscloseIdentity(req, '/health');
+  private async handleHealth(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const identified = await this.mayDiscloseIdentity(req, '/health');
     const health: NautilusHealthResponse = {
       role: this.config.role,
       phase: this.onboardingPhase,
@@ -601,9 +619,9 @@ export class NautilusAppServer {
     this.sendResponse(res, 200, true, health);
   }
 
-  private handleOnboardingStatus(req: IncomingMessage, res: ServerResponse): void {
+  private async handleOnboardingStatus(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const state = this.localState.getState();
-    const identified = this.mayDiscloseIdentity(req, '/onboarding/status');
+    const identified = await this.mayDiscloseIdentity(req, '/onboarding/status');
 
     if (!identified) {
       // Phase only. `state.onboarding` carries `tokenData` with the enrollment token, group and
@@ -772,26 +790,7 @@ export class NautilusAppServer {
   // ─── Body Reader ──────────────────────────────────────────
 
   private readBody(req: IncomingMessage): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const chunks: Buffer[] = [];
-      let totalBytes = 0;
-
-      req.on('data', (chunk: Buffer) => {
-        totalBytes += chunk.length;
-        if (totalBytes > MAX_BODY_BYTES) {
-          req.destroy();
-          reject(new Error(`Request body exceeds ${MAX_BODY_BYTES} bytes`));
-          return;
-        }
-        chunks.push(chunk);
-      });
-
-      req.on('end', () => {
-        resolve(Buffer.concat(chunks).toString('utf-8'));
-      });
-
-      req.on('error', reject);
-    });
+    return readRequestBody(req, MAX_BODY_BYTES);
   }
 
   /** Number of connected SSE clients */

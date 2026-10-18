@@ -33,6 +33,7 @@
  *      cap being reached is loud.
  */
 import { fork, type ChildProcess } from 'child_process';
+import { childEnvironment } from '../security/node-roles.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { ProofRejected, VERIFY_TIMEOUT_MS } from './l2-proof-verifier.js';
@@ -208,6 +209,7 @@ export class VerifyPool {
       execArgv: process.execArgv,
       serialization: 'json',
       stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+      env: childEnvironment(process.env, {}), // A9: a verifier holds no credential
     });
     const worker: Worker = { id, child, ready: false, jobs: 0, busy: false };
     this.workers.push(worker);

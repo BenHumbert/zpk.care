@@ -298,7 +298,7 @@ export function buildPrescriberRoutes(
         walletId: data.walletId,
         sequencerUrl: server.getConfig().sequencerUrl,
         displayName: server.getConfig().displayName,
-        clientOptions: server.getConfig().adminToken ? { adminToken: server.getConfig().adminToken } : undefined,
+        clientOptions: server.sequencerClientOptions(),
       });
       server.setEntityNode(node);
 
@@ -310,8 +310,6 @@ export function buildPrescriberRoutes(
         try {
           const iUrl = (insurerUrl as string).replace(/\/+$/, '');
           const enrollHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-          const adminToken = server.getConfig().adminToken;
-          if (adminToken) enrollHeaders['Authorization'] = `Bearer ${adminToken}`;
           const resp = await fetch(`${iUrl}/enrollment/process`, {
             method: 'POST',
             headers: enrollHeaders,
@@ -1241,7 +1239,6 @@ export function buildPrescriberRoutes(
         let isNewWallet = false;
         try {
           const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
-          const adminToken = server.getConfig().adminToken;
           const resp = await fetch(seqUrl + '/rpc', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1256,8 +1253,7 @@ export function buildPrescriberRoutes(
             isNewWallet = true;
             console.log(`[badge:tap] First alias for ${displayName} — registering wallet ${walletId.slice(0, 16)}… on sequencer`);
             const regHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-            if (adminToken) regHeaders['Authorization'] = `Bearer ${adminToken}`;
-            const regResp = await fetch(seqUrl + '/rpc', {
+            const regResp = await server.signedFetch(seqUrl + '/rpc', {
               method: 'POST',
               headers: regHeaders,
               body: JSON.stringify({

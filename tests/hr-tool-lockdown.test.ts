@@ -35,13 +35,16 @@ import path from 'path';
 import http from 'http';
 import net from 'net';
 import { spawn, type ChildProcess } from 'child_process';
+import { verifySignedRequest } from '../src/security/signed-request.js';
 
 const REPO = path.resolve(__dirname, '..');
 const PASS = 'correct-horse-battery-staple-12';
 const TOKEN = 'tenant-admin-token-0123456789abcdef';
 
-interface Seen { method: string; path: string; auth: string | undefined; body: string }
+interface Seen { method: string; path: string; auth: string | undefined; sig: string | undefined; body: string }
 const seen: Seen[] = [];
+/** Client keys the stub employer node has registered (A9), as the real one keeps them: in memory. */
+const registeredKeys = new Map<string, string>();
 let employerStub: http.Server;
 let employerUrl: string;
 let hrTool: ChildProcess | null = null;
@@ -75,8 +78,20 @@ beforeAll(async () => {
     req.on('data', (c) => { text += c; });
     req.on('end', () => {
       const url = req.url ?? '/';
-      seen.push({ method: req.method ?? '', path: url, auth: req.headers.authorization, body: text });
-      if (req.headers.authorization !== `Bearer ${TOKEN}`) return send(res, 401, { ok: false, error: 'Unauthorized' });
+      const sig = req.headers['x-admin-signature'] as string | undefined;
+      seen.push({ method: req.method ?? '', path: url, auth: req.headers.authorization, sig, body: text });
+      const bearerOk = req.headers.authorization === `Bearer ${TOKEN}`;
+      // A9: like the real employer node, the stub takes the bearer or a signature from a key it registered.
+      if (req.method === 'POST' && url === '/admin/client-keys') {
+        if (!bearerOk) return send(res, 401, { ok: false, error: 'Unauthorized' });
+        const b = JSON.parse(text || '{}');
+        registeredKeys.set(b.clientId, b.publicKeyHex);
+        return send(res, 201, { ok: true, data: { clientId: b.clientId, registered: true } });
+      }
+      const signerId = sig?.split(':')[0];
+      const signedOk = !!signerId && registeredKeys.has(signerId)
+        && verifySignedRequest({ method: req.method ?? 'GET', path: url.split('?')[0], headers: req.headers, expectedSignerId: signerId, publicKeyHex: registeredKeys.get(signerId)!, body: text }).ok;
+      if (!bearerOk && !signedOk) return send(res, 401, { ok: false, error: 'Unauthorized' });
       if (req.method === 'GET' && url === '/groups/G1') return send(res, 200, { ok: true, data: { groupId: 'G1', planId: 'PLAN-1', status: 'active', enrollmentCap: 0 } });
       if (req.method === 'GET' && url === '/groups/G1/stats') return send(res, 200, { ok: true, data: { isUnlimited: true, remainingSlots: 999, enrollmentCap: 0, enrolledCount: 0, pendingTokens: 0 } });
       if (req.method === 'POST' && url === '/tokens/generate') {
@@ -145,7 +160,10 @@ describe('a workspace is set up once, on this machine, from the activation hando
     const r = await api('POST', '/api/setup', { employerNodeUrl: employerUrl, adminToken: TOKEN, passphrase: PASS, passphraseConfirm: PASS });
     expect(r.status).toBe(200);
     expect(data(r).workspace.firstRun).toBe(true);
-    expect(data(r).authMode).toBe('bearer');
+    // A9: setup registered the workspace's client key with the token presented once; requests are signed from here on
+    expect(data(r).authMode).toBe('ed25519');
+    expect(seen.some((s) => s.path === '/admin/client-keys' && s.auth === `Bearer ${TOKEN}`)).toBe(true);
+    expect(registeredKeys.size).toBe(1);
     const ws = fs.readdirSync(dataDir).filter((n) => n.startsWith('workspace-'));
     expect(ws).toHaveLength(1);
     const tokenFile = path.join(dataDir, ws[0], 'admin.token.enc');
@@ -155,12 +173,15 @@ describe('a workspace is set up once, on this machine, from the activation hando
     expect(again.status).toBe(409);
   });
 
-  test('the stored token, not the environment one, is what reaches the employer node', async () => {
+  test('the workspace key registered with the stored token, not the environment token, is what reaches the employer node', async () => {
     seen.length = 0;
     const r = await api('POST', '/api/group/select', { groupId: 'G1' });
     expect(r.status).toBe(200);
     expect(seen.length).toBeGreaterThan(0);
-    for (const s of seen) expect(s.auth).toBe(`Bearer ${TOKEN}`);
+    for (const s of seen) {
+      expect(s.auth).toBeUndefined();
+      expect(s.sig?.startsWith('hr-tool-')).toBe(true);
+    }
   });
 });
 
@@ -187,7 +208,7 @@ describe('unlocking is attempt-limited and never a wipe', () => {
     const r = await api('POST', '/api/unlock', { passphrase: PASS });
     expect(r.status).toBe(200);
     expect(data(r).adminTokenOnFile).toBe(true);
-    expect(data(r).authMode).toBe('bearer');
+    expect(data(r).authMode).toBe('ed25519');
     expect(data(r).workspace.employerNodeUrl).toBe(employerUrl);
   }, 15_000);
 });

@@ -43,6 +43,7 @@ import { createServer } from 'net';
 import { createHash, randomBytes } from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { signedFetch, type SequencerSigner } from './sequencer-fetch.js';
 
 const thisDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -58,7 +59,8 @@ interface LiveTenant {
   adminToken: string;
   startedAt: number;
   sequencerUrl: string;
-  insurerAdminToken: string;
+  /** Signs the insurer node's requests to the sequencer with its own key (A9). */
+  signSequencerRequest: SequencerSigner;
 }
 const liveTenants: Map<string, LiveTenant> = new Map();
 
@@ -77,12 +79,9 @@ function ensureKeepaliveRunning(): void {
       if (tenant.employerChild.killed) continue;
       try {
         const seqUrl = tenant.sequencerUrl.replace(/\/+$/, '');
-        await fetch(`${seqUrl}/rpc`, {
+        await signedFetch(tenant.signSequencerRequest, `${seqUrl}/rpc`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${tenant.insurerAdminToken}`,
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             jsonrpc: '2.0', id: 1,
             method: 'l2_registerEmployerNode',
@@ -172,9 +171,11 @@ export interface SpawnTenantOptions {
   employerPubKeyHex: string;
   sequencerUrl: string;
   insurerUrl: string;
-  /** Admin token of the INSURER node, used to authenticate registration
-   *  of the employer node on the sequencer's tenant registry. */
-  insurerAdminToken: string;
+  /**
+   * Signs the insurer node's requests to the sequencer with the insurer's own key (A9); the
+   * sequencer authorises tenant registration by the insurer role, so no bearer token travels.
+   */
+  signSequencerRequest: SequencerSigner;
 }
 
 /** What the employer's HR administrator needs to run the HR Tool on their own machine (A7). */
@@ -192,7 +193,7 @@ export interface SpawnTenantResult {
 }
 
 export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<SpawnTenantResult> {
-  const { employerId, employerPubKeyHex, sequencerUrl, insurerUrl, insurerAdminToken } = opts;
+  const { employerId, employerPubKeyHex, sequencerUrl, insurerUrl, signSequencerRequest } = opts;
 
   // ─── Step 1: Idempotency check ───
   // If a tenant with this employerId already has a live process via this
@@ -250,9 +251,9 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
 
     // Dead tenant — clean up the stale registry entry and spawn fresh
     try {
-      await fetch(`${seqUrl}/rpc`, {
+      await signedFetch(signSequencerRequest, `${seqUrl}/rpc`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${insurerAdminToken}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           jsonrpc: '2.0', id: 2,
           method: 'l2_deregisterEmployerNode',
@@ -336,12 +337,9 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
 
   // ─── Step 5: Register the tenant on the sequencer ───
   try {
-    const resp = await fetch(`${seqUrl}/rpc`, {
+    const resp = await signedFetch(signSequencerRequest, `${seqUrl}/rpc`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${insurerAdminToken}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         jsonrpc: '2.0', id: 1,
         method: 'l2_registerEmployerNode',
@@ -370,7 +368,7 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
     adminToken,
     startedAt: Date.now(),
     sequencerUrl,
-    insurerAdminToken,
+    signSequencerRequest,
   };
   liveTenants.set(employerId, tenant);
   ensureKeepaliveRunning();
@@ -379,9 +377,9 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
   employerChild.on('exit', (code: number | null) => {
     console.warn(`[orchestrator] employer node for ${employerId} exited with code ${code}`);
     // Best-effort deregister on sequencer; ignore failures
-    fetch(`${sequencerUrl.replace(/\/+$/, '')}/rpc`, {
+    signedFetch(signSequencerRequest, `${sequencerUrl.replace(/\/+$/, '')}/rpc`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${insurerAdminToken}` },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         jsonrpc: '2.0', id: 1,
         method: 'l2_deregisterEmployerNode',

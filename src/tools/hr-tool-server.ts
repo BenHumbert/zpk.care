@@ -155,30 +155,54 @@ async function readBody(req: any): Promise<any> {
  */
 async function proxyToEmployer(method: string, path: string, body?: any): Promise<any> {
   if (!activeWorkspaceUrl) throw new Error('No active workspace');
-  const url = activeWorkspaceUrl + path;
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const bodyStr = body ? JSON.stringify(body) : undefined;
-
-  // Prefer Bearer token when present (Phase C orchestrator path).
-  // Ed25519 signing is a fallback for legacy standalone deployments.
-  if (activeAdminToken) {
-    headers['Authorization'] = 'Bearer ' + activeAdminToken;
-  } else if (activeClientKey) {
-    const sig = signEmployerRequest(method, path, bodyStr, activeClientKey);
-    headers['X-Admin-Signature'] = sig.signature;
-    if (sig.contentHash) headers['X-Content-Hash'] = sig.contentHash;
+  const signed = (): Record<string, string> => {
+    const sig = signEmployerRequest(method, path, bodyStr, activeClientKey!);
+    const h: Record<string, string> = { 'X-Admin-Signature': sig.signature };
+    if (sig.contentHash) h['X-Content-Hash'] = sig.contentHash;
+    return h;
+  };
+  // A9: the workspace's client key signs every request once the employer node knows it. The admin
+  // token collected at setup registers the key, and registers it again after the employer node has
+  // restarted (its key registry lives in memory): a 401 to a signed request is the one signal of
+  // that. A workspace with a token and no key, or a key the node will not take, falls back to the
+  // token, which is what A7 shipped.
+  if (activeClientKey) {
+    if (!clientKeyRegistered && activeAdminToken) clientKeyRegistered = await registerClientKeyWithEmployer();
+    if (clientKeyRegistered) {
+      const first = await fetchEmployer(activeWorkspaceUrl + path, method, bodyStr, signed());
+      if (first.status !== 401 || !activeAdminToken) return first;
+      clientKeyRegistered = await registerClientKeyWithEmployer();
+      if (clientKeyRegistered) return fetchEmployer(activeWorkspaceUrl + path, method, bodyStr, signed());
+    }
   }
+  if (activeAdminToken) return fetchEmployer(activeWorkspaceUrl + path, method, bodyStr, { Authorization: 'Bearer ' + activeAdminToken });
+  if (activeClientKey) return fetchEmployer(activeWorkspaceUrl + path, method, bodyStr, signed());
+  return fetchEmployer(activeWorkspaceUrl + path, method, bodyStr, {});
+}
 
+/** Register the open workspace's client key on its employer node, with the admin token. */
+async function registerClientKeyWithEmployer(): Promise<boolean> {
+  if (!activeWorkspaceUrl || !activeClientKey || !activeAdminToken) return false;
+  try {
+    const r = await fetchEmployer(activeWorkspaceUrl + '/admin/client-keys', 'POST',
+      JSON.stringify({ clientId: activeClientKey.clientId, publicKeyHex: activeClientKey.publicKeyHex }),
+      { Authorization: 'Bearer ' + activeAdminToken });
+    if (r.status < 300) { auditLog('client-key:registered', `clientId=${activeClientKey.clientId}`); return true; }
+    console.warn('[hr-tool-server] The employer node did not register this workspace\'s client key (HTTP %d)', r.status);
+    return false;
+  } catch (err) {
+    console.warn('[hr-tool-server] Could not reach the employer node to register the client key:', err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
+async function fetchEmployer(url: string, method: string, bodyStr: string | undefined, auth: Record<string, string>): Promise<any> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...auth };
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
   try {
-    const resp = await fetch(url, {
-      method,
-      headers,
-      body: bodyStr,
-      signal: controller.signal,
-    });
+    const resp = await fetch(url, { method, headers, body: bodyStr, signal: controller.signal });
     const text = await resp.text();
     try {
       const json = JSON.parse(text);
@@ -227,6 +251,8 @@ let activeWorkspaceMeta: WorkspaceMeta | null = null;
 let activePassphrase: string | null = null;
 /** Ed25519 client key for signing employer node requests. Workspace-scoped. */
 let activeClientKey: HrToolClientKey | null = null;
+/** Whether the open workspace's client key is known to its employer node (A9); re-learned on a 401. */
+let clientKeyRegistered = false;
 /** Employer node admin token, decrypted from the workspace at unlock. Workspace-scoped (A7). */
 let activeAdminToken: string | null = null;
 
@@ -335,6 +361,7 @@ function openWorkspace(url: string, meta: WorkspaceMeta, passphrase: string, cli
   activePassphrase = passphrase;
   activeClientKey = clientKey;
   activeAdminToken = adminToken;
+  clientKeyRegistered = false;
   activeGroupId = null;
   activeSeed = null;
   activeTable = null;
@@ -436,10 +463,12 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
     writeFileSync(join(ws.wsDir, ADMIN_TOKEN_FILE), encryptWithPassphrase(adminToken.trim(), passphrase), { mode: 0o600 });
 
     openWorkspace(url, meta, passphrase, clientKey, adminToken.trim());
-    auditLog('workspace:created', `employer=${url}`);
+    // A9: register the key now, with the token presented once; from here on requests are signed.
+    clientKeyRegistered = await registerClientKeyWithEmployer();
+    auditLog('workspace:created', `employer=${url} auth=${clientKeyRegistered ? 'ed25519' : 'bearer'}`);
     return ok(res, {
       workspace: { employerNodeUrl: url, createdAt: meta.createdAt, firstRun: true },
-      authMode: 'bearer',
+      authMode: clientKeyRegistered ? 'ed25519' : 'bearer',
       clientId: clientKey.clientId,
       publicKeyHex: clientKey.publicKeyHex,
     });
@@ -484,7 +513,7 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
 
       attempts.reset(limiterKey);
       openWorkspace(meta.employerNodeUrl, meta, passphrase, clientKey, token);
-      const authMode = token ? 'bearer' : (clientKey ? 'ed25519' : 'none');
+      const authMode = clientKey ? 'ed25519' : (token ? 'bearer' : 'none');
       auditLog('workspace:unlock', `employer=${meta.employerNodeUrl} auth=${authMode}`);
       return ok(res, {
         workspace: { employerNodeUrl: meta.employerNodeUrl, createdAt: meta.createdAt, firstRun: false },

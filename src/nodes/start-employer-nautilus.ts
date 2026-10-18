@@ -128,7 +128,7 @@ async function main(): Promise<void> {
     displayName: config.displayName,
     employerId,
     insurerUrl,
-    clientOptions: adminToken ? { adminToken } : undefined,
+    // A9: the tenant's own admin token is not a sequencer credential, and an employer node calls no privileged sequencer method.
   });
   server.setEntityNode(node);
 

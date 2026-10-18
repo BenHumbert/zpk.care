@@ -57,6 +57,7 @@ import type { AdjudicationService, ConsoleEvent } from './interactive-service.js
 import type { NfcReader, NfcTagEvent, NdefPayload } from './nfc-port.js';
 import type { NfcCredentialAttestation } from '../credentials/nfc-attestation.js';
 import { MEDICATIONS, PRESCRIBERS, PHARMACIES } from '../data/index.js';
+import { readRequestBody } from '../security/request-body.js';
 
 export function registerInteractiveRoutes(
   server: L2RpcServer,
@@ -2041,13 +2042,9 @@ export function getConsoleEmitter(server: L2RpcServer): (event: ConsoleEvent) =>
 
 // ─── Helpers ────────────────────────────────────────────
 
+// One read per request: a signed request's body was already read by the admin gate (A9).
 function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
-    req.on('error', reject);
-  });
+  return readRequestBody(req);
 }
 
 function sendError(res: ServerResponse, status: number, message: string): void {

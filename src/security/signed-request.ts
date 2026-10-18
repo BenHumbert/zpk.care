@@ -221,3 +221,17 @@ export function verifySignedRequest(opts: {
   }
   return { ok: true, signerId, timestamp };
 }
+
+/**
+ * The signer a request claims to be, from its signature header, or undefined when it is unsigned or
+ * malformed. A server with a registry of trusted keys looks the signer up by this, then verifies the
+ * request against that key with `expectedSignerId` set to the same value, so a request can never be
+ * verified against a key other than the one registered for the name it claims.
+ */
+export function signerIdFromHeaders(headers: Record<string, string | string[] | undefined>): string | undefined {
+  const sigHeader = headerValue(headers, SIGNATURE_HEADER);
+  if (!sigHeader) return undefined;
+  const parts = sigHeader.split(":");
+  if (parts.length < 3 || !parts[0]) return undefined;
+  return parts[0];
+}

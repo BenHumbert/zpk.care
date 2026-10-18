@@ -245,7 +245,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         role: 'insurer',
         sequencerUrl: server.getConfig().sequencerUrl,
         displayName: server.getConfig().displayName,
-        clientOptions: server.getConfig().adminToken ? { adminToken: server.getConfig().adminToken } : undefined,
+        clientOptions: server.sequencerClientOptions(),
       });
       server.setEntityNode(node);
 
@@ -1143,10 +1143,8 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       try {
         const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        const adminToken = server.getConfig().adminToken;
-        if (adminToken) headers['Authorization'] = 'Bearer ' + adminToken;
 
-        const rpcRes = await fetch(seqUrl + '/rpc', {
+        const rpcRes = await server.signedFetch(seqUrl + '/rpc', {
           method: 'POST',
           headers,
           body: JSON.stringify({
@@ -1273,10 +1271,8 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       try {
         const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        const adminToken = server.getConfig().adminToken;
-        if (adminToken) headers['Authorization'] = 'Bearer ' + adminToken;
 
-        const rpcRes = await fetch(seqUrl + '/rpc', {
+        const rpcRes = await server.signedFetch(seqUrl + '/rpc', {
           method: 'POST',
           headers,
           body: JSON.stringify({
@@ -1306,10 +1302,8 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       try {
         const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        const adminToken = server.getConfig().adminToken;
-        if (adminToken) headers['Authorization'] = 'Bearer ' + adminToken;
 
-        const rpcRes = await fetch(seqUrl + '/rpc', {
+        const rpcRes = await server.signedFetch(seqUrl + '/rpc', {
           method: 'POST',
           headers,
           body: JSON.stringify({
@@ -1426,9 +1420,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         // Empty formularyNdcs = all drugs (no per-drug overrides); empty networkProviderWalletIds = all providers
         try {
           const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
-          const adminToken = server.getConfig().adminToken;
           const pubHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-          if (adminToken) pubHeaders['Authorization'] = 'Bearer ' + adminToken;
 
           // Build per-drug overrides only for explicitly listed NDCs
           const overrides: any[] = [];
@@ -1447,7 +1439,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
             tier4Copay: Math.round(baseCopay * 15),
           };
 
-          const overlayRes = await fetch(seqUrl + '/rpc', {
+          const overlayRes = await server.signedFetch(seqUrl + '/rpc', {
             method: 'POST', headers: pubHeaders,
             body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_publishPlanOverlay',
               params: { planIdHash: plan.planId, planName: plan.name, overrides, defaults } }),
@@ -1528,9 +1520,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
 
       try {
         const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
-        const adminToken = server.getConfig().adminToken;
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (adminToken) headers['Authorization'] = 'Bearer ' + adminToken;
 
         // Option C: Publish lightweight plan overlay (~5KB, not 10MB blob)
         const overrides: any[] = [];
@@ -1543,7 +1533,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
           tier4Copay: Math.round(baseCopay * 15),
         };
 
-        const overlayRes = await fetch(seqUrl + '/rpc', {
+        const overlayRes = await server.signedFetch(seqUrl + '/rpc', {
           method: 'POST',
           headers,
           body: JSON.stringify({

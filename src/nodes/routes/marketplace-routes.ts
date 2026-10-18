@@ -670,11 +670,9 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
       // Register on sequencer — MUST succeed before marking signed
       try {
         const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
-        const adminToken = server.getConfig().adminToken;
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (adminToken) headers['Authorization'] = `Bearer ${adminToken}`;
 
-        const regResp = await fetch(`${seqUrl}/rpc`, {
+        const regResp = await server.signedFetch(`${seqUrl}/rpc`, {
           method: 'POST',
           headers,
           body: JSON.stringify({
@@ -774,10 +772,10 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
       // Phase C: spawn a real employer node + HR Tool for this tenant.
       const sequencerUrl = server.getConfig().sequencerUrl;
       const insurerUrl = `http://localhost:${(server.getConfig() as any).port || 4004}`;
-      const insurerAdminToken = server.getConfig().adminToken;
-      if (!insurerAdminToken) {
+      // A9: the tenant is registered on the sequencer with the insurer node's own key, under the insurer role.
+      if (!server.getConfig().nodeKey) {
         return server.sendResponse(res, 500, false, undefined,
-          'Insurer admin token not configured — orchestrator cannot register tenants on the sequencer');
+          'The insurer node has no sequencer credential (ZKTRIDENT_NODE_KEY_SEED) — it cannot register tenants on the sequencer');
       }
 
       /*
@@ -828,7 +826,7 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
             employerPubKeyHex: app.publicKeyHex,
             sequencerUrl,
             insurerUrl,
-            insurerAdminToken,
+            signSequencerRequest: (m, p, b) => server.sequencerAuthHeaders(m, p, b),
           });
           job.status = 'complete';
           job.result = {
@@ -1116,13 +1114,11 @@ export function buildEmployerAdminRoutes(server: NautilusAppServer): RouteRegist
       }
 
       const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
-      const adminToken = server.getConfig().adminToken;
       const hdrs: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (adminToken) hdrs['Authorization'] = `Bearer ${adminToken}`;
 
       // Step 1: Revoke old attestation on sequencer
       try {
-        await fetch(`${seqUrl}/rpc`, {
+        await server.signedFetch(`${seqUrl}/rpc`, {
           method: 'POST', headers: hdrs,
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_revokeEmployerAttestation', params: { employerId: app.employerId } }),
         });

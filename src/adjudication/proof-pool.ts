@@ -31,6 +31,7 @@
  */
 
 import { fork, type ChildProcess } from 'child_process';
+import { childEnvironment } from '../security/node-roles.js';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import type {
@@ -262,6 +263,7 @@ export class ProofPool {
       serialization: 'json',
       stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
       execArgv: ['--import', 'tsx'],
+      env: childEnvironment(process.env, {}), // A9: a prover holds no credential
     });
 
     const handle: WorkerHandle = {

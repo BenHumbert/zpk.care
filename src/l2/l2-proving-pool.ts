@@ -32,6 +32,7 @@
  * back to the single-process proving lock (backward compatible).
  */
 import { fork } from 'child_process';
+import { childEnvironment } from '../security/node-roles.js';
 import { cpus } from 'os';
 import type { ChildProcess } from 'child_process';
 import type {
@@ -424,6 +425,7 @@ export class ProvingPool {
       execArgv: process.execArgv,
       serialization: 'json',
       stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+      env: childEnvironment(process.env, {}), // A9: a prover holds no credential
     });
 
     const handle: WorkerHandle = {

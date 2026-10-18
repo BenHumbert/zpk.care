@@ -40,6 +40,7 @@
  *   - $env:NODE_OPTIONS="--max-old-space-size=12288" recommended
  */
 import { ProofDelegateServer } from './proof-delegate.js';
+import { parentPidFromEnv, watchParent } from './parent-watchdog.js';
 
 // ─── Environment Parsing ──────────────────────────────────────
 
@@ -99,6 +100,18 @@ async function main(): Promise<void> {
 
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+  // A9: a prover must not outlive the launcher that started it.
+  const parentPid = parentPidFromEnv();
+  if (parentPid) {
+    watchParent({
+      parentPid,
+      onGone: () => {
+        console.log('  [parent] the process that spawned this prover (%d) is gone; shutting down', parentPid);
+        void shutdown('parent-gone');
+      },
+    });
+  }
 }
 
 main().catch((err) => {

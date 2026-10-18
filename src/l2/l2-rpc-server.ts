@@ -35,7 +35,7 @@ import path from 'path';
 import http from 'http';
 import https from 'https';
 import type { IncomingMessage, ServerResponse } from 'http';
-import { timingSafeEqual, createHash, createPublicKey, verify } from 'crypto';
+import { timingSafeEqual } from 'crypto';
 import { Field } from 'o1js';
 import { WalletState } from '../wallets/wallet-state.js';
 import { StateTransitionProof } from '../engine/state-transition.js';
@@ -50,6 +50,9 @@ import type { BenefitPlanConfig, ClaimSubmissionMetadata } from './l2-types.js';
 import { hashString } from '../zkp/hash-utils.js';
 import { ProofRejected } from './l2-proof-verifier.js';
 import { corsOriginHeader, resolveAllowedOrigins } from '../security/network-policy.js';
+import { verifySignedRequest, signerIdFromHeaders, ReplayCache } from '../security/signed-request.js';
+import { roleMayCall, type NodeRole, type AuthScope } from '../security/node-roles.js';
+import { readRequestBody } from '../security/request-body.js';
 import { AuditService } from '../audit/audit-service.js';
 
 // ─── Visualization Types ──────────────────────────────────
@@ -127,11 +130,11 @@ export interface L2RpcServerOptions {
   maxBodyBytes: number;
   /** Whether to enable SSE event streaming. Default true. */
   enableSSE: boolean;
-  /** Bearer token for admin RPC methods (unsecure mode only). When set, admin methods require Authorization header. */
+  /** The network operator's bearer token (A9). Accepted here and nowhere else; held by no node. Unset, no bearer is accepted. */
   adminToken?: string;
-  /** Authorized admin node public keys: Map<nodeId, publicKeyHex>. When set, admin methods require Ed25519 signature. */
+  /** Operator keys to seed the registry with at genesis: Map<nodeId, publicKeyHex>. Node keys are registered per boot with `registerNodeKey`. */
   adminKeys?: Map<string, string>;
-  /** Whether to use unsecure mode (shared Bearer token instead of Ed25519 signatures). */
+  /** Unsecure (development) mode: the operator token defaults to a known value and CORS is open. F1b removes it. */
   unsecureMode?: boolean;
   /** Allowed CORS origins. Default ['http://localhost', 'http://127.0.0.1']. Set to ['*'] for open access. */
   allowedOrigins?: string[];
@@ -196,6 +199,25 @@ export const RPC_INTERNAL_ERROR = -32603;
 export const RPC_PROOF_REJECTED = -32001;
 export const RPC_NODE_NOT_RUNNING = -32002;
 export const RPC_UNAUTHORIZED = -32003;
+/** A valid credential whose role does not cover the method or route (A9). */
+export const RPC_FORBIDDEN = -32004;
+
+/** An entry in the admin key registry: an operator key (genesis or admitted) or a node key registered for this boot. */
+export interface AdminKeyEntry {
+  publicKeyHex: string;
+  admittedBy: string;
+  reason: string;
+  timestamp: number;
+  /** Absent means operator: every key admitted through the governance flow is an operator's. */
+  role?: NodeRole;
+  /** A node key the launcher registered for this boot; never persisted. */
+  ephemeral?: boolean;
+}
+
+/** Who a request is from, after the admin gate (A9). */
+export type AuthDecision =
+  | { ok: true; principal: { kind: 'operator' } | { kind: 'node'; nodeId: string; role: NodeRole } }
+  | { ok: false; status: 401 | 403 | 413; message: string };
 
 // ─── L2RpcServer ────────────────────────────────────────
 
@@ -471,13 +493,10 @@ export class L2RpcServer {
     }
 
     // ── Viz Endpoints ──
-    // Write endpoints require admin token; read endpoints are open
+    // Write endpoints need an admin credential (A9: operator bearer or a role that covers them); read endpoints are open
     if (pathname === '/viz/emit' && req.method === 'POST') {
-      if (!this.checkAdminAuth(req)) {
-        res.writeHead(401, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Unauthorized' }));
-        return;
-      }
+      const decision = await this.authorizeRoute(req, pathname);
+      if (!decision.ok) return L2RpcServer.denyRoute(res, decision);
       return this.handleVizEmit(req, res);
     }
 
@@ -486,11 +505,8 @@ export class L2RpcServer {
     }
 
     if (pathname === '/viz/entities' && req.method === 'POST') {
-      if (!this.checkAdminAuth(req)) {
-        res.writeHead(401, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Unauthorized' }));
-        return;
-      }
+      const decision = await this.authorizeRoute(req, pathname);
+      if (!decision.ok) return L2RpcServer.denyRoute(res, decision);
       return this.handleVizEntityRegister(req, res);
     }
 
@@ -507,11 +523,8 @@ export class L2RpcServer {
     }
 
     if (pathname === '/viz/clear' && req.method === 'POST') {
-      if (!this.checkAdminAuth(req)) {
-        res.writeHead(401, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Unauthorized' }));
-        return;
-      }
+      const decision = await this.authorizeRoute(req, pathname);
+      if (!decision.ok) return L2RpcServer.denyRoute(res, decision);
       return this.handleVizClear(res);
     }
 
@@ -519,11 +532,10 @@ export class L2RpcServer {
     const routeKey = `${req.method}:${pathname}`;
     const customHandler = this.additionalRoutes.get(routeKey);
     if (customHandler) {
-      // Admin auth check for gated routes (Tier 3 interactive routes)
-      if (this.adminGatedRoutes.has(routeKey) && !this.checkAdminAuth(req)) {
-        res.writeHead(401, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Unauthorized — admin auth required' }));
-        return;
+      // Admin gate for routes registered with adminOnly (the engine's privileged routes)
+      if (this.adminGatedRoutes.has(routeKey)) {
+        const decision = await this.authorizeRoute(req, pathname);
+        if (!decision.ok) return L2RpcServer.denyRoute(res, decision);
       }
       return customHandler(req, res);
     }
@@ -706,31 +718,22 @@ export class L2RpcServer {
         'Invalid JSON-RPC 2.0 request');
     }
 
-    // Admin auth gate — Ed25519 signature (secure) or Bearer token (unsecure)
-    // l2_registerAdminKey is special: requires auth UNLESS this is genesis (no keys exist yet)
+    // Admin gate (A9): the operator's bearer, or a registered key's signature authorised by its
+    // role. l2_registerAdminKey needs no credential only at genesis, when no operator key exists
+    // yet; node keys registered for this boot do not count as operator keys.
+    const operatorKeys = [...this.adminKeyRegistry.values()].filter((e) => !e.ephemeral).length;
     const needsAuth = L2RpcServer.ADMIN_METHODS.has(rpcReq.method)
-      || (rpcReq.method === 'l2_registerAdminKey' && this.adminKeyRegistry.size > 0);
+      || (rpcReq.method === 'l2_registerAdminKey' && operatorKeys > 0);
     if (needsAuth) {
-      if (this.options.unsecureMode || !this.adminKeyRegistry.size) {
-        // Unsecure mode: legacy Bearer token check. Default-deny when no token configured.
-        if (!this.options.adminToken) {
-          return this.sendRpcError(res, rpcReq.id, RPC_UNAUTHORIZED, 'Unauthorized — no admin token configured');
-        }
-        const authHeader = req.headers['authorization'] ?? '';
-        if (!L2RpcServer.safeEquals(authHeader, `Bearer ${this.options.adminToken}`)) {
-          return this.sendRpcError(res, rpcReq.id, RPC_UNAUTHORIZED, 'Unauthorized');
-        }
-      } else {
-        // Secure mode: Ed25519 signature required
-        const sigResult = this.verifyAdminSignature(req, rpcReq.method, rpcReq.params ?? {});
-        if (!sigResult.valid) {
-          return this.sendRpcError(res, rpcReq.id, RPC_UNAUTHORIZED, 'Unauthorized — valid Ed25519 admin signature required');
-        }
-        // Inject verified signer identity into params for downstream handlers
+      const decision = this.authorize(req, { kind: 'rpc', method: rpcReq.method }, body);
+      if (!decision.ok) {
+        return this.sendRpcError(res, rpcReq.id, decision.status === 403 ? RPC_FORBIDDEN : RPC_UNAUTHORIZED, decision.message);
+      }
+      if (decision.principal.kind === 'node') {
+        // The verified signer, for handlers that attribute (admission approvals, employer nodes)
         if (!rpcReq.params) rpcReq.params = {};
-        (rpcReq.params as any)._verifiedNodeId = sigResult.nodeId;
-        // Log the admin action with attribution
-        console.log(`  [admin] ${rpcReq.method} by ${sigResult.nodeId} at ${new Date().toISOString()}`);
+        (rpcReq.params as any)._verifiedNodeId = decision.principal.nodeId;
+        console.log(`  [admin] ${rpcReq.method} by ${decision.principal.nodeId} (${decision.principal.role}) at ${new Date().toISOString()}`);
       }
     }
 
@@ -2621,7 +2624,7 @@ export class L2RpcServer {
   static readonly ADMIN_ENTRY_VERSION = 1;
 
   /** Runtime admin key registry — initialized from options, mutable at runtime for admissions */
-  private adminKeyRegistry: Map<string, { publicKeyHex: string; admittedBy: string; reason: string; timestamp: number }> = new Map();
+  private adminKeyRegistry: Map<string, AdminKeyEntry> = new Map();
 
   /** Pending admission requests — awaiting quorum approval */
   private pendingAdmissions: Map<string, {
@@ -2645,6 +2648,7 @@ export class L2RpcServer {
           admittedBy: 'genesis',
           reason: 'Genesis admin key',
           timestamp: Date.now(),
+          role: 'operator',
         });
       }
     }
@@ -2658,64 +2662,87 @@ export class L2RpcServer {
     return timingSafeEqual(bufA, bufB);
   }
 
+  /** Replayed signatures are refused for the verifier's window. */
+  private readonly replayCache = new ReplayCache();
+
   /**
-   * Verify an Ed25519-signed admin request.
-   *
-   * Header format: `X-Admin-Signature: <nodeId>:<timestamp>:<signature_hex>`
-   * The signature covers: `method|paramsHash|timestamp`
-   * Replay window: 30 seconds.
+   * Register a node's key with a role for this boot — plan item A9, finding A-14. The launcher
+   * calls this in-process for every child before it spawns it. The entry is not persisted: the key
+   * is new on every boot, and so is the registration.
    */
-  private verifyAdminSignature(req: IncomingMessage, method: string, params: Record<string, unknown>): { valid: boolean; nodeId?: string } {
-    const sigHeader = req.headers['x-admin-signature'] as string | undefined;
-    if (!sigHeader) return { valid: false };
-
-    const parts = sigHeader.split(':');
-    if (parts.length < 3) return { valid: false };
-
-    const nodeId = parts[0];
-    const timestamp = parts[1];
-    const signatureHex = parts.slice(2).join(':'); // signature may contain colons in hex
-
-    // Check replay window (30 seconds)
-    const ts = parseInt(timestamp, 10);
-    if (isNaN(ts) || Math.abs(Date.now() - ts) > 30_000) return { valid: false };
-
-    // Look up the node's public key
-    const entry = this.adminKeyRegistry.get(nodeId);
-    if (!entry) return { valid: false };
-
-    // Verify Ed25519 signature
-    const paramsHash = createHash('sha256').update(JSON.stringify(params)).digest('hex');
-    const message = `${method}|${paramsHash}|${timestamp}`;
-
-    try {
-      const pubKeyDer = Buffer.from(
-        '302a300506032b6570032100' + entry.publicKeyHex,
-        'hex',
-      );
-      const pubKey = createPublicKey({ key: pubKeyDer, format: 'der', type: 'spki' });
-      const isValid = verify(null, Buffer.from(message), pubKey, Buffer.from(signatureHex, 'hex'));
-      return { valid: isValid, nodeId: isValid ? nodeId : undefined };
-    } catch {
-      return { valid: false };
+  registerNodeKey(nodeId: string, publicKeyHex: string, role: NodeRole, reason = 'launcher'): void {
+    if (!nodeId || nodeId.includes(':')) throw new Error('registerNodeKey: nodeId is required and may not contain ":"');
+    if (!/^[0-9a-f]{64}$/i.test(publicKeyHex)) throw new Error('registerNodeKey: publicKeyHex must be 64 hex characters');
+    if (this.blacklistedNodes.has(nodeId) || this.blacklistedPublicKeys.has(publicKeyHex)) {
+      throw new Error(`registerNodeKey: ${nodeId} is blacklisted`);
     }
+    this.adminKeyRegistry.set(nodeId, { publicKeyHex, admittedBy: 'launcher', reason, timestamp: Date.now(), role, ephemeral: true });
   }
 
-  /** Check admin auth — Ed25519 signature in secure mode, Bearer token in unsecure mode. */
-  private checkAdminAuth(req: IncomingMessage): boolean {
-    // Unsecure mode — use legacy Bearer token
-    if (this.options.unsecureMode || !this.adminKeyRegistry.size) {
-      if (!this.options.adminToken) return false; // Default-deny — no token configured = reject
-      const authHeader = req.headers['authorization'] ?? '';
-      return L2RpcServer.safeEquals(authHeader, `Bearer ${this.options.adminToken}`);
+  /**
+   * Who is asking, and may they — plan item A9, finding A-14.
+   *
+   * Two credentials, as alternatives rather than modes: the operator's bearer token, and a signed
+   * request from a registered key, authorised by the key's role. Registering a key no longer
+   * switches the server to signatures only, so the operator's tools keep working as keys arrive.
+   * A valid signature whose role does not cover the action is 403, not 401. The signature is the
+   * one wire format every server here verifies (`src/security/signed-request.ts`): it covers the
+   * HTTP method, the path and the body actually received, and a replay is refused, so `body` must
+   * be the bytes received — the JSON-RPC envelope for `/rpc`, whatever the gate read for a route.
+   */
+  private authorize(req: IncomingMessage, scope: AuthScope, body: string | undefined): AuthDecision {
+    const authHeader = req.headers['authorization'];
+    if (typeof authHeader === 'string' && authHeader.length > 0) {
+      if (!this.options.adminToken) return { ok: false, status: 401, message: 'Unauthorized — no admin token configured' };
+      if (!L2RpcServer.safeEquals(authHeader, `Bearer ${this.options.adminToken}`)) return { ok: false, status: 401, message: 'Unauthorized' };
+      return { ok: true, principal: { kind: 'operator' } };
     }
-    // Secure mode — verify Ed25519 signature (non-RPC endpoints use a generic method check)
-    const result = this.verifyAdminSignature(req, 'admin-endpoint', {});
-    return result.valid;
+    const signerId = signerIdFromHeaders(req.headers);
+    if (!signerId) return { ok: false, status: 401, message: 'Unauthorized — admin credential required' };
+    const entry = this.adminKeyRegistry.get(signerId);
+    if (!entry || this.blacklistedNodes.has(signerId)) return { ok: false, status: 401, message: 'Unauthorized — unknown signer' };
+    const outcome = verifySignedRequest({
+      method: req.method ?? 'GET',
+      path: scope.kind === 'rpc' ? '/rpc' : scope.path,
+      headers: req.headers,
+      expectedSignerId: signerId,
+      publicKeyHex: entry.publicKeyHex,
+      body,
+      replayCache: this.replayCache,
+    });
+    if (!outcome.ok) return { ok: false, status: 401, message: `Unauthorized — ${outcome.reason}` };
+    const role = entry.role ?? 'operator';
+    if (!roleMayCall(role, scope)) {
+      const what = scope.kind === 'rpc' ? scope.method : `${scope.method} ${scope.path}`;
+      return { ok: false, status: 403, message: `Forbidden — role ${role} may not call ${what}` };
+    }
+    return { ok: true, principal: { kind: 'node', nodeId: signerId, role } };
+  }
+
+  /**
+   * The gate for an admin-gated HTTP route. A signed request's body is read here, so the signature
+   * can cover it; the handler's own read then returns the same bytes (`request-body.ts`).
+   */
+  private async authorizeRoute(req: IncomingMessage, pathname: string): Promise<AuthDecision> {
+    const scope: AuthScope = { kind: 'route', method: req.method ?? 'GET', path: pathname };
+    let body: string | undefined;
+    if (!req.headers['authorization'] && signerIdFromHeaders(req.headers) !== undefined) {
+      try {
+        body = await readRequestBody(req, this.options.maxBodyBytes);
+      } catch (err) {
+        return { ok: false, status: 413, message: err instanceof Error ? err.message : 'Request body too large' };
+      }
+    }
+    return this.authorize(req, scope, body);
+  }
+
+  private static denyRoute(res: ServerResponse, decision: Extract<AuthDecision, { ok: false }>): void {
+    res.writeHead(decision.status, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: decision.message }));
   }
 
   /** Get the admin key registry (for status/debug endpoints) */
-  getAdminKeyRegistry(): Map<string, { publicKeyHex: string; admittedBy: string; reason: string; timestamp: number }> {
+  getAdminKeyRegistry(): Map<string, AdminKeyEntry> {
     return this.adminKeyRegistry;
   }
 
@@ -2736,7 +2763,8 @@ export class L2RpcServer {
   } {
     const keys: Array<{ nodeId: string; publicKeyHex: string; admittedBy: string; reason: string; timestamp: number }> = [];
     for (const [nid, entry] of this.adminKeyRegistry) {
-      keys.push({ nodeId: nid, ...entry });
+      if (entry.ephemeral) continue; // a node key registered for this boot is not state
+      keys.push({ nodeId: nid, publicKeyHex: entry.publicKeyHex, admittedBy: entry.admittedBy, reason: entry.reason, timestamp: entry.timestamp });
     }
     return { keys, blacklist: [...this.blacklistedNodes], blacklistedKeys: [...this.blacklistedPublicKeys] };
   }
@@ -2799,25 +2827,6 @@ export class L2RpcServer {
   // ─── Body Reader ──────────────────────────────────────
 
   private readBody(req: IncomingMessage): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const chunks: Buffer[] = [];
-      let totalBytes = 0;
-
-      req.on('data', (chunk: Buffer) => {
-        totalBytes += chunk.length;
-        if (totalBytes > this.options.maxBodyBytes) {
-          req.destroy();
-          reject(new Error(`Request body exceeds ${this.options.maxBodyBytes} bytes`));
-          return;
-        }
-        chunks.push(chunk);
-      });
-
-      req.on('end', () => {
-        resolve(Buffer.concat(chunks).toString('utf-8'));
-      });
-
-      req.on('error', reject);
-    });
+    return readRequestBody(req, this.options.maxBodyBytes);
   }
 }

@@ -47,6 +47,8 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { NautilusAppServer } from './nautilus-app-server.js';
+import { parentPidFromEnv, watchParent } from './parent-watchdog.js';
+import { nodeKeyFromEnv } from '../security/node-roles.js';
 import type { NautilusAppConfig } from './nautilus-app-types.js';
 import type { NautilusStateData } from './nautilus-local-state.js';
 import { buildPharmacyRoutes } from './routes/pharmacy-routes.js';
@@ -73,6 +75,8 @@ const config: NautilusAppConfig = {
   proverUrl: env.ZKTRIDENT_PROVER_URL,
   proverApiKey: env.ZKTRIDENT_PROVER_API_KEY,
   adminToken: env.ZKTRIDENT_ADMIN_TOKEN,
+  // A9: this node's own key, from the launcher; its public half is registered on the sequencer with this node's role.
+  nodeKey: nodeKeyFromEnv(env) ?? undefined,
 };
 
 // Auto-detect dashboard directory
@@ -249,6 +253,19 @@ async function main(): Promise<void> {
 
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+  // A9: a node must not outlive the launcher that keyed it. The launcher passes its PID; when that
+  // process is gone, so is this node's registration on the sequencer.
+  const parentPid = parentPidFromEnv();
+  if (parentPid) {
+    watchParent({
+      parentPid,
+      onGone: () => {
+        console.log('  [parent] the process that spawned this node (%d) is gone; shutting down', parentPid);
+        void shutdown('parent-gone');
+      },
+    });
+  }
 }
 
 main().catch((err) => {

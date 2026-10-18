@@ -73,6 +73,7 @@ import http from 'http';
 import { resolveBindHost, resolveAllowedOrigins } from '../security/network-policy.js';
 import crypto from 'crypto';
 import { insurerPublicKeyFromSeed } from '../onboarding/employer-attestation.js';
+import { generateNodeKey, childEnvironment, deriveNodeAdminToken, NODE_ID_ENV, NODE_KEY_SEED_ENV, type NodeRole } from '../security/node-roles.js';
 import { AdjudicationService } from '../adjudication/interactive-service.js';
 import { registerInteractiveRoutes } from '../adjudication/interactive-routes.js';
 import { ProofPool } from '../adjudication/proof-pool.js';
@@ -92,6 +93,15 @@ const seedPeers = env.ZKTRIDENT_SEED_PEERS
   : [];
 const unsecureMode = env.ZKTRIDENT_UNSECURE === 'true';
 const adminToken = unsecureMode ? (env.ZKTRIDENT_ADMIN_TOKEN ?? 'admin123') : env.ZKTRIDENT_ADMIN_TOKEN;
+/*
+ * The insurer node's own admin token — phase A item A9, finding A-14. The operator's token above
+ * is accepted by the sequencer only; the insurer's routes take this one. Explicit when the
+ * deployment sets it, otherwise derived from the operator's token in a way the insurer node cannot
+ * reverse, so a one-variable deployment keeps working without the insurer holding the network's
+ * credential. Member, prescriber and pharmacy nodes have no admin routes and get no token at all.
+ */
+const insurerAdminToken = env.ZKTRIDENT_INSURER_ADMIN_TOKEN
+  ?? (adminToken ? deriveNodeAdminToken(adminToken, 'insurer') : undefined);
 const gossipSecret = env.ZKTRIDENT_GOSSIP_SECRET;
 
 /*
@@ -638,15 +648,16 @@ async function main(): Promise<void> {
   const proverScript = path.resolve(thisDir, 'start-prover.ts');
 
   if (fs.existsSync(proverScript)) {
-    const proverEnv = {
-      ...process.env,
+    // A9: the prover gets its own API key and nothing else of this process's secrets.
+    const proverEnv = childEnvironment(process.env, {
       ZKTRIDENT_PROVER_PORT: String(proverPort),
       ZKTRIDENT_PROVER_API_KEY: proverApiKey,
-    };
-    proverChild = spawn('npx', ['tsx', proverScript], {
+      ZKTRIDENT_PARENT_PID: String(process.pid),
+    });
+    proverChild = spawn(process.execPath, ['--import', 'tsx', proverScript], {
       env: proverEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: true,
+      windowsHide: true,
     });
     proverChild.stdout?.on('data', (d: Buffer) => process.stdout.write(d));
     proverChild.stderr?.on('data', (d: Buffer) => process.stderr.write(d));
@@ -666,22 +677,34 @@ async function main(): Promise<void> {
   interface EntityChild { name: string; child: ChildProcess; port: number; }
   const entityChildren: EntityChild[] = [];
 
-  function spawnEntity(name: string, script: string, entityPort: number, extraEnv: Record<string, string> = {}): void {
+  /*
+   * Spawn one node — phase A item A9, finding A-14. Each child gets an Ed25519 key of its own,
+   * generated here and never written to disk; its public half is registered on this process's RPC
+   * server with the child's role before the child exists, so the first request it signs is already
+   * authorised by role and nothing else. The environment it inherits carries none of this
+   * process's secrets; what a child needs is passed by name in `extraEnv`. No shell, no npx: the
+   * script runs under this same Node with tsx, and the child watches this PID (A7).
+   */
+  function spawnEntity(name: string, script: string, entityPort: number, extraEnv: Record<string, string> = {}, role: NodeRole = name as NodeRole): void {
     const scriptPath = path.resolve(thisDir, script);
     if (!fs.existsSync(scriptPath)) {
       console.log('  [entity] %s script not found — skipping', name);
       return;
     }
-    const childEnv = {
-      ...process.env,
+    const nodeKey = generateNodeKey(name);
+    rpcServer.registerNodeKey(nodeKey.nodeId, nodeKey.publicKeyHex, role, `spawned by the launcher as ${role}`);
+    const childEnv = childEnvironment(process.env, {
       ZKTRIDENT_PORT: String(entityPort),
       ZKTRIDENT_SEQUENCER_URL: `http://localhost:${port}`,
+      ZKTRIDENT_PARENT_PID: String(process.pid),
+      [NODE_ID_ENV]: nodeKey.nodeId,
+      [NODE_KEY_SEED_ENV]: nodeKey.seedHex,
       ...extraEnv,
-    };
-    const child = spawn('npx', ['tsx', scriptPath], {
+    });
+    const child = spawn(process.execPath, ['--import', 'tsx', scriptPath], {
       env: childEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: true,
+      windowsHide: true,
     });
     child.stdout?.on('data', (d: Buffer) => process.stdout.write(d));
     child.stderr?.on('data', (d: Buffer) => process.stderr.write(d));
@@ -719,7 +742,8 @@ async function main(): Promise<void> {
   console.log('');
   console.log('  ── Boot Phase 1: Insurer (credentialing authority) ──');
   spawnEntity('insurer', 'start-insurer-nautilus.ts', 4004, {
-    ...(adminToken ? { ZKTRIDENT_ADMIN_TOKEN: adminToken } : {}),
+    // A9: the insurer's own admin token for its own routes; the operator's token never leaves this process.
+    ...(insurerAdminToken ? { ZKTRIDENT_ADMIN_TOKEN: insurerAdminToken } : {}),
     // A9: the insurer's own signing seed, which only the insurer gets. Its public half is pinned
     // on the sequencer above, so the two cannot drift.
     ZKTRIDENT_INSURER_SIGNING_SEED: insurerSigningSeed,
@@ -743,14 +767,12 @@ async function main(): Promise<void> {
   // Will poll l2_getProvider to confirm credentialing before ready
   spawnEntity('prescriber', 'start-prescriber-nautilus.ts', 4002, {
     ZKTRIDENT_SEED_PRESCRIBER: '0',
-    ...(adminToken ? { ZKTRIDENT_ADMIN_TOKEN: adminToken } : {}),
   });
 
   // Pharmacy (port 4003) — uses seed identity index 0
   // Will poll l2_getProvider to confirm credentialing before ready
   spawnEntity('pharmacy', 'start-pharmacy-nautilus.ts', 4003, {
     ZKTRIDENT_SEED_PHARMACY: '0',
-    ...(adminToken ? { ZKTRIDENT_ADMIN_TOKEN: adminToken } : {}),
   });
 
   // NOTE: Employer nodes and HR Tools are NOT spawned at boot time.
@@ -768,7 +790,6 @@ async function main(): Promise<void> {
   // enrollment token, not from environment variables.
   spawnEntity('member', 'start-member-nautilus.ts', 4001, {
     ...(env.ZKTRIDENT_MEMBER_PIN ? { ZKTRIDENT_PIN: env.ZKTRIDENT_MEMBER_PIN } : {}),
-    ...(adminToken ? { ZKTRIDENT_ADMIN_TOKEN: adminToken } : {}),
     ZKTRIDENT_INSURER_URL: `http://localhost:4004`,
   });
 
@@ -778,10 +799,11 @@ async function main(): Promise<void> {
   {
     const explorerScript = path.resolve(thisDir, 'start-explorer.ts');
     if (fs.existsSync(explorerScript)) {
-      const child = spawn('npx', ['tsx', explorerScript], {
-        env: { ...process.env, ZKTRIDENT_EXPLORER_PORT: '8000', ZKTRIDENT_SEQUENCER_URL: `http://localhost:${port}` },
+      const child = spawn(process.execPath, ['--import', 'tsx', explorerScript], {
+        // A9: the explorer serves pages and proxies read methods; it gets no secret and no key.
+        env: childEnvironment(process.env, { ZKTRIDENT_EXPLORER_PORT: '8000', ZKTRIDENT_SEQUENCER_URL: `http://localhost:${port}`, ZKTRIDENT_PARENT_PID: String(process.pid) }),
         stdio: ['ignore', 'pipe', 'pipe'],
-        shell: true,
+        windowsHide: true,
       });
       child.stdout?.on('data', (d: Buffer) => process.stdout.write(d));
       child.stderr?.on('data', (d: Buffer) => process.stderr.write(d));
@@ -828,6 +850,8 @@ async function main(): Promise<void> {
   console.log('  Checkpoint:    %s (max %d)', checkpointDir, maxCheckpoints);
   console.log('  Security:      %s', unsecureMode ? 'UNSECURE MODE (admin123 shared token)' : 'Ed25519 per-node identity');
   console.log('  Admin token:   %s', adminToken ? 'configured' : 'NONE (admin RPC disabled)');
+  console.log('  Insurer token: %s', env.ZKTRIDENT_INSURER_ADMIN_TOKEN ? 'configured (ZKTRIDENT_INSURER_ADMIN_TOKEN)' : insurerAdminToken ? 'derived from the operator token' : 'NONE');
+  console.log('  Node keys:     one per child, registered by role; no child holds the operator token');
   console.log('  Gossip secret: %s', gossipSecret ? 'configured' : 'NONE (unauthenticated gossip)');
   console.log('');
 
