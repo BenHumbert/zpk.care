@@ -132,10 +132,10 @@ export function corsOriginHeader(origin: string | undefined, allowed: string[]):
  * **What this does not fix.** The proxy cannot make an open sequencer method safe. A method
  * on one of these lists is still reachable directly on `:3030` by anyone who can reach the
  * sequencer, and several of them should require authentication and do not —
- * `l2_storeMessage` accepts any claimed sender, `l2_requestAttestation` signs for any wallet,
- * and the claim queries take a wallet ID and return that wallet's records. Those are
- * findings A-12, A-15, A-16 and A-13, and item A10 fixes them at the sequencer, which is the
- * only place they can be fixed. Narrowing the proxy limits the blast radius of the node, not
+ * the claim queries take a wallet ID and return that wallet's records (A-13, phase D). The writes
+ * that speak for a wallet — `l2_storeMessage`, `l2_registerPcpAssignment`, `l2_requestAttestation` —
+ * now require that wallet's own signature at the sequencer (A10b), which is the only place they
+ * could be fixed. Narrowing the proxy limits the blast radius of the node, not
  * of the sequencer.
  */
 
@@ -163,9 +163,10 @@ const PROXY_CATALOG: readonly string[] = [
 ];
 
 /**
- * What the member app needs on top of the catalog. The three writes at the end are the
- * member's own actions — submit a proof, send a message, ask for a credential attestation —
- * and the member page is the only client that performs them.
+ * What the member app needs on top of the catalog. The one write at the end is the member's own
+ * proof submission. Sending a message and asking for a credential attestation go through the
+ * member node's own routes, which sign them as the wallet (A10b); unsigned through the proxy they
+ * could only be refused, so they are not forwarded.
  */
 const PROXY_MEMBER: readonly string[] = [
   'l2_getClaimsByMember',
@@ -185,8 +186,6 @@ const PROXY_MEMBER: readonly string[] = [
   'l2_reconstructAccumulator',
   'l2_getAttestation',
   'l2_getAttestationPublicKey',
-  'l2_requestAttestation',
-  'l2_storeMessage',
   'l2_submitProof',
 ];
 

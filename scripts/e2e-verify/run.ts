@@ -49,6 +49,7 @@ import { PRESCRIBERS, PHARMACIES } from '../../src/data/index.js';
 import { NautilusLocalState } from '../../src/nodes/nautilus-local-state.js';
 import { l2Parse } from '../../src/l2/l2-json.js';
 import { deriveNodeAdminToken } from '../../src/security/node-roles.js';
+import { SequencerAttestationAuthority } from '../../src/credentials/nfc-attestation.js';
 
 const SEQ = 'http://localhost:3030', INS = 'http://localhost:4004', MEM = 'http://localhost:4001', EXP = 'http://localhost:8000';
 const PRE = 'http://localhost:4002', PHA = 'http://localhost:4003';
@@ -730,8 +731,31 @@ async function main() {
   trace.check('Drug history for this member is refused without consent or credentials', dur.status === 401 || dur.status === 403, '401/403', dur.status, dur.status < 300 ? 'served to an unauthenticated caller' : undefined);
   const att = await rpc('l2_requestAttestation', { walletId }, false);
   trace.check('Signed NFC attestation for this member is refused without proof of ownership', !!att.error, 'error', att.error ? att.error.message : 'issued');
+  // A10b: the three writes that speak for a wallet take only that wallet's own signature.
+  const forgedMsg = await rpc('l2_storeMessage', { message: { messageCommitment: '1', senderWalletId: walletId, recipientWalletId: String(results.prescriberWalletId), messageType: 'text', threadIdHash: '1' }, payload: { ciphertext: '00', iv: '00', tag: '00' } }, false);
+  trace.check('A message in this member\'s name without the member\'s signature is refused', !!forgedMsg.error, 'error', forgedMsg.error ? forgedMsg.error.message : 'stored');
+  const forgedPcp = await rpc('l2_registerPcpAssignment', { memberWalletId: walletId, prescriberWalletId: String(results.prescriberWalletId), effectiveDate: '2026-10-18' }, false);
+  trace.check('A primary-care link for this member without the member\'s signature is refused', !!forgedPcp.error, 'error', forgedPcp.error ? forgedPcp.error.message : 'linked');
+  const bearerAtt = await rpc('l2_requestAttestation', { walletId }, true);
+  trace.check('The operator token does not substitute for the member\'s signature on an attestation', !!bearerAtt.error, 'error', bearerAtt.error ? bearerAtt.error.message : 'issued');
   const fb = await http('POST', `${SEQ}/interactive/force-batch`, {});
   trace.check('Unauthenticated /interactive/force-batch is refused', fb.status === 401 || fb.status === 403, '401/403', fb.status);
+
+  // ── 13b. The wallet speaks for itself (A10b) ─────────────
+  trace.begin('member', 'The member\'s own node signs as the wallet: its attestation, and a message');
+  const ownAtt = await mem('POST', '/attestation/request', { expirySeconds: 3600 });
+  const ownAttData = unwrap(ownAtt.json) ?? ownAtt.json;
+  trace.check('The member node obtains the sequencer-signed NFC attestation for its wallet', ownAtt.status === 200 && ownAttData?.w === walletId, walletId, ownAttData?.w ?? ownAtt.json);
+  trace.check('The attestation states the lifecycle the ledger holds, not a constant', [2, 3].includes(Number(ownAttData?.ls)), 'ELIGIBLE (2) or ACTIVE (3)', ownAttData?.ls);
+  const attKey = (await rpc('l2_getAttestationPublicKey', {}, false)).result?.publicKey;
+  const attVerdict = typeof attKey === 'string' && ownAttData ? SequencerAttestationAuthority.verifyAttestation(ownAttData, attKey) : { valid: false, reason: 'no key or no attestation' };
+  trace.check('The attestation verifies against the sequencer\'s pinned key', attVerdict.valid === true, true, attVerdict);
+  const sent = await mem('POST', '/messaging/send', { recipientWalletId: String(results.prescriberWalletId), body: `Hello from the harness, run ${RUN}` });
+  trace.check('The member node sends a message signed as the wallet', sent.status === 200, 200, sent.status, sent.status === 200 ? undefined : JSON.stringify(sent.json ?? sent.text).slice(0, 200));
+  const bySender = await rpc('l2_getMessagesBySender', { walletId }, false);
+  const sentCount = Array.isArray(bySender.result) ? bySender.result.length : (bySender.result?.messages?.length ?? 0);
+  trace.check('The sequencer lists that message under the member as its sender', sentCount >= 1, '≥1', sentCount);
+
 
   // ── 14. Where do the member's secrets live? ─────────────────
   trace.begin('verifier', 'Scan what the network stores and serves for the member\'s secrets');

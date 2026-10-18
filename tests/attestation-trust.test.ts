@@ -26,9 +26,9 @@
  * A signature is only evidence if you already know whose signature it should be. So the verifier
  * now takes the key the verifier trusts, obtained out of band, and refuses when it has none.
  *
- * What this does **not** fix, and is not claimed to: `l2_requestAttestation` is still open, so the
- * sequencer will sign for any wallet it knows if asked. That is the remaining half of A-12 and it
- * needs an ownership proof, which is the same machinery as item D1.
+ * The other half, closed later by A10b (`tests/wallet-signed-rpc.test.ts`): `l2_requestAttestation`
+ * answers only a request signed by the wallet it names, and states the lifecycle the ledger holds
+ * instead of a constant.
  */
 import {
   SequencerAttestationAuthority,

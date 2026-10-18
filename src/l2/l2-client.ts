@@ -29,6 +29,8 @@
  *   const disconnect = client.connectEvents((event) => console.log(event));
  */
 import { signRequest, privateKeyFromSeedHex } from '../security/signed-request.js';
+import type { RequestSigner } from '../security/wallet-key.js';
+import type { NfcCredentialAttestation } from '../credentials/nfc-attestation.js';
 import http from 'http';
 import https from 'https';
 import type { StateTransitionProof } from '../engine/state-transition.js';
@@ -330,8 +332,16 @@ export class L2Client {
   // ─── PCP Assignments ───────────────────────────────────
 
   /** Register a PCP assignment on the sequencer */
-  async registerPcpAssignment(memberWalletId: string, prescriberWalletId: string, effectiveDate: string): Promise<unknown> {
-    return this.rpcCall('l2_registerPcpAssignment', { memberWalletId, prescriberWalletId, effectiveDate });
+  /** Link a member to a primary-care prescriber. Signed as the member (A10b); unsigned, the sequencer refuses. */
+  async registerPcpAssignment(memberWalletId: string, prescriberWalletId: string, effectiveDate: string, signer?: RequestSigner): Promise<unknown> {
+    return this.rpcCall('l2_registerPcpAssignment', { memberWalletId, prescriberWalletId, effectiveDate }, signer);
+  }
+
+  /** Ask the sequencer for a signed NFC attestation of a wallet. Signed as that wallet (A10b). */
+  async requestAttestation(walletId: string, expirySeconds?: number, signer?: RequestSigner): Promise<NfcCredentialAttestation> {
+    const params: Record<string, unknown> = { walletId };
+    if (expirySeconds !== undefined) params.expirySeconds = expirySeconds;
+    return this.rpcCall<NfcCredentialAttestation>('l2_requestAttestation', params, signer);
   }
 
   /** Get PCP assignments for a prescriber */
@@ -394,11 +404,12 @@ export class L2Client {
   }
 
   /** Store an encrypted message on the sequencer */
-  async storeMessage(message: StoredMessage, payload: MessagePayload): Promise<MessageStoreEntry> {
+  /** Store a message. Signed as its sender (A10b); unsigned, the sequencer refuses. */
+  async storeMessage(message: StoredMessage, payload: MessagePayload, signer?: RequestSigner): Promise<MessageStoreEntry> {
     return this.rpcCall<MessageStoreEntry>('l2_storeMessage', {
       message: message as unknown as Record<string, unknown>,
       payload: payload as unknown as Record<string, unknown>,
-    });
+    }, signer);
   }
 
   // ─── Provider Registry ──────────────────────────────────
@@ -623,6 +634,7 @@ export class L2Client {
   private async rpcCall<T>(
     method: string,
     params?: Record<string, unknown>,
+    signer?: RequestSigner,
   ): Promise<T> {
     const rpcReq: RpcRequest = {
       jsonrpc: '2.0',
@@ -633,7 +645,16 @@ export class L2Client {
 
     const body = l2Stringify(rpcReq);
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (this.options.adminPrivateKeyHex && this.options.adminNodeId) {
+    if (signer) {
+      // A10b: a call that speaks for a wallet is signed by that wallet's own key, not the node's.
+      Object.assign(headers, signRequest({
+        signerId: signer.signerId,
+        privateKey: signer.privateKey,
+        method: 'POST',
+        path: '/rpc',
+        body,
+      }));
+    } else if (this.options.adminPrivateKeyHex && this.options.adminNodeId) {
       // A9: this node's own key signs the exact bytes sent, in the one wire format every server verifies.
       Object.assign(headers, signRequest({
         signerId: this.options.adminNodeId,

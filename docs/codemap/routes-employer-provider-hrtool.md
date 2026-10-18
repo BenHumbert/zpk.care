@@ -73,7 +73,7 @@ Checks inside the node: `createGroup` dup (171), fail-closed without attestation
 | DELETE | /roster/:employeeIdHash | ADMIN | node; not found → 404 | — | roster.status='terminated' (employer-node.ts:456); token untouched | 399-414 |
 | GET | /sequencer/chain-state | OPEN | node | L2Client.getChainState | — | 420-428 |
 | GET | /sequencer/status | OPEN | node | L2Client.getStatus | — | 430-438 |
-| POST | /messaging/send | OPEN | node; recipientWalletId+body (450-453). GAP: I7 — unauthenticated send as the employer pseudo-wallet; plaintext-hex fallback (employer-node.ts:523, 526) | `l2_getEncryptionKey`, `l2_storeMessage` (employer-node.ts:501-549) | message store | 444-461 |
+| POST | /messaging/send | OPEN | node; recipientWalletId+body (450-453). GAP: I7 — unauthenticated send as the employer pseudo-wallet; plaintext-hex fallback (employer-node.ts:523, 526) | `l2_getEncryptionKey`, `l2_storeMessage` (employer-node.ts:501-549) | message store | 444-461 A10b: the sequencer now refuses this send — the employer pseudo-wallet has no signing key, and under I6 the employer must not know a member wallet to send to; listed for removal in the cleanup pass. |
 | GET | /messaging/inbox | OPEN | node | `getMessagesByRecipient(employerWalletId)` | — | 463-476 |
 | GET | /messaging/sent | OPEN | node | `getMessagesBySender` | — | 478-491 |
 | GET | /messaging/thread/:threadIdHash | OPEN | node | `getMessagesByThread` | — | 493-506 |

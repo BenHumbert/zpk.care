@@ -39,6 +39,7 @@ import { Field } from 'o1js';
 import type { ILocalStore } from '../storage/local-store.js';
 import type { StateTransitionProof } from '../engine/state-transition.js';
 import { L2SequencerService } from './l2-sequencer-service.js';
+import { RequestRefused } from './request-refused.js';
 import type { AdminStateConfig } from './l2-sequencer-service.js';
 import type { L2Receipt, L2Batch, L1Status, ClaimSubmissionMetadata } from './l2-types.js';
 import type { ClaimAccumulatorEntry } from './claim-accumulator-types.js';
@@ -359,18 +360,18 @@ export class L2Node {
     // Get current chain state for the attestation fields
     const registryRoot = this.sequencer.getCurrentRegistryRoot().toString();
     const globalStateRoot = this.sequencer.getCurrentGlobalStateRoot().toString();
-    // Check wallet existence via any evidence of network registration
-    // Also accept walletId directly if knownWallets set is provided (populated by RPC server entity registry)
-    const receipts = this.sequencer.getReceiptsByWallet(walletId);
-    const isProvider = !!this.sequencer.getProvider(walletId);
-    const hasMessages = this.sequencer.getMessagesByWallet(walletId).length > 0;
-    const isKnown = this.knownWallets?.has(walletId) ?? false;
-    if (receipts.length === 0 && !isProvider && !hasMessages && !isKnown) return null; // Not known to network
+    // A10b: the ledger decides. The wallet must hold a registration here, put there by its own
+    // proof, and the attestation states the lifecycle its leaf holds; a revoked wallet is refused
+    // and an unregistered one gets nothing. The RPC gate has already checked that the caller
+    // signed as this wallet.
+    const lifecycle = this.sequencer.lifecycleStateOf(walletId);
+    if (!lifecycle) return null;
+    if (lifecycle.name === 'revoked') throw new RequestRefused('Attestation refused — the ledger shows this wallet revoked');
 
     const att = this.attestationAuthority.createAttestation({
       walletId,
       credentialCommitment: registryRoot, // Best available commitment
-      lifecycleState: 3, // ACTIVE (only registered wallets can request)
+      lifecycleState: lifecycle.state,
       forestRoot: globalStateRoot || registryRoot,
       expirySeconds,
     });

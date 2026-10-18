@@ -53,6 +53,7 @@ import { corsOriginHeader, resolveAllowedOrigins } from '../security/network-pol
 import { verifySignedRequest, signerIdFromHeaders, ReplayCache } from '../security/signed-request.js';
 import { roleMayCall, type NodeRole, type AuthScope } from '../security/node-roles.js';
 import { readRequestBody } from '../security/request-body.js';
+import { RequestRefused } from './request-refused.js';
 import { AuditService } from '../audit/audit-service.js';
 
 // ─── Visualization Types ──────────────────────────────────
@@ -116,6 +117,12 @@ export interface VizEntity {
   /** X25519 encryption public key hex (64 chars = 32 bytes) for E2E messaging.
    *  Derived from enrollment key. NOT wallet key material — ancillary encryption only. */
   encryptionPublicKeyHex?: string;
+  /**
+   * Ed25519 signing public key hex (64 chars = 32 bytes): the key the wallet signs wallet-scoped
+   * calls with (A10b, `security/wallet-key.ts`). Set once; a re-registration must present the same
+   * key, and only the operator changes it. An entity that has one is owned by it.
+   */
+  signingPublicKeyHex?: string;
 }
 
 // ─── Configuration ──────────────────────────────────────
@@ -216,7 +223,7 @@ export interface AdminKeyEntry {
 
 /** Who a request is from, after the admin gate (A9). */
 export type AuthDecision =
-  | { ok: true; principal: { kind: 'operator' } | { kind: 'node'; nodeId: string; role: NodeRole } }
+  | { ok: true; principal: { kind: 'operator' } | { kind: 'node'; nodeId: string; role: NodeRole } | { kind: 'wallet'; walletId: string } }
   | { ok: false; status: 401 | 403 | 413; message: string };
 
 // ─── L2RpcServer ────────────────────────────────────────
@@ -729,11 +736,23 @@ export class L2RpcServer {
       if (!decision.ok) {
         return this.sendRpcError(res, rpcReq.id, decision.status === 403 ? RPC_FORBIDDEN : RPC_UNAUTHORIZED, decision.message);
       }
+      // The verified principal, for handlers that attribute or decide by role (admission approvals,
+      // employer nodes, entity registration)
+      if (!rpcReq.params) rpcReq.params = {};
+      (rpcReq.params as any)._verifiedRole = decision.principal.kind === 'node' ? decision.principal.role : 'operator';
       if (decision.principal.kind === 'node') {
-        // The verified signer, for handlers that attribute (admission approvals, employer nodes)
-        if (!rpcReq.params) rpcReq.params = {};
         (rpcReq.params as any)._verifiedNodeId = decision.principal.nodeId;
         console.log(`  [admin] ${rpcReq.method} by ${decision.principal.nodeId} (${decision.principal.role}) at ${new Date().toISOString()}`);
+      }
+    }
+
+    // Wallet gate (A10b): a method that speaks for a wallet is signed by that wallet's own key, the
+    // one its entity registration carries. Nobody else's credential substitutes, the operator's included.
+    const walletSpokenFor = L2RpcServer.walletSpokenFor(rpcReq.method, rpcReq.params);
+    if (walletSpokenFor !== undefined) {
+      const walletDecision = this.authorizeWallet(req, rpcReq.method, walletSpokenFor, body);
+      if (!walletDecision.ok) {
+        return this.sendRpcError(res, rpcReq.id, RPC_UNAUTHORIZED, walletDecision.message);
       }
     }
 
@@ -759,7 +778,10 @@ export class L2RpcServer {
       // different signals: the first is a broken client, the second is an attempt to write
       // state with a proof that does not back it. Collapsing both into "Internal error"
       // is how a forgery attempt would have looked like a bug.
-      if (err instanceof ProofRejected) {
+      if (err instanceof RequestRefused) {
+        // A rule said no; the caller is told which one (A10b).
+        this.sendRpcError(res, rpcReq.id, err.code, message);
+      } else if (err instanceof ProofRejected) {
         this.sendRpcError(res, rpcReq.id, RPC_PROOF_REJECTED, `${message} [reason: ${err.reason}]`);
       } else if (message.includes('not found') || message.includes('Unknown method')) {
         this.sendRpcError(res, rpcReq.id, RPC_METHOD_NOT_FOUND, message);
@@ -806,6 +828,7 @@ export class L2RpcServer {
         if (entityMeta && result && typeof result === 'object' && 'isRegistration' in result && (result as any).isRegistration) {
           const walletId = (result as any).walletId as string;
           if (walletId && entityMeta.displayName && entityMeta.type) {
+            const known = this.entityRegistry.get(walletId);
             this.entityRegistry.set(walletId, {
               walletId,
               displayName: entityMeta.displayName,
@@ -813,6 +836,9 @@ export class L2RpcServer {
               specialty: entityMeta.specialty,
               pharmacyType: entityMeta.pharmacyType,
               group: entityMeta.group,
+              // A10b: a proof's display metadata never erases the keys the wallet registered
+              encryptionPublicKeyHex: known?.encryptionPublicKeyHex,
+              signingPublicKeyHex: known?.signingPublicKeyHex,
             });
           }
         }
@@ -1893,7 +1919,23 @@ export class L2RpcServer {
         if (!walletId || !displayName || !type) {
           throw new Error('Missing walletId, displayName, or type');
         }
-        // Viz registry (backward compat) + encryption public key for E2E messaging
+        // A10b / A-32: a node registers entities of its own kind; the operator and the insurer, who
+        // are the principals that credential, register any kind.
+        const principalRole = params._verifiedRole as NodeRole | undefined;
+        const administers = principalRole === 'operator' || principalRole === 'insurer';
+        if (!administers && principalRole !== type) {
+          throw new RequestRefused(`A ${principalRole ?? 'unidentified'} node may register a ${principalRole ?? 'matching'} entity, not a ${type}`);
+        }
+        const signingPublicKeyHex = typeof params.signingPublicKeyHex === 'string' ? params.signingPublicKeyHex.toLowerCase() : undefined;
+        if (signingPublicKeyHex !== undefined && !/^[0-9a-f]{64}$/.test(signingPublicKeyHex)) {
+          throw new Error('signingPublicKeyHex must be 32 bytes (64 hex chars)');
+        }
+        const existing = this.entityRegistry.get(walletId);
+        // The signing key is set once: an entity that has one is owned by it. A re-registration (a
+        // restarted node, a recovered device) presents the same key; only the operator changes it.
+        if (existing?.signingPublicKeyHex && signingPublicKeyHex !== existing.signingPublicKeyHex && principalRole !== 'operator') {
+          throw new RequestRefused(`Entity ${walletId.slice(0, 12)}… is owned by its registered signing key; a re-registration must present that key`);
+        }
         this.entityRegistry.set(walletId, {
           walletId,
           displayName,
@@ -1901,10 +1943,12 @@ export class L2RpcServer {
           specialty: params.specialty as string | undefined,
           pharmacyType: params.pharmacyType as string | undefined,
           group: params.group as string | undefined,
-          encryptionPublicKeyHex: params.encryptionPublicKeyHex as string | undefined,
+          encryptionPublicKeyHex: (params.encryptionPublicKeyHex as string | undefined) ?? existing?.encryptionPublicKeyHex,
+          signingPublicKeyHex: signingPublicKeyHex ?? existing?.signingPublicKeyHex,
         });
-        // Also credential into provider registry if prescriber/pharmacy
-        if (type === 'prescriber' || type === 'pharmacy') {
+        // Also credential into provider registry if prescriber/pharmacy — for the operator and the
+        // insurer only (A-32: this side effect used to run for whichever node called).
+        if ((type === 'prescriber' || type === 'pharmacy') && administers) {
           const seq = this.node.getSequencer();
           const providerType = type as ProviderType;
           const npi = (params.npi as string) ?? '';
@@ -2002,13 +2046,16 @@ export class L2RpcServer {
             updatedAt: Date.now(),
           },
         );
-        // Also add to viz registry
+        // Also add to viz registry; the keys the provider registered stay (A10b)
+        const known = this.entityRegistry.get(walletId);
         this.entityRegistry.set(walletId, {
           walletId,
           displayName,
           type: providerType as VizActorType,
           specialty: params.specialty as string | undefined,
           pharmacyType: params.pharmacyType as string | undefined,
+          encryptionPublicKeyHex: known?.encryptionPublicKeyHex,
+          signingPublicKeyHex: known?.signingPublicKeyHex,
         });
         // Emit viz event for provider credentialing
         this.emitVizEvent('viz:credential:generated', 'enrollment',
@@ -2214,7 +2261,7 @@ export class L2RpcServer {
           ? params.expirySeconds : undefined;
         const att = (this.node as L2Node).requestAttestation(walletId, expirySeconds);
         if (!att) {
-          throw new Error('Attestation unavailable — wallet not found or attestation authority not configured');
+          throw new Error('Attestation unavailable — the ledger holds no registration for this wallet, or the attestation authority is not configured');
         }
         return att;
       }
@@ -2690,6 +2737,57 @@ export class L2RpcServer {
    * HTTP method, the path and the body actually received, and a replay is refused, so `body` must
    * be the bytes received — the JSON-RPC envelope for `/rpc`, whatever the gate read for a route.
    */
+  /**
+   * The methods that speak for a wallet, and the parameter that names it (A10b). A request to one
+   * of these is signed by that wallet's registered signing key or it is refused.
+   */
+  static readonly WALLET_SIGNED_METHODS: Readonly<Record<string, string>> = {
+    l2_storeMessage: 'message.senderWalletId',
+    l2_registerPcpAssignment: 'memberWalletId',
+    l2_requestAttestation: 'walletId',
+  };
+
+  /** The wallet a request speaks for: undefined for a method outside the list, '' when the parameter is missing. */
+  static walletSpokenFor(method: string, params: unknown): string | undefined {
+    const where = L2RpcServer.WALLET_SIGNED_METHODS[method];
+    if (!where) return undefined;
+    let value: unknown = params;
+    for (const key of where.split('.')) {
+      value = value !== null && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined;
+    }
+    return typeof value === 'string' ? value : '';
+  }
+
+  /**
+   * The gate for a wallet-scoped method (A10b): the signer id in the request must be the wallet the
+   * call speaks for, the signature must verify against that wallet's registered signing key over the
+   * exact bytes sent, inside the window and not replayed. A bearer token, a node key, another wallet's
+   * key or a wallet with no key registered are all refused, each with its reason.
+   */
+  private authorizeWallet(req: IncomingMessage, method: string, walletId: string, body: string | undefined): AuthDecision {
+    const short = (id: string) => (id.length > 12 ? `${id.slice(0, 12)}…` : id);
+    if (!walletId) return { ok: false, status: 401, message: `Unauthorized — ${method} names no wallet to speak for` };
+    if (typeof req.headers['authorization'] === 'string' && req.headers['authorization'].length > 0) {
+      return { ok: false, status: 401, message: `Unauthorized — ${method} speaks for wallet ${short(walletId)}; only that wallet's signature opens it, not a bearer token` };
+    }
+    const signerId = signerIdFromHeaders(req.headers);
+    if (!signerId) return { ok: false, status: 401, message: `Unauthorized — ${method} speaks for wallet ${short(walletId)} and must be signed by it` };
+    if (signerId !== walletId) return { ok: false, status: 401, message: `Unauthorized — signed by ${short(signerId)}, not by wallet ${short(walletId)} it speaks for` };
+    const key = this.entityRegistry.get(walletId)?.signingPublicKeyHex;
+    if (!key) return { ok: false, status: 401, message: `Unauthorized — wallet ${short(walletId)} has no signing key registered` };
+    const outcome = verifySignedRequest({
+      method: req.method ?? 'POST',
+      path: '/rpc',
+      headers: req.headers,
+      expectedSignerId: walletId,
+      publicKeyHex: key,
+      body,
+      replayCache: this.replayCache,
+    });
+    if (!outcome.ok) return { ok: false, status: 401, message: `Unauthorized — ${outcome.reason}` };
+    return { ok: true, principal: { kind: 'wallet', walletId } };
+  }
+
   private authorize(req: IncomingMessage, scope: AuthScope, body: string | undefined): AuthDecision {
     const authHeader = req.headers['authorization'];
     if (typeof authHeader === 'string' && authHeader.length > 0) {

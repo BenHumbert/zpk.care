@@ -176,7 +176,7 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 | l2_getMessagesByRecipient | OPEN (GAP I7) | walletId | recipient index | yes | 1763-1769 |
 | l2_getMessagesByThread | OPEN (GAP I7) | threadIdHash | thread index | yes | 1771-1777 |
 | l2_getMessageStoreRoot | OPEN | — | root + count | no | 1779-1784 |
-| l2_storeMessage | OPEN (GAP I7: sender not authenticated) | message{messageCommitment, senderWalletId, recipientWalletId, messageType, threadIdHash}, payload{ciphertext, iv, tag, timestamp?, receiptId?} | maps type names→codes; `node.storeMessage` appends to message store under any claimed sender; emits `viz:message:sent` | yes (writes) | 1786-1841; NODE:653 |
+| l2_storeMessage | WALLET-SIGNED (A10b: only a request signed by `message.senderWalletId` with its registered key; see `authorizeWallet`) | message{messageCommitment, senderWalletId, recipientWalletId, messageType, threadIdHash}, payload{ciphertext, iv, tag, timestamp?, receiptId?} | maps type names→codes; `node.storeMessage` appends to message store under any claimed sender; emits `viz:message:sent` | yes (writes) | 1786-1841; NODE:653 |
 
 ### Entities / providers
 | Method | Auth | Params | Reads/writes | Member | Line |
@@ -195,14 +195,14 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 ### PCP
 | Method | Auth | Params | Reads/writes | Member | Line |
 |---|---|---|---|---|---|
-| l2_registerPcpAssignment | OPEN (GAP I7: no proof, no caller auth) | memberWalletId, prescriberWalletId, effectiveDate? | appends to in-memory `pcpAssignments[prescriber]` unless memberWalletId already present (dedupe per prescriber) | yes (writes member→prescriber link) | 2117-2131; map at 239 |
+| l2_registerPcpAssignment | WALLET-SIGNED (A10b: only a request signed by `memberWalletId`) | memberWalletId, prescriberWalletId, effectiveDate? | appends to in-memory `pcpAssignments[prescriber]` unless memberWalletId already present (dedupe per prescriber) | yes (writes member→prescriber link) | 2117-2131; map at 239 |
 | l2_getPcpAssignments | OPEN (GAP I7) | prescriberWalletId | list of {memberWalletId, effectiveDate, timestamp} | yes | 2133-2141 |
 
 ### Accumulator / attestation
 | Method | Auth | Params | Reads/writes | Member | Line |
 |---|---|---|---|---|---|
 | l2_reconstructAccumulator | OPEN (GAP I7) | walletId, planIdHash? | `seq.reconstructAccumulator` sums claim leaves | yes: deductiblePaid/oopPaid/benefitUsed cents, claim counts | 2143-2151; SEQ:2167 |
-| l2_requestAttestation | OPEN (GAP I7: mints + caches for any caller) | walletId, expirySeconds? | if wallet in `entityRegistry` → `registerKnownWallet`; `node.requestAttestation` signs {w, cc, ls=3, fr, ts, exp, n, pk, sig} when wallet has receipts/provider/messages/known flag, and writes `attestationCache[walletId]` | yes: signed attestation for wallet | 2155-2174; NODE:356-381; `src/credentials/nfc-attestation.ts:55-78` |
+| l2_requestAttestation | WALLET-SIGNED (A10b: only a request signed by `walletId`; lifecycle from `lifecycleStateOf`, revoked refused, unregistered null) | walletId, expirySeconds? | if wallet in `entityRegistry` → `registerKnownWallet`; `node.requestAttestation` signs {w, cc, ls=3, fr, ts, exp, n, pk, sig} when wallet has receipts/provider/messages/known flag, and writes `attestationCache[walletId]` | yes: signed attestation for wallet | 2155-2174; NODE:356-381; `src/credentials/nfc-attestation.ts:55-78` |
 | l2_getAttestation | OPEN (GAP I7) | walletId | reads `attestationCache` | yes | 2176-2189; NODE:383-385 |
 | l2_getAttestationPublicKey | OPEN | — | authority Ed25519 pubkey | no | 2191-2198 |
 

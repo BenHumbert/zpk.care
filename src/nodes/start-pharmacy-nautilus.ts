@@ -49,6 +49,7 @@ import { fileURLToPath } from 'url';
 import { NautilusAppServer } from './nautilus-app-server.js';
 import { parentPidFromEnv, watchParent } from './parent-watchdog.js';
 import { nodeKeyFromEnv } from '../security/node-roles.js';
+import { registerProviderEntity } from './provider-registration.js';
 import type { NautilusAppConfig } from './nautilus-app-types.js';
 import type { NautilusStateData } from './nautilus-local-state.js';
 import { buildPharmacyRoutes } from './routes/pharmacy-routes.js';
@@ -169,6 +170,20 @@ async function main(): Promise<void> {
       } catch { /* sequencer not ready yet */ }
       await new Promise((r) => setTimeout(r, 1000));
     }
+
+    // A10b / A-30: this node's entity, with its encryption and signing keys, so an eScript can be
+    // encrypted to it and its calls can be signed as it. Idempotent; the insurer credentials.
+    const registration = await registerProviderEntity(server, {
+      walletId,
+      displayName: pharmacy.storeName,
+      type: 'pharmacy',
+      npi: String(pharmacy.localData.serviceProviderId),
+      pharmacyType: pharmacy.pharmacyTypeDesc,
+      enrollmentKey: pharmacy.enrollmentKey,
+    });
+    console.log(registration.ok
+      ? '  [seed] Entity registered on sequencer (encryption + signing keys)'
+      : `  [seed] Entity registration refused: ${registration.error}`);
 
     if (credentialed) {
       console.log('  [seed] Credentialed on sequencer — transitioning to ready');

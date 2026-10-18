@@ -58,6 +58,7 @@ import { corsOriginHeader } from '../security/network-policy.js';
 import { verifySignedRequest, signerIdFromHeaders, signRequest, privateKeyFromSeedHex, ReplayCache } from '../security/signed-request.js';
 import { readRequestBody } from '../security/request-body.js';
 import { signedFetch as signedFetchWith, type SignedFetchInit } from './sequencer-fetch.js';
+import { walletSigner as walletSignerFor, type RequestSigner } from '../security/wallet-key.js';
 import type { L2ClientOptions } from '../l2/l2-client.js';
 
 // ─── Constants ──────────────────────────────────────────────
@@ -125,6 +126,8 @@ export class NautilusAppServer {
 
   /** Set the entity node after onboarding completes, or null to clear (eject). */
   setEntityNode(node: EntityNodeBase | null): void {
+    // A10b: the node signs wallet-scoped calls as its wallet, with the key this server can derive.
+    node?.setWalletSignerSource(() => this.walletSigner());
     // Disconnect previous SSE bridge if any
     if (this.eventDisconnect) {
       this.eventDisconnect();
@@ -307,6 +310,18 @@ export class NautilusAppServer {
   sequencerClientOptions(): Partial<L2ClientOptions> | undefined {
     const key = this.config.nodeKey;
     return key ? { adminPrivateKeyHex: key.seedHex, adminNodeId: key.nodeId } : undefined;
+  }
+
+  /**
+   * This node's wallet signer (A10b): the wallet id from local state and the signing key derived from
+   * the enrollment key, derived on each call and not kept. Null while the device is locked or before
+   * a wallet exists, in which case a wallet-scoped call goes out unsigned and the sequencer refuses it.
+   */
+  walletSigner(): RequestSigner | null {
+    const state = this.getLocalState();
+    const walletId = (state.getState() as { walletId?: string } | null)?.walletId;
+    if (!walletId || !state.hasEnrollmentKey()) return null;
+    return state.useEnrollmentKey((enrollmentKey) => walletSignerFor(enrollmentKey, walletId));
   }
 
   // ─── Route Registration ───────────────────────────────────

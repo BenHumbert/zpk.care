@@ -1288,6 +1288,75 @@ Not here, by design: the preimage still reaches the engine and the engine still 
 on it; the insurer's approval and the real plan in the engine are commit two. State from before this
 commit is not readable by design (C4, genesis).
 
+**A10b implementation record: the wallet speaks for itself.** Done 2026-10-18. Closes **A-15**,
+**A-16**, the open half of **A-12**, **A-30**, and **A-32** (new, found on the way). A-17 stays
+mitigated, on purpose; see below.
+
+*The key.* `src/security/wallet-key.ts`: `deriveWalletSigningKey(enrollmentKey)` is an Ed25519 key
+whose seed is HKDF-SHA256 of the enrollment key under a fixed label, a sibling of the X25519
+encryption key `messaging/encryption.ts` derives from the same root (a different derivation, so
+neither key follows from the other's public half). Derived when needed and not kept: the enrollment
+key stays the only secret (I3), and recovering it on a new device reproduces the same signing key,
+so recovery needs no re-registration. The public half travels as `signingPublicKeyHex` on
+`l2_registerEntity`, beside the encryption key.
+
+*Ownership.* The key is set once. A later registration for the same wallet must present the same
+key (a restarted provider node, a recovered device) or come from the operator; anything else is
+refused with the reason, so nobody takes over an identity by re-registering it. The insurer's
+`l2_credentialProvider` and a registration proof's display metadata no longer erase a wallet's keys
+when they rewrite its entry. **A-32**, found here: `l2_registerEntity` credentialed any
+`prescriber`/`pharmacy` entity ACTIVE in the provider registry as a side effect for whichever node
+called it, so a member node's key could mint an active prescriber, and a node could register an
+entity of any kind. Now a node registers only entities of its own role, and the side effect runs
+only for the operator and the insurer, the principals that credential.
+
+*The gate.* `L2RpcServer.WALLET_SIGNED_METHODS` names, per method, the parameter that is the wallet
+spoken for: `l2_storeMessage` → `message.senderWalletId`, `l2_registerPcpAssignment` →
+`memberWalletId`, `l2_requestAttestation` → `walletId`. Such a request carries a signature in the
+one wire format (`signed-request.ts`) whose signer id is that wallet, verified against the wallet's
+registered signing key over the exact bytes, inside the window and the replay cache. A bearer
+token, a node key, another wallet's key or a wallet with no key registered are all
+`RPC_UNAUTHORIZED` with the reason; the operator's token does not let anyone speak as a member.
+Refusals a handler makes on a rule travel as `RequestRefused` (`src/l2/request-refused.ts`) and
+reach the caller with their message instead of "Internal error".
+
+*The attestation tells the truth.* `L2SequencerService.lifecycleStateOf(walletId)` decodes the
+wallet's leaf in the lifecycle tree; `requestAttestation` states that value (REGISTERED 1, ELIGIBLE
+2, ACTIVE 3), refuses a revoked wallet, and gives nothing to a wallet the ledger does not hold.
+"Known to the entity registry" is no longer registration, and ACTIVE is no longer a constant.
+
+*The callers.* `L2Client` takes a per-call signer; every node's `storeMessage` and
+`requestAttestation` sign as the node's wallet automatically when the node holds its enrollment key
+(`EntityNodeBase.walletSigner`, wired by `NautilusAppServer.setEntityNode`). The member node
+registers its signing key at enrollment, signs its PCP registration after the PCP proof, and serves
+`POST /attestation/request` (device session), which the member page now calls; the page's direct
+`l2_storeMessage` and `l2_requestAttestation` calls are gone, and so are those two methods from
+the member proxy's allowlist, where unsigned they could only fail. The employer node's
+`/messaging/send` sent as a pseudo-wallet derived from the employer id, to a member wallet the
+employer must not know (I6); it is now refused at the sequencer like any other unsigned sender and
+is listed for removal in the naming and cleanup pass.
+
+*A-30.* Both provider starters register their entity at boot with both public keys
+(`src/nodes/provider-registration.ts`, node-signed, idempotent under the ownership rule), so an
+encrypted eScript can reach a pharmacy; the prescriber's badge-tap registration uses the same
+helper in place of a `require` inside an ES module that produced no key. Neither registration
+credentials the provider; the badge reports PENDING until the insurer does.
+
+*What stays open, stated.* A-17: the engine's `generate-credential` and `credential-status` are
+called only by the operator's console and the harness, never by the member page; the right fix is
+B1 step two, when the device proves its own credential, so the admin gate stays and the finding
+carries the note. The engine's own write routes (`/interactive/prescribe`, `/fill`,
+`/mark-filled`, `/assign-pcp`) are the console's orchestration surface and were never part of A10;
+they leave with B1 step two, and D2 catches what remains.
+
+*Verified.* `tests/wallet-key.test.ts` (4: deterministic, separate from the encryption key, round
+trip and replay), `tests/wallet-signed-rpc.test.ts` (12, a real sequencer server: ownership, the
+A-32 rules, each method refused unsigned / bearer / node key / other wallet / replay and accepted
+with the wallet's own signature, the attestation's lifecycle from the ledger, a revoked and an
+unregistered wallet refused), `tests/message-submission.test.ts` unchanged and green (the node's
+own `storeMessage` is in-process and never passes the gate). Typecheck src 20, scripts 2. Live:
+136 of 149 checks across 27 steps on a clean secured genesis boot; the nine A10b checks all pass (a forged message, a forged PCP link, and a bare and an operator-token attestation request are refused; the member's own node obtains an attestation that states the ledger's lifecycle and verifies against the pinned key, and sends a message the sequencer lists under it); 13 failing checks, the previous run's 14 minus the attestation probe that now passes, nothing new; both provider nodes registered their entity with both keys at boot.
+
 **Step 2, commit two implementation record: the engine's door, and the real plan.** Done 2026-10-18.
 Closes **A-6** (B2 as far as it can go before the engine stops proving for members) and **A-9**
 (C2's engine half), and records **C4** as a note.
@@ -1975,3 +2044,17 @@ commits on local `dev`, nothing pushed, `origin/main` untouched. **Next:** A10b 
 `l2_storeMessage`, proofs for `l2_registerPcpAssignment` and `l2_requestAttestation`, the pharmacy's
 encryption key for A-30), then A13 (replica keys under the `replica` role and the invariant monitor),
 then B1 step two with phase B, then phase D.
+
+**Addendum, 2026-10-18: A10b done.** Each wallet signs for itself: an Ed25519 key derived on the
+device from the enrollment key, registered beside the encryption key and owned by it; `l2_storeMessage`,
+`l2_registerPcpAssignment` and `l2_requestAttestation` accept only the wallet's own signature; the
+attestation states the ledger's lifecycle; both provider nodes register their keys at boot; a node
+registers only entities of its own kind and never credentials one (A-32). Scoreboard, recounted from
+the rows (the previous addendum said 12 open; it was 13): 32 findings; 20 fixed (A-3, A-4, A-5, A-6,
+A-7, A-9, A-12, A-13, A-14, A-15, A-16, A-19, A-20, A-21, A-24, A-28, A-29, A-30, A-31, A-32); 1 partly
+fixed (A-1, until B1 step two); 1 mitigated (A-17, until B1 step two); 10 open (A-2, A-8, A-10, A-11,
+A-18, A-22, A-23, A-25, A-26, A-27), one of them critical (A-2). Phase A item still open: A13.
+Acceptance suites added this session: 26, 356 tests, all passing. Typecheck src 20, scripts 2.
+Pipeline 136 of 149 checks across 27 steps on a clean secured genesis boot; the nine A10b checks all pass (a forged message, a forged PCP link, and a bare and an operator-token attestation request are refused; the member's own node obtains an attestation that states the ledger's lifecycle and verifies against the pinned key, and sends a message the sequencer lists under it); 13 failing checks, the previous run's 14 minus the attestation probe that now passes, nothing new; both provider nodes registered their entity with both keys at boot. Git: with this commit, 38 commits on local `dev`, nothing pushed,
+`origin/main` untouched. **Next:** A13 (one `registerNodeKey` per replica under the `replica` role,
+and the invariant monitor), then B1 step two with phase B, then phase D.

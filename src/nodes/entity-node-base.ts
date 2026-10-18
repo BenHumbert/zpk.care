@@ -35,6 +35,8 @@ import { PartitionRouter, getPartition } from '../l2/l2-partition.js';
 import type { L2ChainState, L2Receipt } from '../l2/l2-types.js';
 import type { ClaimAccumulatorEntry } from '../l2/claim-accumulator-types.js';
 import type { StoredMessage, MessagePayload, MessageStoreEntry } from '../l2/message-store-types.js';
+import type { RequestSigner } from '../security/wallet-key.js';
+import type { NfcCredentialAttestation } from '../credentials/nfc-attestation.js';
 import type { L2ChainEvent, L2EventHandler, L2NodeStatus } from '../l2/l2-node.js';
 import type {
   EntityNodeConfig,
@@ -211,11 +213,34 @@ export abstract class EntityNodeBase {
     return this.partitionRouter;
   }
 
+  // ─── The wallet's own signature (A10b) ──────────────────
+
+  /** Where this node's wallet signing key comes from; the app server that holds the enrollment key sets it. */
+  private walletSignerSource: (() => RequestSigner | null) | null = null;
+
+  setWalletSignerSource(source: (() => RequestSigner | null) | null): void {
+    this.walletSignerSource = source;
+  }
+
+  /** A signer for this node's own wallet, or null when the node holds no enrollment key (locked, or started without one). */
+  walletSigner(): RequestSigner | null {
+    try {
+      return this.walletSignerSource?.() ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   // ─── Messaging ─────────────────────────────────────────
 
-  /** Store an encrypted message on the sequencer */
-  async storeMessage(message: StoredMessage, payload: MessagePayload): Promise<MessageStoreEntry> {
-    return this.client.storeMessage(message, payload);
+  /** Store an encrypted message on the sequencer, signed as this node's wallet (A10b). */
+  async storeMessage(message: StoredMessage, payload: MessagePayload, signer: RequestSigner | null = this.walletSigner()): Promise<MessageStoreEntry> {
+    return this.client.storeMessage(message, payload, signer ?? undefined);
+  }
+
+  /** Ask for a signed NFC attestation of this node's wallet, signed as that wallet (A10b). */
+  async requestAttestation(walletId: string, expirySeconds?: number): Promise<NfcCredentialAttestation> {
+    return this.client.requestAttestation(walletId, expirySeconds, this.walletSigner() ?? undefined);
   }
 
   /** Get messages received by this wallet */

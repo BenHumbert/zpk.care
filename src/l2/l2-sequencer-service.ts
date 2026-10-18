@@ -48,7 +48,7 @@ import { ProviderLifecycle } from './provider-registry-types.js';
 import type { PartitionConfig } from './l2-partition.js';
 import { isMyPartition, getPartition } from './l2-partition.js';
 import { WalletRegistry, WalletState, WALLET_TREE_HEIGHT } from '../wallets/wallet-state.js';
-import { lifecycleLeafCommitment, LIFECYCLE_REGISTERED, LifecycleWitness } from '../engine/lifecycle.js';
+import { lifecycleLeafCommitment, LIFECYCLE_REGISTERED, LIFECYCLE_ELIGIBLE, LIFECYCLE_ACTIVE, LIFECYCLE_REVOKED, LifecycleWitness } from '../engine/lifecycle.js';
 import type { IWalProvider, WalEntry } from './l2-wal.js';
 import type { TransitionProofVerifier } from './l2-proof-verifier.js';
 import type { ProvingJobRequest, ProvingJobResult } from './l2-proving-pool-types.js';
@@ -1376,6 +1376,29 @@ export class L2SequencerService {
    * engine, EnrollmentService) read witnesses and wallet state from these objects.
    * Any change to them must happen inside adminMutate(), which re-derives the roots.
    */
+  /**
+   * What the ledger says about a wallet (A10b): its lifecycle leaf decoded, or null when the wallet
+   * holds no registration here or the leaf matches no known state. The tree is the truth; the map
+   * beside it is a cache.
+   */
+  lifecycleStateOf(walletId: string): { state: number; name: 'registered' | 'eligible' | 'active' | 'revoked' } | null {
+    let wid: Field;
+    try {
+      wid = Field(BigInt(walletId));
+    } catch {
+      return null;
+    }
+    if (!this.walletRegistry.isRegistered(wid)) return null;
+    const leaf = this.lifecycleTree.getNode(0, this.walletRegistry.getIndex(wid)).toString();
+    const states: Array<[Field, 'registered' | 'eligible' | 'active' | 'revoked']> = [
+      [LIFECYCLE_REGISTERED, 'registered'], [LIFECYCLE_ELIGIBLE, 'eligible'], [LIFECYCLE_ACTIVE, 'active'], [LIFECYCLE_REVOKED, 'revoked'],
+    ];
+    for (const [value, name] of states) {
+      if (leaf === lifecycleLeafCommitment(wid, value).toString()) return { state: Number(value.toString()), name };
+    }
+    return null;
+  }
+
   getStateTrees(): { registry: WalletRegistry; lifecycle: MerkleTree } {
     return { registry: this.walletRegistry, lifecycle: this.lifecycleTree };
   }

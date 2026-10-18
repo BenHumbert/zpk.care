@@ -32,6 +32,7 @@ import { securePrescriberDerivation } from '../../security/secure-context.js';
 import { WalletRegistryWitness } from '../../wallets/wallet-state.js';
 import { LifecycleWitness } from '../../engine/lifecycle.js';
 import { PrescriberNode } from '../prescriber-node.js';
+import { registerProviderEntity } from '../provider-registration.js';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
 import type { RouteRegistration } from '../nautilus-app-types.js';
 import type { PrescriberLocalData } from '../../models/prescriber.js';
@@ -1252,33 +1253,21 @@ export function buildPrescriberRoutes(
             // First time alias — register this prescriber's wallet on the sequencer
             isNewWallet = true;
             console.log(`[badge:tap] First alias for ${displayName} — registering wallet ${walletId.slice(0, 16)}… on sequencer`);
-            const regHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-            const regResp = await server.signedFetch(seqUrl + '/rpc', {
-              method: 'POST',
-              headers: regHeaders,
-              body: JSON.stringify({
-                jsonrpc: '2.0', id: 2, method: 'l2_registerEntity',
-                params: {
-                  walletId,
-                  displayName,
-                  type: 'prescriber',
-                  npi: String(prescriber.localData.prescriberId),
-                  specialty: prescriber.specialty,
-                  encryptionPublicKeyHex: (() => {
-                    try {
-                      const { deriveEncryptionKeyPair } = require('../../messaging/encryption.js');
-                      return deriveEncryptionKeyPair(prescriber.enrollmentKey).publicKey.toString('hex');
-                    } catch { return undefined; }
-                  })(),
-                },
-              }),
+            // A10b / A-30: the shared registration, with both public keys. It does not credential:
+            // that is the insurer's decision, so the badge reports PENDING until it is made.
+            const registered = await registerProviderEntity(server, {
+              walletId,
+              displayName,
+              type: 'prescriber',
+              npi: String(prescriber.localData.prescriberId),
+              specialty: prescriber.specialty,
+              enrollmentKey: prescriber.enrollmentKey,
             });
-            const regJson = await regResp.json() as any;
-            if (regJson.error) {
-              console.warn(`[badge:tap] Entity registration failed: ${regJson.error.message}`);
+            if (!registered.ok) {
+              console.warn(`[badge:tap] Entity registration failed: ${registered.error}`);
             } else {
-              console.log(`[badge:tap] Prescriber ${displayName} registered on sequencer`);
-              credentialState = 'ACTIVE';
+              console.log(`[badge:tap] Prescriber ${displayName} registered on sequencer; credentialing is the insurer's`);
+              credentialState = 'PENDING';
             }
           }
         } catch (regErr: any) {

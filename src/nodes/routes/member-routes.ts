@@ -44,6 +44,7 @@ import { MerkleForest, ForestDomain } from '../../zkp/merkle-forest.js';
 import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY } from '../../credentials/credential-data.js';
 import { buildNfcIdentityRecord, fitsOnTag } from '../nfc-identity.js';
 import { deriveEncryptionKeyPair } from '../../messaging/encryption.js';
+import { deriveWalletSigningKey } from '../../security/wallet-key.js';
 import { MemberNode } from '../member-node.js';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
 import type { RouteRegistration } from '../nautilus-app-types.js';
@@ -530,6 +531,17 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         console.warn('[enroll] Could not derive encryption keypair:', encErr instanceof Error ? encErr.message : String(encErr));
       }
 
+      // A10b: the wallet's own signing key, registered beside the encryption key. Wallet-scoped
+      // sequencer calls (messages, the PCP link, attestation requests) are signed with it from now on.
+      let signingPublicKeyHex: string | undefined;
+      try {
+        if (state.hasEnrollmentKey()) {
+          signingPublicKeyHex = state.useEnrollmentKey((ek) => deriveWalletSigningKey(ek).publicKeyHex);
+        }
+      } catch (keyErr: unknown) {
+        console.warn('[enroll] Could not derive the wallet signing key:', keyErr instanceof Error ? keyErr.message : String(keyErr));
+      }
+
       // ── Step 3: Register wallet on sequencer (ONLY after insurer approved)
       let sequencerRegistered = false;
       try {
@@ -546,6 +558,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
               type: 'member',
               group: data.onboarding.tokenData?.groupId ?? undefined,
               encryptionPublicKeyHex,
+              signingPublicKeyHex,
             },
           }),
         });
@@ -1344,7 +1357,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         try {
           const pcpWid = pcpAssignment.pcpWalletId;
           const pcpDate = pcpAssignment.effectiveDate;
-          await client.registerPcpAssignment(data.walletId, pcpWid, pcpDate);
+          await client.registerPcpAssignment(data.walletId, pcpWid, pcpDate, node.walletSigner() ?? undefined);
           console.log('[pcp-proof] PCP registered on sequencer after proof');
         } catch (regErr: any) {
           console.warn('[pcp-proof] Sequencer PCP registration failed (proof still valid):', regErr?.message);
@@ -1363,6 +1376,36 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
         console.error('[pcp-proof] Failed:', msg);
         return server.sendResponse(res, 500, false, undefined, msg);
+      }
+    },
+  });
+
+  // ── NFC attestation (A10b) ───────────────────────────────
+  // The member asks for its sequencer-signed attestation through its own node, which signs the
+  // request as the wallet; the sequencer answers no unsigned l2_requestAttestation any more.
+
+  routes.push({
+    method: 'POST',
+    path: '/attestation/request',
+    deviceOnly: true,
+    handler: async (_req, res, _params, _query, body) => {
+      const node = server.getEntityNode() as MemberNode | null;
+      const data = server.getLocalState().getState();
+      if (!node || !data?.walletId) {
+        return server.sendResponse(res, 409, false, undefined, 'Wallet not derived — complete onboarding first');
+      }
+      if (!node.walletSigner()) {
+        return server.sendResponse(res, 409, false, undefined, 'Device is locked — the enrollment key is needed to sign as the wallet');
+      }
+      const b = body as { expirySeconds?: number } | undefined;
+      const expirySeconds = typeof b?.expirySeconds === 'number' && b.expirySeconds > 0
+        ? Math.min(Math.floor(b.expirySeconds), 7 * 86_400)
+        : undefined;
+      try {
+        const attestation = await node.requestAttestation(data.walletId, expirySeconds);
+        server.sendResponse(res, 200, true, attestation);
+      } catch (err) {
+        server.sendResponse(res, 502, false, undefined, err instanceof Error ? err.message : 'Attestation request failed');
       }
     },
   });

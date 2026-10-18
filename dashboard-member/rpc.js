@@ -182,7 +182,6 @@ const RPC = (() => {
   function getMessagesByThread(h) { return call('l2_getMessagesByThread', { threadIdHash: h }); }
   function getMessagesBySender(w) { return call('l2_getMessagesBySender', { walletId: w }); }
   function getMessagesByRecipient(w) { return call('l2_getMessagesByRecipient', { walletId: w }); }
-  function storeMessage(message, payload) { return call('l2_storeMessage', { message, payload }); }
   /** Send a message via the member node's server-side encryption (E2E) */
   async function sendEncryptedMessage(recipientWalletId, body) {
     var res = await fetch(baseUrl + '/messaging/send', {
@@ -196,10 +195,15 @@ const RPC = (() => {
   function getMessageStoreRoot() { return call('l2_getMessageStoreRoot'); }
 
   // ── NFC Attestation ──────────────────────────────────
-  function requestAttestation(w, expiry) {
-    var p = { walletId: w };
-    if (expiry) p.expirySeconds = expiry;
-    return call('l2_requestAttestation', p);
+  /** Ask the member node for the NFC attestation; the node signs the request as the wallet (A10b). */
+  async function requestAttestation(_w, expiry) {
+    var res = await fetch(baseUrl + '/attestation/request', {
+      method: 'POST', headers: deviceHeaders(),
+      body: JSON.stringify(expiry ? { expirySeconds: expiry } : {}),
+    });
+    var data = await res.json();
+    if (data.error) throw new Error(errMsg(data.error) || 'Attestation request failed');
+    return stripBigints(data.data || data);
   }
   function getAttestation(w) { return call('l2_getAttestation', { walletId: w }); }
   function getAttestationPublicKey() { return call('l2_getAttestationPublicKey'); }
@@ -297,7 +301,7 @@ const RPC = (() => {
     reconstructAccumulator, getPlanLimits, estimateCost, getFormulary, getFormularyPage, getFormularyDrugCount, getFormularyRoutes, getFormularyRoot,
     getNetworkProviders,
     getMessagesByWallet, getMessagesByThread, getMessagesBySender, getMessagesByRecipient,
-    storeMessage, sendEncryptedMessage, getMessageStoreRoot,
+    sendEncryptedMessage, getMessageStoreRoot,
     requestAttestation, getAttestation, getAttestationPublicKey,
     enrollWithInsurer, assignPcp, getCurrentPcp,
     getProverStatus, delegateProof, submitProof, getRegistrationWitnesses,
