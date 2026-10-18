@@ -2040,6 +2040,7 @@ Must be one operation, because every item here changes the wallet ID.
 | D4 | Fix the duplicate-fill path so a claim is either rejected before payment or recorded. Reconcile the two accumulator divergences | integrity, money | A-10, A-11 |
 | D5 | Bind the money into the audit chain: populate the amount fields, wire the enrichment that currently has no callers, make the financial balance check meaningful, and correct the 8-versus-10-field documentation | integrity | A-26, C-4 |
 | D6 | Encrypt claim data at rest in checkpoints, and the engine state file | I1 | A-1, BOOT-06 |
+| D7 | **Split the state transition.** The device proves only its own authorization — preimage to wallet, old leaf to new leaf, no roots — and the sequencer's proving pool proves the tree transition in order, verifying the device's proof inside it. Until then, a proving lease per partition (witnesses handed to one prover at a time, first come first served). Found by the multi-member run: concurrent root-bound device proofs starve | correctness, scale | A-33 |
 
 ### Phase E — Turn the trust layer on
 
@@ -2700,3 +2701,15 @@ Typecheck src 20, scripts 2. Pipeline 221/221 checks across 33 steps on a clean 
 50 commits on local `dev`, nothing pushed, `origin/main` untouched. **Next:** B8 (no settlement
 rewrite after the proof, A-23), then B4; B3/B7 wait on the §7 decisions; A-25 (restart and failure paths)
 rides with phase E.
+
+**Addendum, 2026-10-18: the multi-member run, Session 7.** The launcher boots extra member devices
+(`ZKTRIDENT_MEMBER_DEVICE_PORTS`), each a keyed node with its own state directory; `run-multi` caught up
+with the device flow (the code redeemed before derivation, the recovery PIN, the device's mint and
+primary-care proofs, the device's wallet-update pass after each fill, its own portable credential, the
+insurer's own token, operator reads) and gained `ZKT_E2E_SERIAL=1` and `E2E_RESUME_DIR`. In serial mode:
+two employers and four devices: 169 of 169 checks through enrollment, the first round of claims and the verifier, then, resumed from the saved members, 128 of 129 through the second round, the deliberate duplicate and the verifier — the one failure being the harness counting the refused duplicate as a failed fill while its own duplicate check passed (the label is fixed for the next run). In concurrent mode the three registrations exposed **A-33**: a device's root-bound proof is
+invalidated by any transition landing during its proving window, and one of three members never
+registered. Recorded as plan item D7 with two remedies — the split of the state transition, or a proving
+lease per partition as the interim — and left for the owner to choose; neither is started. Scoreboard:
+33 findings; 29 fixed; 4 open (A-22, A-23, A-25, A-33), none critical. Git: with this commit, 52
+commits on local `dev`, nothing pushed, `origin/main` untouched.

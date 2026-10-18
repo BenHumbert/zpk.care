@@ -47,6 +47,8 @@
  *   ZKTRIDENT_CORS_ORIGINS     — Comma-separated allowed CORS origins
  *                                (default: the local dashboard origins)
  *   ZKTRIDENT_POOL_SIZE        — Proving pool workers: number or "auto" (default: "auto", min 3)
+ *   ZKTRIDENT_MEMBER_DEVICE_PORTS — Extra member devices to boot, comma-separated ports (default: none)
+ *   ZKTRIDENT_MEMBER_DEVICES_DIR  — Their state directories, one per port (default: ./e2e-devices)
  *   ZKTRIDENT_POOL_RECYCLE     — Recycle worker after N jobs to reclaim WASM heap (default: 3)
  *   ZKTRIDENT_PRODUCTION_FORMULARY — Load 500 NDC NADAC formulary on startup (default: false)
  *
@@ -827,6 +829,21 @@ async function main(): Promise<void> {
     ...(env.ZKTRIDENT_MEMBER_PIN ? { ZKTRIDENT_PIN: env.ZKTRIDENT_MEMBER_PIN } : {}),
     ZKTRIDENT_INSURER_URL: `http://localhost:4004`,
   });
+
+  // Additional member devices, one keyed node each with its own encrypted state directory, for a
+  // network with more than one member on this machine (the multi-member harness expects 4011-4013).
+  // ZKTRIDENT_MEMBER_DEVICE_PORTS=4011,4012,4013  ZKTRIDENT_MEMBER_DEVICES_DIR=./e2e-devices
+  {
+    const devicePorts = (env.ZKTRIDENT_MEMBER_DEVICE_PORTS ?? '').split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isInteger(n) && n > 0);
+    const devicesDir = path.resolve(env.ZKTRIDENT_MEMBER_DEVICES_DIR ?? './e2e-devices');
+    for (const devicePort of devicePorts) {
+      spawnEntity(`member-${devicePort}`, 'start-member-nautilus.ts', devicePort, {
+        ...(env.ZKTRIDENT_MEMBER_PIN ? { ZKTRIDENT_PIN: env.ZKTRIDENT_MEMBER_PIN } : {}),
+        ZKTRIDENT_INSURER_URL: `http://localhost:4004`,
+        ZKTRIDENT_STATE_DIR: path.join(devicesDir, `member-${devicePort}`),
+      }, 'member');
+    }
+  }
 
   console.log('  [boot] Employer nodes + HR Tools: on-demand via marketplace activation (no boot-time spawn)');
 

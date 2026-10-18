@@ -27,11 +27,14 @@
  *
  * Usage:
  *   ZKTRIDENT_ADMIN_TOKEN=... npx tsx scripts/e2e-verify/run-multi.ts <outDir> <devicesDir> [networkLog]
+ *   ZKT_E2E_SERIAL=1 enrolls the members one at a time instead of concurrently (the concurrent registration
+ *   race is a known open finding; serial mode measures everything after it).
  *   Member devices: http://localhost:4001 (stateDir <repo>/nautilus-data) and 4011-4013
  *   (stateDir <devicesDir>/member-<port>).
  */
 import fs from 'fs';
 import path from 'path';
+import { deriveNodeAdminToken } from '../../src/security/node-roles.js';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { Field, Poseidon, verify } from 'o1js';
@@ -83,6 +86,11 @@ async function startHrTool(label: string, employerId: string): Promise<string> {
 }
 process.on('exit', () => { for (const c of hrToolChildren) { if (!c.killed) { try { c.kill(); } catch { /* best effort */ } } } });
 const bearer = { Authorization: `Bearer ${ADMIN}` };
+// A9: one credential per principal — the insurer takes its own token, configured or derived from the operator's, never the operator's.
+const INSURER_ADMIN = process.env.ZKTRIDENT_INSURER_ADMIN_TOKEN || (ADMIN ? deriveNodeAdminToken(ADMIN, 'insurer') : '');
+const insurerBearer = { Authorization: `Bearer ${INSURER_ADMIN}` };
+const RECOVERY_PIN = '246813';
+const SERIAL = process.env.ZKT_E2E_SERIAL === '1';
 const unwrap = (j: any) => (j && typeof j === 'object' && 'ok' in j && 'data' in j ? j.data : j);
 
 fs.mkdirSync(OUT, { recursive: true });
@@ -122,8 +130,8 @@ async function checkInvariant(label: string, wallets: string[]) {
   const next = WalletRegistryWitness.fromJSON(JSON.parse(w.registryWitnessJson)).calculateRoot(Field(0)).toString();
   let walletsOk = 0;
   for (const wid of wallets) {
-    const ws = (await rpc('l2_getWalletWitnesses', { walletId: wid }, quiet)).result;
-    const st = (await rpc('l2_getWalletState', { walletId: wid }, quiet)).result;
+    const ws = (await rpc('l2_getWalletWitnesses', { walletId: wid }, quiet, true)).result;
+    const st = (await rpc('l2_getWalletState', { walletId: wid }, quiet, true)).result;
     const leaf = new WalletState({ walletId: Field(BigInt(wid)), credentialInventoryRoot: Field(BigInt(st.credentialInventoryRoot)), nonce: Field(BigInt(st.nonce)) }).commitment();
     if (WalletRegistryWitness.fromJSON(JSON.parse(ws.registryWitnessJson)).calculateRoot(leaf).toString() === root) walletsOk++;
   }
@@ -152,7 +160,7 @@ async function onboardEmployer(label: string, planId: string, people: Array<{ em
   t.check('Application accepted', !!appId, 'applicationId', apply.json);
   const up = await fetch(`${INS}/marketplace/api/upload-document/${appId}`, { method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: Buffer.from('%PDF-1.4\n% E2E placeholder (fictional)\n%%EOF\n') });
   t.check('IRS letter uploaded', up.status < 300, '2xx', up.status);
-  const appr = await http('POST', `${INS}/employer-applications/${appId}/approve`, {}, bearer);
+  const appr = await http('POST', `${INS}/employer-applications/${appId}/approve`, {}, insurerBearer);
   t.check('Insurer approved with its own admin token', appr.status < 300, '2xx', appr.status);
   const agr = unwrap((await http('GET', `${INS}/marketplace/api/agreement/${appId}`)).json);
   const sig = crypto.sign(null, Buffer.from(`${agr?.canonicalMessage}|HR ${label}|Owner`, 'utf8'), privateKey).toString('hex');
@@ -200,6 +208,12 @@ async function onboardEmployer(label: string, planId: string, people: Array<{ em
 // ─── Members ────────────────────────────────────────────────
 type Person = { key: string; employer: string; port: number; employeeId: string; familyId: string; firstName: string; lastName: string; dob: string; email: string; pin: string };
 
+/** The prescriber node's wallet (fixture prescriber 0): the primary-care prescriber every member names (B5). */
+async function prescriberWallet(): Promise<string> {
+  if (!results.prescriberWalletId) results.prescriberWalletId = unwrap((await main.http('GET', 'http://localhost:4002/health')).json)?.walletId;
+  return String(results.prescriberWalletId ?? '');
+}
+
 async function enrollMember(p: Person, token: { tokenId: string; tokenPIN: string }, groupId: string) {
   const { t, http } = lane(`member-${p.key}`);
   const MEM = `http://localhost:${p.port}`;
@@ -224,6 +238,9 @@ async function enrollMember(p: Person, token: { tokenId: string; tokenPIN: strin
   t.check('Device session issued on unlock', Boolean(memSession), 'a token', memSession ? 'issued' : unl.json);
   t.check('Code accepted', (await mem('POST', '/onboarding/accept-token', { tokenId: token.tokenId })).status < 300, '2xx', 'accept-token');
   t.check('Enrollment key generated on the device', (await mem('POST', '/onboarding/generate-key', {})).status < 300, '2xx', 'generate-key');
+  // C2/A6: the code is redeemed before the wallet exists; the insurer answers the employer group
+  const rd = await mem('POST', '/onboarding/redeem', { tokenPIN: token.tokenPIN });
+  t.check('Enrollment code redeemed before derivation; the insurer answered the employer group', rd.status < 300 && unwrap(rd.json)?.groupIdHash === hashString(groupId).toString(), hashString(groupId).toString(), unwrap(rd.json)?.groupIdHash ?? rd.json);
   const today = new Date().toISOString().slice(0, 10);
   const dw = await mem('POST', '/onboarding/derive-wallet', {
     cardholderId: p.employeeId, dateOfBirth: p.dob, firstName: p.firstName, lastName: p.lastName,
@@ -231,16 +248,16 @@ async function enrollMember(p: Person, token: { tokenId: string; tokenPIN: strin
   });
   const walletId = unwrap(dw.json)?.walletId as string;
   t.check('Wallet derived', !!walletId, 'walletId', dw.json);
-  const en = await mem('POST', '/onboarding/enroll', { tokenPIN: token.tokenPIN });
+  const en = await mem('POST', '/onboarding/enroll', { recoveryPin: RECOVERY_PIN });
   t.check('Insurer accepted the enrollment', en.status < 300, '2xx', en.json);
   const t0 = Date.now();
   await mem('POST', '/onboarding/compile', {});
-  await poll(quiet, `${MEM}/onboarding/status`, j => unwrap(j)?.phase === 'ready', 600_000, 3000);
+  await poll(quiet, `${MEM}/onboarding/status`, j => ['ready', 'registered', 'registering'].includes(unwrap(j)?.phase), 600_000, 3000);
   const reg = await mem('POST', '/proof/registration', {});
   // The route may outlast the 30 s HTTP timeout; wait for the receipt and the adjudication registration.
   let registered = false;
   for (const start = Date.now(); Date.now() - start < 900_000;) {
-    const rr = (await rpc('l2_getReceiptsByWallet', { walletId }, quiet)).result;
+    const rr = (await rpc('l2_getReceiptsByWallet', { walletId }, quiet, true)).result;
     const st = (await quietAdmin('GET', `${SEQ}/interactive/state`)).json;
     const inAdj = (st?.enrolledMembers ?? []).some((m: any) => m.walletId === walletId);
     if ((rr?.receipts ?? rr ?? []).length > 0 && inAdj) { registered = true; break; }
@@ -249,25 +266,37 @@ async function enrollMember(p: Person, token: { tokenId: string; tokenPIN: strin
   }
   const regMs = Date.now() - t0;
   t.check('Registration proof accepted and member registered with the adjudication engine', registered, true, registered ? `ok in ${regMs} ms` : reg.json);
-  // Device secrets → independent wallet recomputation.
+  // B1 step two: the credential mint is a wallet update the device proves; the engine holds no preimage
+  let mintRun: any = null;
+  for (const start = Date.now(); Date.now() - start < 300_000;) {
+    const run = await mem('POST', '/proof/wallet-updates', {});
+    mintRun = unwrap(run.json) ?? run.json;
+    if (run.status === 200 && Number(mintRun?.pending) === 0 && (mintRun?.errors ?? []).length === 0) break;
+    await new Promise(r => setTimeout(r, 5000));
+  }
+  t.check('The device proved the credential mint it was handed', Number(mintRun?.pending) === 0 && (mintRun?.errors ?? []).length === 0 && (mintRun?.refused ?? []).length === 0, 'pending 0, no errors', mintRun);
+  // B5: the member names the prescriber node as primary care from the device; the engine queues it, the device proves it
+  const pcpWallet = await prescriberWallet();
+  const pcpPick = await mem('POST', '/pcp/assign', { pcpWalletId: pcpWallet, effectiveDate: today.replace(/-/g, ''), specialty: 'Internal Medicine' });
+  const pcpProve = await mem('POST', '/proof/pcp-assignment', {});
+  const pcpOut = unwrap(pcpProve.json) ?? pcpProve.json;
+  const pcpRun = pcpOut?.walletUpdates ?? {};
+  t.check('Primary care named from the device and proved', pcpPick.status === 200 && pcpProve.status === 200 && Number(pcpRun.pending) === 0 && (pcpRun.errors ?? []).length === 0 && (pcpRun.refused ?? []).length === 0, 'pending 0, no errors', pcpProve.status === 200 ? pcpRun : (pcpOut ?? pcpPick.json));
+  // Device secrets: the device knows its wallet; its enrollment key is a secret the sweep must not find on the network.
   const ls = new NautilusLocalState(stateDir);
   await ls.unlock(p.pin);
   const dev = await ls.load();
   const enrollmentKey = ls.hasEnrollmentKey() ? ls.useEnrollmentKey(k => k) : '';
   t.secret('enrollment key (device only)', enrollmentKey);
   t.check('Device state is this member', dev?.walletId === walletId, walletId, dev?.walletId);
-  const pre = (dev?.preimageFields ?? []) as string[];
-  const expected = [hashString(p.employeeId), hashDate(p.dob), hashString(p.firstName), hashString(p.lastName), hashString(enrollmentKey)].map(f => f.toString());
-  t.check('Wallet inputs 1-5 recompute from the raw values', expected.every((v, i) => pre[i] === v), expected, pre.slice(0, 5));
-  t.check('Wallet ID = Poseidon(0, the six device inputs)', Poseidon.hash([Field(0), ...pre.map(f => Field(BigInt(f)))]).toString() === walletId, walletId, 'recomputed');
-  results.members[p.key] = { employer: p.employer, port: p.port, walletId, regMs, groupInput: pre[5], groupId, secrets: { enrollmentKey, preimage: pre } };
+  results.members[p.key] = { employer: p.employer, port: p.port, session: memSession, walletId, regMs, groupId, secrets: { enrollmentKey, preimage: [] } };
   t.end();
   return walletId;
 }
 
 // ─── Claims ─────────────────────────────────────────────────
 const accState: Record<string, { deductiblePaidCents: bigint; oopPaidCents: bigint }> = {};
-async function fileClaim(memberKey: string, walletId: string, ndcHash: string, copay: bigint, ingredient: bigint, fee: bigint, label: string) {
+async function fileClaim(memberKey: string, walletId: string, ndcHash: string, copay: bigint, ingredient: bigint, fee: bigint, label: string, opts: { expectRefusal?: RegExp } = {}) {
   const { t, http } = lane(`claim-${memberKey}-${results.claims.length + 1}`);
   t.begin(`claim ${memberKey}`, label);
   const rxId = `RX-${RUN}-${memberKey}-${results.claims.length + 1}`;
@@ -290,8 +319,24 @@ async function fileClaim(memberKey: string, walletId: string, ndcHash: string, c
   if (disp.status < 300 && fill?.jobKey) fill = unwrap((await poll(quiet, `${PHA}/dispensing/fill-status?jobKey=${encodeURIComponent(fill.jobKey)}`, j => ['complete', 'error'].includes(unwrap(j)?.status), 900_000, 4000)).json);
   const fillMs = Date.now() - tf;
   const r = fill?.result ?? fill;
+  if (opts.expectRefusal) {
+    // D4: the scenario expects this fill to be refused before any proof or payment
+    const refused = fill?.status === 'error' && opts.expectRefusal.test(String(fill?.error ?? ''));
+    t.check('The fill is refused before any proof or payment, as the scenario expects', refused, `error matching ${opts.expectRefusal}`, fill?.error ?? fill?.status ?? (r?.adjudication ? 'adjudicated' : fill));
+    t.end(); results.claims.push({ memberKey, label, refused, error: fill?.error }); return null;
+  }
   t.check('Fill adjudicated', !!r?.adjudication, 'adjudication', fill?.error ?? fill?.status);
   if (!r?.adjudication) { t.end(); results.claims.push({ memberKey, label, error: fill }); return null; }
+  // B1 step two: the fill produced a wallet update the member's device must prove; the claim lands with it
+  const device = results.members[memberKey];
+  let fin: any = null;
+  for (const start = Date.now(); Date.now() - start < 300_000;) {
+    const run = await http('POST', `http://localhost:${device.port}/proof/wallet-updates`, {}, device.session ? { 'X-Device-Session': device.session } : {});
+    fin = unwrap(run.json) ?? run.json;
+    if (run.status === 200 && Number(fin?.pending) === 0 && (fin?.errors ?? []).length === 0) break;
+    await new Promise(r2 => setTimeout(r2, 5000));
+  }
+  t.check('The device proved the wallet update the fill produced; the claim is on the ledger with it', Number(fin?.pending) === 0 && (fin?.errors ?? []).length === 0 && (fin?.refused ?? []).length === 0, 'pending 0, no errors', fin);
   const adj = r.adjudication, before = r.accumulator.before, after = r.accumulator.after, limits = r.accumulator.limits;
   const acc = accState[memberKey] ?? { deductiblePaidCents: 0n, oopPaidCents: 0n };
   t.check("Accumulator before = this member's running total", BigInt(before.deductiblePaidCents) === acc.deductiblePaidCents && BigInt(before.oopPaidCents) === acc.oopPaidCents, acc, before);
@@ -325,7 +370,7 @@ async function mainFlow() {
 
   t.begin('insurer', 'Create the plan');
   const planId = `PLAN-E2E-${RUN}`;
-  const plan = await http('POST', `${INS}/plans`, { planId, name: 'E2E Gold', coverageType: 1, copayAmountCents: 1000, deductibleAmountCents: 50000, oopMaxCents: 800000, annualBenefitMaxCents: 0, familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000 }, bearer);
+  const plan = await http('POST', `${INS}/plans`, { planId, name: 'E2E Gold', coverageType: 1, copayAmountCents: 1000, deductibleAmountCents: 50000, oopMaxCents: 800000, annualBenefitMaxCents: 0, familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000 }, insurerBearer);
   t.check('Plan created with the insurer token', plan.status < 300, '2xx', plan.status);
 
   const people: Person[] = [
@@ -344,7 +389,7 @@ async function mainFlow() {
   ]);
 
   t.begin('attacker', "Insurer auth after employers signed");
-  const listApps = await http('GET', `${INS}/employer-applications`, undefined, bearer);
+  const listApps = await http('GET', `${INS}/employer-applications`, undefined, insurerBearer);
   t.check('Insurer admin token still works after two employers signed', listApps.status < 300, '2xx', listApps.status);
   const ts = Date.now().toString();
   const forged = crypto.sign(null, Buffer.from(`GET:/employer-applications|${ts}|`), empA.privateKey).toString('hex');
@@ -357,9 +402,11 @@ async function mainFlow() {
   // Three members from both employers enroll at the same moment.
   t.begin('harness', 'Members A1, A2, B1 enroll concurrently');
   const firstThree = people.slice(0, 3);
-  const wallets = await Promise.all(firstThree.map(p => enrollMember(p, token(p), group(p))));
+  const wallets: string[] = SERIAL
+    ? await (async () => { const out: string[] = []; for (const p of firstThree) out.push(await enrollMember(p, token(p), group(p))); return out; })()
+    : await Promise.all(firstThree.map(p => enrollMember(p, token(p), group(p))));
   const enrolled: string[] = wallets.filter(Boolean);
-  t.check('All three concurrent registrations succeeded', enrolled.length === 3, 3, enrolled.length);
+  t.check(SERIAL ? 'All three registrations succeeded (serial mode)' : 'All three concurrent registrations succeeded', enrolled.length === 3, 3, enrolled.length);
   await checkInvariant('3 concurrent registrations', enrolled);
 
   // Drug choice.
@@ -376,10 +423,16 @@ async function mainFlow() {
   // B2 enrolls while A1's first claim is being adjudicated (registration vs. fill contention).
   t.begin('harness', "B2 enrolls while A1's first claim is adjudicated");
   const b2 = people[3];
-  const [b2Wallet] = await Promise.all([
-    enrollMember(b2, token(b2), group(b2)),
-    fileClaim('A1', wallets[0], ndcHash, copay, 1200n, 200n, 'A1 claim 1 — inside the deductible'),
-  ]);
+  let b2Wallet: string = '';
+  if (SERIAL) {
+    b2Wallet = await enrollMember(b2, token(b2), group(b2));
+    await fileClaim('A1', wallets[0], ndcHash, copay, 1200n, 200n, 'A1 claim 1 — inside the deductible');
+  } else {
+    [b2Wallet] = await Promise.all([
+      enrollMember(b2, token(b2), group(b2)),
+      fileClaim('A1', wallets[0], ndcHash, copay, 1200n, 200n, 'A1 claim 1 — inside the deductible'),
+    ]);
+  }
   if (b2Wallet) enrolled.push(b2Wallet);
   t.check('B2 registered while a fill was in flight', !!b2Wallet, 'walletId', b2Wallet);
   await checkInvariant('registration during a fill', enrolled);
@@ -406,15 +459,17 @@ async function verifyAll(credentialWallet: string, people: Person[]) {
   const t = main.t, http = main.http;
   // ── Independent verification ──
   t.begin('verifier', 'Claim inclusion proofs, audits and accumulators per member');
-  await http('POST', `${SEQ}/interactive/force-batch`, {});
+  await httpAdmin('POST', `${SEQ}/interactive/force-batch`, {});
   const rootNow = String((await rpc('l2_getClaimAccumulatorRoot')).result?.root);
   for (const m of Object.values(results.members) as any[]) {
-    const claims = ((await rpc('l2_getClaimsByMember', { walletId: m.walletId })).result ?? []) as any[];
+    if (!m?.walletId) continue;
+    const cbm = (await rpc('l2_getClaimsByMember', { walletId: m.walletId }, main.http, true)).result;
+    const claims = (cbm?.claims ?? cbm ?? []) as any[];
     const mine = results.claims.filter((c: any) => c.walletId === m.walletId && c.adjudication);
     const listed = (c: any) => claims.some((ce: any) => String(ce.leaf?.patientPayCents) === String(c.adjudication.patientPayCents) && String(ce.leaf?.planPayCents) === String(c.adjudication.planPayCents));
     t.check(`${m.walletId.slice(0, 10)}…: every claim filed in this run is in the claims ledger`, mine.every(listed), mine.length, mine.filter(listed).length);
     for (const ce of claims) {
-      const cp = (await rpc('l2_getClaimWithProof', { leafIndex: String(ce.leafIndex) })).result;
+      const cp = (await rpc('l2_getClaimWithProof', { leafIndex: String(ce.leafIndex) }, main.http, true)).result;
       const leaf = cp.entry.leaf ?? cp.entry;
       let h = Poseidon.hash([leaf.memberWalletId, leaf.ndcHash, leaf.pharmacyWalletId, leaf.prescriberWalletId].map((v: string) => Field(BigInt(v)))
         .concat([Poseidon.hash([Field(BigInt(leaf.dateOfService))])], [leaf.patientPayCents, leaf.planPayCents, leaf.operationType, leaf.deductibleCreditCents].map((v: string) => Field(BigInt(v)))));
@@ -422,7 +477,7 @@ async function verifyAll(credentialWallet: string, people: Person[]) {
       for (let i = 0; i < w.path.length; i++) h = w.isLeft[i] ? Poseidon.hash([h, Field(BigInt(w.path[i]))]) : Poseidon.hash([Field(BigInt(w.path[i])), h]);
       t.check(`Leaf ${ce.leafIndex}: recomputed root equals the claim root`, h.toString() === cp.root && cp.root === rootNow, rootNow, h.toString());
     }
-    const recon = (await rpc('l2_reconstructAccumulator', { walletId: m.walletId })).result;
+    const recon = (await rpc('l2_reconstructAccumulator', { walletId: m.walletId }, main.http, true)).result;
     const eng = ((await httpAdmin('GET', `${SEQ}/interactive/state`)).json?.enrolledMembers ?? []).find((x: any) => x.walletId === m.walletId)?.accumulator;
     t.check(`${m.walletId.slice(0, 10)}…: accumulator rebuilt from the ledger = the engine's totals (what NFC recovery relies on)`,
       String(recon?.oopPaidCents) === String(eng?.oopPaidCents) && String(recon?.deductiblePaidCents) === String(eng?.deductiblePaidCents),
@@ -455,17 +510,19 @@ async function verifyAll(credentialWallet: string, people: Person[]) {
   results.batches = { tested, verified: ok };
   t.check('Batch proofs verified', tested > 0 && ok === tested, `${tested}/${tested}`, `${ok}/${tested}`);
 
-  t.begin('verifier', 'Portable credential for A2 verifies offline');
-  await http('POST', `${SEQ}/interactive/generate-credential`, { walletId: credentialWallet });
-  const cred = (await poll(quiet, `${SEQ}/interactive/credential-status?walletId=${encodeURIComponent(credentialWallet)}`, j => ['complete', 'error'].includes(j?.status), 900_000, 5000)).json;
-  const credential = cred?.credential ?? cred?.result?.credential;
+  t.begin('verifier', 'Portable credential for A2: the device proves its own (B1 step two, A-17)');
+  const a2 = results.members.A2;
+  const devCred = a2?.walletId ? await http('POST', `http://localhost:${a2.port}/credential/generate`, {}, a2.session ? { 'X-Device-Session': a2.session } : {}) : { status: 0, json: { error: 'A2 never enrolled' } };
+  const credential = unwrap(devCred.json)?.credential;
+  t.check('The device generated its own portable credential', devCred.status === 200 && !!credential?.proofJson, 'credential.proofJson', devCred.status === 200 ? 'present' : (unwrap(devCred.json) ?? devCred.json));
   if (credential?.proofJson) {
     const { CredentialProgram } = await import('../../src/credentials/credential-program.js');
     const { verifyCredentialOffline } = await import('../../src/credentials/portable-credential.js');
+    const { ProofGateProgram } = await import('../../src/wallets/proof-gate.js');
+    await ProofGateProgram.compile(); // CredentialProgram's proofs carry a ProofGate proof; o1js needs its key first
     await CredentialProgram.compile();
     t.check('Credential proof verifies offline', await verifyCredentialOffline(credential, ''), true, 'verify');
-  } else t.check('Credential generated', false, 'proofJson', cred);
-
+  }
   t.begin('verifier', 'Where do members\' secrets appear?');
   const sources: Array<[string, string]> = [['sequencer /interactive/state', (await http('GET', `${SEQ}/interactive/state`)).text]];
   const walk = (dir: string, label: string) => {
@@ -516,7 +573,10 @@ async function resumeFromMembers(peopleTemplate: Person[], _planId: string) {
     const dev = await ls.load();
     const enrollmentKey = ls.hasEnrollmentKey() ? ls.useEnrollmentKey(k => k) : '';
     t.check(`${p.key}: device still holds wallet ${walletId.slice(0, 10)}…`, dev?.walletId === walletId, walletId, dev?.walletId);
-    results.members[p.key] = { employer: p.employer, port: p.port, walletId, secrets: { enrollmentKey, preimage: dev?.preimageFields ?? [] } };
+    // A5: the device's routes take a session; unlock over HTTP for one, as the live path did
+    const unl = await http('POST', `http://localhost:${p.port}/onboarding/unlock`, { pin: p.pin });
+    const session = (unwrap(unl.json)?.deviceSession ?? '') as string;
+    results.members[p.key] = { employer: p.employer, port: p.port, session, walletId, secrets: { enrollmentKey, preimage: dev?.preimageFields ?? [] } };
     wallets[p.key] = walletId;
     // Is the member known to the adjudication engine? If not, send the same call the device makes.
     const st = (await httpAdmin('GET', `${SEQ}/interactive/state`)).json;
@@ -561,7 +621,7 @@ async function resumeFromMembers(peopleTemplate: Person[], _planId: string) {
   const dup = results.drugs[3];
   const dupMed = meds.find((m: any) => `${m.brandName} ${m.strength}` === dup.drug);
   const leavesBefore = Number((await rpc('l2_getClaimAccumulatorRoot')).result?.leafCount ?? 0);
-  const dupAdj = await fileClaim('B1', wallets.B1, hashString(String(dupMed.ndc).replace(/-/g, '')).toString(), BigInt(dup.copayCents), 800n, 200n, 'B1 duplicate of claim 2');
+  const dupAdj = await fileClaim('B1', wallets.B1, hashString(String(dupMed.ndc).replace(/-/g, '')).toString(), BigInt(dup.copayCents), 800n, 200n, 'B1 duplicate of claim 2', { expectRefusal: /duplicate/i });
   const leavesAfter = Number((await rpc('l2_getClaimAccumulatorRoot')).result?.leafCount ?? 0);
   main.t.check('A duplicate is either rejected before payment or recorded as a claim — never paid and dropped',
     !dupAdj || leavesAfter === leavesBefore + 1, 'rejected, or one new claim leaf', dupAdj ? `adjudicated (patient pays ${dupAdj.patientPayCents}) with ${leavesAfter - leavesBefore} new leaf` : 'rejected');

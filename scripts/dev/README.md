@@ -22,6 +22,27 @@ source scripts/dev/live-env.sh && npx tsx scripts/e2e-verify/run.ts ./e2e-out > 
 grep -E "^[[:space:]]+FAIL  " /tmp/e2e.log | sed 's/^[[:space:]]*FAIL  //; s/  expected=.*$//' | sort -u
 ```
 
+## The multi-member, multi-employer run
+
+The launcher boots one member device. For the four-member harness, boot three more, each a keyed node
+with its own state directory, then run `run-multi`:
+
+```bash
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/kill-zpk.ps1
+npm run clean:state && rm -rf e2e-devices
+source scripts/dev/live-env.sh
+ZKTRIDENT_MEMBER_DEVICE_PORTS=4011,4012,4013 ZKTRIDENT_MEMBER_DEVICES_DIR=./e2e-devices \
+  npx tsx src/nodes/start-leviathan.ts > /tmp/boot.log 2>&1 &
+# when :3030/health and :4013/health answer:
+npx tsx scripts/e2e-verify/run-multi.ts ./e2e-multi-out ./e2e-devices > /tmp/multi.log 2>&1
+```
+
+`ZKT_E2E_SERIAL=1` enrolls the members one at a time. Without it the three concurrent registrations
+exercise the open finding on root-bound device proofs (A-33): a proof commits to the ledger's exact
+roots, and any transition that lands during its 25 to 45 second proving window invalidates it, so one
+of three concurrent registrations can starve. `E2E_RESUME_DIR=<a previous out dir>` skips enrollment
+and continues from the members that run registered, against the network that is still up.
+
 Rules that have held since session 1:
 
 - Never run the harness while Jest runs; they contend for the CPU and both time out.
