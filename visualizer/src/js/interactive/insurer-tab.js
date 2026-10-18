@@ -28,6 +28,7 @@
  */
 
 import { API_BASE, formatCents, updateChainState } from '../interactive-app.js';
+import { loadInteractiveState } from './state-client.js';
 
 export class InsurerTab {
   constructor(app) {
@@ -449,8 +450,8 @@ export class InsurerTab {
       if (result.chainState) updateChainState(result.chainState);
       this.app.setStatus('ready', 'Notification sent');
       setTimeout(async () => {
-        const stateRes = await fetch(`${API_BASE}/interactive/state`);
-        if (stateRes.ok) { this.render(await stateRes.json()); }
+        const fresh = await loadInteractiveState(API_BASE);
+        if (fresh) { this.render(fresh); }
       }, 1500);
     } catch (err) {
       const resultDiv = document.getElementById('insurer-send-result');
@@ -1233,9 +1234,9 @@ export class InsurerTab {
       }
 
       this.app.setStatus('ready', 'Ready');
-      const stateRes = await fetch(`${API_BASE}/interactive/state`);
-      if (stateRes.ok) {
-        this.render(await stateRes.json());
+      const fresh = await loadInteractiveState(API_BASE);
+      if (fresh) {
+        this.render(fresh);
       }
 
     } catch (err) {
@@ -1288,9 +1289,9 @@ export class InsurerTab {
       }
 
       this.app.setStatus('ready', 'Ready');
-      const stateRes = await fetch(`${API_BASE}/interactive/state`);
-      if (stateRes.ok) {
-        this.render(await stateRes.json());
+      const fresh = await loadInteractiveState(API_BASE);
+      if (fresh) {
+        this.render(fresh);
       }
 
     } catch (err) {
@@ -1356,9 +1357,9 @@ export class InsurerTab {
 
       // Refresh state and re-render
       this.app.setStatus('ready', 'Ready');
-      const stateRes = await fetch(`${API_BASE}/interactive/state`);
-      if (stateRes.ok) {
-        this.render(await stateRes.json());
+      const fresh = await loadInteractiveState(API_BASE);
+      if (fresh) {
+        this.render(fresh);
       }
 
     } catch (err) {
@@ -1390,9 +1391,9 @@ export class InsurerTab {
       }
 
       // Refresh state and re-render
-      const stateRes = await fetch(`${API_BASE}/interactive/state`);
-      if (stateRes.ok) {
-        this.render(await stateRes.json());
+      const fresh = await loadInteractiveState(API_BASE);
+      if (fresh) {
+        this.render(fresh);
       }
 
     } catch (err) {

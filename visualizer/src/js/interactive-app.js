@@ -184,6 +184,9 @@ import { InsurerTab } from './interactive/insurer-tab.js';
 import { PharmacyPhase } from './interactive/pharmacy-phase.js';
 import { ReportsTab } from './interactive/reports-tab.js';
 import { L2ChainTab } from './interactive/l2-chain-tab.js';
+// B1: the operator's token on every /interactive/ request, and one way to load state.
+import './interactive/operator-auth.js';
+import { loadInteractiveState } from './interactive/state-client.js';
 
 class InteractiveApp {
   constructor() {
@@ -243,9 +246,8 @@ class InteractiveApp {
 
     for (let i = 0; i < 120; i++) { // 2 minutes max for server to start
       try {
-        const res = await fetch(`${API_BASE}/interactive/state`);
-        if (res.ok) {
-          const data = await res.json();
+        const data = await loadInteractiveState(API_BASE);
+        if (data) {
           this.state = data;
           if (data.compiled) {
             this.compiled = true;
@@ -278,9 +280,8 @@ class InteractiveApp {
     for (let i = 0; i < 600; i++) { // 10 minutes max
       await sleep(2000);
       try {
-        const res = await fetch(`${API_BASE}/interactive/state`);
-        if (res.ok) {
-          const data = await res.json();
+        const data = await loadInteractiveState(API_BASE);
+        if (data) {
           if (data.compiled) {
             this.compiled = true;
             this.state = data;
@@ -303,14 +304,11 @@ class InteractiveApp {
   }
 
   async fetchState() {
-    try {
-      const res = await fetch(`${API_BASE}/interactive/state`);
-      if (res.ok) {
-        this.state = await res.json();
-        this.compiled = this.state.compiled;
-      }
-    } catch (err) {
-      console.error('Failed to fetch state:', err);
+    // B1: the state as the operator, with the fixture directory attached (state-client.js).
+    const state = await loadInteractiveState(API_BASE);
+    if (state) {
+      this.state = state;
+      this.compiled = this.state.compiled;
     }
   }
 

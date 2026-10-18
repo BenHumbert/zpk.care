@@ -977,7 +977,7 @@ PINs once at import, never in lists or exports; the reveal needs the passphrase 
 PIN; the audit log names hashes and events only; and, by construction, the orchestrator spawns no
 HR Tool and ties the tenant to its parent, the launcher watches it, the group reads are admin, and
 the server reads no token from its environment. `tests/attempt-limiter.test.ts` (6) and
-`tests/parent-watchdog.test.ts` (4). The A6 and marketplace suites pass; `smoke-e2e` stays at 30 of
+`tests/parent-watchdog.test.ts` (5, one of them across processes). The A6 and marketplace suites pass; `smoke-e2e` stays at 30 of
 65 failing with P2f and P13a passing under the gate. Typecheck src 20 (one of the 21 baseline errors
 was in the code replaced), scripts 2. Live, on a secured boot after the stale network was found and
 killed (below): `Activation hands over HR Tool setup steps, not a hosted URL`, `A short passphrase is
@@ -1007,6 +1007,79 @@ takes `EMPLOYER_ADMIN_TOKEN` from its environment; it is not in the product path
 the fixture clean-up. Moving the HR Tool from the bearer token to its Ed25519 client key, with the
 employer node registering that key and `checkNautilusAdminAuth` recomputing the body hash, is A9's
 remainder, now with the verifier and the hand-over flow in place.
+
+**B1 implementation record, first half.** Done 2026-10-17. Closes the residue of **A-13** and unblanks
+the console without weakening any gate.
+
+What moved. The fixture people the console displays (members, prescribers, pharmacies: names,
+birth dates, addresses, NPIs) were embedded in `GET /interactive/state`, the sequencer's admin-gated
+view of enrolled members, which had two bad effects: the privileged payload carried person records
+that are not members, and the console, which sent no credential, went blank when A11 gated it. They
+are a static import, so they are now a static file: `src/data/fixture-directory.ts` is the same
+projection moved out of the engine unchanged, and the explorer serves it at `/fixtures.json` beside
+the console's own pages, built on first request. The dump carries no person records other than
+enrolled members; measured live it went from 137 KB to 62 KB. The medications and the plan block
+stay in the dump because they carry the engine's live formulary state and no identity.
+
+How the console reads it. `visualizer/src/js/interactive/state-client.js` is the one way to load
+state: the gated dump plus `/fixtures.json`, merged into the `demoData` shape every screen already
+reads, so no screen changed. `operator-auth.js` is a scoped wrapper around `fetch` that attaches
+the network operator's token to every request to an `/interactive/` path, kept in this browser's
+localStorage the way the employer dashboard keeps its own, prompted for once on a 401 and retried
+once. An interceptor rather than sixty-six edited call sites, on purpose: one implementation to
+review. The fourteen places that fetched the dump directly now go through the client.
+
+Verified. `tests/fixture-directory.test.ts` (4): the directory's shape and absence of runtime
+fields; the engine no longer maps the fixture people into the payload; the console loads through the
+client and no screen fetches the dump directly; the explorer, started the way the boot starts it,
+serves `/fixtures.json` as cacheable JSON. Live, on a secured boot: `/fixtures.json` 200 with the
+directory; `/interactive/state` 401 bare and 200 with the operator token, no `members`, `prescribers`
+or `pharmacies` under `demoData` and no fixture surname anywhere in it. The harness reads the
+directory from the explorer and asserts both. Full pipeline: 102 of 119 checks across 24 steps (A7: 100 of 117), the 17 failures identical by name to A7's.
+
+**B1 implementation spec, second half: carve the engine out of the visualizer.** The owner's
+direction, 2026-10-17: the visualizer was built to see how everything worked; the adjudication
+logic that grew inside it is the product, so it leaves. Measured before starting:
+
+- The production set is three modules, 9,993 lines: `interactive-service.ts` (6,769,
+  `AdjudicationService`), `interactive-routes.ts` (2,075, 49 routes) and the proof pool
+  (`proof-pool.ts`, `proof-pool-worker.ts`, `proof-pool-types.ts`, 1,149). They import ~40 `src/`
+  modules and nothing from the visualizer. `nfc-bridge.ts` (1,029) is the USB reader driver for the
+  MIKROE-2540: the boot never constructs it, the routes only need its event types, and its native
+  dependency (`node-hid`) is declared in the visualizer's own package, so it is tooling and stays.
+  `auto-mode-controller`, `flowchart-orchestrator`, `scenario`, `start-interactive` and `nfc-test`
+  import the service and stay behind as console drivers.
+- Coupling to the sequencer process, which decides how far the engine can move: `l2Node.getSequencer()`
+  ten times, including direct reads of the state trees (`getStateTrees().registry`, `.lifecycle`) and
+  `adminMutate` to provision seed providers and to register members as ELIGIBLE; `submitProof` three
+  times; `emitMessagingAuditEvent` three; `saveCheckpoint`, `getStatus`, `forceBatch`,
+  `buildBatchDirect` once each. The first group has no RPC equivalent and must not get one as-is:
+  it is the engine reaching into the ledger.
+- Identity: 57 references to preimages and enrollment keys. The engine derives provider wallets
+  from fixture enrollment keys, keeps member `preimageFields`, and registers members by
+  administrative mutation. That is phase B's problem (B2, B3, C1), not a relocation's.
+- Ten of the 49 routes are called by production node servers (`fill` ×4, `resolve-indices`,
+  `register-member`, `prescribe`, `fill-status`, `badge`, `reverse`, `prescriptions-by-pharmacy`,
+  `prescribe-and-fill`, `mark-filled`); the console calls 66 sites; the harness drives the rest.
+- Typecheck debt the move will expose: 28 errors in the four files (16 in `proof-pool-worker.ts`,
+  all TS2556 spread-argument calls; 8 in the service, one of them a real bug, see the record; 2 each
+  in the routes and the NFC bridge), plus 10 that are already in the src baseline.
+- State: the boot persists `exportState()` to `l2-data/adjudication-state.json` every 60 s and on
+  shutdown, and restores it at start.
+
+Two steps, in order. **Step one, relocation, mechanical:** move the three modules to a new
+`src/adjudication/` with their file names unchanged (the names, the `/interactive/*` paths and
+`registerInteractiveRoutes` are renamed together in the naming pass after the program, not one at a
+time), rewrite their `../../src/` imports to `../`, give the routes an interface of their own for the
+NFC reader (`nfc-port.ts`) that the visualizer's bridge implements, import the engine statically in
+`start-leviathan.ts` instead of by a path string inside a try/catch marked optional (an engine that
+fails to load is a boot failure, not a warning), fix the 28 errors so the engine is under `tsc` like
+everything else in `src/`, re-point the console drivers and the structural tests, add a structural
+test that nothing under `src/` imports from `visualizer/` again, and verify with the suites and a
+full secured run. **Step two, its own process:** replace the tree reads and `adminMutate` with
+sequencer methods that carry authorisation, move the viz events and the checkpoint with the engine,
+give it its own listener and operator credential, and point the node servers at it; this is
+scheduled with phase B because the identity it holds has to leave at the same time.
 
 ### Phase B — Keep identity on the device
 

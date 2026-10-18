@@ -47,6 +47,7 @@ import {
   renderSectionCard, renderMetricRow, renderSortableTable,
   truncHash,
 } from '../node-common.js';
+import { loadInteractiveState } from './state-client.js';
 
 export class PharmacyPhase {
   constructor(app) {
@@ -397,9 +398,9 @@ export class PharmacyPhase {
       }
 
       // Refresh state
-      const stateRes = await fetch(`${API_BASE}/interactive/state`);
-      if (stateRes.ok) {
-        this.render(await stateRes.json());
+      const fresh = await loadInteractiveState(API_BASE);
+      if (fresh) {
+        this.render(fresh);
       }
     } catch (err) {
       if (btn) { btn.disabled = false; btn.textContent = 'Dispense'; }
@@ -432,9 +433,9 @@ export class PharmacyPhase {
         throw new Error(err.error || 'Rejection failed');
       }
 
-      const stateRes = await fetch(`${API_BASE}/interactive/state`);
-      if (stateRes.ok) {
-        this.render(await stateRes.json());
+      const fresh = await loadInteractiveState(API_BASE);
+      if (fresh) {
+        this.render(fresh);
       }
     } catch (err) {
       if (btn) { btn.disabled = false; btn.textContent = 'Reject'; }
@@ -1535,9 +1536,9 @@ export class PharmacyPhase {
       }
 
       // Refresh state and re-render
-      const stateRes = await fetch(`${API_BASE}/interactive/state`);
-      if (stateRes.ok) {
-        this.render(await stateRes.json());
+      const fresh = await loadInteractiveState(API_BASE);
+      if (fresh) {
+        this.render(fresh);
       }
     } catch (err) {
       const resultDiv = document.getElementById('fill-result');
@@ -1636,9 +1637,9 @@ export class PharmacyPhase {
 
       // Refresh state to update table
       setTimeout(async () => {
-        const stateRes = await fetch(`${API_BASE}/interactive/state`);
-        if (stateRes.ok) {
-          this.render(await stateRes.json());
+        const fresh = await loadInteractiveState(API_BASE);
+        if (fresh) {
+          this.render(fresh);
         }
       }, 1500);
 
@@ -1903,8 +1904,8 @@ export class PharmacyPhase {
       if (result.chainState) updateChainState(result.chainState);
       this.app.setStatus('ready', 'Message sent');
       setTimeout(async () => {
-        const stateRes = await fetch(`${API_BASE}/interactive/state`);
-        if (stateRes.ok) { this.currentState = await stateRes.json(); this.render(this.currentState); }
+        const fresh = await loadInteractiveState(API_BASE);
+        if (fresh) { this.currentState = fresh; this.render(this.currentState); }
       }, 1500);
     } catch (err) {
       const resultDiv = document.getElementById('pharmacy-send-result');

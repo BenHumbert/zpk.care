@@ -46,7 +46,7 @@ import { hashString, hashDate } from '../../src/zkp/hash-utils.js';
 import { NautilusLocalState } from '../../src/nodes/nautilus-local-state.js';
 import { l2Parse } from '../../src/l2/l2-json.js';
 
-const SEQ = 'http://localhost:3030', INS = 'http://localhost:4004', MEM = 'http://localhost:4001';
+const SEQ = 'http://localhost:3030', INS = 'http://localhost:4004', MEM = 'http://localhost:4001', EXP = 'http://localhost:8000';
 const PRE = 'http://localhost:4002', PHA = 'http://localhost:4003';
 const ADMIN = process.env.ZKTRIDENT_ADMIN_TOKEN || '';
 const OUT = path.resolve(process.argv[2] || './e2e-out');
@@ -411,8 +411,12 @@ async function main() {
   const ndcHash = hashString(ndcRaw).toString();
   const copay = BigInt(med.currentCopayAmountCents ?? med.copayAmountCents);
   results.drug = { brandName: med.brandName, ndc: med.ndc, tier: med.tier, copayCents: copay.toString(), ndcHash };
-  const prescribers = (st.json?.demoData?.prescribers ?? []) as any[];
-  const pharmacies = (st.json?.demoData?.pharmacies ?? []) as any[];
+  // B1: the fixture people are served by the explorer beside the console, not by the gated dump.
+  const fixtures = (await http('GET', `${EXP}/fixtures.json`)).json ?? {};
+  const prescribers = (fixtures?.prescribers ?? []) as any[];
+  const pharmacies = (fixtures?.pharmacies ?? []) as any[];
+  trace.check('The gated state dump carries no fixture person records', !st.json?.demoData?.members && !st.json?.demoData?.prescribers && !st.json?.demoData?.pharmacies, 'none', st.json?.demoData?.members ? 'members present' : 'none');
+  trace.check('The explorer serves the fixture directory', prescribers.length > 0 && pharmacies.length > 0, 'prescribers and pharmacies', `${prescribers.length} / ${pharmacies.length}`);
   trace.note(`drug: ${med.brandName} ${med.strength} (NDC ${med.ndc}, tier ${med.tier}, copay ${copay}¢); ${prescribers.length} prescribers, ${pharmacies.length} pharmacies`);
 
   // Accumulator before any claim (limits are fixed in the adjudication service).

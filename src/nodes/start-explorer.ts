@@ -63,6 +63,8 @@ const mimeTypes: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
 };
+/** B1: the fixture directory as JSON, built on first request and kept. */
+let fixturesJson: string | null = null;
 
 /**
  * CORS headers for one request. The allow-origin header is omitted entirely when the
@@ -225,6 +227,24 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Static files from explorer/
+  // B1 (first half): the fixture directory the console displays, served here as a static file
+  // instead of inside the sequencer's admin-gated state dump. Built on first request so this
+  // process still starts instantly; the fixture module also loads the formulary.
+  if (pathname === '/fixtures.json' && req.method === 'GET') {
+    try {
+      if (!fixturesJson) {
+        const mod = await import('../data/fixture-directory.js');
+        fixturesJson = JSON.stringify(mod.fixtureDirectory());
+      }
+      res.writeHead(200, { ...corsHeaders(req), 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' });
+      res.end(fixturesJson);
+    } catch (err) {
+      res.writeHead(500, { ...corsHeaders(req), 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+    }
+    return;
+  }
+
   const safePath = pathname === '/' ? '/index.html' : pathname;
   if (/^[/a-zA-Z0-9._-]+$/.test(safePath) && !safePath.includes('..')) {
     const filePath = path.join(explorerDir, safePath);

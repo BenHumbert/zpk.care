@@ -38,6 +38,7 @@ import {
   renderSectionCard, renderMetricRow, renderSortableTable,
   truncHash,
 } from '../node-common.js';
+import { loadInteractiveState } from './state-client.js';
 
 export class PrescriberPhase {
   constructor(app) {
@@ -647,9 +648,9 @@ export class PrescriberPhase {
       }
 
       // Refresh state and re-render the med detail
-      const stateRes = await fetch(`${API_BASE}/interactive/state`);
-      if (stateRes.ok) {
-        this.currentState = await stateRes.json();
+      const fresh = await loadInteractiveState(API_BASE);
+      if (fresh) {
+        this.currentState = fresh;
       }
       this.showMedDetail(med);
       this.updateWriteButton();
@@ -1732,8 +1733,8 @@ export class PrescriberPhase {
       if (result.chainState) updateChainState(result.chainState);
       this.app.setStatus('ready', 'Message sent');
       setTimeout(async () => {
-        const stateRes = await fetch(`${API_BASE}/interactive/state`);
-        if (stateRes.ok) { this.currentState = await stateRes.json(); this.render(this.currentState); }
+        const fresh = await loadInteractiveState(API_BASE);
+        if (fresh) { this.currentState = fresh; this.render(this.currentState); }
       }, 1500);
     } catch (err) {
       const resultDiv = document.getElementById('prescriber-send-result');

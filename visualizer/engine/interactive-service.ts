@@ -6224,44 +6224,10 @@ export class AdjudicationService {
       },
       formularyChangeHistory: this.formularyChangeHistory,
       demoData: {
-        members: MEMBERS.map((m, i) => ({
-          index: i,
-          firstName: m.localData.firstName,
-          lastName: m.localData.lastName,
-          cardholderId: m.localData.cardholderId,
-          dateOfBirth: m.localData.dateOfBirth,
-          relationship: m.relationship,
-          employeeId: m.employeeId,
-          familyId: m.familyId,
-          address: m.address,
-          city: m.city,
-          state: m.state,
-          zip: m.zip,
-          genderCode: m.localData.genderCode,
-        })),
-        prescribers: PRESCRIBERS.map((p, i) => ({
-          index: i,
-          firstName: p.firstName,
-          lastName: p.lastName,
-          name: `Dr. ${p.firstName} ${p.lastName}`,
-          credential: p.credential,
-          specialty: p.specialty,
-          npi: p.localData.prescriberId,
-          state: p.state,
-          deaNumber: p.deaNumber,
-        })),
-        pharmacies: PHARMACIES.map((p, i) => ({
-          index: i,
-          storeName: p.storeName,
-          chain: p.chain,
-          pharmacyType: p.pharmacyTypeDesc,
-          npi: p.localData.serviceProviderId,
-          ncpdpId: p.ncpdpProviderId,
-          address: p.address,
-          city: p.city,
-          state: p.state,
-          phone: p.phone,
-        })),
+        // B1 (first half): the fixture people are not in this payload any more. They are a static
+        // import, served by the explorer at /fixtures.json beside the console's own pages, so the
+        // operator's gated view carries no person records other than enrolled members. The
+        // medications below stay because they carry this engine's live formulary state.
         medications: MEDICATIONS.map((m, i) => ({
           index: i,
           brandName: m.brandName,
