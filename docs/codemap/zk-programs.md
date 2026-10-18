@@ -2,7 +2,7 @@
 
 Scope: every ZkProgram + CareContract, where each is compiled, where proofs are generated, where (if anywhere) they are verified. All line numbers verified by reading. Not an audit; `GAP:` marks a plain mismatch with the owner's rules.
 
-Process key: **SEQ** = Leviathan sequencer process (:3030; runs `L2Node`/`L2Leviathan` + the adjudication engine `visualizer/engine/interactive-service.ts`, wired in `src/nodes/start-leviathan.ts:288-420`), **SEQ-pool** = sequencer proving-pool child (`src/l2/l2-proving-worker.ts`), **ENG-pool** = engine proof-pool child (`visualizer/engine/proof-pool-worker.ts`, forked by `visualizer/engine/proof-pool.ts:261`), **MEM/PRE/PHA** = member/prescriber/pharmacy Nautilus nodes (:4001/:4002/:4003), **DEL** = proof delegate (:4040, `src/nodes/start-prover.ts`), **REPL** = replica L2Node, **script** = `scripts/e2e-verify/*`, `src/seed/run-*.ts` (not running processes). Unqualified `:NNN` in a cell refers to the file named in that row's first cells.
+Process key: **SEQ** = Leviathan sequencer process (:3030; runs `L2Node`/`L2Leviathan` + the adjudication engine `src/adjudication/interactive-service.ts`, wired in `src/nodes/start-leviathan.ts:288-420`), **SEQ-pool** = sequencer proving-pool child (`src/l2/l2-proving-worker.ts`), **ENG-pool** = engine proof-pool child (`src/adjudication/proof-pool-worker.ts`, forked by `src/adjudication/proof-pool.ts:261`), **MEM/PRE/PHA** = member/prescriber/pharmacy Nautilus nodes (:4001/:4002/:4003), **DEL** = proof delegate (:4040, `src/nodes/start-prover.ts`), **REPL** = replica L2Node, **script** = `scripts/e2e-verify/*`, `src/seed/run-*.ts` (not running processes). Unqualified `:NNN` in a cell refers to the file named in that row's first cells.
 
 ## 1. Summary table
 
@@ -120,7 +120,7 @@ Where the engine's proofs come from: `dispatchProof` `interactive-service.ts:900
 
 ## 4. Verification services
 
-| Service | What it verifies | Imported/called by (src/nodes, visualizer/engine, src/l2, scripts) |
+| Service | What it verifies | Imported/called by (src/nodes, src/adjudication, visualizer/engine, src/l2, scripts) |
 |---|---|---|
 | `AccessVerificationService` `src/access-control/access-verification-service.ts:64` | `AccessControlProgram.verify` :75 (formulary), :108 (PA); `fullAccessCheck` :138 | only barrels `src/access-control/index.ts:49-53`, `src/index.ts:166` → **no runtime caller** |
 | `VerificationService` `src/eligibility/verification-service.ts:72` | `CredentialProgram.verify` :87, `EligibilityProgram.verify` :103, `InNetworkProgram.verify` :132; `fullPointOfCareCheck` :149 | only `src/eligibility/index.ts:57-58`, `src/index.ts:139` → **no runtime caller** |

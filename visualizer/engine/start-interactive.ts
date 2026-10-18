@@ -34,8 +34,8 @@ import { L2Node } from '../../src/l2/l2-node.js';
 import { L2RpcServer } from '../../src/l2/l2-rpc-server.js';
 import { L2CheckpointStore } from '../../src/l2/l2-checkpoint.js';
 import type { VizEvent } from '../../src/l2/l2-rpc-server.js';
-import { AdjudicationService, type ConsoleEvent } from './interactive-service.js';
-import { registerInteractiveRoutes, getConsoleEmitter } from './interactive-routes.js';
+import { AdjudicationService, type ConsoleEvent } from '../../src/adjudication/interactive-service.js';
+import { registerInteractiveRoutes, getConsoleEmitter } from '../../src/adjudication/interactive-routes.js';
 import { NfcBridge } from './nfc-bridge.js';
 import { resolveBindHost, resolveAllowedOrigins } from '../../src/security/network-policy.js';
 

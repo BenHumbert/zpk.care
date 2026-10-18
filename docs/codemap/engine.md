@@ -1,6 +1,6 @@
-# Code map — adjudication engine (visualizer/engine/)
+# Code map — adjudication engine (src/adjudication/, moved from visualizer/engine/ on 2026-10-17)
 
-Working tree as read on 2026-10-16. Abbreviations: S = visualizer/engine/interactive-service.ts (6789 lines), R = interactive-routes.ts, L = src/nodes/start-leviathan.ts, SI = start-interactive.ts, SS = start-sequencer.ts, PP = proof-pool.ts, PW = proof-pool-worker.ts, PT = proof-pool-types.ts, SEQ = src/l2/l2-sequencer-service.ts, N = src/l2/l2-node.ts, RPC = src/l2/l2-rpc-server.ts, WD = src/wallets/wallet-derivation.ts.
+Working tree as read on 2026-10-16; paths updated 2026-10-17 when B1 step one moved the engine to `src/adjudication/` (line numbers are from the 2026-10-16 tree). Abbreviations: S = src/adjudication/interactive-service.ts (6789 lines), R = interactive-routes.ts, L = src/nodes/start-leviathan.ts, SI = start-interactive.ts, SS = start-sequencer.ts, PP = proof-pool.ts, PW = proof-pool-worker.ts, PT = proof-pool-types.ts, SEQ = src/l2/l2-sequencer-service.ts, N = src/l2/l2-node.ts, RPC = src/l2/l2-rpc-server.ts, WD = src/wallets/wallet-derivation.ts.
 
 ## 1. Construction and mounting
 

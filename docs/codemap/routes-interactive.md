@@ -1,6 +1,6 @@
 # Code map — `/interactive/*` and `/node/*` routes
 
-Working tree as read on 2026-10-16. Abbreviations: R = visualizer/engine/interactive-routes.ts, S = visualizer/engine/interactive-service.ts, RPC = src/l2/l2-rpc-server.ts, SEQ = src/l2/l2-sequencer-service.ts, N = src/l2/l2-node.ts, L = src/nodes/start-leviathan.ts, SI = visualizer/engine/start-interactive.ts.
+Working tree as read on 2026-10-16; paths updated 2026-10-17 when B1 step one moved the engine to `src/adjudication/` (line numbers are from the 2026-10-16 tree). Abbreviations: R = src/adjudication/interactive-routes.ts, S = src/adjudication/interactive-service.ts, RPC = src/l2/l2-rpc-server.ts, SEQ = src/l2/l2-sequencer-service.ts, N = src/l2/l2-node.ts, L = src/nodes/start-leviathan.ts, SI = visualizer/engine/start-interactive.ts.
 
 ## Mounting and auth model
 

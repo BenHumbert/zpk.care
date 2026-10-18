@@ -175,7 +175,7 @@ describe('the pharmacy pins the key rather than reading it from the tag', () => 
 
   test('the engine verifies against its own authority key', () => {
     const src = require('fs')
-      .readFileSync('visualizer/engine/interactive-service.ts', 'utf-8') as string;
+      .readFileSync('src/adjudication/interactive-service.ts', 'utf-8') as string;
     expect(src).toContain('this.attestationAuthority.publicKeyHex');
   });
 });

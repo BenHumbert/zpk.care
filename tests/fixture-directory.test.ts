@@ -50,7 +50,7 @@ describe('the fixture directory', () => {
   });
 
   test('the engine no longer embeds the fixture people in the state payload', () => {
-    const src = fs.readFileSync(path.join(REPO, 'visualizer/engine/interactive-service.ts'), 'utf8');
+    const src = fs.readFileSync(path.join(REPO, 'src/adjudication/interactive-service.ts'), 'utf8');
     const dump = src.slice(src.indexOf('  getState(): Record<string, unknown> {'));
     expect(dump).not.toContain('members: MEMBERS.map(');
     expect(dump).not.toContain('prescribers: PRESCRIBERS.map(');

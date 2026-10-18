@@ -1081,6 +1081,49 @@ sequencer methods that carry authorisation, move the viz events and the checkpoi
 give it its own listener and operator credential, and point the node servers at it; this is
 scheduled with phase B because the identity it holds has to leave at the same time.
 
+**B1 step one implementation record.** Done 2026-10-17. The engine is out of the visualizer.
+
+What moved. `interactive-service.ts`, `interactive-routes.ts`, `proof-pool.ts`, `proof-pool-worker.ts`
+and `proof-pool-types.ts` went with `git mv` to a new `src/adjudication/`, history preserved as
+renames and names unchanged on purpose (see the spec above). Their 89 `../../src/` imports became
+`../`. `src/nodes/start-leviathan.ts` imports `AdjudicationService`, `registerInteractiveRoutes` and
+`ProofPool` statically; the path-string imports and the try/catch that logged "AdjudicationService
+not available (optional)" and carried on are gone, so an engine that cannot load is a boot failure.
+The pool's worker is `src/adjudication/proof-pool-worker.ts`, named by the boot and also the pool's
+own default, which now resolves with `fileURLToPath` instead of a hand-edited URL pathname.
+
+The NFC reader. The routes needed only the reader's event and payload types, and the USB bridge's
+native dependency (`node-hid`) is declared in the visualizer's own package, so the bridge stayed
+where it was. `src/adjudication/nfc-port.ts` owns `NfcTagEvent`, `NdefPayload`, `NfcBridgeStatus` and
+the `NfcReader` interface the routes take; `visualizer/engine/nfc-bridge.ts` imports them and
+implements the interface. Nothing under `src/` imports from `visualizer/` any more, and a sequencer
+carries no USB code.
+
+Typecheck. The engine sat outside `tsc` (rootDir `src/`) with 28 errors; all are fixed, so src stays
+at its 20-error baseline with about 10,000 more lines under the checker. The 16 TS2556 spread calls
+in the worker go through one declared `ProveFn` rest signature; four `member.memberIndex` reads in
+`enrollMember` use the parameter (the fixture type never had the field); `updateFormularyEntry` and
+`planYearRollover` declare the `Promise` they return, which also cleared the two `withProvingLock`
+errors in the routes; `'warn'` joined `ConsoleEventType`; the bridge no longer emits `walletId: null`.
+One of the 28 was a real bug: the engine computed `hashString(tokenData.groupId!)`, but the validation
+result never carried a plain group ID (the token holds hashes, by design), so the call threw on
+`undefined` inside a bare catch and the group's `enrolledCount` never incremented for engine
+enrollments. It now uses the hash the result carries. `enrollment-service.ts:232-234` has the same
+shape of error and is still in the src baseline; it is reached only by seed runners and tests, and
+goes with the typecheck-to-zero work. Scripts typecheck unchanged at 2.
+
+Verified. `tests/engine-location.test.ts` (6): the modules are where this record says; nothing under
+`src/` imports from the visualizer; the boot imports the engine statically and by no computed path;
+the worker file the boot names exists; the routes depend on the port and the bridge implements it;
+nothing under `src/adjudication/` imports `node-hid`. The three structural suites that read the
+engine's source were re-pointed and pass (`interactive-admin-gates`, `attestation-trust`,
+`fixture-directory`). Live, on a secured clean boot: routes registered, four workers started, ten
+programs compiled, 102 of 119 checks across 24 steps, the 17 failing checks identical by name to the B1 first-half run and to A7's.
+
+Not done here, by design: the engine still reads the sequencer's trees and calls `adminMutate`,
+still holds member preimages, and still answers on the sequencer's listener. That is step two,
+scheduled with phase B.
+
 ### Phase B — Keep identity on the device
 
 The largest phase, and the one that changes the pipeline. Section 7 covers the consequences.
@@ -1551,3 +1594,16 @@ bash. **Next:** the cheap half of B1 (stop couriering fixture data through the g
 A9's remainder (per-node credentials; the HR Tool onto its Ed25519 key with the employer node registering
 it; admin auth onto `signed-request.ts`), then Step 2 (A12b → C1 → B2 → C2 → C4), then A10b, A13, full B1,
 phase D.
+
+**Addendum, later the same session: B1 first half and B1 step one done.** The console reads the fixture
+people from `/fixtures.json` and authenticates as the operator; the engine lives in `src/adjudication/`,
+imported statically by the boot and typechecked with the rest of `src/`. Scoreboard, counted from the
+audit's own status column (the two addenda above counted A-12 and A-14 as fixed; the audit marks them
+partly fixed): 31 findings; 12 fixed; 2 partly fixed (A-12, A-14); 1 mitigated (A-17); 16 open, three of
+them critical (A-1, A-2, A-6). Phase A items still open: A9 remainder, A10b, A12b, A13. Acceptance suites
+added this session: 15, 261 tests, all passing. Typecheck src 20 with the engine's ~10,000 lines now inside
+the count (its 28 errors fixed), scripts 2. Pipeline 102 of 119 checks across 24 steps, the 17 failing checks identical by name to the B1 first-half run and to A7's. Git: with this commit, 34 commits on local
+`dev`, nothing pushed, `origin/main` untouched. **Next:** A9's remainder (per-node credentials; the HR
+Tool onto its Ed25519 key with the employer node registering it; admin auth onto `signed-request.ts`), then
+Step 2 (A12b → C1 → B2 → C2 → C4), then A10b (with A-30's pharmacy key registration), A13, B1 step two with
+phase B, phase D.

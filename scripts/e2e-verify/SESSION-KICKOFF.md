@@ -20,7 +20,7 @@ Claims adjudication for pharmacy benefits using zero-knowledge proofs (o1js 2.13
 - a Leviathan sequencer (`:3030`, JSON-RPC at `/rpc` and `/interactive/*`) with batch and chain proofs;
 - Nautilus nodes: member `:4001`, prescriber `:4002`, pharmacy `:4003`, insurer and marketplace `:4004`;
 - per-employer nodes and an HR Tool, started at activation;
-- the adjudication engine in `visualizer/engine/`.
+- the adjudication engine in `src/adjudication/` (the console's drivers stay in `visualizer/engine/`).
 
 ## Owner's rules (non-negotiable)
 
@@ -92,7 +92,7 @@ Every fix phase ends with: the unit tests for the touched code, `check-phi-conta
 ## Start points in the code
 
 - Sequencer: `src/l2/l2-sequencer-service.ts`, `l2-rpc-server.ts`, `l2-client.ts`, `batch-program.ts`, `chain-program.ts`
-- Engine: `visualizer/engine/interactive-service.ts`, `interactive-routes.ts`
+- Engine: `src/adjudication/interactive-service.ts`, `interactive-routes.ts`
 - Nodes: `src/nodes/nautilus-app-server.ts`, `src/nodes/routes/*-routes.ts`, `src/nodes/start-*.ts`, the employer orchestrator, the HR Tool server
 - Identity and keys: `src/wallets/wallet-derivation.ts`, `src/wallets/wallet-migration-*.ts`, `src/security/*`, `src/nodes/nautilus-local-state.ts`
 - Member app: `dashboard-member/app.js`

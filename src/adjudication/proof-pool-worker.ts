@@ -43,58 +43,58 @@ import type {
 // ─── Program Imports ──────────────────────────────────────
 
 // Wallets
-import { ProofGateProgram, ProofGateProof } from '../../src/wallets/proof-gate.js';
+import { ProofGateProgram, ProofGateProof } from '../wallets/proof-gate.js';
 
 // Engine
 import {
   StateTransitionProgram,
   StateTransitionProof,
-} from '../../src/engine/state-transition.js';
-import { LifecycleWitness } from '../../src/engine/lifecycle.js';
+} from '../engine/state-transition.js';
+import { LifecycleWitness } from '../engine/lifecycle.js';
 
 // Eligibility
-import { EligibilityData } from '../../src/eligibility/eligibility-data.js';
-import { ForestRoots } from '../../src/eligibility/forest-roots.js';
-import { EligibilityProgram } from '../../src/eligibility/eligibility-program.js';
-import { PcpVerificationProgram } from '../../src/eligibility/pcp-verification-program.js';
-import { PcpAssignmentData } from '../../src/eligibility/pcp-assignment-data.js';
-import { BenefitPlanWitness } from '../../src/eligibility/benefit-plan-registry.js';
+import { EligibilityData } from '../eligibility/eligibility-data.js';
+import { ForestRoots } from '../eligibility/forest-roots.js';
+import { EligibilityProgram } from '../eligibility/eligibility-program.js';
+import { PcpVerificationProgram } from '../eligibility/pcp-verification-program.js';
+import { PcpAssignmentData } from '../eligibility/pcp-assignment-data.js';
+import { BenefitPlanWitness } from '../eligibility/benefit-plan-registry.js';
 
 // Access Control
-import { FormularyEntry } from '../../src/access-control/formulary-entry.js';
-import { FormularyMerkleWitness } from '../../src/access-control/formulary-registry.js';
-import { AccessControlProgram } from '../../src/access-control/access-control-program.js';
-import { AccumulatorData } from '../../src/access-control/accumulator-data.js';
-import { PriorAuthData } from '../../src/access-control/prior-auth-data.js';
-import { ForestMerkleWitness } from '../../src/zkp/merkle-forest.js';
+import { FormularyEntry } from '../access-control/formulary-entry.js';
+import { FormularyMerkleWitness } from '../access-control/formulary-registry.js';
+import { AccessControlProgram } from '../access-control/access-control-program.js';
+import { AccumulatorData } from '../access-control/accumulator-data.js';
+import { PriorAuthData } from '../access-control/prior-auth-data.js';
+import { ForestMerkleWitness } from '../zkp/merkle-forest.js';
 
 // Messaging
-import { MessageData } from '../../src/messaging/message-data.js';
-import { MessagingProgram } from '../../src/messaging/messaging-program.js';
+import { MessageData } from '../messaging/message-data.js';
+import { MessagingProgram } from '../messaging/messaging-program.js';
 import {
   MessageRegistryWitness,
   DelegationRegistryWitness,
   KeyRegistryWitness,
-} from '../../src/messaging/message-registry.js';
-import { DelegationData } from '../../src/messaging/delegation-data.js';
+} from '../messaging/message-registry.js';
+import { DelegationData } from '../messaging/delegation-data.js';
 
 // Prescription
-import { PrescriptionData, PrescriptionStatusData } from '../../src/prescription/prescription-data.js';
-import { PrescriptionProgram } from '../../src/prescription/prescription-program.js';
+import { PrescriptionData, PrescriptionStatusData } from '../prescription/prescription-data.js';
+import { PrescriptionProgram } from '../prescription/prescription-program.js';
 
 // Fulfillment
-import { FulfillmentData, ReversalData } from '../../src/fulfillment/fulfillment-data.js';
-import { AccumulatorFulfillmentProgram } from '../../src/fulfillment/accumulator-fulfillment-program.js';
+import { FulfillmentData, ReversalData } from '../fulfillment/fulfillment-data.js';
+import { AccumulatorFulfillmentProgram } from '../fulfillment/accumulator-fulfillment-program.js';
 
 // Credentials
-import { CredentialData } from '../../src/credentials/credential-data.js';
-import { CredentialProgram } from '../../src/credentials/credential-program.js';
+import { CredentialData } from '../credentials/credential-data.js';
+import { CredentialProgram } from '../credentials/credential-program.js';
 
 // Batch (needed for StateTransitionProof deserialization)
-import { BatchProgram } from '../../src/l2/batch-program.js';
+import { BatchProgram } from '../l2/batch-program.js';
 
 // Wallet state
-import { WalletRegistryWitness, CredentialInventoryWitness } from '../../src/wallets/wallet-state.js';
+import { WalletRegistryWitness, CredentialInventoryWitness } from '../wallets/wallet-state.js';
 
 // ─── Type Registry ────────────────────────────────────────
 // Maps type names → { toJSON, fromJSON } for Struct classes.
@@ -145,8 +145,14 @@ const TYPE_REGISTRY: Record<string, { toJSON: (v: any) => any; fromJSON: (v: any
 // ─── Program Registry ─────────────────────────────────────
 // Maps (program, method) → the ZkProgram method function + expected arg types.
 
+/**
+ * ZkProgram methods take tuple parameters. The worker rebuilds each argument from the job by the
+ * declared type names and spreads them, so the methods are called through this rest signature.
+ */
+type ProveFn = (...args: any[]) => Promise<any>;
+
 interface MethodDef {
-  fn: (...args: any[]) => Promise<any>;
+  fn: ProveFn;
   argTypes: string[];  // type names in TYPE_REGISTRY
   hasPublicOutput: boolean;
 }
@@ -154,74 +160,74 @@ interface MethodDef {
 const PROGRAM_REGISTRY: Record<string, Record<string, MethodDef>> = {
   ProofGate: {
     verifyMember: {
-      fn: (...args: any[]) => ProofGateProgram.verifyMember(...args),
+      fn: (...args: any[]) => (ProofGateProgram.verifyMember as ProveFn)(...args),
       argTypes: ['Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field'],
       hasPublicOutput: false,
     },
     verifyPrescriber: {
-      fn: (...args: any[]) => ProofGateProgram.verifyPrescriber(...args),
+      fn: (...args: any[]) => (ProofGateProgram.verifyPrescriber as ProveFn)(...args),
       argTypes: ['Field', 'Field', 'Field', 'Field'],
       hasPublicOutput: false,
     },
     verifyPharmacy: {
-      fn: (...args: any[]) => ProofGateProgram.verifyPharmacy(...args),
+      fn: (...args: any[]) => (ProofGateProgram.verifyPharmacy as ProveFn)(...args),
       argTypes: ['Field', 'Field', 'Field', 'Field'],
       hasPublicOutput: false,
     },
   },
   Eligibility: {
     proveEligibility: {
-      fn: (...args: any[]) => EligibilityProgram.proveEligibility(...args),
+      fn: (...args: any[]) => (EligibilityProgram.proveEligibility as ProveFn)(...args),
       argTypes: ['CredentialData', 'EligibilityData', 'ForestRoots', 'ForestMerkleWitness', 'BenefitPlanWitness', 'Field', 'Field'],
       hasPublicOutput: false,
     },
   },
   AccessControl: {
     proveFormularyAccess: {
-      fn: (...args: any[]) => AccessControlProgram.proveFormularyAccess(...args),
+      fn: (...args: any[]) => (AccessControlProgram.proveFormularyAccess as ProveFn)(...args),
       argTypes: ['CredentialData', 'EligibilityData', 'ForestRoots', 'ForestMerkleWitness', 'FormularyEntry', 'FormularyMerkleWitness', 'Field', 'Field', 'Field', 'Field'],
       hasPublicOutput: false,
     },
     provePriorAuth: {
-      fn: (...args: any[]) => AccessControlProgram.provePriorAuth(...args),
+      fn: (...args: any[]) => (AccessControlProgram.provePriorAuth as ProveFn)(...args),
       argTypes: ['CredentialData', 'EligibilityData', 'ForestRoots', 'ForestMerkleWitness', 'ForestMerkleWitness', 'PriorAuthData', 'FormularyEntry', 'FormularyMerkleWitness', 'Field', 'Field'],
       hasPublicOutput: false,
     },
   },
   Messaging: {
     proveSendMessage: {
-      fn: (...args: any[]) => MessagingProgram.proveSendMessage(...args),
+      fn: (...args: any[]) => (MessagingProgram.proveSendMessage as ProveFn)(...args),
       argTypes: ['MessageData', 'MessageRegistryWitness', 'Field', 'Field', 'Field'],
       hasPublicOutput: false,
     },
     proveDelegate: {
-      fn: (...args: any[]) => MessagingProgram.proveDelegate(...args),
+      fn: (...args: any[]) => (MessagingProgram.proveDelegate as ProveFn)(...args),
       argTypes: ['DelegationData', 'DelegationRegistryWitness', 'Field', 'Field', 'Field', 'Field'],
       hasPublicOutput: false,
     },
   },
   StateTransition: {
     proveRegistration: {
-      fn: (...args: any[]) => StateTransitionProgram.proveRegistration(...args),
+      fn: (...args: any[]) => (StateTransitionProgram.proveRegistration as ProveFn)(...args),
       argTypes: ['Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'WalletRegistryWitness', 'LifecycleWitness', 'Field', 'Field'],
       hasPublicOutput: true,
     },
     proveWalletUpdate: {
-      fn: (...args: any[]) => StateTransitionProgram.proveWalletUpdate(...args),
+      fn: (...args: any[]) => (StateTransitionProgram.proveWalletUpdate as ProveFn)(...args),
       argTypes: ['Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'WalletRegistryWitness', 'LifecycleWitness', 'Field', 'Field', 'Field'],
       hasPublicOutput: true,
     },
   },
   Prescription: {
     proveStatusUpdate: {
-      fn: (...args: any[]) => PrescriptionProgram.proveStatusUpdate(...args),
+      fn: (...args: any[]) => (PrescriptionProgram.proveStatusUpdate as ProveFn)(...args),
       argTypes: ['CredentialData', 'PrescriptionData', 'PrescriptionStatusData', 'PrescriptionStatusData', 'ForestRoots', 'ForestMerkleWitness', 'ForestMerkleWitness', 'ForestMerkleWitness', 'Field', 'Field', 'Field'],
       hasPublicOutput: false,
     },
   },
   AccumulatorFulfillment: {
     proveFulfillmentWithAccumulator: {
-      fn: (...args: any[]) => AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(...args),
+      fn: (...args: any[]) => (AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator as ProveFn)(...args),
       argTypes: [
         'CredentialData', 'PrescriptionData', 'PrescriptionStatusData',
         'FulfillmentData', 'FormularyEntry', 'ForestRoots',
@@ -234,7 +240,7 @@ const PROGRAM_REGISTRY: Record<string, Record<string, MethodDef>> = {
       hasPublicOutput: true,
     },
     proveReversalWithAccumulator: {
-      fn: (...args: any[]) => AccumulatorFulfillmentProgram.proveReversalWithAccumulator(...args),
+      fn: (...args: any[]) => (AccumulatorFulfillmentProgram.proveReversalWithAccumulator as ProveFn)(...args),
       argTypes: [
         'CredentialData', 'PrescriptionData',
         'FulfillmentData', 'ReversalData', 'ForestRoots',
@@ -248,19 +254,19 @@ const PROGRAM_REGISTRY: Record<string, Record<string, MethodDef>> = {
   },
   Credential: {
     proveHolding: {
-      fn: (...args: any[]) => CredentialProgram.proveHolding(...args),
+      fn: (...args: any[]) => (CredentialProgram.proveHolding as ProveFn)(...args),
       argTypes: ['ProofGateProof', 'CredentialData', 'CredentialInventoryWitness', 'Field'],
       hasPublicOutput: true,
     },
     proveHoldingByType: {
-      fn: (...args: any[]) => CredentialProgram.proveHoldingByType(...args),
+      fn: (...args: any[]) => (CredentialProgram.proveHoldingByType as ProveFn)(...args),
       argTypes: ['ProofGateProof', 'CredentialData', 'CredentialInventoryWitness', 'Field', 'Field'],
       hasPublicOutput: true,
     },
   },
   PcpVerification: {
     verifyPcpAssignment: {
-      fn: (...args: any[]) => PcpVerificationProgram.verifyPcpAssignment(...args),
+      fn: (...args: any[]) => (PcpVerificationProgram.verifyPcpAssignment as ProveFn)(...args),
       argTypes: ['CredentialData', 'PcpAssignmentData', 'ForestRoots', 'ForestMerkleWitness', 'Field', 'Field'],
       hasPublicOutput: false,
     },

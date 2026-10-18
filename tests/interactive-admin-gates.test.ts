@@ -38,7 +38,7 @@
  */
 import fs from 'fs';
 
-const ROUTES_FILE = 'visualizer/engine/interactive-routes.ts';
+const ROUTES_FILE = 'src/adjudication/interactive-routes.ts';
 
 /** The ADMIN_ROUTES set, read out of the source. */
 function adminRouteSet(src: string): Set<string> {

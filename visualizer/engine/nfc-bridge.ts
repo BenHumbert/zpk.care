@@ -96,29 +96,10 @@ const NCI_STATUS_OK = 0x00;
 
 // ─── Types ──────────────────────────────────────────────────
 
-export type NfcBridgeState = 'disconnected' | 'initializing' | 'polling' | 'tag_present' | 'writing' | 'error';
-
-export interface NfcBridgeStatus {
-  state: NfcBridgeState;
-  devicePath: string | null;
-  tagUid: string | null;
-  pendingWrite: string | null;
-  error: string | null;
-}
-
-export interface NfcTagEvent {
-  type: 'tag:detected' | 'tag:read' | 'tag:written' | 'tag:removed' | 'tag:error';
-  uid?: string;
-  walletId?: string;
-  attestation?: Record<string, unknown>;
-  timestamp: number;
-  error?: string;
-}
-
-/** Union type for NDEF payloads — legacy member-id or credential attestation */
-export type NdefPayload =
-  | { type: 'member-id'; walletId: string }
-  | { type: 'credential-attestation'; attestation: Record<string, unknown> };
+// The event and payload types are owned by the product's routes (src/adjudication/nfc-port.ts);
+// this bridge implements that interface and re-exports the types for the console drivers.
+import type { NfcBridgeState, NfcBridgeStatus, NfcTagEvent, NdefPayload, NfcReader } from '../../src/adjudication/nfc-port.js';
+export type { NfcBridgeState, NfcBridgeStatus, NfcTagEvent, NdefPayload };
 
 /** Result of parsing an NDEF message from a tag */
 export type ParsedNdefPayload =
@@ -540,7 +521,7 @@ class LpcUsbSioTransport {
 
 // ─── NfcBridge Class ────────────────────────────────────────
 
-export class NfcBridge extends EventEmitter {
+export class NfcBridge extends EventEmitter implements NfcReader {
   private transport: LpcUsbSioTransport | null = null;
   private state: NfcBridgeState = 'disconnected';
   private tagUid: string | null = null;
@@ -795,7 +776,6 @@ export class NfcBridge extends EventEmitter {
         this.emit('tag:read', {
           type: 'tag:read',
           uid: this.tagUid,
-          walletId: null,
           timestamp: Date.now(),
           error: 'No valid NDEF payload found on tag',
         } as NfcTagEvent);
@@ -825,7 +805,7 @@ export class NfcBridge extends EventEmitter {
       const evt: NfcTagEvent = {
         type: 'tag:written',
         uid: this.tagUid,
-        walletId,
+        walletId: walletId ?? undefined,
         timestamp: Date.now(),
       };
       if (payload.type === 'credential-attestation') {

@@ -2,7 +2,7 @@
 
 Session 2 of the review program. Scope: where ZK proofs are and are **not** cryptographically verified, and whether unverified submissions, settlement rewrites, or the committed audit chain let a dishonest input change committed state or financial outcome. PHI and route-auth are covered by other agents (cited only where they compound). No source file was modified. Every `file:line` was read in the working tree; live claims were checked against the running sequencer (`:3030`, `l2Only`, plain `L2Node`, uptime ~29 h, 20 proofs / 19 batches / 35 wallets at probe time).
 
-Abbrev: `seq`=`src/l2/l2-sequencer-service.ts`, `node`=`src/l2/l2-node.ts`, `bp`=`src/l2/batch-program.ts`, `cp`=`src/l2/chain-program.ts`, `audit`=`src/audit/audit-service.ts`, `claim`=`src/l2/claim-accumulator-service.ts`, `S`=`visualizer/engine/interactive-service.ts`, `PW`=`visualizer/engine/proof-pool-worker.ts`, `nfc`=`src/credentials/nfc-attestation.ts`, `start`=`src/nodes/start-leviathan.ts`, `rpc`=`src/l2/l2-rpc-server.ts`.
+Abbrev: `seq`=`src/l2/l2-sequencer-service.ts`, `node`=`src/l2/l2-node.ts`, `bp`=`src/l2/batch-program.ts`, `cp`=`src/l2/chain-program.ts`, `audit`=`src/audit/audit-service.ts`, `claim`=`src/l2/claim-accumulator-service.ts`, `S`=`src/adjudication/interactive-service.ts`, `PW`=`src/adjudication/proof-pool-worker.ts`, `nfc`=`src/credentials/nfc-attestation.ts`, `start`=`src/nodes/start-leviathan.ts`, `rpc`=`src/l2/l2-rpc-server.ts`.
 
 ## Findings (most severe first)
 

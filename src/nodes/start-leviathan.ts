@@ -58,7 +58,7 @@ import { spawn, type ChildProcess } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { fileURLToPath, pathToFileURL } from 'url';
+import { fileURLToPath } from 'url';
 import { Field, MerkleTree } from 'o1js';
 import { L2Node } from '../l2/l2-node.js';
 import type { L2NodeOptions } from '../l2/l2-node.js';
@@ -73,6 +73,9 @@ import http from 'http';
 import { resolveBindHost, resolveAllowedOrigins } from '../security/network-policy.js';
 import crypto from 'crypto';
 import { insurerPublicKeyFromSeed } from '../onboarding/employer-attestation.js';
+import { AdjudicationService } from '../adjudication/interactive-service.js';
+import { registerInteractiveRoutes } from '../adjudication/interactive-routes.js';
+import { ProofPool } from '../adjudication/proof-pool.js';
 
 // ─── Environment Parsing ──────────────────────────────────────
 
@@ -414,163 +417,151 @@ async function main(): Promise<void> {
   // ── Adjudication Service (Full ZK Proof Generation) ──
   // Provides AccumulatorFulfillmentProgram proof generation for pharmacy PAID flow.
   // Compiles 10 ZkPrograms in background (~3-5 min); proofs available once compiled.
+  // The engine is part of the boot: if it cannot load, the sequencer does not start.
 
   let interactiveReady = false;
   let saveAdjudicationState: (() => void) | null = null;
 
+  // Console emitter → stdout
+  const consoleEmitter = (event: { type: string; message: string; timestamp: number; elapsedMs?: number }) => {
+    const ts = new Date(event.timestamp).toLocaleTimeString();
+    const elapsed = event.elapsedMs ? ` (${(event.elapsedMs / 1000).toFixed(2)}s)` : '';
+    console.log(`  [interactive] [${event.type}] ${event.message}${elapsed}`);
+  };
+
+  // Viz emitter → loopback POST to /viz/emit
+  const vizEmitter = (event: VizEvent): void => {
+    const body = JSON.stringify(event);
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port,
+      path: '/viz/emit',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+    });
+    req.on('error', () => {});
+    req.write(body);
+    req.end();
+  };
+
+  const interactiveService = new AdjudicationService(consoleEmitter, vizEmitter, node);
+  registerInteractiveRoutes(rpcServer, interactiveService);
+  console.log('  [interactive] Routes registered on RPC server');
+
+  // ── Adjudication State Persistence ──
+  // Save/restore prescription workflow state alongside L2 checkpoints.
+  // Uses a separate file in the same checkpoint directory.
+  const adjCheckpointPath = path.join(checkpointDir, 'adjudication-state.json');
+
+  // Restore adjudication state if exists
   try {
-    // Dynamic imports use path.resolve to avoid TS6059 rootDir complaints.
-    // Use .ts extension directly since tsx handles TypeScript natively.
-    const interactiveServicePath = pathToFileURL(path.resolve(thisDir, '..', '..', 'visualizer', 'engine', 'interactive-service.ts')).href;
-    const interactiveRoutesPath = pathToFileURL(path.resolve(thisDir, '..', '..', 'visualizer', 'engine', 'interactive-routes.ts')).href;
-    const { AdjudicationService } = await import(/* webpackIgnore: true */ interactiveServicePath) as { AdjudicationService: any };
-    const { registerInteractiveRoutes } = await import(/* webpackIgnore: true */ interactiveRoutesPath) as { registerInteractiveRoutes: any };
-
-    // Console emitter → stdout
-    const consoleEmitter = (event: { type: string; message: string; timestamp: number; elapsedMs?: number }) => {
-      const ts = new Date(event.timestamp).toLocaleTimeString();
-      const elapsed = event.elapsedMs ? ` (${(event.elapsedMs / 1000).toFixed(2)}s)` : '';
-      console.log(`  [interactive] [${event.type}] ${event.message}${elapsed}`);
-    };
-
-    // Viz emitter → loopback POST to /viz/emit
-    const vizEmitter = (event: VizEvent): void => {
-      const body = JSON.stringify(event);
-      const req = http.request({
-        hostname: '127.0.0.1',
-        port,
-        path: '/viz/emit',
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
-      });
-      req.on('error', () => {});
-      req.write(body);
-      req.end();
-    };
-
-    const interactiveService = new AdjudicationService(consoleEmitter, vizEmitter, node);
-    registerInteractiveRoutes(rpcServer, interactiveService);
-    console.log('  [interactive] Routes registered on RPC server');
-
-    // ── Adjudication State Persistence ──
-    // Save/restore prescription workflow state alongside L2 checkpoints.
-    // Uses a separate file in the same checkpoint directory.
-    const adjCheckpointPath = path.join(checkpointDir, 'adjudication-state.json');
-
-    // Restore adjudication state if exists
-    try {
-      if (fs.existsSync(adjCheckpointPath)) {
-        const adjData = JSON.parse(fs.readFileSync(adjCheckpointPath, 'utf-8'));
-        interactiveService.restoreState(adjData);
-        console.log('  [interactive] Adjudication state restored (%d prescriptions, %d members)',
-          adjData.prescriptions?.length ?? 0, adjData.enrolledMembers?.length ?? 0);
-      }
-    } catch (err) {
-      console.warn('  [interactive] Failed to restore adjudication state:', err instanceof Error ? err.message : err);
+    if (fs.existsSync(adjCheckpointPath)) {
+      const adjData = JSON.parse(fs.readFileSync(adjCheckpointPath, 'utf-8'));
+      interactiveService.restoreState(adjData);
+      console.log('  [interactive] Adjudication state restored (%d prescriptions, %d members)',
+        adjData.prescriptions?.length ?? 0, adjData.enrolledMembers?.length ?? 0);
     }
-
-    // Auto-save adjudication state after each batch settlement + on shutdown
-    saveAdjudicationState = () => {
-      try {
-        // Ensure checkpoint directory exists (clean:state deletes it)
-        const dir = path.dirname(adjCheckpointPath);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-        const state = interactiveService.exportState();
-        const tmpPath = adjCheckpointPath + '.tmp';
-        fs.writeFileSync(tmpPath, JSON.stringify(state));
-        fs.renameSync(tmpPath, adjCheckpointPath);
-      } catch (err) {
-        console.warn('  [interactive] Failed to save adjudication state:', err instanceof Error ? err.message : err);
-      }
-    };
-
-    // Piggyback on L2 node events — save after each batch settlement
-    node.on((event) => {
-      if (event.type === 'batch:settled' || event.type === 'batch:built') {
-        saveAdjudicationState?.();
-      }
-    });
-
-    // Also save periodically (every 60s) to capture mark-filled and other non-batch state changes
-    setInterval(() => saveAdjudicationState?.(), 60_000);
-
-    // Proof pool — offloads ZK proving to child processes, keeps main event loop free
-    const proofPoolSize = parseInt(env.ZKTRIDENT_PROOF_POOL_SIZE ?? '4', 10);
-    if (proofPoolSize > 0) {
-      const proofPoolPath = pathToFileURL(path.resolve(thisDir, '..', '..', 'visualizer', 'engine', 'proof-pool.ts')).href;
-      const { ProofPool } = await import(/* webpackIgnore: true */ proofPoolPath) as { ProofPool: any };
-      const proofPool = new ProofPool(proofPoolSize, { recycleAfterJobs: 50 });
-      const workerPath = path.resolve(thisDir, '..', '..', 'visualizer', 'engine', 'proof-pool-worker.ts');
-      proofPool.setWorkerScriptPath(workerPath);
-      console.log('  [proof-pool] Starting %d proof worker(s)...', proofPoolSize);
-      proofPool.on((event: { type: string; workerId: number; data?: Record<string, unknown> }) => {
-        switch (event.type) {
-          case 'worker:dispatched':
-            console.log('  [proof-pool] Worker %d dispatched %s', event.workerId, event.data?.description || event.data?.jobId);
-            break;
-          case 'worker:completed':
-            console.log('  [proof-pool] Worker %d completed %s (%dms)', event.workerId, event.data?.jobId, event.data?.proveTimeMs);
-            break;
-          case 'worker:crashed':
-            console.error('  [proof-pool] Worker %d CRASHED (code %s)', event.workerId, event.data?.code);
-            break;
-          case 'worker:recycled':
-            console.log('  [proof-pool] Worker %d recycled after %d jobs', event.workerId, event.data?.jobsProcessed);
-            break;
-        }
-      });
-      proofPool.start().then(() => {
-        interactiveService.setProofPool(proofPool);
-        rpcServer.setEntityProofPoolStatus(() => ({
-          status: proofPool.getStatus(),
-          workers: proofPool.getWorkerStatuses(),
-        }));
-        console.log('  [proof-pool] Proof pool ready — proving offloaded to child processes');
-      }).catch((err: unknown) => {
-        console.error('  [proof-pool] Failed to start proof pool:', err);
-        console.log('  [proof-pool] Falling back to inline proving (will block event loop)');
-      });
-    }
-
-    // Compile in background (non-blocking — same pattern as proving pool)
-    interactiveService.compileAllPrograms().then(async () => {
-      interactiveReady = true;
-      console.log('  [interactive] ZkPrograms compiled — full proof generation available');
-
-      // Set VK commitment on the RPC server AND peer network for software identity verification
-      if (interactiveService.vkCommitment) {
-        rpcServer.setVkCommitment(interactiveService.vkCommitment);
-        const peerNet = node.getPeerNetwork?.();
-        if (peerNet) peerNet.setVkCommitment(interactiveService.vkCommitment);
-        console.log('  [security] VK commitment set: %s…', interactiveService.vkCommitment.slice(0, 24));
-      }
-
-      // Open all boot-time dashboards in browser when ready.
-      // Employer node + HR Tool are spawned on-demand by marketplace activation
-      // and are NOT included here — they open via the marketplace activate screen.
-      if (env.ZKTRIDENT_OPEN_BROWSERS !== '0') {
-        const urls = [
-          `http://localhost:${port}/`,      // Leviathan sequencer
-          `http://localhost:4001/`,          // Member
-          `http://localhost:4002/`,          // Prescriber
-          `http://localhost:4003/`,          // Pharmacy
-          `http://localhost:4004/`,          // Insurer (includes marketplace at /marketplace/)
-          `http://localhost:8000/`,          // Explorer
-        ];
-        const { exec } = await import('child_process');
-        const openCmd = process.platform === 'win32' ? 'start ""' : process.platform === 'darwin' ? 'open' : 'xdg-open';
-        for (const url of urls) {
-          exec(`${openCmd} ${url}`, { windowsHide: true });
-        }
-        console.log('  [browser] Opened %d dashboards', urls.length);
-      }
-    }).catch((err: unknown) => {
-      console.error('  [interactive] ZkProgram compilation failed:', err);
-    });
   } catch (err) {
-    console.log('  [interactive] AdjudicationService not available (optional):', err instanceof Error ? err.message : err);
+    console.warn('  [interactive] Failed to restore adjudication state:', err instanceof Error ? err.message : err);
   }
+
+  // Auto-save adjudication state after each batch settlement + on shutdown
+  saveAdjudicationState = () => {
+    try {
+      // Ensure checkpoint directory exists (clean:state deletes it)
+      const dir = path.dirname(adjCheckpointPath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+      const state = interactiveService.exportState();
+      const tmpPath = adjCheckpointPath + '.tmp';
+      fs.writeFileSync(tmpPath, JSON.stringify(state));
+      fs.renameSync(tmpPath, adjCheckpointPath);
+    } catch (err) {
+      console.warn('  [interactive] Failed to save adjudication state:', err instanceof Error ? err.message : err);
+    }
+  };
+
+  // Piggyback on L2 node events — save after each batch settlement
+  node.on((event) => {
+    if (event.type === 'batch:settled' || event.type === 'batch:built') {
+      saveAdjudicationState?.();
+    }
+  });
+
+  // Also save periodically (every 60s) to capture mark-filled and other non-batch state changes
+  setInterval(() => saveAdjudicationState?.(), 60_000);
+
+  // Proof pool — offloads ZK proving to child processes, keeps main event loop free
+  const proofPoolSize = parseInt(env.ZKTRIDENT_PROOF_POOL_SIZE ?? '4', 10);
+  if (proofPoolSize > 0) {
+    const proofPool = new ProofPool(proofPoolSize, { recycleAfterJobs: 50 });
+    const workerPath = path.resolve(thisDir, '..', 'adjudication', 'proof-pool-worker.ts');
+    proofPool.setWorkerScriptPath(workerPath);
+    console.log('  [proof-pool] Starting %d proof worker(s)...', proofPoolSize);
+    proofPool.on((event: { type: string; workerId: number; data?: Record<string, unknown> }) => {
+      switch (event.type) {
+        case 'worker:dispatched':
+          console.log('  [proof-pool] Worker %d dispatched %s', event.workerId, event.data?.description || event.data?.jobId);
+          break;
+        case 'worker:completed':
+          console.log('  [proof-pool] Worker %d completed %s (%dms)', event.workerId, event.data?.jobId, event.data?.proveTimeMs);
+          break;
+        case 'worker:crashed':
+          console.error('  [proof-pool] Worker %d CRASHED (code %s)', event.workerId, event.data?.code);
+          break;
+        case 'worker:recycled':
+          console.log('  [proof-pool] Worker %d recycled after %d jobs', event.workerId, event.data?.jobsProcessed);
+          break;
+      }
+    });
+    proofPool.start().then(() => {
+      interactiveService.setProofPool(proofPool);
+      rpcServer.setEntityProofPoolStatus(() => ({
+        status: { ...proofPool.getStatus() },
+        workers: proofPool.getWorkerStatuses(),
+      }));
+      console.log('  [proof-pool] Proof pool ready — proving offloaded to child processes');
+    }).catch((err: unknown) => {
+      console.error('  [proof-pool] Failed to start proof pool:', err);
+      console.log('  [proof-pool] Falling back to inline proving (will block event loop)');
+    });
+  }
+
+  // Compile in background (non-blocking — same pattern as proving pool)
+  interactiveService.compileAllPrograms().then(async () => {
+    interactiveReady = true;
+    console.log('  [interactive] ZkPrograms compiled — full proof generation available');
+
+    // Set VK commitment on the RPC server AND peer network for software identity verification
+    if (interactiveService.vkCommitment) {
+      rpcServer.setVkCommitment(interactiveService.vkCommitment);
+      const peerNet = node.getPeerNetwork?.();
+      if (peerNet) peerNet.setVkCommitment(interactiveService.vkCommitment);
+      console.log('  [security] VK commitment set: %s…', interactiveService.vkCommitment.slice(0, 24));
+    }
+
+    // Open all boot-time dashboards in browser when ready.
+    // Employer node + HR Tool are spawned on-demand by marketplace activation
+    // and are NOT included here — they open via the marketplace activate screen.
+    if (env.ZKTRIDENT_OPEN_BROWSERS !== '0') {
+      const urls = [
+        `http://localhost:${port}/`,      // Leviathan sequencer
+        `http://localhost:4001/`,          // Member
+        `http://localhost:4002/`,          // Prescriber
+        `http://localhost:4003/`,          // Pharmacy
+        `http://localhost:4004/`,          // Insurer (includes marketplace at /marketplace/)
+        `http://localhost:8000/`,          // Explorer
+      ];
+      const { exec } = await import('child_process');
+      const openCmd = process.platform === 'win32' ? 'start ""' : process.platform === 'darwin' ? 'open' : 'xdg-open';
+      for (const url of urls) {
+        exec(`${openCmd} ${url}`, { windowsHide: true });
+      }
+      console.log('  [browser] Opened %d dashboards', urls.length);
+    }
+  }).catch((err: unknown) => {
+    console.error('  [interactive] ZkProgram compilation failed:', err);
+  });
 
   // ── Start Node ──
 

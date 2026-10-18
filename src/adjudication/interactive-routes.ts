@@ -52,16 +52,16 @@
  *   GET  /interactive/badge/:key       — get specific badge payload
  */
 import type { IncomingMessage, ServerResponse } from 'http';
-import type { L2RpcServer } from '../../src/l2/l2-rpc-server.js';
+import type { L2RpcServer } from '../l2/l2-rpc-server.js';
 import type { AdjudicationService, ConsoleEvent } from './interactive-service.js';
-import type { NfcBridge, NfcTagEvent, NdefPayload } from './nfc-bridge.js';
-import type { NfcCredentialAttestation } from '../../src/credentials/nfc-attestation.js';
-import { MEDICATIONS, PRESCRIBERS, PHARMACIES } from '../../src/data/index.js';
+import type { NfcReader, NfcTagEvent, NdefPayload } from './nfc-port.js';
+import type { NfcCredentialAttestation } from '../credentials/nfc-attestation.js';
+import { MEDICATIONS, PRESCRIBERS, PHARMACIES } from '../data/index.js';
 
 export function registerInteractiveRoutes(
   server: L2RpcServer,
   service: AdjudicationService,
-  nfcBridge?: NfcBridge,
+  nfcBridge?: NfcReader,
 ): void {
   // CORS is applied once by L2RpcServer.handleRequest, from the deployment's origin
   // allowlist. Naming Access-Control-Allow-Origin in a writeHead header object here

@@ -42,62 +42,62 @@ import {
   prescriberWalletPreimage,
   pharmacyWalletPreimage,
   DOMAIN_TAG_MEMBER,
-} from '../../src/wallets/wallet-derivation.js';
-import { ProofGateProgram, ProofGateProof } from '../../src/wallets/proof-gate.js';
-import { WalletRegistry, WalletRegistryWitness, WALLET_TREE_HEIGHT } from '../../src/wallets/wallet-state.js';
+} from '../wallets/wallet-derivation.js';
+import { ProofGateProgram, ProofGateProof } from '../wallets/proof-gate.js';
+import { WalletRegistry, WalletRegistryWitness, WALLET_TREE_HEIGHT } from '../wallets/wallet-state.js';
 
 // Engine
-import { lifecycleLeafCommitment, LifecycleWitness, LIFECYCLE_ELIGIBLE, LIFECYCLE_REGISTERED, LIFECYCLE_REVOKED } from '../../src/engine/lifecycle.js';
-import { StateTransitionProgram, StateTransitionProof, EMPTY_CREDENTIAL_ROOT } from '../../src/engine/state-transition.js';
-import { BatchProgram } from '../../src/l2/batch-program.js';
-import { WalletState } from '../../src/wallets/wallet-state.js';
-import type { L2Node } from '../../src/l2/l2-node.js';
-import type { L2Receipt } from '../../src/l2/l2-types.js';
-import { CredentialInventory } from '../../src/credentials/credential-inventory.js';
+import { lifecycleLeafCommitment, LifecycleWitness, LIFECYCLE_ELIGIBLE, LIFECYCLE_REGISTERED, LIFECYCLE_REVOKED } from '../engine/lifecycle.js';
+import { StateTransitionProgram, StateTransitionProof, EMPTY_CREDENTIAL_ROOT } from '../engine/state-transition.js';
+import { BatchProgram } from '../l2/batch-program.js';
+import { WalletState } from '../wallets/wallet-state.js';
+import type { L2Node } from '../l2/l2-node.js';
+import type { L2Receipt } from '../l2/l2-types.js';
+import { CredentialInventory } from '../credentials/credential-inventory.js';
 
 // ZKP
-import { MerkleForest, ForestDomain } from '../../src/zkp/merkle-forest.js';
-import { hashString, dateToField, centsToField, quantityToField } from '../../src/zkp/hash-utils.js';
+import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
+import { hashString, dateToField, centsToField, quantityToField } from '../zkp/hash-utils.js';
 
 // Credentials
-import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY, CREDENTIAL_TYPE_PRESCRIPTION } from '../../src/credentials/credential-data.js';
-import { CredentialProgram, CredentialOperationProof } from '../../src/credentials/credential-program.js';
-import { serializeCredential, verifyCredentialOffline } from '../../src/credentials/portable-credential.js';
-import type { PortableCredential } from '../../src/credentials/portable-credential.js';
-import { SequencerAttestationAuthority } from '../../src/credentials/nfc-attestation.js';
-import type { NfcCredentialAttestation } from '../../src/credentials/nfc-attestation.js';
+import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY, CREDENTIAL_TYPE_PRESCRIPTION } from '../credentials/credential-data.js';
+import { CredentialProgram, CredentialOperationProof } from '../credentials/credential-program.js';
+import { serializeCredential, verifyCredentialOffline } from '../credentials/portable-credential.js';
+import type { PortableCredential } from '../credentials/portable-credential.js';
+import { SequencerAttestationAuthority } from '../credentials/nfc-attestation.js';
+import type { NfcCredentialAttestation } from '../credentials/nfc-attestation.js';
 import {
   createProviderBadge,
   authenticateFromBadge,
   badgePreimage,
   DEV_BADGE_PIN,
-} from '../../src/credentials/provider-badge-service.js';
-import type { ProviderBadge, BadgeTapEvent } from '../../src/credentials/provider-badge-types.js';
+} from '../credentials/provider-badge-service.js';
+import type { ProviderBadge, BadgeTapEvent } from '../credentials/provider-badge-types.js';
 
 // Eligibility
-import { EligibilityData, buildEligibilityData } from '../../src/eligibility/eligibility-data.js';
-import { ForestRoots } from '../../src/eligibility/forest-roots.js';
-import { BenefitPlanRegistry } from '../../src/eligibility/benefit-plan-registry.js';
-import { EligibilityProgram } from '../../src/eligibility/eligibility-program.js';
-import { ProviderNetworkRegistry } from '../../src/eligibility/provider-network-registry.js';
+import { EligibilityData, buildEligibilityData } from '../eligibility/eligibility-data.js';
+import { ForestRoots } from '../eligibility/forest-roots.js';
+import { BenefitPlanRegistry } from '../eligibility/benefit-plan-registry.js';
+import { EligibilityProgram } from '../eligibility/eligibility-program.js';
+import { ProviderNetworkRegistry } from '../eligibility/provider-network-registry.js';
 
 // PCP Assignment
-import { buildPcpAssignmentData, PCP_ASSIGNMENT_LEAF_INDEX, PcpAssignmentData } from '../../src/eligibility/pcp-assignment-data.js';
-import { PcpVerificationProgram } from '../../src/eligibility/pcp-verification-program.js';
+import { buildPcpAssignmentData, PCP_ASSIGNMENT_LEAF_INDEX, PcpAssignmentData } from '../eligibility/pcp-assignment-data.js';
+import { PcpVerificationProgram } from '../eligibility/pcp-verification-program.js';
 
 // Access Control
-import { buildFormularyEntry, FormularyEntry, type FormularyEntryLocalData } from '../../src/access-control/formulary-entry.js';
-import { FormularyRegistry } from '../../src/access-control/formulary-registry.js';
-import { AccessControlProgram } from '../../src/access-control/access-control-program.js';
-import { AccumulatorData, buildAccumulatorData, ACCUMULATOR_LEAF_INDEX } from '../../src/access-control/accumulator-data.js';
-import { PriorAuthData, buildPriorAuthData } from '../../src/access-control/prior-auth-data.js';
+import { buildFormularyEntry, FormularyEntry, type FormularyEntryLocalData } from '../access-control/formulary-entry.js';
+import { FormularyRegistry } from '../access-control/formulary-registry.js';
+import { AccessControlProgram } from '../access-control/access-control-program.js';
+import { AccumulatorData, buildAccumulatorData, ACCUMULATOR_LEAF_INDEX } from '../access-control/accumulator-data.js';
+import { PriorAuthData, buildPriorAuthData } from '../access-control/prior-auth-data.js';
 
 // Messaging
-import { MessageData, MSG_TYPE_PRESCRIPTION, MSG_TYPE_PA_REQUEST, MSG_TYPE_PA_RESPONSE, MSG_TYPE_NOTIFICATION, MSG_TYPE_GENERAL, MSG_TYPE_SUPPORT } from '../../src/messaging/message-data.js';
-import { MessagingProgram } from '../../src/messaging/messaging-program.js';
-import { MessageRegistry, DelegationRegistry, KeyRegistry, computeMessagingRoot } from '../../src/messaging/message-registry.js';
-import { DelegationData } from '../../src/messaging/delegation-data.js';
-import { deriveEncryptionKeyPair, encryptMessage, decryptMessage as decryptMessageAes, computeContentHash, deriveSharedSecret, publicKeyToFields } from '../../src/messaging/encryption.js';
+import { MessageData, MSG_TYPE_PRESCRIPTION, MSG_TYPE_PA_REQUEST, MSG_TYPE_PA_RESPONSE, MSG_TYPE_NOTIFICATION, MSG_TYPE_GENERAL, MSG_TYPE_SUPPORT } from '../messaging/message-data.js';
+import { MessagingProgram } from '../messaging/messaging-program.js';
+import { MessageRegistry, DelegationRegistry, KeyRegistry, computeMessagingRoot } from '../messaging/message-registry.js';
+import { DelegationData } from '../messaging/delegation-data.js';
+import { deriveEncryptionKeyPair, encryptMessage, decryptMessage as decryptMessageAes, computeContentHash, deriveSharedSecret, publicKeyToFields } from '../messaging/encryption.js';
 
 // Prescription
 import {
@@ -111,19 +111,19 @@ import {
   RX_STATUS_REJECTED,
   RX_STATUS_REVERSED,
   isValidStatusTransition,
-} from '../../src/prescription/prescription-data.js';
-import { PrescriptionProgram } from '../../src/prescription/prescription-program.js';
+} from '../prescription/prescription-data.js';
+import { PrescriptionProgram } from '../prescription/prescription-program.js';
 
 // Fulfillment
-import { FulfillmentData, ReversalData } from '../../src/fulfillment/fulfillment-data.js';
-import { AccumulatorFulfillmentProgram } from '../../src/fulfillment/accumulator-fulfillment-program.js';
+import { FulfillmentData, ReversalData } from '../fulfillment/fulfillment-data.js';
+import { AccumulatorFulfillmentProgram } from '../fulfillment/accumulator-fulfillment-program.js';
 
 // Onboarding
-import { TokenAuthority } from '../../src/onboarding/token-authority.js';
-import { GroupRegistry, GroupConfig, GROUP_STATUS_ACTIVE } from '../../src/onboarding/group-registry.js';
-import { OpaqueRoster, buildRosterEntry } from '../../src/onboarding/opaque-roster.js';
-import { PlanTemplate } from '../../src/onboarding/plan-template.js';
-import { EnrollmentService } from '../../src/onboarding/enrollment-service.js';
+import { TokenAuthority } from '../onboarding/token-authority.js';
+import { GroupRegistry, GroupConfig, GROUP_STATUS_ACTIVE } from '../onboarding/group-registry.js';
+import { OpaqueRoster, buildRosterEntry } from '../onboarding/opaque-roster.js';
+import { PlanTemplate } from '../onboarding/plan-template.js';
+import { EnrollmentService } from '../onboarding/enrollment-service.js';
 
 // Production data (NPPES + NADAC)
 import {
@@ -133,24 +133,24 @@ import {
   MEDICATIONS,
   getAllFormularyEntries,
   getMembersByFamily,
-} from '../../src/data/index.js';
+} from '../data/index.js';
 
 // Full NADAC formulary (always 32K, ignores FORMULARY_LIMIT env var)
-import { formularyRaw } from '../../src/data/formulary-loader.js';
+import { formularyRaw } from '../data/formulary-loader.js';
 
 // Family accumulator pooling
-import { FamilyAccumulatorService } from '../../src/onboarding/family-accumulator-service.js';
-import type { FamilyLimits, MemberAccumulator } from '../../src/onboarding/family-accumulator-service.js';
+import { FamilyAccumulatorService } from '../onboarding/family-accumulator-service.js';
+import type { FamilyLimits, MemberAccumulator } from '../onboarding/family-accumulator-service.js';
 
 // Reporting
-import { ReportingService } from '../../src/reporting/reporting-service.js';
-import type { VerifiedClaim, PriorAuthContext } from '../../src/reporting/report-types.js';
+import { ReportingService } from '../reporting/reporting-service.js';
+import type { VerifiedClaim, PriorAuthContext } from '../reporting/report-types.js';
 
-import type { VizEvent } from '../../src/l2/l2-rpc-server.js';
+import type { VizEvent } from '../l2/l2-rpc-server.js';
 
 // ─── Console Event Types ────────────────────────────────
 
-export type ConsoleEventType = 'compile' | 'proof' | 'offchain' | 'info' | 'error' | 'timing' | 'memory' | 'phase';
+export type ConsoleEventType = 'compile' | 'proof' | 'offchain' | 'info' | 'warn' | 'error' | 'timing' | 'memory' | 'phase';
 
 export interface ConsoleEvent {
   type: ConsoleEventType;
@@ -1066,7 +1066,7 @@ export class AdjudicationService {
     this.emitViz('viz:enrollment:wallet_derived', 'enrollment', {
       actor: displayName,
       actorType: 'member',
-      data: { walletId: walletIdStr, step: 'wallet_derived', memberIndex: member.memberIndex },
+      data: { walletId: walletIdStr, step: 'wallet_derived', memberIndex },
     });
 
     // 3. Generate ProofGate proof (member proves identity — CACHED for reuse)
@@ -1093,7 +1093,7 @@ export class AdjudicationService {
       actorType: 'member',
       target: 'Insurer',
       targetType: 'insurer',
-      data: { walletId: walletIdStr, step: 'proof_gate', elapsedMs: elapsedProof, memberIndex: member.memberIndex },
+      data: { walletId: walletIdStr, step: 'proof_gate', elapsedMs: elapsedProof, memberIndex },
     });
 
     // 4. PHASE A: Registration — proveRegistration (wallet + lifecycle)
@@ -1103,7 +1103,7 @@ export class AdjudicationService {
       actorWalletId: walletIdStr,
       target: 'leviathan',
       targetType: 'leviathan',
-      data: { tokenId, step: 'processing', memberIndex: member.memberIndex },
+      data: { tokenId, step: 'processing', memberIndex },
     });
 
     this.emit('offchain', 'enroll', 'Step 4a: Capturing pre-registration roots...', 'start');
@@ -1168,7 +1168,7 @@ export class AdjudicationService {
       if (tokenData.valid) {
         this.tokenAuthority.consumeToken(tokenId, walletId);
         // Increment group enrolled count
-        const groupIdHash = hashString(tokenData.groupId!);
+        const groupIdHash = Field(tokenData.groupIdHash!);
         const groupResult = this.groupRegistry.getGroupByHash(groupIdHash);
         if (groupResult) {
           const currentCount = BigInt(groupResult.config.enrolledCount.toString());
@@ -1273,7 +1273,7 @@ export class AdjudicationService {
     const mintProof = await StateTransitionProof.fromJSON(JSON.parse(mintDispatch.proofJson!));
     const mintReceipt = await this.l2Node.submitProof(mintProof, {
       newCredentialInventoryRoot: inventoryRoot.toString(),
-    } as unknown as import('../../src/l2/l2-types.js').ClaimSubmissionMetadata);
+    } as unknown as import('../l2/l2-types.js').ClaimSubmissionMetadata);
     this.emit('info', 'enroll', `  ┌─ L2 RECEIPT #2 (Credential Mint)`);
     this.emit('info', 'enroll', `  │  Receipt ID:  ${mintReceipt.receiptId}`);
     this.emit('info', 'enroll', `  │  Sequence #:  ${mintReceipt.sequenceNumber}`);
@@ -1415,7 +1415,7 @@ export class AdjudicationService {
         planId,
         groupId,
         lifecycle: 'ELIGIBLE',
-        memberIndex: member.memberIndex,
+        memberIndex,
       },
     });
 
@@ -2999,7 +2999,7 @@ export class AdjudicationService {
     enrolled.credentialData = updatedEligCredentialData;
 
     // Build claim metadata for the sequencer's ClaimAccumulatorService
-    const claimMeta: import('../../src/l2/l2-types.js').ClaimSubmissionMetadata = {
+    const claimMeta: import('../l2/l2-types.js').ClaimSubmissionMetadata = {
       ndcHash: proofOutput.ndcHash || hashString(medication.ndc).toString(),
       memberWalletId: enrolled.walletId.toBigInt().toString(),
       pharmacyWalletId: pharmacyWalletId.toBigInt().toString(),
@@ -3430,7 +3430,7 @@ export class AdjudicationService {
     fillToReverse.reversed = true;
 
     // Submit reversal to L2 so the claim accumulator tracks it
-    const reversalClaimMeta: import('../../src/l2/l2-types.js').ClaimSubmissionMetadata = {
+    const reversalClaimMeta: import('../l2/l2-types.js').ClaimSubmissionMetadata = {
       ndcHash: hashString(medication.ndc).toString(),
       memberWalletId: enrolled.walletId.toBigInt().toString(),
       pharmacyWalletId: pharmacyWalletId.toBigInt().toString(),
@@ -4231,7 +4231,7 @@ export class AdjudicationService {
     newCopayAmountCents?: number;
     newRequiresPriorAuth?: boolean;
     newStepTherapyRequired?: boolean;
-  }): Record<string, unknown> {
+  }): Promise<Record<string, unknown>> {
     const medication = this.getMedicationByNdcHash(opts.ndcHash);
     const leafIdx = Number(this.getFormularyLeafIndex(opts.ndcHash));
 
@@ -4625,7 +4625,7 @@ export class AdjudicationService {
    */
   async planYearRollover(opts: {
     newPlanYear: string;
-  }): Record<string, unknown> {
+  }): Promise<Record<string, unknown>> {
     this.emit('phase', 'rollover', `═══ Plan Year Rollover: ${opts.newPlanYear} ═══`);
 
     const affectedMembers: string[] = [];
@@ -5042,7 +5042,7 @@ export class AdjudicationService {
     enrolled: EnrolledMember,
     newInventoryRoot: Field,
     phase: string,
-    claimMetadata?: import('../../src/l2/l2-types.js').ClaimSubmissionMetadata,
+    claimMetadata?: import('../l2/l2-types.js').ClaimSubmissionMetadata,
   ): Promise<L2Receipt> {
     const receipt = await this.proveAndSubmitWalletUpdate(
       enrolled.walletId, enrolled.preimageFields, newInventoryRoot, LIFECYCLE_ELIGIBLE, phase, claimMetadata,
@@ -5065,7 +5065,7 @@ export class AdjudicationService {
     newInventoryRoot: Field,
     lifecycleState: Field,
     phase: string,
-    claimMetadata?: import('../../src/l2/l2-types.js').ClaimSubmissionMetadata,
+    claimMetadata?: import('../l2/l2-types.js').ClaimSubmissionMetadata,
   ): Promise<L2Receipt> {
     const seq = this.l2Node.getSequencer();
     const pi = preimageFields;
@@ -5136,7 +5136,7 @@ export class AdjudicationService {
   private async updateCredentialAndSubmitToL2(
     enrolled: EnrolledMember,
     phase: string,
-    claimMetadata?: import('../../src/l2/l2-types.js').ClaimSubmissionMetadata,
+    claimMetadata?: import('../l2/l2-types.js').ClaimSubmissionMetadata,
   ): Promise<L2Receipt> {
     const oldInventoryRoot = enrolled.credentialInventory.getRoot();
     enrolled.credentialInventory.updateCredential(0n, enrolled.credentialData);

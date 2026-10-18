@@ -179,7 +179,7 @@ Insurer admin token in MK: Bearer to sequencer (MK:612-614, 971-973), insurer Ed
 
 ## Open questions
 - Is the member node meant to hold ZKTRIDENT_ADMIN_TOKEN (SM:89; SL:651 passes it)? With it every member RPC is an admin call; without it, does `l2_registerEntity` (MR:373-387) still succeed?
-- What does the engine do with `preimageFields` at /interactive/register-member (visualizer/engine/interactive-routes.ts:147)? If it proves on the member's behalf, I2 is violated structurally, not just in transit.
+- What does the engine do with `preimageFields` at /interactive/register-member (src/adjudication/interactive-routes.ts:147)? If it proves on the member's behalf, I2 is violated structurally, not just in transit.
 - Sequencer-side auth for `l2_syncWalletState` (MR:1076-1088, no header), `l2_registerEntity`, `l2_registerPcpAssignment`, `l2_getEmployerNode` / `l2_listEmployerNodes`: calls from this scope assume they are open.
 - Employer POST /tokens/:id/validate is called by the insurer with no credentials (IR:236-241, 289-293); is it open on the employer node?
 - All node types default stateDir to `./nautilus-data` (SM:76, SI:59) and SL passes no ZKTRIDENT_STATE_DIR; do member and insurer share one directory in the default boot?

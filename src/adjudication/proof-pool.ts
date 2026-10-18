@@ -32,6 +32,7 @@
 
 import { fork, type ChildProcess } from 'child_process';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import type {
   ProofJobRequest,
   ProofJobResult,
@@ -101,8 +102,7 @@ export class ProofPool {
     this.recycleAfterJobs = options?.recycleAfterJobs ?? 0;
 
     // Resolve worker script path relative to this file
-    const thisDir = path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Z]:)/i, '$1');
-    this.workerScriptPath = path.resolve(thisDir, 'proof-pool-worker.ts');
+    this.workerScriptPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'proof-pool-worker.ts');
   }
 
   setWorkerScriptPath(scriptPath: string): void {

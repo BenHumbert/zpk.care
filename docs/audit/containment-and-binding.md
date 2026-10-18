@@ -6,7 +6,7 @@ Network under test: the sequencer started 2026-10-15 15:47 with admin token `e89
 
 ## 1. CONT-1 (critical, I2) — the stored identity hashes are reversible, so the sequencer's disk reveals who each wallet belongs to
 
-`l2-data/adjudication-state.json` stores, per enrolled member, the 6-Field wallet preimage (`visualizer/engine/interactive-service.ts:5695-5696`, written by `src/nodes/start-leviathan.ts:349-362`). The hashes are unsalted: `hashString(v) = Poseidon(Encoding.stringToFields(v))` and `hashDate` likewise, with no salt and no per-field domain tag (`src/zkp/hash-utils.ts:31-34, 62-64`).
+`l2-data/adjudication-state.json` stores, per enrolled member, the 6-Field wallet preimage (`src/adjudication/interactive-service.ts:5695-5696`, written by `src/nodes/start-leviathan.ts:349-362`). The hashes are unsalted: `hashString(v) = Poseidon(Encoding.stringToFields(v))` and `hashDate` likewise, with no salt and no per-field domain tag (`src/zkp/hash-utils.ts:31-34, 62-64`).
 
 Reversal run on this machine, reading only that file:
 
@@ -71,7 +71,7 @@ wallet 16425677108535…  planId=PLAN-GOLD-2026  groupId=ACME-CORP  employeeId="
 
 The plans the employers actually bought are registered on the same sequencer, with different rules: `PLAN-E2E-MVA0YQKN` ("E2E Gold", copay 1000, deductible 50000, OOP max 800000, family deductible 100000). The employer groups were `GRP-A-MVA0YQKN` and `GRP-B-MVA0YQKN`.
 
-Cause chain, each step already mapped: the member app posts only `{tokenId}` to `/onboarding/accept-token` (`dashboard-member/app.js:375`), the node takes group and plan from the request body and so stores empty strings (`src/nodes/routes/member-routes.ts:108-120`), the empty group becomes `groupIdHash = Field(0)` in the wallet derivation (`:235-236`), and the engine substitutes its fixture defaults when registering (`visualizer/engine/interactive-service.ts` register path). The employer's token carried the real group, and nothing ever compares the two.
+Cause chain, each step already mapped: the member app posts only `{tokenId}` to `/onboarding/accept-token` (`dashboard-member/app.js:375`), the node takes group and plan from the request body and so stores empty strings (`src/nodes/routes/member-routes.ts:108-120`), the empty group becomes `groupIdHash = Field(0)` in the wallet derivation (`:235-236`), and the engine substitutes its fixture defaults when registering (`src/adjudication/interactive-service.ts` register path). The employer's token carried the real group, and nothing ever compares the two.
 
 Consequences:
 - Adjudication runs against the wrong benefit rules. Copay, deductible, OOP max and family pooling all come from the default plan, not the purchased one. This is a plausible contributor to the two accumulator-rebuild failures in the last live run (engine totals 53000/50000 versus ledger 2400/1400), which `proofs-and-crypto.md` traces to root cause.

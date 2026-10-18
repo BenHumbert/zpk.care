@@ -6,7 +6,7 @@ claims correctly, with every step checked on the real running network.
 ## Root cause
 
 The wallet registry and lifecycle tree had two writable copies: the sequencer's and the
-adjudication engine's (`visualizer/engine/interactive-service.ts`). The engine edited wallet
+adjudication engine's (`src/adjudication/interactive-service.ts`). The engine edited wallet
 leaves in its copy without a proof (credential mint at registration), then pushed its own
 root over the sequencer's with `applyAdminRootUpdate`, which copied roots without checking
 them against the sequencer's tree. Separately, the sequencer never updated its own tree for

@@ -48,7 +48,7 @@
  * Start/stop via the dashboard "Auto Mode" toggle button.
  * Mutually exclusive with the smoke test.
  */
-import type { AdjudicationService } from './interactive-service.js';
+import type { AdjudicationService } from '../../src/adjudication/interactive-service.js';
 import type { L2Node } from '../../src/l2/l2-node.js';
 import { MEDICATIONS } from '../../src/data/index.js';
 import { hashString } from '../../src/zkp/hash-utils.js';
