@@ -112,8 +112,8 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 |---|---|---|---|---|---|
 | l2_getAuditLog | D1: the plan or the operator only | limit?(≤1000), offset? | audit log, events paginated | yes: AuditEvent.walletId (`src/audit/audit-types.ts:37-43`) | 1114-1125 |
 | l2_verifyChainIntegrity | OPEN | — | `AuditService.verifyReceiptChain` | no | 1127-1139 |
-| l2_verifyFinancialBalance | OPEN | — | `AuditService.verifyFinancialBalance` totals | no (aggregates) | 1141-1157 |
-| l2_detectDuplicateClaims | OPEN | — | `AuditService.detectDuplicateClaims` → duplicateGroups | audit-derived groups (fields not verified here) | 1159-1169 |
+| l2_verifyFinancialBalance | OPEN | — | `AuditService.verifyFinancialBalance` totals; D5: fills counted, reversals netted, every fill's split checked against its costs, and the chain's totals reconciled with the ledger's (`reconciled`, `ledger`); `valid` only when both hold | no (aggregates) | 1141-1157 |
+| l2_detectDuplicateClaims | OPEN | — | `AuditService.detectDuplicateClaims` → duplicateGroups; D5: fills only, keyed with the fill number | audit-derived groups (fields not verified here) | 1159-1169 |
 
 ### Formulary / plans / coverage
 | Method | Auth | Params | Reads/writes | Member | Line |

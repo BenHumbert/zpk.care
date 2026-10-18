@@ -569,6 +569,12 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
 
           // /interactive/fill returns 202 with { status, prescriptionId } — poll fill-status for result
           const result = await resp.json() as Record<string, unknown>;
+          // D4: an engine that answers a finished job directly is an older build; its error is this job's error.
+          if (result.status === 'error') {
+            const job = dispensingJobs.get(jobKey);
+            if (job) failJob(job, (result.error as string) || 'Fill failed');
+            return;
+          }
           const seqJobKey = (result.prescriptionId || result.jobKey) as string;
           if (!seqJobKey) {
             const job = dispensingJobs.get(jobKey);

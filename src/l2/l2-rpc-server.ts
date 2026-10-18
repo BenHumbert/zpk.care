@@ -1289,9 +1289,16 @@ export class L2RpcServer {
           ? this.node.getAuditLog()
           : this.node.getSequencer().getAuditLog();
         const fbResult = AuditService.verifyFinancialBalance(fbLog.events);
+        // D5: the chain's money must equal the ledger's; a divergence is what A-10 described, made visible.
+        const ledger = this.node instanceof L2Leviathan ? this.node.getClaimTotals() : this.node.getSequencer().getClaimAccumulator().getTotals();
+        const reconciled = ledger.claimCount === fbResult.totalClaims && ledger.reversalCount === fbResult.reversals
+          && ledger.patientPayCents === BigInt(fbResult.totalPatientPayCents) && ledger.planPayCents === BigInt(fbResult.totalPlanPayCents);
         return {
-          valid: fbResult.isValid,
+          valid: fbResult.isValid && reconciled,
           balanced: fbResult.isValid,
+          reconciled,
+          ledger: { claimCount: ledger.claimCount, reversalCount: ledger.reversalCount, patientPayCents: ledger.patientPayCents.toString(), planPayCents: ledger.planPayCents.toString() },
+          reversals: fbResult.reversals,
           totalClaims: fbResult.totalClaims,
           imbalancedClaims: fbResult.imbalancedClaims,
           totalPatientPayCents: fbResult.totalPatientPayCents,

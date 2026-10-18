@@ -58,8 +58,8 @@ export class AuditService {
    *
    * Hashes 10 Fields: walletId, oldRegistryRoot, newRegistryRoot,
    * oldLifecycleRoot, newLifecycleRoot, sequenceNumber, isRegistration,
-   * ndcHash, patientPayCents, planPayCents.
-   * Non-claim events use 0 for ndcHash, patientPayCents, and planPayCents.
+   * ndcHash, patientPayCents, planPayCents, operationType (1 fill, 2 reversal).
+   * Non-claim events use 0 for ndcHash, patientPayCents, planPayCents and operationType.
    */
   static computeEventCommitment(event: AuditEvent): Field {
     return Poseidon.hash([
@@ -73,6 +73,7 @@ export class AuditService {
       Field(BigInt(event.ndcHash ?? '0')),
       Field(BigInt(event.patientPayCents ?? 0)),
       Field(BigInt(event.planPayCents ?? 0)),
+      Field(BigInt(event.operationType ?? 0)),
     ]);
   }
 
@@ -137,34 +138,34 @@ export class AuditService {
    * Events without claimContext (registrations, wallet updates) are skipped.
    */
   static verifyFinancialBalance(events: AuditEvent[]): FinancialBalanceResult {
+    // D5 (A-26): a claim event carries its amounts in the commitment; a fill adds, a reversal subtracts, and a fill
+    // whose costs are known must split exactly into patient pay and plan pay.
     const imbalancedClaims: string[] = [];
     let totalClaims = 0;
+    let reversals = 0;
     let totalPatientPayCents = 0;
     let totalPlanPayCents = 0;
     let totalIngredientCostCents = 0;
     let totalDispensingFeeCents = 0;
-
     for (const event of events) {
-      if (!event.claimContext || event.patientPayCents === undefined || event.planPayCents === undefined) continue;
-      totalClaims++;
-
+      if (event.patientPayCents === undefined || event.planPayCents === undefined) continue;
+      const reversal = event.operationType === 2;
+      const sign = reversal ? -1 : 1;
+      if (reversal) reversals++; else totalClaims++;
+      totalPatientPayCents += sign * event.patientPayCents;
+      totalPlanPayCents += sign * event.planPayCents;
       const ctx = event.claimContext;
-      const totalCost = ctx.ingredientCostCents + ctx.dispensingFeeCents;
-      const totalPay = event.patientPayCents + event.planPayCents;
-
-      if (totalPay !== totalCost) {
-        imbalancedClaims.push(event.receiptId);
+      if (ctx && !reversal) {
+        const totalCost = ctx.ingredientCostCents + ctx.dispensingFeeCents;
+        if (event.patientPayCents + event.planPayCents !== totalCost) imbalancedClaims.push(event.receiptId);
+        totalIngredientCostCents += ctx.ingredientCostCents;
+        totalDispensingFeeCents += ctx.dispensingFeeCents;
       }
-
-      totalPatientPayCents += event.patientPayCents;
-      totalPlanPayCents += event.planPayCents;
-      totalIngredientCostCents += ctx.ingredientCostCents;
-      totalDispensingFeeCents += ctx.dispensingFeeCents;
     }
-
     return {
       isValid: imbalancedClaims.length === 0,
       totalClaims,
+      reversals,
       imbalancedClaims,
       totalPatientPayCents,
       totalPlanPayCents,
@@ -189,8 +190,8 @@ export class AuditService {
     const groups = new Map<string, string[]>();
 
     for (const event of events) {
-      if (!event.claimContext) continue;
-      const key = `${event.walletId}|${event.claimContext.ndcHash}|${event.claimContext.dateOfService}`;
+      if (!event.claimContext || event.operationType === 2) continue; // a reversal is not a claim
+      const key = `${event.walletId}|${event.claimContext.ndcHash}|${event.claimContext.dateOfService}|${event.claimContext.fillNumber ?? 0}`;
       const existing = groups.get(key) ?? [];
       existing.push(event.receiptId);
       groups.set(key, existing);

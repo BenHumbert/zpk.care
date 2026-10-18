@@ -368,6 +368,9 @@ async function mainFlow() {
   const ndcHash = hashString(String(med.ndc).replace(/-/g, '')).toString();
   const copay = BigInt(med.currentCopayAmountCents ?? med.copayAmountCents);
   results.drug = { brandName: med.brandName, ndc: med.ndc, copayCents: copay.toString() };
+  // D4: a different drug for each of a member's same-day claims; the same drug twice is a duplicate and is refused.
+  const eligibleMeds = (st?.demoData?.medications ?? []).filter((m: any) => m.active !== false && !m.requiresPriorAuth && !m.stepTherapyRequired && !m.deaSchedule && (m.maxQuantityPerFill ?? 999) >= 30);
+  const drugAt = (i: number) => { const m = eligibleMeds[i % eligibleMeds.length]; return { ndcHash: hashString(String(m.ndc).replace(/-/g, '')).toString(), copay: BigInt(m.currentCopayAmountCents ?? m.copayAmountCents) }; };
   t.note(`drug ${med.brandName} ${med.strength}, copay ${copay}¢`);
 
   // B2 enrolls while A1's first claim is being adjudicated (registration vs. fill contention).
@@ -382,16 +385,17 @@ async function mainFlow() {
   await checkInvariant('registration during a fill', enrolled);
 
   // Remaining claims, invariant after each.
-  const rest: Array<[string, string, bigint, bigint, string]> = [
-    ['A1', wallets[0], 60000n, 200n, 'A1 claim 2 — crosses the deductible'],
-    ['A1', wallets[0], 4500n, 200n, 'A1 claim 3 — copay only'],
-    ['A2', wallets[1], 3000n, 200n, 'A2 claim 1'],
-    ['B1', wallets[2], 900n, 200n, 'B1 claim 1'],
-    ['B2', b2Wallet, 70000n, 200n, 'B2 claim 1 — crosses the deductible'],
+  const rest: Array<[string, string, bigint, bigint, string, number]> = [
+    ['A1', wallets[0], 60000n, 200n, 'A1 claim 2 — crosses the deductible', 1],
+    ['A1', wallets[0], 4500n, 200n, 'A1 claim 3 — copay only', 2],
+    ['A2', wallets[1], 3000n, 200n, 'A2 claim 1', 0],
+    ['B1', wallets[2], 900n, 200n, 'B1 claim 1', 0],
+    ['B2', b2Wallet, 70000n, 200n, 'B2 claim 1 — crosses the deductible', 0],
   ];
-  for (const [k, w, ing, fee, label] of rest) {
+  for (const [k, w, ing, fee, label, drugIndex] of rest) {
     if (!w) continue;
-    await fileClaim(k, w, ndcHash, copay, ing, fee, label);
+    const d = drugIndex === 0 ? { ndcHash, copay } : drugAt(drugIndex);
+    await fileClaim(k, w, d.ndcHash, d.copay, ing, fee, label);
     await checkInvariant(label, enrolled);
   }
 

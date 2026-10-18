@@ -20,8 +20,8 @@ Owner rules broken: I1 PHI/PII local only; I2 only walletID + proofs leave the p
 | BOOT-01 | HIGH | I1,I2,I5,I6 | `adjudication-state.json` plaintext, default mode: member preimage+employeeId+displayName | start:349-360 (engine:5684-5710) | `ls -l l2-data/adjudication-state.json` → not 0o600; file contains `preimageFields`, `employeeId`, `displayName`, `walletId` |
 | BOOT-02 | HIGH | I4,I7 | Network admin token placed in the member "phone" process; member binds 0.0.0.0 | start:649-653 (CODEMAP §1 :4001) | inspect member process env → `ZKTRIDENT_ADMIN_TOKEN` present; `:4001` reachable off-host |
 | SEQ-06 | MEDIUM | I7 | Fingerprint recorded before checks, never removed on throw → transition permanently blockable | seq:298-302 | submit a proof that fails a later step, resubmit the fixed proof → "Duplicate proof" though it never succeeded |
-| SEQ-07 | MEDIUM | — | Duplicate-fill dedup runs after roots/audit advanced → audit/claim divergence | seq:429-457; claim:103-110 | submit two identical fills → audit log grows by 2, claim accumulator leafCount grows by 1; 2nd receipt `claimLeafIndex` = old leaf |
-| SEQ-08 | MEDIUM | — | Audit commitment always 0 for pay; `verifyFinancialBalance` is a no-op | seq:398-423; audit:66-77,139-160 | `l2_verifyFinancialBalance` → `balanced:true` with 0 events checked regardless of claims |
+| SEQ-07 | MEDIUM | — | Duplicate-fill dedup runs after roots/audit advanced → audit/claim divergence | seq:429-457; claim:103-110 | submit two identical fills → audit log grows by 2, claim accumulator leafCount grows by 1; 2nd receipt `claimLeafIndex` = old leaf **FIXED 2026-10-18 (D4):** the duplicate check runs first in `submitProof` and the accumulator refuses; see `docs/AUDIT.md` A-10. |
+| SEQ-08 | MEDIUM | — | Audit commitment always 0 for pay; `verifyFinancialBalance` is a no-op | seq:398-423; audit:66-77,139-160 | `l2_verifyFinancialBalance` → `balanced:true` with 0 events checked regardless of claims **FIXED 2026-10-18 (D5):** amounts and operation type in the commitment from creation; the balance check reconciles with the ledger; see `docs/AUDIT.md` A-26. |
 | SEQ-09 | MEDIUM | I7 | `recordFill` appends a claim leaf with no proof and no audit event | seq:2140-2145; rpc:1684-1727 | `l2_recordFill` (admin) → `l2_getClaimAccumulatorRoot` leafCount +1 but `l2_getAuditLog` unchanged **FIXED 2026-10-18 (D2):** removed at every layer; see `docs/AUDIT.md` A-27. |
 | RPC-04 | MEDIUM | I6 | `l2_submitProof` writes unverified `entityMetadata` (wallet→displayName) | rpc:774-787 | `l2_submitProof` with a registration proof + `entityMetadata{displayName,type}` → `l2_getEntity` returns attacker display name |
 | RPC-05 | MEDIUM | I7 | Ed25519 admin signature replayable (30 s window, no nonce/cache) | rpc:2624-2658 | capture an admin `X-Admin-Signature`, resend within 30 s → accepted again |
@@ -106,12 +106,12 @@ Severity counts: CRITICAL 1 · HIGH 10 · MEDIUM 17 · LOW 5 (33 total).
 **Impact.** A transition that fails any later step is permanently rejected as "Duplicate proof" on a corrected resubmission — a transient failure can brick a wallet's registration/update. The set also grows unbounded and is checkpointed.
 **Fix sketch.** Record the fingerprint only after the transition is fully applied; bound/evict the set.
 
-### SEQ-07 — MEDIUM — Duplicate-fill dedup diverges audit chain from claim accumulator
+### SEQ-07 — MEDIUM — Duplicate-fill dedup diverges audit chain from claim accumulator — **FIXED 2026-10-18 (D4)**
 **Evidence.** `submitProof` advances roots and appends an audit event (seq:374-423) before the claim append; `appendClaim` returns the existing entry for a duplicate `(member:ndc:pharmacy:date)` fill without adding a leaf (claim:103-110), and the receipt's `claimLeafIndex` points at the old leaf (seq:456).
 **Impact.** A duplicate fill produces a new audit event and root advance but no new claim leaf — audit log, claim accumulator and receipt disagree; downstream reconciliation and `reconstructAccumulator` under/over-count. Bounded financial inconsistency.
 **Fix sketch.** Perform the dedup decision before mutating roots/audit, or emit a matching audit/no-op consistently.
 
-### SEQ-08 — MEDIUM — Audit commitment omits amounts; financial-balance check is a no-op
+### SEQ-08 — MEDIUM — Audit commitment omits amounts; financial-balance check is a no-op — **FIXED 2026-10-18 (D5)**
 **Evidence.** `computeEventCommitment` hashes `patientPayCents`/`planPayCents` (audit:66-77), but `submitProof` never sets them on the `AuditEvent` (seq:398-417), so they hash as 0. `verifyFinancialBalance` skips any event lacking `claimContext`/pay (audit:148), and `claimContext` is only set by `enrichAuditEvent`, which has no callers (seq:2403; grep).
 **Impact.** The DA hash chain does not bind claim amounts, and the financial-balance audit always returns balanced with zero events examined — a documented integrity control that verifies nothing.
 **Fix sketch.** Populate pay fields on the audit event (or remove them from the commitment) and make `verifyFinancialBalance` operate on claim-accumulator data.

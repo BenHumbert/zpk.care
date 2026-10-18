@@ -38,7 +38,7 @@ import type { AuditEvent, AuditLog } from '../audit/audit-types.js';
 import type { ClaimContext } from '../reporting/report-types.js';
 import type { L2SequencerState } from './l2-checkpoint.js';
 import type { ClaimSubmissionMetadata } from './l2-types.js';
-import { ClaimAccumulatorService } from './claim-accumulator-service.js';
+import { ClaimAccumulatorService, DuplicateFillError } from './claim-accumulator-service.js';
 import type { ClaimAccumulatorEntry } from './claim-accumulator-types.js';
 import { MessageStoreService } from './message-store-service.js';
 import type { StoredMessage, MessagePayload, MessageStoreEntry } from './message-store-types.js';
@@ -316,6 +316,16 @@ export class L2SequencerService {
 
     const output = proof.publicOutput as unknown as TransitionOutput;
 
+    // 1. D4 (A-10): a claim whose fill key is already on the ledger is refused here — before the fingerprint, the
+    //    WAL, the trees, the receipt and the audit chain — so a duplicate is never half-recorded, the caller learns
+    //    at once, and a corrected retry against the same roots is not mistaken for a replay.
+    if (metadata && metadata.memberWalletId && metadata.ndcHash && metadata.operationType !== '2') {
+      const prior = this.claimAccumulator.hasActiveFill(metadata.memberWalletId, metadata.ndcHash, metadata.pharmacyWalletId, metadata.dateOfService, metadata.fillNumber ?? 0);
+      if (prior) {
+        throw new DuplicateFillError(prior.leafIndex, { memberWalletId: metadata.memberWalletId, ndcHash: metadata.ndcHash, pharmacyWalletId: metadata.pharmacyWalletId, dateOfService: metadata.dateOfService }, metadata.fillNumber ?? 0);
+      }
+    }
+
     // 1a. Proof fingerprint dedup — prevent replay of identical transitions.
     //     Recorded after verification, so a proof that fails to verify never leaves a
     //     fingerprint behind. An honest proof that is recorded and then loses a root
@@ -421,6 +431,8 @@ export class L2SequencerService {
     };
 
     // 6. Emit audit event (DA hash chain)
+    const isClaim = !!(metadata && metadata.memberWalletId && metadata.ndcHash);
+    const costsKnown = isClaim && metadata!.ingredientCostCents != null && metadata!.dispensingFeeCents != null;
     const auditEvent: AuditEvent = {
       sequenceNumber,
       receiptId,
@@ -435,6 +447,32 @@ export class L2SequencerService {
       timestamp: receipt.acceptedAt,
       l1Status: 'pending',
       ndcHash: metadata?.ndcHash,  // Drug identity committed in Poseidon hash chain
+      // D5 (A-26): the money and the operation are in the commitment from the start, so the chain binds them;
+      // the costs ride beside them so the balance check can see that patient pay + plan pay = ingredient + fee.
+      ...(isClaim ? {
+        patientPayCents: Number(metadata!.patientPayCents),
+        planPayCents: Number(metadata!.planPayCents),
+        operationType: Number(metadata!.operationType ?? '1'),
+      } : {}),
+      ...(costsKnown ? {
+        claimContext: {
+          pharmacyWalletId: metadata!.pharmacyWalletId,
+          memberWalletId: metadata!.memberWalletId,
+          prescriberWalletId: metadata!.prescriberWalletId,
+          ndcHash: metadata!.ndcHash,
+          ingredientCostCents: metadata!.ingredientCostCents!,
+          dispensingFeeCents: metadata!.dispensingFeeCents!,
+          quantityDispensed: String(metadata!.quantityDispensed ?? 0),
+          dateOfService: Number(metadata!.dateOfService) || 0,
+          ndc: metadata!.ndc,
+          gpi: metadata!.gpi,
+          daysSupply: metadata!.daysSupply,
+          fillNumber: metadata!.fillNumber,
+          brandName: metadata!.brandName,
+          therapeuticClass: metadata!.therapeuticClass,
+          tierLevel: metadata!.tierLevel,
+        },
+      } : {}),
     };
 
     const eventCommitment = AuditService.computeEventCommitment(auditEvent);
@@ -476,6 +514,10 @@ export class L2SequencerService {
           therapeuticClass: metadata.therapeuticClass,
           daysSupply: metadata.daysSupply,
           fillNumber: metadata.fillNumber,
+          ingredientCostCents: metadata.ingredientCostCents,
+          dispensingFeeCents: metadata.dispensingFeeCents,
+          totalDrugCostCents: costsKnown ? metadata.ingredientCostCents! + metadata.dispensingFeeCents! : undefined,
+          quantityDispensed: metadata.quantityDispensed,
           planIdHash: metadata.planIdHash,
         },
       );
@@ -2494,19 +2536,6 @@ export class L2SequencerService {
     return { chainHash: chainHash.toString(), sequenceNumber };
   }
 
-  /**
-   * Attach claim context to an existing audit event (post-facto enrichment).
-   *
-   * Financial context is provided by the pharmacy alongside the proof.
-   * This method links it to the corresponding audit event for financial auditing.
-   */
-  enrichAuditEvent(receiptId: string, claimContext: ClaimContext): void {
-    const event = this.auditLog.find(e => e.receiptId === receiptId);
-    if (!event) {
-      throw new Error(`Audit event not found for receipt: ${receiptId}`);
-    }
-    event.claimContext = claimContext;
-  }
 
   /**
    * Get the full audit log with chain anchors.
@@ -3243,7 +3272,7 @@ export class L2SequencerService {
         // replay claim into accumulator so it's not lost on crash recovery.
         const meta = entry.claimEntryData as unknown as ClaimSubmissionMetadata;
         if (meta.memberWalletId && meta.ndcHash) {
-          this.claimAccumulator.appendClaim(
+          try { this.claimAccumulator.appendClaim(
             {
               memberWalletId: meta.memberWalletId,
               ndcHash: meta.ndcHash,
@@ -3262,9 +3291,9 @@ export class L2SequencerService {
               brandName: meta.brandName,
               tierLevel: meta.tierLevel,
               planIdHash: meta.planIdHash,
+              fillNumber: meta.fillNumber,
             },
-          );
-          replayed++;
+          ); replayed++; } catch (err) { if (!(err instanceof DuplicateFillError)) throw err; } // already on the ledger
         }
         await this.walProvider.commit(entry.entryId);
       }

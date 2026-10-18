@@ -153,10 +153,10 @@ Consequence: the first cryptographic check of a submitted StateTransitionProof i
 | `registerEmployerNode`, `getEmployerNode`, `listEmployerNodes`, `deregisterEmployerNode` | seq:1810-1865 | none; TTL prune (1797-1807) | `employerNodeRegistry` | rpc:1401 |
 | `reconstructAccumulator(walletId, planIdHash?)` | seq:2167-2220 | none | none; sums leaves (op `1` add, op `2` clamped subtract, 2193-2210) | rpc:1515, 2150 |
 | ~~`recordFill(leaf, metadata)`~~ | removed in D2 (A-27) | — | — | — |
-| `getClaimAccumulator().hasActiveFill` | seq:2148-2150; claim:86-91 | — | — | rpc dedup check |
+| `getClaimAccumulator().hasActiveFill(member, ndc, pharmacy, date, fillNumber)` | claim-accumulator-service.ts | — | — | D4: the duplicate rule — `appendClaim` throws `DuplicateFillError` on a repeated key, a reversal frees its fill's key, `submitProof` checks first (before the fingerprint and the WAL), the engine checks before any proof; `getTotals()` nets the ledger's money for the audit reconciliation (D5) |
 | `storeMessage(message, payload)` | seq:2229-2231 -> msg:75-108 | none (no encryption check, no sender auth here) | message tree + indexes | node:653-679 (+gossip) <- rpc:1828 |
 | `emitMessagingAuditEvent(sender, rootBefore, rootAfter)` | seq:2357-2396 | none | `nextSequenceNumber++`, audit event `msg-%08d` with unchanged roots (messaging roots not hashed), chain hash, Merkle index | node:618-646 <- engine:2409, 3596, 3778 |
-| `enrichAuditEvent(receiptId, claimContext)` | seq:2403-2409 | event must exist | `event.claimContext` (outside the commitment) | none found |
+| ~~`enrichAuditEvent(receiptId, claimContext)`~~ | removed in D5 | — | the audit event carries amounts, operation type and claim context from creation | — |
 | `resetForDemo(regRoot, lcRoot)` | seq:1497-1548 | none | clears receipts, blocks, batches, audit, claims, messages, trees, providers, plans, formularies; roots from fresh trees | visualizer/engine/flowchart-orchestrator.ts:693, 742 |
 | `syncFromL1(reg, lc, count)` | seq:1553-1588 | throws in l2Only | roots, in-flight batch failed, pool cleared | node:878 |
 | `L2Node.registerKnownWallet(walletId)` | node:262-266 | none | `knownWallets` | rpc:1892, 2165 (`l2_registerEntity`-type paths) |
@@ -219,7 +219,7 @@ Consequence: the first cryptographic check of a submitted StateTransitionProof i
 
 - The WAL, quorum, heartbeat/failover and `L2Leviathan` code paths are unreachable from `start-leviathan.ts` (it builds `L2Node`, never calls `setWal`/`enableQuorum`); is a different launcher expected to use them, or are they dormant?
 - `proof.verify()` flag semantics are stated from the o1js Proof API; node_modules was not opened. Confirm against o1js 2.13 `Proof.verify()` if the audit needs a direct citation.
-- `enrichAuditEvent` (seq:2403) and `applyAdminRootUpdate` (seq:1324) have no callers in rpc, src/nodes or the engine (grep) — dead or called from an unmapped file?
+- `enrichAuditEvent` (seq:2403) and `applyAdminRootUpdate` (seq:1324) have no callers in rpc, src/nodes or the engine (grep) — dead or called from an unmapped file? **`enrichAuditEvent` answered by D5 (2026-10-18): dead, removed.**
 - `batchVerificationKey` (node:311) is stored and never used; was `verify(proof, vk)` intended at node:989?
 - Is `ZKTRIDENT_GOSSIP_SECRET` required to be hex (node:350 `Buffer.from(seed, 'hex')`)? If not, the attestation seed silently shortens.
 - Nothing in seq/node removes a proof that fails in-circuit at batch time from `pendingPool`; what is the operational recovery for a poisoned pool in l2Only mode?

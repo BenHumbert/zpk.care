@@ -620,14 +620,16 @@ export function registerInteractiveRoutes(
         return;
       }
       const jobKey = params.prescriptionId;
-
-      // If already running or complete, return current status
+      // D4: a job still running is shared with a second request for the same prescription (one dispense is one
+      // event); a finished job, complete or failed, no longer stands in the way of the next request. Until D4 a
+      // rejected attempt left its error in the map, and the next dispense of that prescription was answered with
+      // that error as if it were its own result and never ran.
       const existing = fillJobs.get(jobKey);
-      if (existing) {
-        res.writeHead(200, {
+      if (existing && existing.status === 'pending') {
+        res.writeHead(202, {
           'Content-Type': 'application/json',
         });
-        res.end(safeJsonStringify(existing, 'fill'));
+        res.end(safeJsonStringify({ status: 'pending', prescriptionId: jobKey }, 'fill'));
         return;
       }
 

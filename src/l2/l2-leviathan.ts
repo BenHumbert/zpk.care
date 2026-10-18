@@ -690,6 +690,16 @@ export class L2Leviathan {
     };
   }
 
+  /** The ledger's money across every partition, net of reversals (D5). */
+  getClaimTotals(): { claimCount: number; reversalCount: number; patientPayCents: bigint; planPayCents: bigint } {
+    const t = { claimCount: 0, reversalCount: 0, patientPayCents: 0n, planPayCents: 0n };
+    for (const seq of this.partitionSequencers.values()) {
+      const p = seq.getClaimAccumulator().getTotals();
+      t.claimCount += p.claimCount; t.reversalCount += p.reversalCount; t.patientPayCents += p.patientPayCents; t.planPayCents += p.planPayCents;
+    }
+    return t;
+  }
+
   /** Get claims for a member — routes to correct partition */
   getClaimsByMember(memberWalletId: string): ClaimAccumulatorEntry[] {
     const partition = getPartition(memberWalletId, this.config.partitionCount);

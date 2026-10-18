@@ -31,7 +31,8 @@ import type { ClaimContext } from '../reporting/report-types.js';
  * AuditEvent — DA record emitted per L2 state transition.
  *
  * Each event carries a Poseidon hash chain: chainHash = Poseidon.hash([prevChainHash, eventCommitment]).
- * The eventCommitment is a Poseidon hash of the 8 core state-transition fields (including ndcHash).
+ * The eventCommitment is a Poseidon hash of 11 fields: the seven state-transition fields, the drug (ndcHash),
+ * the money (patientPayCents, planPayCents) and the operation type (0 none, 1 fill, 2 reversal) — D5.
  * Tampering with any event breaks the chain from that point forward.
  */
 export interface AuditEvent {
@@ -51,7 +52,7 @@ export interface AuditEvent {
   oldLifecycleRoot: string;
   /** Lifecycle root after this transition */
   newLifecycleRoot: string;
-  /** Poseidon hash of 10 core state fields (including ndcHash, patientPayCents, planPayCents) */
+  /** Poseidon hash of 11 fields: the state transition, ndcHash, patientPayCents, planPayCents, operationType (D5) */
   eventCommitment: string;
   /** Poseidon.hash([prevChainHash, eventCommitment]) — tamper-evident chain */
   chainHash: string;
@@ -71,6 +72,8 @@ export interface AuditEvent {
   planPayCents?: number;
   /** Poseidon hash of NDC code — drug identity from FulfillmentProof output (optional for non-claim events) */
   ndcHash?: string;
+  /** 1 for a fill, 2 for a reversal; absent (0 in the commitment) for a transition that is not a claim (D5) */
+  operationType?: number;
 }
 
 // ─── AuditLog ───────────────────────────────────────────────
@@ -123,6 +126,8 @@ export interface ChainIntegrityResult {
 export interface FinancialBalanceResult {
   isValid: boolean;
   totalClaims: number;
+  /** reversal events netted out of the totals (D5) */
+  reversals: number;
   /** Receipt IDs where amounts don't balance */
   imbalancedClaims: string[];
   totalPatientPayCents: number;

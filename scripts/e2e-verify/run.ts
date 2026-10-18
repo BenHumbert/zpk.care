@@ -519,6 +519,13 @@ async function main() {
   const ndcHash = hashString(ndcRaw).toString();
   const copay = BigInt(med.currentCopayAmountCents ?? med.copayAmountCents);
   results.drug = { brandName: med.brandName, ndc: med.ndc, tier: med.tier, copayCents: copay.toString(), ndcHash };
+  // D4: a different drug for each of the three claims. The same drug twice on the same day at the same pharmacy is a
+  // duplicate claim and is refused (probed below); until D4 the ledger silently dropped the second leaf while the
+  // engine billed it.
+  const eligibleMeds = meds.filter((m: any) => m.active !== false && !m.requiresPriorAuth && !m.stepTherapyRequired && !m.deaSchedule && (m.maxQuantityPerFill ?? 999) >= 30);
+  const drugFor = (m: any) => ({ med: m, ndcHash: hashString(String(m.ndc).replace(/-/g, '')).toString(), copay: BigInt(m.currentCopayAmountCents ?? m.copayAmountCents) });
+  const claimDrugs = [med, ...eligibleMeds.filter((m: any) => m !== med).slice(0, 2)].map(drugFor);
+  if (claimDrugs.length < 3) trace.note(`only ${claimDrugs.length} eligible drugs in the formulary; later claims reuse one`);
   // B1: the fixture people are served by the explorer beside the console, not by the gated dump.
   const fixtures = (await http('GET', `${EXP}/fixtures.json`)).json ?? {};
   const prescribers = (fixtures?.prescribers ?? []) as any[];
@@ -571,12 +578,13 @@ async function main() {
 
   for (let ci = 0; ci < scenarios.length; ci++) {
     const sc = scenarios[ci];
+    const drug = claimDrugs[Math.min(ci, claimDrugs.length - 1)];
     trace.begin('prescriber', `${sc.label}: write the prescription`);
     const rxId = `RX-${RUN}-${ci + 1}`;
     let prescriptionId: string | undefined;
     if (ci === 0) {
       // Try the dashboard path first.
-      const dp = await http('POST', `${PRE}/prescriptions/prescribe`, { memberWalletId: walletId, pharmacyWalletId: results.pharmacyWalletId, ndcHash, brandName: med.brandName, quantity: sc.qty, daysSupply: 30, refills: 0, directions: 'Take one daily', diagnosis: 'Z00.00' });
+      const dp = await http('POST', `${PRE}/prescriptions/prescribe`, { memberWalletId: walletId, pharmacyWalletId: results.pharmacyWalletId, ndcHash: drug.ndcHash, brandName: drug.med.brandName, quantity: sc.qty, daysSupply: 30, refills: 0, directions: 'Take one daily', diagnosis: 'Z00.00' });
       const dj = unwrap(dp.json);
       if (dp.status < 300 && dj?.jobKey) {
         const done = await poll(quiet, `${PRE}/prescriptions/prescribe-status?jobKey=${encodeURIComponent(dj.jobKey)}`, j => ['complete', 'error'].includes(unwrap(j)?.status), 900_000, 5000);
@@ -590,7 +598,7 @@ async function main() {
     if (!prescriptionId) {
       // Same call the prescriber node makes, sent straight to the sequencer as the operator (D2: the route takes a credential).
       const tp = Date.now();
-      const sp = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: sc.qty, refills: 0, rxId });
+      const sp = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash: drug.ndcHash, quantity: sc.qty, refills: 0, rxId });
       if (sp.status === 504) trace.note('prescribe outlasted the 30 s HTTP timeout; polling the adjudication state');
       prescriptionId = sp.json?.prescriptionId;
       if (!prescriptionId) {
@@ -636,7 +644,7 @@ async function main() {
     };
     trace.check('Accumulator before the claim matches the running total', BigInt(before.deductiblePaidCents) === accNow.deductiblePaidCents && BigInt(before.oopPaidCents) === accNow.oopPaidCents,
       { deductiblePaid: accNow.deductiblePaidCents, oopPaid: accNow.oopPaidCents }, before);
-    const exp = expectedAdjudication(sc.ingredient, sc.fee, copay, accNow);
+    const exp = expectedAdjudication(sc.ingredient, sc.fee, drug.copay, accNow);
     trace.check('Total = ingredient + dispensing fee', BigInt(adj.totalCostCents) === exp.total, exp.total, adj.totalCostCents);
     trace.check(`Patient pay matches plan rules (${exp.phase})`, BigInt(adj.patientPayCents) === exp.patientPay, exp.patientPay, adj.patientPayCents);
     trace.check('Plan pay matches plan rules', BigInt(adj.planPayCents) === exp.planPay, exp.planPay, adj.planPayCents);
@@ -651,7 +659,7 @@ async function main() {
     trace.check('Fulfillment commitment recomputes from the claim fields', fulfillment === fd.commitment, fd.commitment, fulfillment);
     const settlement = Poseidon.hash([Field(BigInt(fd.commitment)), Field(BigInt(adj.patientPayCents)), Field(BigInt(adj.planPayCents)), Field(dedCredit)]).toString();
     trace.check('Settlement commitment = Poseidon(fulfillment, patient pay, plan pay, deductible credit)', settlement === r.settlementCommitment, r.settlementCommitment, settlement);
-    trace.check('Claim is for the drug that was prescribed', fd.ndcHash === ndcHash, ndcHash, fd.ndcHash);
+    trace.check('Claim is for the drug that was prescribed', fd.ndcHash === drug.ndcHash, drug.ndcHash, fd.ndcHash);
     trace.check('Claim names the pharmacy that filled it', fd.pharmacyWalletId === String(results.pharmacyWalletId), results.pharmacyWalletId, fd.pharmacyWalletId);
 
     // B1 step two: the fill produced a wallet update the member's device must prove; the claim lands with it
@@ -665,7 +673,7 @@ async function main() {
     trace.check(`${sc.label}: the member's device finalized the fill by proving its own wallet update`, Number(fin?.pending) === 0 && (fin?.errors ?? []).length === 0 && (fin?.refused ?? []).length === 0, 'pending 0, no errors', fin);
     const walletNow = await rpc('l2_getWalletState', { walletId });
     trace.check(`${sc.label}: the ledger holds the credential root the device proved`, !!r.walletUpdate?.newInventoryRoot && walletNow.result?.credentialInventoryRoot === r.walletUpdate.newInventoryRoot, abbrev(String(r.walletUpdate?.newInventoryRoot ?? 'walletUpdate missing from the fill result'), 14), abbrev(String(walletNow.result?.credentialInventoryRoot ?? walletNow), 14));
-    results.claims.push({ label: sc.label, prescriptionId, ingredient: sc.ingredient.toString(), fee: sc.fee.toString(), adjudication: adj, accumulator: r.accumulator, expected: { ...exp, total: exp.total.toString(), patientPay: exp.patientPay.toString(), planPay: exp.planPay.toString(), deductibleCredit: exp.deductibleCredit.toString() }, proofTimesMs: r.proofTimesMs, receiptId: r.l2Receipt?.receiptId, settlementCommitment: r.settlementCommitment });
+    results.claims.push({ label: sc.label, drug: drug.med.brandName, ndcHash: drug.ndcHash, prescriptionId, ingredient: sc.ingredient.toString(), fee: sc.fee.toString(), adjudication: adj, accumulator: r.accumulator, expected: { ...exp, total: exp.total.toString(), patientPay: exp.patientPay.toString(), planPay: exp.planPay.toString(), deductibleCredit: exp.deductibleCredit.toString() }, proofTimesMs: r.proofTimesMs, receiptId: r.l2Receipt?.receiptId, settlementCommitment: r.settlementCommitment });
     acc0 = { ...accNow, deductiblePaidCents: BigInt(after.deductiblePaidCents), oopPaidCents: BigInt(after.oopPaidCents), annualBenefitUsedCents: BigInt(after.benefitUsedCents ?? 0) };
   }
 
@@ -693,6 +701,38 @@ async function main() {
   trace.check('Out-of-network prescriber is refused by the plan network, before any record', oon.status === 403 && /plan network/.test(String(oon.json?.error ?? '')) && !oonRecorded, '403 plan network, no record', `${oon.status} ${oon.json?.error ?? oonStatus ?? ''}${oonRecorded ? ' (a record exists)' : ''}`.trim());
   if (oonRecorded) {
     results.findings.push({ id: 'network-not-enforced', severity: 'high', title: 'Out-of-network prescribers are not checked', evidence: `Prescriber #${outIdx} (${oonName}) is not in the plan network, yet POST /interactive/prescribe returned status ${oonStatus ?? oon.status}. InNetworkProgram is not among the compiled circuits and createPrescription has no network check.` });
+  }
+
+  // ── 8d. D4 (A-10): a duplicate claim is refused before any amount is billed, and the ledger does not change
+  trace.begin('pharmacy', 'The same drug again — same member, same pharmacy, same day — is refused as a duplicate: nothing billed, nothing recorded');
+  const claimsOf = (r: any) => (r?.claims ?? r ?? []) as any[];
+  const lastClaim = [...results.claims].reverse().find((c: any) => c.adjudication);
+  if (lastClaim) {
+    const beforeCount = claimsOf((await rpc('l2_getClaimsByMember', { walletId })).result).length;
+    const beforeRecon = (await rpc('l2_reconstructAccumulator', { walletId })).result;
+    const dupRxId = `RX-${RUN}-DUP`;
+    const dupRx = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash: lastClaim.ndcHash, quantity: 30, refills: 0, rxId: dupRxId });
+    let dupPid: string | undefined = dupRx.json?.prescriptionId;
+    if (!dupPid) {
+      const mine = (x: any) => x.id === dupRxId || x.rxId === dupRxId || x.prescriptionId === dupRxId;
+      const found = await poll(quietAdmin, `${SEQ}/interactive/state`, j => (j?.prescriptions ?? []).some((x: any) => mine(x) && x.status === 'ADJUDICATED'), 900_000, 5000);
+      const p = (found.json?.prescriptions ?? []).find(mine);
+      dupPid = p?.id ?? p?.prescriptionId;
+    }
+    trace.check('A second prescription for the same drug is written (the duplicate rule is about the fill)', !!dupPid, 'prescriptionId', dupPid ?? dupRx.json);
+    if (dupPid) {
+      await http('POST', `${PHA}/dispensing/mark-filled`, { prescriptionId: dupPid });
+      const dupDisp = await http('POST', `${PHA}/dispensing/dispense`, { prescriptionId: dupPid, quantityDispensed: 30, ingredientCostCents: 4500, dispensingFeeCents: 200 });
+      let dupFill: any = unwrap(dupDisp.json);
+      if (dupDisp.status < 300 && dupFill?.jobKey) {
+        const fd = await poll(quiet, `${PHA}/dispensing/fill-status?jobKey=${encodeURIComponent(dupFill.jobKey)}`, j => ['complete', 'error'].includes(unwrap(j)?.status), 900_000, 5000);
+        dupFill = unwrap(fd.json);
+      }
+      trace.check('The duplicate fill is refused before any proof or payment', dupFill?.status === 'error' && /duplicate/i.test(String(dupFill?.error ?? '')), 'error: duplicate', dupFill?.error ?? dupFill?.status ?? dupDisp.json);
+      const afterCount = claimsOf((await rpc('l2_getClaimsByMember', { walletId })).result).length;
+      const afterRecon = (await rpc('l2_reconstructAccumulator', { walletId })).result;
+      trace.check('The ledger did not change', afterCount === beforeCount && String(afterRecon?.oopPaidCents) === String(beforeRecon?.oopPaidCents) && String(afterRecon?.benefitUsedCents) === String(beforeRecon?.benefitUsedCents), `${beforeCount} claims`, `${afterCount} claims`);
+    }
   }
 
   // ── 9. Claim accumulator inclusion proofs ───────────────────
@@ -730,6 +770,12 @@ async function main() {
     const ok = a.result && (a.result.valid === true || a.result.ok === true || a.result.passed === true || (Array.isArray(a.result.duplicates) && a.result.duplicates.length === 0) || a.result.balanced === true);
     trace.check(`${m}`, !!ok, 'pass', a.result ?? a.error);
   }
+  // D5 (A-26): the audit chain binds the money, and it agrees with the ledger
+  const moneyAudit = (await rpc('l2_verifyFinancialBalance', {}, false)).result ?? {};
+  const filed = results.claims.filter((c: any) => c.adjudication);
+  trace.check('The audit chain counts every claim filed', Number(moneyAudit.totalClaims) === filed.length, filed.length, moneyAudit.totalClaims);
+  trace.check('The audit chain\'s patient pay is the sum billed', String(moneyAudit.totalPatientPayCents) === filed.reduce((s: bigint, c: any) => s + BigInt(c.adjudication.patientPayCents), 0n).toString(), 'sum of patient pay', moneyAudit.totalPatientPayCents);
+  trace.check('The audit chain and the ledger agree on the money', moneyAudit.reconciled === true && moneyAudit.balanced === true, 'reconciled and balanced', `reconciled=${moneyAudit.reconciled} balanced=${moneyAudit.balanced}`);
   const recon = (await rpc('l2_reconstructAccumulator', { walletId })).result;
   const sumPatient = results.claims.filter((c: any) => c.adjudication).reduce((s: bigint, c: any) => s + BigInt(c.adjudication.patientPayCents), 0n);
   const sumPlan = results.claims.filter((c: any) => c.adjudication).reduce((s: bigint, c: any) => s + BigInt(c.adjudication.planPayCents), 0n);

@@ -1288,6 +1288,58 @@ Not here, by design: the preimage still reaches the engine and the engine still 
 on it; the insurer's approval and the real plan in the engine are commit two. State from before this
 commit is not readable by design (C4, genesis).
 
+**D4 + D5 — implementation record: what is billed, what the ledger holds and what the audit chain commits to agree.**
+Done 2026-10-18. Closes **A-10**, **A-11** and **A-26**.
+
+*What was wrong.* The ledger's claim accumulator folded a second fill with the same member, drug, pharmacy
+and day into the first and returned the first leaf as if nothing had happened, while the engine had
+already billed the member: the harness's three claims all used one drug on one day, so the ledger kept
+one leaf of three and the rebuilt totals were short by exactly the dropped claims (A-10, and the
+"ledger disagrees with the engine" of A-11: every divergence measured was the engine above the ledger
+by whole claims). The engine's fill job handler keyed jobs by prescription and handed a finished job
+back to the next request, so a dispense attempted after a rejected one was answered with the old error
+as its own result and never ran; the pharmacy relayed that as a completed fill with no adjudication,
+which is the "Fill completed" failure every live run showed on claim 1. The audit chain committed to
+amounts that were never set (`?? 0`), the only method that would have set them had no caller, the
+balance check was vacuous over zero claims, and a reversal was indistinguishable from a fill in the
+commitment (A-26).
+
+*Now.* A duplicate is refused before anything is paid or written, and the two ends use one rule. The
+engine's `dispensePrescription` checks, before any proof, whether another prescription's unreversed
+fill for the same member, drug and pharmacy on the same day exists in its own records — including
+fills the member's device has not yet proven — or on the ledger, and refuses with 409 and a message
+that names the earlier fill and the way out (reverse it). The ledger's `appendClaim` throws
+`DuplicateFillError` instead of returning the first entry; its key carries the fill number, so the
+remainder of a partial fill is the same prescription and passes while a second prescription of the
+same drug the same day does not; a reversal frees its fill's key. The sequencer runs that check first
+in `submitProof`, before the proof fingerprint, the WAL, the trees, the receipt and the audit chain, so
+a refused duplicate leaves no trace and a corrected retry against the same roots is not taken for a
+replay. The fill job handler shares a job only while it runs; a finished job no longer stands in the
+way of the next request, and the pharmacy node treats a finished-job answer from an older engine as a
+failure of its own job. The audit event carries `patientPayCents`, `planPayCents` and an
+`operationType` (1 fill, 2 reversal) from the moment it is created, all three inside the Poseidon
+commitment, which is now eleven fields; the fill's ingredient cost, dispensing fee and quantity ride
+in the submission metadata and in the event's claim context, so `verifyFinancialBalance` checks that
+every fill splits exactly into patient pay and plan pay, counts fills, nets reversals, and
+`l2_verifyFinancialBalance` reconciles the chain's totals with the ledger's (`getTotals`, summed over
+partitions on a Leviathan) and answers `valid` only when both hold. `enrichAuditEvent` is gone.
+Duplicate detection in the audit service ignores reversals and tells a partial fill's remainder apart.
+The harness files three different drugs, probes the duplicate (refused, ledger unchanged, accumulator
+unchanged) and the money (chain counts the claims filed, sums the patient pay billed, reconciles with
+the ledger); the multi-member harness gives a member's same-day claims different drugs.
+
+*Left as is, on purpose.* The ledger's key uses the fill number from the submission metadata, which the
+submitter supplies; it keeps billing and the ledger consistent and stops honest duplicates, and is not
+the fraud control — the plan-side proof of B3 is. If a duplicate ever reached the sequencer past the
+engine's check (two engines, a race), the device's pending update would be refused and stay pending;
+the structural fix is B3's adjudicate-then-finalize. Family pooling still rewrites the split after the
+proof (A-23): that is B8, next.
+
+*Verified.* `tests/money-agrees.test.ts` (9 tests): the ledger's rules, the sequencer's refusal with
+roots, receipts and chain unchanged, the commitment binding the money and the operation, the balance
+check and reconciliation, the fill job semantics. `audit` and `claim-accumulator-integration` follow
+the new rules. Regression batch 48 suites, 748 tests, all passing. Typecheck src 20, scripts 2. Live: 221/221 checks across 33 steps on a clean secured genesis boot, the first clean run of the program: the five failures every run carried (Fill completed, the member's claim list, the three rebuilt totals) are gone, and the duplicate and money probes pass (the duplicate refused before any proof, the ledger and the accumulator unchanged, the chain counting the claims filed, summing the patient pay billed and reconciling with the ledger).
+
 **D2 — implementation record: every engine write needs a credential, the no-proof claim path is gone, the streams answer credentials.**
 Done 2026-10-18. Closes **A-27**; closes the auth inventory's open writes (AUTH-5's remainder) and the
 enumeration path D1 left (the event streams, the stream half of RPC-07 and AUTH-11).
@@ -2638,3 +2690,13 @@ passing. Typecheck src 20, scripts 2. Pipeline 189/194 checks across 32 steps on
 this commit, 48 commits on local `dev`, nothing pushed, `origin/main` untouched. **Next:** D4 and D5
 (the money: duplicate fill, ledger reconciliation, amounts in the audit chain), B8, then B4; B3/B7
 wait on the §7 decisions. Follow-up from D2: filter the event stream's payload per principal.
+
+**Addendum, 2026-10-18: D4 and D5 done, Session 7.** A duplicate claim is refused before any proof or
+payment, at the engine and at the ledger, with one key; the ledger never folds a leaf silently; a dispense
+retried after a rejected attempt runs; the audit chain binds the money and the operation type and
+reconciles with the ledger. A-10, A-11 and A-26 closed. Scoreboard: 32 findings; 29 fixed; 3 open (A-22,
+A-23, A-25), none critical. Acceptance suites added this program: 40, 437 tests, all passing.
+Typecheck src 20, scripts 2. Pipeline 221/221 checks across 33 steps on a clean secured genesis boot, the first clean run of the program: the five failures every run carried (Fill completed, the member's claim list, the three rebuilt totals) are gone, and the duplicate and money probes pass (the duplicate refused before any proof, the ledger and the accumulator unchanged, the chain counting the claims filed, summing the patient pay billed and reconciling with the ledger) on a clean secured genesis boot. Git: with this commit,
+50 commits on local `dev`, nothing pushed, `origin/main` untouched. **Next:** B8 (no settlement
+rewrite after the proof, A-23), then B4; B3/B7 wait on the §7 decisions; A-25 (restart and failure paths)
+rides with phase E.

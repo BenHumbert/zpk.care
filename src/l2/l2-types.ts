@@ -273,6 +273,10 @@ export interface ClaimSubmissionMetadata {
   deductibleCreditCents?: string;
   /** DEA schedule (0=non-controlled, 2-5=schedule II-V) */
   deaSchedule?: number;
+  /** D5: the fill's costs, so the audit chain can check patient pay + plan pay = ingredient + fee */
+  ingredientCostCents?: number;
+  dispensingFeeCents?: number;
+  quantityDispensed?: number;
   /** Benefit plan ID hash (for plan-filtered accumulator reconstruction) */
   planIdHash?: string;
 }

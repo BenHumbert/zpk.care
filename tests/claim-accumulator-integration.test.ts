@@ -453,6 +453,7 @@ describe('Claim Accumulator Integration — Multiple Claims', () => {
         memberWalletId: WALLET_A.toString(),
         ndcHash: drugs[i].ndcHash,
         brandName: drugs[i].brandName,
+        fillNumber: i === 2 ? 1 : 0,  // D4: the refill is a later fill of the same drug; the same fill twice is a duplicate
       }));
     }
 

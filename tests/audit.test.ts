@@ -136,7 +136,7 @@ function attachFinancialData(
 // ─── AuditEvent Hash Chain ──────────────────────────────────
 
 describe('AuditEvent Hash Chain', () => {
-  test('computeEventCommitment produces deterministic hash from 10 fields', () => {
+  test('computeEventCommitment produces deterministic hash from 11 fields', () => {
     const event = makeEvent({
       sequenceNumber: 0n,
       receiptId: 'l2-00000000',
@@ -152,11 +152,12 @@ describe('AuditEvent Hash Chain', () => {
     const hash2 = AuditService.computeEventCommitment(event);
     expect(hash1.toString()).toBe(hash2.toString());
 
-    // Verify it matches manual Poseidon computation (10 fields, ndcHash/patientPay/planPay default to 0)
+    // Verify it matches manual Poseidon computation (11 fields; ndcHash, patientPay, planPay and operationType
+    // default to 0 — D5 added the operation type so a reversal cannot pose as a fill)
     const manual = Poseidon.hash([
       Field(100n), Field(200n), Field(201n),
       Field(300n), Field(301n), Field(0n), Field(1n), Field(0n),
-      Field(0n), Field(0n),
+      Field(0n), Field(0n), Field(0n),
     ]);
     expect(hash1.toString()).toBe(manual.toString());
   });

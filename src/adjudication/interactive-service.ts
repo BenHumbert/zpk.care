@@ -296,6 +296,7 @@ interface FulfillmentState {
   settlementLeafIndex: bigint;    // TRANSACTION tree leaf index of settlement commitment
   quantityDispensed: number;      // qty dispensed in THIS fill
   reversed: boolean;              // true if this fill has been reversed
+  dateOfService: string;          // YYYYMMDD of this fill — the day the duplicate rule is about (D4)
 }
 
 // ─── Prior Auth State ──────────────────────────────────
@@ -403,6 +404,7 @@ interface SerializedFulfillment {
   settlementLeafIndex: string;                   // bigint as string
   quantityDispensed: number;
   reversed: boolean;
+  dateOfService?: string;                        // absent in a checkpoint from before D4
 }
 
 /** Serialized PriorAuthState (JSON-safe) */
@@ -3033,6 +3035,21 @@ export class AdjudicationService {
       throw new Error('Quantity dispensed must be at least 1');
     }
 
+    // D4 (A-10): a second fill of the same drug for this member at this pharmacy today is a duplicate claim. It is
+    // refused here, before any proof is made or any amount billed, and the ledger refuses the same key, so what is
+    // billed and what is recorded cannot disagree. The remainder of a partial fill is the same prescription and passes.
+    const fillNumber = (this.fulfillments.get(opts.prescriptionId) || []).length;
+    const duplicateOf = this.findDuplicateFill({
+      prescriptionId: opts.prescriptionId,
+      memberWalletId: rxState.memberWalletId,
+      ndcHash: rxState.ndcHash,
+      pharmacyWalletId: pharmacyWalletId.toBigInt().toString(),
+      dateOfService: serviceDateStr,
+      fillNumber,
+    });
+    if (duplicateOf) {
+      throw new RegistrationRefused(409, `Duplicate fill: ${medication.brandName} was already dispensed to this member by this pharmacy today (${duplicateOf}). Reverse that fill first if it was wrong.`);
+    }
     const ingredientCostCents = opts.ingredientCostCents ?? (medication.awpUnitPriceCents * qtyDispensed);
     const dispensingFeeCents = opts.dispensingFeeCents ?? 200;
     const totalCostCents = ingredientCostCents + dispensingFeeCents;
@@ -3384,6 +3401,10 @@ export class AdjudicationService {
       tierLevel: medication.formularyEntry.tierLevel,
       daysSupply: 30,
       deductibleCreditCents: proofOutput.deductibleCreditCents || '0',
+      fillNumber,
+      ingredientCostCents,
+      dispensingFeeCents,
+      quantityDispensed: qtyDispensed,
       planIdHash: hashString(enrolled.planId).toString(),
     };
 
@@ -3430,6 +3451,7 @@ export class AdjudicationService {
       settlementLeafIndex: newStatusLeaf + 1n,
       quantityDispensed: qtyDispensed,
       reversed: false,
+      dateOfService: serviceDateStr,
     };
     existingFills.push(fulfillment);
     this.fulfillments.set(opts.prescriptionId, existingFills);
@@ -3810,7 +3832,7 @@ export class AdjudicationService {
       memberWalletId: enrolled.walletId.toBigInt().toString(),
       pharmacyWalletId: pharmacyWalletId.toBigInt().toString(),
       prescriberWalletId: this.prescriberWalletIds.get(rxState.prescriberIndex)!.toBigInt().toString(),
-      dateOfService: new Date().toISOString().replace(/[-:T]/g, '').slice(0, 8),
+      dateOfService: fillToReverse.dateOfService || new Date().toISOString().replace(/[-:T]/g, '').slice(0, 8),
       patientPayCents: String(origPatientPay),
       planPayCents: String(origPlanPay),
       operationType: '2', // reversal
@@ -3819,6 +3841,8 @@ export class AdjudicationService {
       tierLevel: medication.formularyEntry.tierLevel,
       daysSupply: 30,
       deductibleCreditCents: String(origDeductibleCredit),
+      fillNumber: fillToReverse.fillIndex,
+      quantityDispensed: fillToReverse.quantityDispensed,
       planIdHash: hashString(enrolled.planId).toString(),
     };
     try {
@@ -5556,6 +5580,24 @@ export class AdjudicationService {
   }
 
   /** Get L2Node reference */
+  /**
+   * D4 (A-10): the duplicate-claim rule, shared with the ledger. A fill is a duplicate when another prescription's
+   * fill for the same member, drug and pharmacy on the same day stands unreversed — in this engine's records, which
+   * include fills the member's device has not yet proven, or on the sequencer's ledger. The remainder of a partial
+   * fill is the same prescription and is not a duplicate. Returns a short description of the earlier fill, or null.
+   */
+  findDuplicateFill(key: { prescriptionId: string; memberWalletId: string; ndcHash: string; pharmacyWalletId: string; dateOfService: string; fillNumber: number }): string | null {
+    for (const [rxId, fills] of this.fulfillments) {
+      if (rxId === key.prescriptionId) continue;
+      const rx = this.prescriptions.get(rxId);
+      if (!rx || rx.memberWalletId !== key.memberWalletId || rx.ndcHash !== key.ndcHash) continue;
+      if (this.pharmacyWalletIds.get(rx.pharmacyIndex)?.toBigInt().toString() !== key.pharmacyWalletId) continue;
+      if (fills.some((f) => !f.reversed && f.dateOfService === key.dateOfService)) return `prescription ${rxId}`;
+    }
+    const onLedger = this.getL2Node().getSequencer().getClaimAccumulator().hasActiveFill(key.memberWalletId, key.ndcHash, key.pharmacyWalletId, key.dateOfService, key.fillNumber);
+    return onLedger ? `ledger leaf ${onLedger.leafIndex}` : null;
+  }
+
   getL2Node(): L2Node {
     return this.l2Node;
   }
@@ -6192,6 +6234,7 @@ export class AdjudicationService {
         settlementLeafIndex: f.settlementLeafIndex.toString(),
         quantityDispensed: f.quantityDispensed,
         reversed: f.reversed,
+        dateOfService: f.dateOfService,
       }));
     }
 
@@ -6446,6 +6489,7 @@ export class AdjudicationService {
         settlementLeafIndex: BigInt(sf.settlementLeafIndex),
         quantityDispensed: sf.quantityDispensed,
         reversed: sf.reversed,
+        dateOfService: sf.dateOfService ?? '',
       }));
       this.fulfillments.set(rxId, fills);
     }

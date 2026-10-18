@@ -39,6 +39,21 @@ import {
   type ClaimAccumulatorState,
 } from './claim-accumulator-types.js';
 
+/**
+ * A fill whose key — member, drug, pharmacy, day and fill number — is already on the ledger (D4, A-10). Thrown
+ * before any leaf is written, so the caller learns at once instead of billing a claim the ledger never recorded.
+ */
+export class DuplicateFillError extends Error {
+  constructor(
+    readonly existingLeafIndex: bigint,
+    readonly key: { memberWalletId: string; ndcHash: string; pharmacyWalletId: string; dateOfService: string },
+    readonly fillNumber: number,
+  ) {
+    super(`Duplicate fill: a claim for this member, drug and pharmacy on ${key.dateOfService} (fill ${fillNumber}) is already on the ledger at leaf ${existingLeafIndex}`);
+    this.name = 'DuplicateFillError';
+  }
+}
+
 export class ClaimAccumulatorService {
   /** The backing Merkle tree */
   private tree: MerkleTree;
@@ -58,7 +73,8 @@ export class ClaimAccumulatorService {
 
   /**
    * Deduplication index: tracks active fills to prevent duplicate dispensing.
-   * Key = "memberWalletId:ndcHash:pharmacyWalletId:dateOfService"
+   * Key = "memberWalletId:ndcHash:pharmacyWalletId:dateOfService:fillNumber" — the fill number keeps the
+   * remainder of a partial fill apart from a duplicate (D4)
    * Value = leafIndex of the existing fill
    */
   private fillDedup: Map<string, bigint> = new Map();
@@ -73,18 +89,21 @@ export class ClaimAccumulatorService {
    * Build a dedup key for fill uniqueness checks.
    * Reversals (operationType '2') are excluded from dedup — multiple reversals are allowed.
    */
-  private static fillDedupKey(leaf: ClaimLeaf): string | null {
-    if (leaf.operationType === '2') return null; // reversals are never deduped
-    return `${leaf.memberWalletId}:${leaf.ndcHash}:${leaf.pharmacyWalletId}:${leaf.dateOfService}`;
+  private static fillKey(leaf: Pick<ClaimLeaf, 'memberWalletId' | 'ndcHash' | 'pharmacyWalletId' | 'dateOfService'>, fillNumber: number | undefined): string {
+    return `${leaf.memberWalletId}:${leaf.ndcHash}:${leaf.pharmacyWalletId}:${leaf.dateOfService}:${fillNumber ?? 0}`;
+  }
+  private static fillDedupKey(leaf: ClaimLeaf, fillNumber: number | undefined): string | null {
+    if (leaf.operationType === '2') return null; // a reversal is never a duplicate; it frees its fill's key instead
+    return ClaimAccumulatorService.fillKey(leaf, fillNumber);
   }
 
   /**
-   * Check whether a fill already exists for this (member, ndc, pharmacy, date) combination.
+   * Check whether an unreversed fill already exists for this (member, ndc, pharmacy, date, fill number) key.
    * Returns the existing entry if found, undefined otherwise.
    * Reversals always return undefined (they are never considered duplicates).
    */
-  hasActiveFill(memberWalletId: string, ndcHash: string, pharmacyWalletId: string, dateOfService: string): ClaimAccumulatorEntry | undefined {
-    const key = `${memberWalletId}:${ndcHash}:${pharmacyWalletId}:${dateOfService}`;
+  hasActiveFill(memberWalletId: string, ndcHash: string, pharmacyWalletId: string, dateOfService: string, fillNumber = 0): ClaimAccumulatorEntry | undefined {
+    const key = ClaimAccumulatorService.fillKey({ memberWalletId, ndcHash, pharmacyWalletId, dateOfService }, fillNumber);
     const existingIndex = this.fillDedup.get(key);
     if (existingIndex === undefined) return undefined;
     return this.entries.get(existingIndex);
@@ -92,22 +111,21 @@ export class ClaimAccumulatorService {
 
   /**
    * Append a new claim to the accumulator tree.
-   * Fills (operationType != '2') are deduplicated by (member, ndc, pharmacy, date).
-   * If a duplicate fill is detected, the existing entry is returned instead of
-   * appending a new leaf — this makes the operation idempotent.
+   * A fill (operationType != '2') whose key (member, ndc, pharmacy, date, fill number) is already on the ledger
+   * is refused with DuplicateFillError before anything is written (D4, A-10); a reversal frees its fill's key.
    *
    * @param leaf  The 8-Field claim leaf (all values as decimal strings)
    * @param metadata  Non-cryptographic display metadata
    * @returns The ClaimAccumulatorEntry (existing if duplicate, new if unique)
    */
   appendClaim(leaf: ClaimLeaf, metadata: ClaimMetadata): ClaimAccumulatorEntry {
-    // Dedup check for fills (not reversals)
-    const dedupKey = ClaimAccumulatorService.fillDedupKey(leaf);
+    // D4 (A-10): a second fill with the same key is refused, never silently folded into the first. Until D4 the
+    // existing entry was returned, and the caller had already billed the member for a claim the ledger never recorded.
+    const dedupKey = ClaimAccumulatorService.fillDedupKey(leaf, metadata.fillNumber);
     if (dedupKey) {
       const existingIndex = this.fillDedup.get(dedupKey);
-      if (existingIndex !== undefined) {
-        const existing = this.entries.get(existingIndex);
-        if (existing) return existing; // idempotent — return existing entry
+      if (existingIndex !== undefined && this.entries.has(existingIndex)) {
+        throw new DuplicateFillError(existingIndex, leaf, metadata.fillNumber ?? 0);
       }
     }
 
@@ -134,9 +152,11 @@ export class ClaimAccumulatorService {
     this.addToIndex(this.prescriberIndex, leaf.prescriberWalletId, leafIndex);
     this.addToIndex(this.ndcIndex, leaf.ndcHash, leafIndex);
 
-    // Track in dedup index
+    // Track in dedup index; a reversal frees its fill's key, so the prescription can be filled again after it
     if (dedupKey) {
       this.fillDedup.set(dedupKey, leafIndex);
+    } else if (leaf.operationType === '2') {
+      this.fillDedup.delete(ClaimAccumulatorService.fillKey(leaf, metadata.fillNumber));
     }
 
     this.nextLeafIndex++;
@@ -144,6 +164,19 @@ export class ClaimAccumulatorService {
   }
 
   // ─── Read ────────────────────────────────────────────────
+
+  /** The ledger's money, net of reversals — what the audit chain must agree with (D5). */
+  getTotals(): { claimCount: number; reversalCount: number; patientPayCents: bigint; planPayCents: bigint } {
+    const t = { claimCount: 0, reversalCount: 0, patientPayCents: 0n, planPayCents: 0n };
+    for (const entry of this.entries.values()) {
+      const reversal = entry.leaf.operationType === '2';
+      const sign = reversal ? -1n : 1n;
+      if (reversal) t.reversalCount++; else t.claimCount++;
+      t.patientPayCents += sign * BigInt(entry.leaf.patientPayCents);
+      t.planPayCents += sign * BigInt(entry.leaf.planPayCents);
+    }
+    return t;
+  }
 
   /** Current Merkle root of the claim accumulator tree */
   getRoot(): bigint {
