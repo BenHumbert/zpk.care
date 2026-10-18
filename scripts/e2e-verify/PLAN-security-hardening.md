@@ -2139,3 +2139,59 @@ B1 step two); 9 open (A-2, A-10, A-11, A-18, A-22, A-23, A-25, A-26, A-27), one 
 src 20, scripts 2. Pipeline 146 of 159 checks across 28 steps on a clean secured genesis boot; the ten A13 checks all pass (both replicas hold the leader's registry and lifecycle roots and every accepted proof, the monitor reports them in step with no stalled batch, a replica refuses an unsigned relay and the operator's token); the 13 failing checks identical by name to the A10b run; both replicas took the leader's snapshot at connect, no alarm during the run, and one transient relay failure per replica was tolerated and logged as recovered instead of dropping the peer. Git: with this commit, 39 commits on local `dev`, nothing
 pushed, `origin/main` untouched. **Next:** B1 step two with phase B (the engine stops proving for
 members and providers; the preimage leaves the engine, closing A-1), then phase D.
+
+## State of work (2026-10-18, Session 5 closed: phase A complete, Step 2 done, B1 first half and step one)
+
+Since the previous entry, over three stretches from 2026-10-17 to 2026-10-18: **A7** (the HR Tool runs
+on the employer's machine; tenants die with their parent), **A9 remainder** (one credential per
+principal: node keys with roles, one signed-request format, the operator token leaves no process),
+**B1 first half and step one** (fixture people off the privileged route; the engine moved to
+`src/adjudication/` under `tsc`), **Step 2** in two commits (salted identity fields, the code
+redeemed before the wallet exists, two recovery cards with the insurer-held share; then the engine's
+door and the real plan), **A10b** (the wallet speaks for itself: an Ed25519 key derived on the device
+signs messages, PCP links and attestation requests; provider keys registered at boot; a node
+registers only its own kind), and **A13** (replicas with credentials, gossip delivered and kept
+alive, the invariant monitor on `l2_getStatus`). **Phase A is complete.** Each item has its
+implementation record above and a dated note on its finding in `docs/AUDIT.md`.
+
+**Scoreboard:** 32 findings; 21 fixed (A-3, A-4, A-5, A-6, A-7, A-8, A-9, A-12, A-13, A-14, A-15,
+A-16, A-19, A-20, A-21, A-24, A-28, A-29, A-30, A-31, A-32); 1 partly fixed (A-1: salted, but the six
+hashes still reach the engine, which still proves for members — B1 step two); 1 mitigated (A-17: the
+admin gate stays until the device proves its own credential, also B1 step two); 9 open (A-2, A-10,
+A-11, A-18, A-22, A-23, A-25, A-26, A-27), one of them critical (A-2, item D1). Criticals closed: five
+of seven.
+
+**Baselines, re-matched by failing-test name:** `onboarding` + `wallet-migration` 17, the same names
+all session. Acceptance suites added this session: 29, 372 tests, all passing. The wider regression
+batch (36 suites, the gossip, Leviathan, message-submission and multi-node suites included) 633
+passing, after three expectations that had been stale on every earlier commit were corrected.
+Typecheck src 20, scripts 2. Full pipeline 146 of 159 checks across 28 steps on a secured genesis
+boot; the 13 failing checks the same by name since the A10b run: the provider-node paths (the
+prescriber dashboard path, the fill through the pharmacy node, the portable credential, the three
+rebuilt accumulator totals, the sequencer's claim list for the member), the drug-history consent
+probe (D1), and the five identity hashes still reaching the engine (A-1, B1 step two).
+
+**Git:** 39 commits on local `dev` plus this entry, nothing pushed, `origin/main` untouched.
+`_dashfix.mjs` in the repository root is untracked and not part of this program (an em-dash
+normaliser for the top-level documents); left for the owner.
+
+**Next: Session 6, phase B**, in the plan's order. B1 step two with B2 first: the device proves its
+own wallet updates, the preimage leaves the engine, `register-member` takes a receipt and a wallet
+ID and nothing else; that closes A-1 and takes away A-17's reason to stay gated. Then B3, adjudicate
+then finalize, with the open questions of §7 settled before it ships rather than discovered: the
+read-then-write window (a pending delta visible to the next adjudication), stale quotes as a
+ceiling, the benefit-exhaustion escape hatch, what a card-only tap proves (the representative
+pickup), and mail order's finalize. Then B5 (PCP consent at prescribing, lifecycle check), B7
+(ELIGIBLE to ACTIVE on first claim), B8 (no settlement rewrite after the proof), B6 (no wallet ID to
+the employer), and B4 (FIDO2 provider keys) last, since it needs hardware on the desk. Decisions to
+take at the kickoff: the pending-delta rule, the representative-pickup rule, the mail-order finalize.
+
+**Operational lessons this stretch.** (1) A monitor that fires on its first run is doing its job: the
+A13 alarm led, within the hour, to four real faults in the peer network that the admin gate had
+hidden for 29 hours; read the alarm before touching the check. (2) Run the live harness only after
+Jest has finished: CPU contention stretched a 25-second registration proof past the 30-second HTTP
+timeout and exposed a race in the harness, which now waits for the engine record instead of
+reading it once. (3) Widening the regression set to suites nobody had run this program turned up
+three stale expectations; each time the implementation was right and the test was corrected.
+(4) A script that writes JavaScript string literals must escape prose or build it with
+`JSON.stringify`; one apostrophe broke a documentation script three times before it was quoted.
