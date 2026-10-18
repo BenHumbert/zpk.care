@@ -2463,3 +2463,59 @@ D1). Acceptance suites added this program: 37, 409 tests, all passing. Typecheck
 Pipeline 176/183 checks across 32 steps on a clean secured genesis boot — the seven failing checks identical by name to the B5 run; the employer's roster shows the member's row enrolled, no row has a wallet column, and the member's wallet id is nowhere in the response. Git: with this commit, 45 commits on local `dev`, nothing pushed,
 `origin/main` untouched. **Next:** B4 (provider keys in an authenticator) is the last phase B item
 free of the §7/§8 decisions; B3, then B7 and B8, once those are settled.
+
+## State of work (2026-10-18, Session 6 closed: phase B — B2 with B1 step two, B5, B6)
+
+Since the previous entry, in one stretch on 2026-10-18, five commits: **B2 with B1 step two, commit
+one** (the preimage leaves the engine: `register-member` takes the device's ownership proof, every
+change to a member's credential is a wallet update the device re-derives, proves and submits
+through the engine's queue, a fill's claim lands with the member's proof; A-1 closed), **commit
+two** (the device proves its own portable credential; the engine mints none for a member with a
+device; A-17 closed), **commit three** (the primary-care choice goes through the queue after the
+engine checks the prescriber is credentialed and active; the device no longer rebuilds a credential
+from an empty forest; routes that prove in-request got a 180 s proving budget), **B5** (consent at
+prescribing: the member's named PCP or a prescriber the device authorized for the visit, else 403
+before any record; a terminated member refused at prescribe and dispense, A-18 closed; the plan
+network enforced at prescribing; the operator can terminate a member with a device), and **B6**
+(the employer's roster has no wallet column; I6 by construction). Each has its implementation
+record above and a dated note on its finding in `docs/AUDIT.md`.
+
+**What the live runs caught that the tests had not.** A 25-31 s proof behind a 30 s request timer,
+which passed one run and failed the next with nothing else running. The operator unable to
+terminate a member with a device, because termination looked the wallet up in the fixture roster.
+The plan network never enforced at prescribing, hidden since Step 2b behind the console route's
+30 s timeout, which the harness had counted as a refusal. All three fixed in the commits that found
+them; the harness now demands the refusal's status and message and checks that no record was made,
+and memory lesson 12 says to read the timings, not just the verdict.
+
+**Scoreboard:** 32 findings; 24 fixed (A-1, A-3, A-4, A-5, A-6, A-7, A-8, A-9, A-12, A-13, A-14,
+A-15, A-16, A-17, A-18, A-19, A-20, A-21, A-24, A-28, A-29, A-30, A-31, A-32); nothing partly fixed
+or mitigated; 8 open (A-2, A-10, A-11, A-22, A-23, A-25, A-26, A-27), one of them critical (A-2,
+item D1). Criticals closed: six of seven.
+
+**Baselines, re-matched by failing-test name:** `onboarding` + `wallet-migration` 17, the same names all session.
+Acceptance suites added this program: 37, 409 tests, all passing. The wider regression batch
+45 suites, 720 tests, all passing. Typecheck src 20, scripts 2. Full pipeline 176 of 183 checks across 32 steps on a secured genesis boot; the seven
+failing checks the same by name since the B2 run: the prescriber dashboard path, the first fill's
+result shape through the pharmacy node, the three rebuilt accumulator totals and the sequencer's
+claim list for the member (A-10/A-11), and the drug-history consent probe (D1).
+
+**Git:** 45 commits on local `dev` plus this entry, nothing pushed, `origin/main` untouched.
+`_dashfix.mjs` in the repository root is untracked and not part of this program; left for the owner.
+
+**Decisions the next items wait on** (§7 and §8.4), with a recommendation for each so the owner
+can answer yes or no: (1) the pending delta — recommend the next adjudication reads the accumulator
+*plus* the member's pending settlements, so two scripts written an hour apart cannot both be priced
+against the pre-pickup total; (2) stale quotes — recommend re-adjudicate at pickup with the quote as
+a ceiling, and refuse the finalize when the re-adjudicated price is higher, telling the member why;
+(3) what a card-only tap proves — recommend a representative pickup flag the member sets on the
+device for a named person and a window, and no card-only pickup otherwise; (4) mail order —
+recommend a finalize the member pre-authorizes at prescribing, bound to the script and a delivery
+window; (5) who proves the plan-side accumulator update — recommend the plan service, with the
+member's device receiving a verifiable witness of it at pickup.
+
+**Next: Session 7.** B4 first (provider keys in an authenticator; the design note is in this plan),
+since it needs none of the decisions above. Then B3 (adjudicate, then finalize at pickup), B7
+(ELIGIBLE to ACTIVE on the first claim) and B8 (no settlement rewrite after the proof) once the
+decisions are in. After phase B: C is largely free at genesis (Step 2 already salted the identity
+fields), D1 is the remaining critical (any wallet ID yields the member's record), then E and F.
