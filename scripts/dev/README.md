@@ -37,10 +37,11 @@ ZKTRIDENT_MEMBER_DEVICE_PORTS=4011,4012,4013 ZKTRIDENT_MEMBER_DEVICES_DIR=./e2e-
 npx tsx scripts/e2e-verify/run-multi.ts ./e2e-multi-out ./e2e-devices > /tmp/multi.log 2>&1
 ```
 
-`ZKT_E2E_SERIAL=1` enrolls the members one at a time. Without it the three concurrent registrations
-exercise the open finding on root-bound device proofs (A-33): a proof commits to the ledger's exact
-roots, and any transition that lands during its 25 to 45 second proving window invalidates it, so one
-of three concurrent registrations can starve. `E2E_RESUME_DIR=<a previous out dir>` skips enrollment
+`ZKT_E2E_SERIAL=1` enrolls the members one at a time; the default, concurrent, is the acceptance run
+for the proving lease (D7 interim, finding A-33): a device's proof commits to the ledger's exact roots,
+so without the lease any transition landing during its 25 to 45 second proving window invalidated it
+and one of three concurrent registrations starved. `ZKTRIDENT_PROVING_LEASE_MS` (default 120000) is how
+long one prover may hold a partition's witnesses. `E2E_RESUME_DIR=<a previous out dir>` skips enrollment
 and continues from the members that run registered, against the network that is still up.
 
 Rules that have held since session 1:
@@ -51,5 +52,5 @@ Rules that have held since session 1:
   or smaller and every new check passes.
 - The regression batch is the suite list in `scripts/dev/regression-suites.txt`; a new acceptance
   suite is added to it with its commit. Run it with the harness stopped:
-  `npx jest $(cat scripts/dev/regression-suites.txt | tr '\n' ' ')`. `tests/l2-network.test.ts`
+  `npx jest $(sed 's/\r$//' scripts/dev/regression-suites.txt | tr '\n' ' ')` (the sed strips the carriage returns a Windows checkout adds to the list). `tests/l2-network.test.ts`
   is outside it, because it is slow, and must be run by hand when the sequencer's gates change.

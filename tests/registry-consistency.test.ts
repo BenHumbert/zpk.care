@@ -248,20 +248,20 @@ describe("Insurer admin auth — an employer's key is not an insurer credential"
   const check = (server: NautilusAppServer, headers: Record<string, string>) =>
     (server as any).checkNautilusAdminAuth(req(headers), 'POST', '/plans');
 
-  test('the insurer token keeps working after an employer signs its agreement', () => {
+  test('the insurer token keeps working after an employer signs its agreement', async () => {
     const server = insurerServer();
     const { publicKey } = generateKeyPairSync('ed25519');
     server.registerPartnerKey('EMP-1', (publicKey.export({ type: 'spki', format: 'der' }) as Buffer).subarray(12).toString('hex'));
-    expect(check(server, { authorization: 'Bearer insurer-secret' })).toBe(true);
+    expect(await check(server, { authorization: 'Bearer insurer-secret' })).toBe(true);
   });
 
-  test("an employer's signature does not authorize insurer admin routes", () => {
+  test("an employer's signature does not authorize insurer admin routes", async () => {
     const server = insurerServer();
     const { publicKey, privateKey } = generateKeyPairSync('ed25519');
     server.registerPartnerKey('EMP-1', (publicKey.export({ type: 'spki', format: 'der' }) as Buffer).subarray(12).toString('hex'));
     const ts = Date.now().toString();
     const sig = edSign(null, Buffer.from(`POST:/plans|${ts}|`), privateKey).toString('hex');
-    expect(check(server, { 'x-admin-signature': `EMP-1:${ts}:${sig}` })).toBe(false);
+    expect(await check(server, { 'x-admin-signature': `EMP-1:${ts}:${sig}` })).toBe(false);
     expect(server.getPartnerKey('EMP-1')).toBeDefined();
   });
 });

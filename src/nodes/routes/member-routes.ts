@@ -74,6 +74,20 @@ let walletUpdateRun: Promise<WalletUpdateRun> | null = null;
  * the update with the preimage only it holds against the sequencer's live tree, submits it, and
  * reports the receipt. One pass at a time per process; a second caller joins the pass in flight.
  */
+/**
+ * D7 (A-33): the sequencer hands the witnesses to one prover at a time per partition. A busy answer carries this
+ * device's place in line and when to ask again; the device waits instead of proving against roots about to move.
+ */
+async function awaitProvingLease<T extends { busy?: boolean; retryAfterMs?: number; position?: number }>(fetchWitnesses: () => Promise<T>, maxWaitMs = 600_000): Promise<T> {
+  const deadline = Date.now() + maxWaitMs;
+  for (;;) {
+    const answer = await fetchWitnesses();
+    if (!answer.busy) return answer;
+    if (Date.now() >= deadline) throw new Error(`The ledger is busy: still ${answer.position ?? '?'} in line to prove after ${Math.round(maxWaitMs / 1000)} s`);
+    await new Promise((r) => setTimeout(r, Math.min(5_000, Math.max(500, answer.retryAfterMs ?? 2_000))));
+  }
+}
+
 export function applyPendingWalletUpdates(server: NautilusAppServer): Promise<WalletUpdateRun> {
   if (walletUpdateRun) return walletUpdateRun;
   walletUpdateRun = runWalletUpdates(server).finally(() => { walletUpdateRun = null; });
@@ -128,7 +142,8 @@ async function runWalletUpdates(server: NautilusAppServer): Promise<WalletUpdate
         run.errors.push(`${update.updateId}: starts from root ${update.oldInventoryRoot.slice(0, 12)}… but the ledger holds ${live.credentialInventoryRoot.slice(0, 12)}…`);
         return run;
       }
-      const witnesses = await client.getWalletWitnesses(data.walletId, node.walletSigner() ?? undefined);
+      const holderWallet = data.walletId;
+      const witnesses = await awaitProvingLease(() => client.getWalletWitnesses(holderWallet, node.walletSigner() ?? undefined, holderWallet));
       const regWitnessData = typeof witnesses.registryWitnessJson === 'string' ? JSON.parse(witnesses.registryWitnessJson) : witnesses.registryWitnessJson;
       const lcWitnessData = typeof witnesses.lifecycleWitnessJson === 'string' ? JSON.parse(witnesses.lifecycleWitnessJson) : witnesses.lifecycleWitnessJson;
       const regWitness = WalletRegistryWitness.fromJSON(regWitnessData);
@@ -921,7 +936,8 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       const MAX_ATTEMPTS = 6;
       let receipt: Awaited<ReturnType<typeof node.submitProof>> | undefined;
       for (let attempt = 1; ; attempt++) {
-        const witnesses = await node.getClient().getRegistrationWitnesses();
+        // D7 (A-33): one prover at a time — this device waits for the lease rather than prove against roots about to move
+        const witnesses = await awaitProvingLease(() => node.getClient().getRegistrationWitnesses(data.walletId));
         const regWitnessData = typeof witnesses.registryWitnessJson === 'string'
           ? JSON.parse(witnesses.registryWitnessJson)
           : witnesses.registryWitnessJson;

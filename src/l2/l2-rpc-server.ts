@@ -1850,13 +1850,34 @@ export class L2RpcServer {
       }
 
       case 'l2_getRegistrationWitnesses': {
-        return this.node.getSequencer().getRegistrationWitnesses();
+        // D7 (A-33): a caller about to prove names itself as the holder and gets the witnesses only when it is the
+        // one prover in line; a busy answer carries its place and when to ask again. A caller naming no holder reads.
+        const regHolder = typeof params.holder === 'string' && params.holder ? params.holder : undefined;
+        const regSeq = this.node.getSequencer();
+        if (regHolder) {
+          const lease = regSeq.acquireProvingLease(regHolder);
+          if (!lease.granted) return { busy: true, position: lease.position, retryAfterMs: lease.retryAfterMs, expiresAt: lease.expiresAt };
+          return { ...regSeq.getRegistrationWitnesses(), lease };
+        }
+        return regSeq.getRegistrationWitnesses();
       }
 
       case 'l2_getWalletWitnesses': {
         const wid = params.walletId ?? params[0];
         if (typeof wid !== 'string') throw new Error('Missing walletId parameter');
-        return this.node.getSequencer().getWalletWitnesses(wid);
+        const wwHolder = typeof params.holder === 'string' && params.holder ? params.holder : undefined;
+        const wwSeq = this.node.getSequencer();
+        if (wwHolder) {
+          const lease = wwSeq.acquireProvingLease(wwHolder);
+          if (!lease.granted) return { busy: true, position: lease.position, retryAfterMs: lease.retryAfterMs, expiresAt: lease.expiresAt };
+          return { ...wwSeq.getWalletWitnesses(wid), lease };
+        }
+        return wwSeq.getWalletWitnesses(wid);
+      }
+
+      case 'l2_getProvingLease': {
+        // open: whether a prover holds the partition and how many wait; no holder id leaves, holders are wallets
+        return this.node.getSequencer().provingLeaseStatus();
       }
 
       case 'l2_getWalletState': {

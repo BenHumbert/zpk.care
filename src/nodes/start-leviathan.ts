@@ -49,6 +49,7 @@
  *   ZKTRIDENT_POOL_SIZE        — Proving pool workers: number or "auto" (default: "auto", min 3)
  *   ZKTRIDENT_MEMBER_DEVICE_PORTS — Extra member devices to boot, comma-separated ports (default: none)
  *   ZKTRIDENT_MEMBER_DEVICES_DIR  — Their state directories, one per port (default: ./e2e-devices)
+ *   ZKTRIDENT_PROVING_LEASE_MS   — How long one prover may hold a partition's witnesses (default: 120000)
  *   ZKTRIDENT_POOL_RECYCLE     — Recycle worker after N jobs to reclaim WASM heap (default: 3)
  *   ZKTRIDENT_PRODUCTION_FORMULARY — Load 500 NDC NADAC formulary on startup (default: false)
  *
@@ -64,6 +65,7 @@ import { fileURLToPath } from 'url';
 import { Field, MerkleTree } from 'o1js';
 import { L2Node } from '../l2/l2-node.js';
 import type { L2NodeOptions } from '../l2/l2-node.js';
+import { L2SequencerService } from '../l2/l2-sequencer-service.js';
 import { L2RpcServer } from '../l2/l2-rpc-server.js';
 import type { L2RpcServerOptions } from '../l2/l2-rpc-server.js';
 import { L2CheckpointStore } from '../l2/l2-checkpoint.js';
@@ -213,6 +215,8 @@ async function main(): Promise<void> {
     console.log('  [genesis] No checkpoint found — starting fresh');
     const emptyTree = new MerkleTree(WALLET_TREE_HEIGHT);
     const emptyRoot = emptyTree.getRoot();
+    // D7 (A-33): the proving lease — one prover at a time per partition — lasts this long before it lapses
+    L2SequencerService.defaultProvingLeaseMs = parseInt(env.ZKTRIDENT_PROVING_LEASE_MS ?? '', 10) || L2SequencerService.defaultProvingLeaseMs;
     node = new L2Node(nodeOptions, store, emptyRoot, emptyRoot, Field(0));
     console.log('  [genesis] Empty Merkle trees initialized (height=%d)', WALLET_TREE_HEIGHT);
   }

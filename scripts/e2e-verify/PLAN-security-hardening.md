@@ -2040,7 +2040,8 @@ Must be one operation, because every item here changes the wallet ID.
 | D4 | Fix the duplicate-fill path so a claim is either rejected before payment or recorded. Reconcile the two accumulator divergences | integrity, money | A-10, A-11 |
 | D5 | Bind the money into the audit chain: populate the amount fields, wire the enrichment that currently has no callers, make the financial balance check meaningful, and correct the 8-versus-10-field documentation | integrity | A-26, C-4 |
 | D6 | Encrypt claim data at rest in checkpoints, and the engine state file | I1 | A-1, BOOT-06 |
-| D7 | **Split the state transition.** The device proves only its own authorization — preimage to wallet, old leaf to new leaf, no roots — and the sequencer's proving pool proves the tree transition in order, verifying the device's proof inside it. Until then, a proving lease per partition (witnesses handed to one prover at a time, first come first served). Found by the multi-member run: concurrent root-bound device proofs starve | correctness, scale | A-33 |
+| D7 | **Split the state transition.** The device proves only its own authorization — preimage to wallet, old leaf to new leaf, no roots — and the sequencer's proving pool proves the tree transition in order, verifying the device's proof inside it. Found by the multi-member run: concurrent root-bound device proofs starve. **Owner decision 2026-10-18: the proving lease first** (done the same day, see the addendum); the split remains this item's structural half | correctness, scale | A-33 |
+| D8 | **Lease hardening — mandatory before any network a stranger can reach (owner note, 2026-10-18).** A holder that takes the proving lease and never proves freezes its partition for one lease window at a time, repeatedly. Authenticated holders only; a registration ticket issued at code redemption for the wallet that does not exist yet; one slot per principal and a per-principal rate limit; an expiry sized to the measured proving time of the slowest device the network admits; a cooldown for a holder that lets a lease lapse; alerting on queue depth; termination waits for the lease like the other lifecycle mutations | availability | A-33 |
 
 ### Phase E — Turn the trust layer on
 
@@ -2713,3 +2714,17 @@ registered. Recorded as plan item D7 with two remedies — the split of the stat
 lease per partition as the interim — and left for the owner to choose; neither is started. Scoreboard:
 33 findings; 29 fixed; 4 open (A-22, A-23, A-25, A-33), none critical. Git: with this commit, 52
 commits on local `dev`, nothing pushed, `origin/main` untouched.
+
+**Addendum, 2026-10-18: the proving lease, Session 7 (D7 interim, owner decision).** `src/l2/proving-lease.ts`:
+one prover at a time per partition. `l2_getRegistrationWitnesses` and `l2_getWalletWitnesses` take a `holder`
+and answer the witnesses only to the one prover in line, a busy answer carrying the caller's place and when
+to ask again; `submitProof` releases the lease when the holder's transition lands; `withRootsSettled` makes
+the engine's lifecycle mutations wait for a free lease; the engine's own fixture proofs queue like a device;
+the member node waits instead of proving in vain; `l2_getProvingLease` reports held and queue depth, never a
+holder; `ZKTRIDENT_PROVING_LEASE_MS` sets the window (default 120 s). Verified: `tests/proving-lease.test.ts`
+(7 tests); regression batch 49 suites, 755 tests, all passing; typecheck src 20, scripts 2; single-member pipeline 221/221 checks across 33 steps, clean again;
+the multi-member harness in concurrent mode 193 of 193 checks with two employers and four devices in concurrent mode; the three simultaneous registrations landed in 50, 62 and 79 s with no proof made in vain, where before the lease one of them never landed; the resumed second round of claims, the deliberate duplicate refused and the ledger reconciled for all four members, 128 of 128. **D8, the lease hardening, is mandatory before any
+network a stranger can reach** (owner note): lease hogging freezes a partition one window at a time. Also
+this commit: two stale tests in `registry-consistency` awaited nothing. Git: with this commit, 53
+commits on local `dev`, nothing pushed, `origin/main` untouched. **Next:** B8 (A-23), then B4; D8 before any
+exposure; B3/B7 wait on the §7 decisions; A-25 with phase E.

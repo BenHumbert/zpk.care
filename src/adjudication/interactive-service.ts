@@ -1216,6 +1216,8 @@ export class AdjudicationService {
     this.emit('offchain', 'enroll', 'Step 4a: Capturing pre-registration roots...', 'start');
     // Witnesses come from the sequencer's trees; the sequencer inserts the wallet itself
     // when it accepts the registration proof.
+    // D7 (A-33): the engine proves for a fixture member as a device would — one prover at a time per partition
+    await this.l2Node.getSequencer().acquireProvingLeaseWaiting(walletIdStr);
     const preRegRoot = this.walletRegistry.getRoot();
     const preLcRoot = this.lifecycleTree.getRoot();
     const regWitness = this.walletRegistry.getNextSlotWitness();
@@ -1413,9 +1415,10 @@ export class AdjudicationService {
     // 4c. PHASE C: Admin lifecycle transition (REGISTERED → ELIGIBLE)
     // Deferred to after both proofs are batched so the proof chain is continuous.
     this.emit('offchain', 'enroll', 'Step 4c: Admin lifecycle transition REGISTERED → ELIGIBLE...', 'start');
-    this.l2Node.getSequencer().adminMutate('enroll: REGISTERED → ELIGIBLE', ({ setLifecycle }) => {
+    // D7 (A-33): a lifecycle change moves the roots; it waits until no device is proving against them
+    await this.l2Node.getSequencer().withRootsSettled(() => this.l2Node.getSequencer().adminMutate('enroll: REGISTERED → ELIGIBLE', ({ setLifecycle }) => {
       setLifecycle(walletId, LIFECYCLE_ELIGIBLE);
-    });
+    }));
     this.emit('offchain', 'enroll', 'Step 4c: Lifecycle updated to ELIGIBLE (admin op)', 'complete');
 
     this.emitViz('viz:enrollment:lifecycle', 'enrollment', {
@@ -1944,9 +1947,10 @@ export class AdjudicationService {
     // Insurer admin op: the wallet becomes ELIGIBLE in the sequencer's trees. It is normally
     // already registered by the member's own registration proof; provision() also covers a
     // wallet enrolled without one.
-    this.l2Node.getSequencer().adminMutate('register member: ELIGIBLE', ({ provision }) => {
+    // D7 (A-33): a lifecycle change moves the roots; it waits until no device is proving against them
+    await this.l2Node.getSequencer().withRootsSettled(() => this.l2Node.getSequencer().adminMutate('register member: ELIGIBLE', ({ provision }) => {
       provision(walletId, LIFECYCLE_ELIGIBLE);
-    });
+    }));
 
     // Credential mint is a proven wallet update (current credential root → inventoryRoot,
     // nonce + 1) that the sequencer checks against its own tree, like any other change.
@@ -4471,6 +4475,8 @@ export class AdjudicationService {
     // inside adminMutate, which takes the new roots from the trees.
     // A fixture member sits in the enrollment service's roster; a member with a device never did
     // (Step 2b registers it straight on the sequencer), so its lifecycle is set on the trees directly.
+    // D7 (A-33): termination is synchronous and rare; it does not wait for the proving lease, so a prover caught
+    // in flight re-proves once. Making it wait is part of the lease-hardening item (D8).
     const result = enrolled.memberIndex >= 0
       ? this.l2Node.getSequencer().adminMutate('terminate member', () =>
           this.enrollmentService.terminateMember(enrolled.walletId, termDate),
@@ -5480,6 +5486,8 @@ export class AdjudicationService {
     const pi = preimageFields;
     const MAX_ATTEMPTS = 4;
     for (let attempt = 1; ; attempt++) {
+      // D7 (A-33): one prover at a time per partition; the lease is released when the proof lands
+      await seq.acquireProvingLeaseWaiting(walletId.toString());
       // Current nonce, credential root, roots and witnesses — all from the sequencer's tree.
       const live = seq.getWalletStateForRpc(walletId.toString());
       const oldRoot = Field(BigInt(live.credentialInventoryRoot));

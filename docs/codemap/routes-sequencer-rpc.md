@@ -164,8 +164,9 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 ### Witnesses / wallet state
 | Method | Auth | Params | Reads/writes | Member | Line |
 |---|---|---|---|---|---|
-| l2_getRegistrationWitnesses | OPEN | — | next-slot registry/lifecycle witnesses + roots | no | 1729-1731; SEQ:1893 |
-| l2_getWalletWitnesses | D1: the wallet itself, the plan or operator, or a signed caller with the member’s attestation | walletId (or params[0]) | witnesses, slotIndex, currentLifecycleState for the wallet | yes: wallet slot + lifecycle state | 1733-1737; SEQ:1917 |
+| l2_getRegistrationWitnesses | OPEN | holder? | next-slot registry/lifecycle witnesses + roots; D7: with `holder`, only when that caller is the one prover in line, else `{busy, position, retryAfterMs, expiresAt}` | no | l2-rpc-server.ts; SEQ getRegistrationWitnesses |
+| l2_getWalletWitnesses | D1: the wallet itself, the plan or operator, or a signed caller with the member’s attestation | walletId (or params[0]) | witnesses, slotIndex, currentLifecycleState for the wallet | yes: wallet slot + lifecycle state | 1733-1737; SEQ:1917 D7: `holder` as for the registration witnesses. |
+| l2_getProvingLease | OPEN | — | `{held, queueLength, expiresInMs}` — no holder id (holders are wallets) | no | l2-rpc-server.ts |
 | l2_getWalletState | D1: the wallet itself, the plan or operator, or a signed caller with the member’s attestation | walletId (or params[0]) | credentialInventoryRoot + nonce | yes | 1739-1743; SEQ:1944 |
 
 ### Messages

@@ -280,26 +280,36 @@ export class L2Client {
   }
 
   /** Get MerkleWitnesses for the next registration slot (used by entity nodes to generate proofs) */
-  async getRegistrationWitnesses(): Promise<{
+  async getRegistrationWitnesses(holder?: string): Promise<{
     registryWitnessJson: string;
     lifecycleWitnessJson: string;
     currentRegistryRoot: string;
     currentLifecycleRoot: string;
     nextSlotIndex: string;
+    /** D7: set when `holder` was given and another prover holds the partition; the fields above are absent then */
+    busy?: boolean;
+    position?: number;
+    retryAfterMs?: number;
+    lease?: { granted: true; holder: string; expiresAt: number };
   }> {
-    return this.rpcCall('l2_getRegistrationWitnesses');
+    return this.rpcCall('l2_getRegistrationWitnesses', holder ? { holder } : undefined);
   }
 
   /** Get Merkle witnesses for an existing registered wallet (for wallet update proofs) */
-  async getWalletWitnesses(walletId: string, signer?: RequestSigner): Promise<{
+  async getWalletWitnesses(walletId: string, signer?: RequestSigner, holder?: string): Promise<{
     registryWitnessJson: string;
     lifecycleWitnessJson: string;
     currentRegistryRoot: string;
     currentLifecycleRoot: string;
     slotIndex: string;
     currentLifecycleState: string;
+    /** D7: set when `holder` was given and another prover holds the partition; the fields above are absent then */
+    busy?: boolean;
+    position?: number;
+    retryAfterMs?: number;
+    lease?: { granted: true; holder: string; expiresAt: number };
   }> {
-    return this.rpcCall('l2_getWalletWitnesses', { walletId }, signer);
+    return this.rpcCall('l2_getWalletWitnesses', holder ? { walletId, holder } : { walletId }, signer);
   }
 
   /** Get the current wallet state (nonce + credentialInventoryRoot) */

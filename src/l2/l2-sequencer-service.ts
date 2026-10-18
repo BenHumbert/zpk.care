@@ -54,6 +54,7 @@ import type { TransitionProofVerifier } from './l2-proof-verifier.js';
 import type { ProvingJobRequest, ProvingJobResult } from './l2-proving-pool-types.js';
 import { FormularyService } from './formulary-service.js';
 import type { FormularyServiceState } from './formulary-service.js';
+import { ProvingLease, type LeaseAnswer, type LeaseStatus } from './proving-lease.js';
 
 /** Default batch interval: 3 minutes (matches MINA L1 block time) */
 export const DEFAULT_BATCH_INTERVAL_MS = 180_000;
@@ -235,6 +236,11 @@ export class L2SequencerService {
 
   // Config
   private batchIntervalMs: number;
+
+  /** D7 (A-33): one prover at a time per partition; see proving-lease.ts. */
+  private readonly provingLease = new ProvingLease(L2SequencerService.defaultProvingLeaseMs);
+  /** The lease length every service created from now on starts with; the launcher sets it from ZKTRIDENT_PROVING_LEASE_MS. */
+  static defaultProvingLeaseMs = ProvingLease.DEFAULT_TTL_MS;
 
   // L2-only mode: batches are finalized immediately (no L1 settlement)
   private l2Only: boolean;
@@ -535,6 +541,8 @@ export class L2SequencerService {
       await this.walProvider.commit(walEntryId);
     }
 
+    // D7 (A-33): the holder's transition landed; the next prover in line may take the witnesses.
+    this.provingLease.release(output.walletId.toString());
     return receipt;
   }
 
@@ -2027,6 +2035,39 @@ export class L2SequencerService {
    * is submitted between the fetch and the proof generation. In production,
    * retry with fresh witnesses if the sequencer rejects the proof.
    */
+  // ─── Proving lease (D7, A-33) ───────────────────────────
+
+  setProvingLeaseMs(ms: number): void { this.provingLease.setTtl(ms); }
+
+  /** Ask to be the one prover whose witnesses are current; a busy answer carries the caller's place and when to ask again. */
+  acquireProvingLease(holder: string): LeaseAnswer { return this.provingLease.acquire(holder); }
+
+  /** A holder that gives up frees the lease; a landed proof frees it on its own. */
+  releaseProvingLease(holder: string): boolean { return this.provingLease.release(holder); }
+
+  /** Whether a prover holds this partition and how many wait — no holder id, since holders are wallets. */
+  provingLeaseStatus(): LeaseStatus { return this.provingLease.status(); }
+
+  /** An in-process prover (the engine, for a fixture member) queues like a device: ask until granted, within a bound. */
+  async acquireProvingLeaseWaiting(holder: string, maxWaitMs = 600_000, pollMs?: number): Promise<void> {
+    const deadline = Date.now() + maxWaitMs;
+    for (;;) {
+      const answer = this.provingLease.acquire(holder);
+      if (answer.granted) return;
+      if (Date.now() >= deadline) throw new Error(`Proving lease: still ${answer.position} in line to prove after ${Math.round(maxWaitMs / 1000)} s`);
+      await new Promise((r) => setTimeout(r, pollMs ?? answer.retryAfterMs));
+    }
+  }
+
+  /**
+   * Run a synchronous root mutation (adminMutate and its callers) once no prover holds the lease, so the
+   * operator's change does not invalidate a proof in flight; the mutation runs in the same tick the wait ends.
+   */
+  async withRootsSettled<T>(fn: () => T, maxWaitMs?: number): Promise<T> {
+    await this.provingLease.waitUntilFree(maxWaitMs);
+    return fn();
+  }
+
   getRegistrationWitnesses(): {
     registryWitnessJson: string;
     lifecycleWitnessJson: string;
