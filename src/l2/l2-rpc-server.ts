@@ -1431,10 +1431,10 @@ export class L2RpcServer {
         const hrToolUrl = params.hrToolUrl;
         const pid = params.pid;
         const adminTokenFingerprint = params.adminTokenFingerprint;
-        if (typeof employerId !== 'string' || typeof employerNodeUrl !== 'string' ||
-            typeof hrToolUrl !== 'string' || typeof pid !== 'number') {
-          throw new Error('Missing or invalid parameters: employerId, employerNodeUrl, hrToolUrl, pid are required');
+        if (typeof employerId !== 'string' || typeof employerNodeUrl !== 'string' || typeof pid !== 'number') {
+          throw new Error('Missing or invalid parameters: employerId, employerNodeUrl, pid are required');
         }
+        // A7: the HR Tool runs on the employer's machine; a URL for it is no longer part of a tenant.
         // Must have an attestation first — cannot register a node for an
         // employerId that has never signed an agreement
         const att = this.node.getSequencer().getEmployerAttestation(employerId);
@@ -1444,11 +1444,11 @@ export class L2RpcServer {
         this.node.getSequencer().registerEmployerNode({
           employerId,
           employerNodeUrl,
-          hrToolUrl,
+          hrToolUrl: typeof hrToolUrl === 'string' ? hrToolUrl : undefined,
           pid,
           adminTokenFingerprint: typeof adminTokenFingerprint === 'string' ? adminTokenFingerprint : undefined,
         });
-        this.node.emit({ type: 'employer:node-registered', timestamp: Date.now(), data: { employerId, employerNodeUrl, hrToolUrl, pid } });
+        this.node.emit({ type: 'employer:node-registered', timestamp: Date.now(), data: { employerId, employerNodeUrl, pid } });
         return { success: true, employerId };
       }
 

@@ -49,6 +49,39 @@ const DEVICES = path.resolve(process.argv[3] || './e2e-devices');
 const NETWORK_LOG = process.argv[4] || '';
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const RUN = Date.now().toString(36).toUpperCase();
+// A7: the harness runs one HR Tool per employer, as each employer's machine would. Spawned without
+// npx or a shell so each is one process, and all are stopped however this harness ends.
+const hrToolChildren: import('child_process').ChildProcess[] = [];
+async function startHrTool(label: string, employerId: string): Promise<string> {
+  const { spawn } = await import('child_process');
+  const net = await import('net');
+  const port = await new Promise<number>((resolve, reject) => {
+    const s = net.createServer();
+    s.on('error', reject);
+    s.listen(0, '127.0.0.1', () => {
+      const a = s.address();
+      const p = typeof a === 'object' && a ? a.port : 0;
+      s.close(() => resolve(p));
+    });
+  });
+  const child = spawn(process.execPath, ['--import', 'tsx', path.join(REPO, 'src', 'tools', 'hr-tool-server.ts')], {
+    cwd: REPO,
+    env: { ...process.env, PORT: String(port), HR_TOOL_DATA_DIR: `./hr-tool-data/${employerId}` },
+    stdio: ['ignore', 'ignore', 'pipe'],
+    windowsHide: true,
+  });
+  child.stderr?.on('data', (d: Buffer) => process.stderr.write(`[hr-tool ${label}] ${d}`));
+  hrToolChildren.push(child);
+  const url = `http://127.0.0.1:${port}`;
+  const deadline = Date.now() + 60_000;
+  for (;;) {
+    try { const r = await fetch(`${url}/api/session`); if (r.ok) break; } catch { /* not up yet */ }
+    if (Date.now() > deadline) throw new Error(`HR Tool for ${label} did not start within 60 s`);
+    await new Promise(r => setTimeout(r, 500));
+  }
+  return url;
+}
+process.on('exit', () => { for (const c of hrToolChildren) { if (!c.killed) { try { c.kill(); } catch { /* best effort */ } } } });
 const bearer = { Authorization: `Bearer ${ADMIN}` };
 const unwrap = (j: any) => (j && typeof j === 'object' && 'ok' in j && 'data' in j ? j.data : j);
 
@@ -127,32 +160,40 @@ async function onboardEmployer(label: string, planId: string, people: Array<{ em
   t.check('Agreement signed', sign.status < 300, '2xx', sign.status);
   await http('POST', `${INS}/marketplace/api/activate/${appId}`, {});
   const act = unwrap((await poll(quiet, `${INS}/marketplace/api/activate-status/${appId}`, j => ['complete', 'error'].includes(unwrap(j)?.status), 300_000, 2000)).json);
-  t.check('Employer node and HR Tool activated', act?.status === 'complete', 'complete', act?.status ?? act);
+  t.check('Employer node activated', act?.status === 'complete', 'complete', act?.status ?? act);
   t.check('The open status poll carries no admin token', !act?.adminToken, 'absent', act?.adminToken ?? 'absent');
   // A8: collect the admin token once, with the activation secret.
   const cred = unwrap((await http('POST', `${INS}/marketplace/api/activate-credentials/${appId}`, { claimSecret })).json);
   t.check('Admin credentials collected with the activation secret', Boolean(cred?.adminToken), 'token', cred?.adminToken ? 'present' : cred);
   act.employerNodeUrl = cred?.employerNodeUrl ?? act.employerNodeUrl;
-  act.hrToolUrl = cred?.hrToolUrl ?? act.hrToolUrl;
   act.adminToken = cred?.adminToken;
   const groupId = `GRP-${label}-${RUN}`;
   const grp = await http('POST', `${act.employerNodeUrl}/groups`, { groupId, planId, effectiveDate: new Date().toISOString().slice(0, 10), enrollmentCap: 10 }, { Authorization: `Bearer ${act.adminToken}` });
   t.check('Group created', grp.status < 300, '2xx', grp.status);
-  await http('POST', `${act.hrToolUrl}/api/unlock`, { passphrase: `hr-pass-${label}-${RUN}` });
-  await http('POST', `${act.hrToolUrl}/api/group/select`, { groupId });
+  // A7: the HR Tool runs on the employer's machine. This harness plays each employer's machine:
+  // one HR Tool per employer, set up with what activation handed over.
+  const hrToolUrl = await startHrTool(label, employerId);
+  const passphrase = `hr-pass-${label}-${RUN}-${crypto.randomBytes(3).toString('hex')}`;
+  const setup = await http('POST', `${hrToolUrl}/api/setup`, { employerNodeUrl: act.employerNodeUrl, adminToken: act.adminToken, passphrase, passphraseConfirm: passphrase });
+  t.check('HR Tool set up on the employer machine', setup.status < 300, '2xx', setup.status);
+  await http('POST', `${hrToolUrl}/api/group/select`, { groupId });
   const csv = ['employee_id,family_id,first_name,last_name,dob,email', ...people.map(p => `${p.employeeId},${p.familyId},${p.firstName},${p.lastName},${p.dob},${p.email}`)].join('\n');
-  const imp = await http('POST', `${act.hrToolUrl}/api/import`, { csvContent: csv, validUntil: '2027-12-31', dryRun: false });
-  t.check(`${people.length} employees imported`, (unwrap(imp.json)?.success ?? imp.json?.success) === people.length, people.length, imp.json);
-  const tokens = (unwrap((await http('GET', `${act.hrToolUrl}/api/export/tokens`)).json)?.tokens ?? []) as any[];
+  const imp = await http('POST', `${hrToolUrl}/api/import`, { csvContent: csv, validUntil: '2027-12-31', dryRun: false });
+  const impData = unwrap(imp.json) ?? imp.json;
+  t.check(`${people.length} employees imported`, impData?.success === people.length, people.length, imp.json);
+  // PINs are returned once, in the import result; the export never carries them again.
   const byEmployee: Record<string, { tokenId: string; tokenPIN: string }> = {};
-  for (const p of people) {
-    // employeeIdHash is salted with the group's seed (known only to the HR Tool), so match on displayName.
-    const tk = tokens.find(x => x.displayName === `${p.firstName} ${p.lastName[0]}.`);
-    if (tk) { byEmployee[p.employeeId] = { tokenId: tk.tokenId, tokenPIN: tk.tokenPIN }; t.secret(`code for ${p.firstName}`, `${tk.tokenId} / PIN ${tk.tokenPIN}`); }
+  for (const r of (impData?.results ?? []) as Array<{ employeeId: string; status: string; tokenId?: string; tokenPIN?: string }>) {
+    if (r.status !== 'ok' || !r.tokenId || !r.tokenPIN) continue;
+    byEmployee[r.employeeId] = { tokenId: r.tokenId, tokenPIN: r.tokenPIN };
+    const p = people.find(x => x.employeeId === r.employeeId);
+    t.secret(`code for ${p?.firstName ?? r.employeeId}`, `${r.tokenId} / PIN ${r.tokenPIN}`);
   }
+  const exported = (unwrap((await http('GET', `${hrToolUrl}/api/export/tokens`)).json)?.tokens ?? []) as any[];
+  t.check('The export carries codes and no PINs', exported.length === people.length && exported.every(x => !x.tokenPIN), 'codes only', exported.some(x => x.tokenPIN) ? 'a PIN was exported' : `${exported.length} codes`);
   t.check('One enrollment code per employee', Object.keys(byEmployee).length === people.length, people.length, Object.keys(byEmployee).length);
   t.end();
-  results.employers[label] = { employerId, appId, groupId, employerNodeUrl: act.employerNodeUrl, hrToolUrl: act.hrToolUrl };
+  results.employers[label] = { employerId, appId, groupId, employerNodeUrl: act.employerNodeUrl, hrToolUrl };
   return { employerId, groupId, privateKey, byEmployee };
 }
 

@@ -112,8 +112,8 @@ export interface TokenDistributionRecord {
   employeeIdHash: string;
   tokenId: string;
   tokenIdHash: string;
-  /** 8-digit PIN — distributed via separate channel (SMS) */
-  tokenPIN: string;
+  /** A7: never populated by the server's export. PINs are returned once, at import. */
+  tokenPIN?: string;
   validUntil: string;
   /** First name + last initial for distribution (e.g. "Jane D.") */
   displayName: string;

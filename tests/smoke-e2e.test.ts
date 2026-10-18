@@ -521,7 +521,9 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
   });
 
   test('P2f — employer lists groups', async () => {
-    const r = await get(employerPort, '/groups');
+    // A7 (AUTH-13): group reads are admin now.
+    expect((await get(employerPort, '/groups')).status).toBe(401);
+    const r = await get(employerPort, '/groups', AUTH);
     expect(r.status).toBe(200);
     const groups = (r.body as any).data;
     expect(groups.length).toBe(1);
@@ -948,7 +950,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
   // ══════════════════════════════════════════════════════════
 
   test('P13a — employer views groups', async () => {
-    const r = await get(employerPort, '/groups/GRP-EPIC-2026');
+    const r = await get(employerPort, '/groups/GRP-EPIC-2026', AUTH);
     expect(r.status).toBe(200);
     const group = (r.body as any).data;
     expect(group.groupId).toBe('GRP-EPIC-2026');

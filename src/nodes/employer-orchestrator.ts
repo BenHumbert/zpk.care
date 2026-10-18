@@ -22,15 +22,18 @@
  *
  *   1. Validates that the employer has a signed attestation on the sequencer
  *   2. Checks the sequencer's live tenant registry to avoid duplicate spawns
- *   3. Allocates ephemeral TCP ports for the employer node + HR Tool
- *   4. Forks start-employer-nautilus.ts with the correct pinned identity
- *      (ZKTRIDENT_EMPLOYER_ID + ZKTRIDENT_EMPLOYER_PUBKEY_HEX + etc.)
+ *   3. Allocates an ephemeral TCP port and a per-tenant admin token
+ *   4. Spawns start-employer-nautilus.ts with the correct pinned identity
+ *      (ZKTRIDENT_EMPLOYER_ID + ZKTRIDENT_EMPLOYER_PUBKEY_HEX + etc.), told this
+ *      process's PID so it exits on its own if this process dies (A7)
  *   5. Waits for the employer node to boot, verify its attestation, and
  *      reach phase=ready
- *   6. Forks hr-tool-server.ts bound 1:1 to the employer node
- *   7. Waits for the HR Tool to respond on /api/session
- *   8. Registers the tenant on the sequencer via l2_registerEmployerNode
- *   9. Returns { employerNodeUrl, hrToolUrl, adminToken } to the caller
+ *   6. Registers the tenant on the sequencer via l2_registerEmployerNode
+ *   7. Returns { employerNodeUrl, adminToken, hrToolSetup } to the caller
+ *
+ * A7: the HR Tool is NOT spawned here any more. It holds the employer's plaintext
+ * correlation table (names, birth dates, enrollment PINs) and runs on the
+ * employer's own machine; activation hands the employer what it needs to set it up.
  *
  * On any failure, spawned child processes are killed and the tenant is
  * NOT registered. The caller receives a descriptive error.
@@ -51,9 +54,7 @@ const thisDir = path.dirname(fileURLToPath(import.meta.url));
 interface LiveTenant {
   employerId: string;
   employerNodeUrl: string;
-  hrToolUrl: string;
   employerChild: ChildProcess;
-  hrToolChild: ChildProcess;
   adminToken: string;
   startedAt: number;
   sequencerUrl: string;
@@ -73,7 +74,7 @@ function ensureKeepaliveRunning(): void {
   keepaliveTimer = setInterval(async () => {
     for (const [id, tenant] of liveTenants.entries()) {
       // Skip dead children
-      if (tenant.employerChild.killed || tenant.hrToolChild.killed) continue;
+      if (tenant.employerChild.killed) continue;
       try {
         const seqUrl = tenant.sequencerUrl.replace(/\/+$/, '');
         await fetch(`${seqUrl}/rpc`, {
@@ -88,7 +89,6 @@ function ensureKeepaliveRunning(): void {
             params: {
               employerId: tenant.employerId,
               employerNodeUrl: tenant.employerNodeUrl,
-              hrToolUrl: tenant.hrToolUrl,
               pid: tenant.employerChild.pid || 0,
               adminTokenFingerprint: fingerprint(tenant.adminToken),
             },
@@ -177,11 +177,18 @@ export interface SpawnTenantOptions {
   insurerAdminToken: string;
 }
 
+/** What the employer's HR administrator needs to run the HR Tool on their own machine (A7). */
+export interface HrToolSetup {
+  command: string;
+  employerNodeUrl: string;
+  steps: string[];
+}
+
 export interface SpawnTenantResult {
   employerId: string;
   employerNodeUrl: string;
-  hrToolUrl: string;
   adminToken: string;
+  hrToolSetup: HrToolSetup;
 }
 
 export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<SpawnTenantResult> {
@@ -192,19 +199,19 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
   // orchestrator instance, return the existing URLs (resume) rather than
   // spawning a duplicate. This makes activation safe to retry.
   const existing = liveTenants.get(employerId);
-  if (existing && !existing.employerChild.killed && !existing.hrToolChild.killed) {
+  if (existing && !existing.employerChild.killed) {
     return {
       employerId,
       employerNodeUrl: existing.employerNodeUrl,
-      hrToolUrl: existing.hrToolUrl,
       adminToken: existing.adminToken,
+      hrToolSetup: hrToolSetupFor(existing.employerNodeUrl),
     };
   }
 
   // Cross-check the sequencer's registry in case this orchestrator restarted
   // but the tenant is still running (zombie).
   const seqUrl = sequencerUrl.replace(/\/+$/, '');
-  let existingRegistry: { employerId: string; employerNodeUrl: string; hrToolUrl: string } | null = null;
+  let existingRegistry: { employerId: string; employerNodeUrl: string; hrToolUrl?: string } | null = null;
   try {
     const resp = await fetch(`${seqUrl}/rpc`, {
       method: 'POST',
@@ -279,16 +286,23 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
     throw new Error(`Cannot verify attestation: ${e?.message || e}`);
   }
 
-  // ─── Step 3: Allocate ports and admin token ───
+  // ─── Step 3: Allocate a port and the tenant's admin token ───
   const employerPort = await allocateEphemeralPort();
-  const hrToolPort = await allocateEphemeralPort();
   const adminToken = generateAdminToken(employerId);
 
   // ─── Step 4: Fork the employer node ───
+  // A7: spawned from this node binary with tsx's loader rather than through `npx` and a shell, so
+  // a tenant is one process instead of three, and told this process's PID so it can exit on its
+  // own if this process dies without running its shutdown handlers (eight orphans from four runs
+  // were found alive on one machine). ZKTRIDENT_UNSECURE is not passed: the employer launcher never
+  // read it, and it is stripped from the inherited environment so a dev boot's flag stops here.
+  const { ZKTRIDENT_UNSECURE: _dropUnsecure, ...inheritedEnv } = process.env;
+  void _dropUnsecure;
   const employerScript = path.resolve(thisDir, 'start-employer-nautilus.ts');
-  const employerChild = spawn('npx', ['tsx', employerScript], {
+  const employerChild = spawn(process.execPath, ['--import', 'tsx', employerScript], {
+    cwd: process.cwd(),
     env: {
-      ...process.env,
+      ...inheritedEnv,
       ZKTRIDENT_PORT: String(employerPort),
       ZKTRIDENT_HOST: '127.0.0.1',
       ZKTRIDENT_EMPLOYER_ID: employerId,
@@ -296,16 +310,15 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
       ZKTRIDENT_SEQUENCER_URL: sequencerUrl,
       ZKTRIDENT_INSURER_URL: insurerUrl,
       ZKTRIDENT_ADMIN_TOKEN: adminToken,
-      ZKTRIDENT_UNSECURE: 'true',
+      ZKTRIDENT_PARENT_PID: String(process.pid),
       // No ZKTRIDENT_CORS_ORIGINS: the spawned node resolves the local dashboard
       // origins itself. Passing '*' here opened every employer node to any origin.
     },
     stdio: ['ignore', 'pipe', 'pipe'],
-    shell: true,
+    windowsHide: true,
   });
   employerChild.stdout?.on('data', (d: Buffer) => process.stdout.write(`[tenant ${employerId}] ${d}`));
   employerChild.stderr?.on('data', (d: Buffer) => process.stderr.write(`[tenant ${employerId}] ${d}`));
-
   const employerNodeUrl = `http://127.0.0.1:${employerPort}`;
 
   // Wait for the employer node to boot and load its attestation
@@ -321,41 +334,7 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
     throw e;
   }
 
-  // ─── Step 5: Fork the HR Tool ───
-  const hrToolScript = path.resolve(thisDir, '..', 'tools', 'hr-tool-server.ts');
-  const hrToolChild = spawn('npx', ['tsx', hrToolScript], {
-    env: {
-      ...process.env,
-      PORT: String(hrToolPort),
-      HR_TOOL_DATA_DIR: `./hr-tool-data/${employerId}`,
-      EMPLOYER_NODE_URL: employerNodeUrl,
-      EMPLOYER_ADMIN_TOKEN: adminToken,
-      // Phase E (bundled into Phase C): HR Tool pins its employer identity
-      EMPLOYER_ID: employerId,
-      EMPLOYER_PUBKEY_HEX: employerPubKeyHex,
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-    shell: true,
-  });
-  hrToolChild.stdout?.on('data', (d: Buffer) => process.stdout.write(`[hr-tool ${employerId}] ${d}`));
-  hrToolChild.stderr?.on('data', (d: Buffer) => process.stderr.write(`[hr-tool ${employerId}] ${d}`));
-
-  const hrToolUrl = `http://127.0.0.1:${hrToolPort}`;
-
-  try {
-    await pollUntilHealthy(
-      `${hrToolUrl}/api/session`,
-      (body) => body !== null && body !== undefined,
-      30000,
-      'HR Tool',
-    );
-  } catch (e) {
-    try { hrToolChild.kill('SIGTERM'); } catch {}
-    try { employerChild.kill('SIGTERM'); } catch {}
-    throw e;
-  }
-
-  // ─── Step 6: Register tenant on sequencer ───
+  // ─── Step 5: Register the tenant on the sequencer ───
   try {
     const resp = await fetch(`${seqUrl}/rpc`, {
       method: 'POST',
@@ -369,7 +348,6 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
         params: {
           employerId,
           employerNodeUrl,
-          hrToolUrl,
           pid: employerChild.pid || 0,
           adminTokenFingerprint: fingerprint(adminToken),
         },
@@ -380,18 +358,15 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
       throw new Error(json.error.message || String(json.error));
     }
   } catch (e: any) {
-    try { hrToolChild.kill('SIGTERM'); } catch {}
     try { employerChild.kill('SIGTERM'); } catch {}
     throw new Error(`Failed to register tenant on sequencer: ${e?.message || e}`);
   }
 
-  // ─── Step 7: Track locally + return ───
+  // ─── Step 6: Track locally + return ───
   const tenant: LiveTenant = {
     employerId,
     employerNodeUrl,
-    hrToolUrl,
     employerChild,
-    hrToolChild,
     adminToken,
     startedAt: Date.now(),
     sequencerUrl,
@@ -400,9 +375,9 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
   liveTenants.set(employerId, tenant);
   ensureKeepaliveRunning();
 
-  // Auto-deregister if either child dies unexpectedly
-  const onExit = (name: string) => (code: number | null) => {
-    console.warn(`[orchestrator] ${name} for ${employerId} exited with code ${code}`);
+  // Auto-deregister if the child dies unexpectedly
+  employerChild.on('exit', (code: number | null) => {
+    console.warn(`[orchestrator] employer node for ${employerId} exited with code ${code}`);
     // Best-effort deregister on sequencer; ignore failures
     fetch(`${sequencerUrl.replace(/\/+$/, '')}/rpc`, {
       method: 'POST',
@@ -414,17 +389,33 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
       }),
     }).catch(() => {});
     liveTenants.delete(employerId);
-  };
-  employerChild.on('exit', onExit('employer node'));
-  hrToolChild.on('exit', onExit('HR Tool'));
+  });
 
-  console.log(`[orchestrator] Tenant "${employerId}" spawned — employer: ${employerNodeUrl}, HR Tool: ${hrToolUrl}`);
+  console.log(`[orchestrator] Tenant "${employerId}" spawned — employer node: ${employerNodeUrl}. The HR Tool runs on the employer's machine.`);
 
   return {
     employerId,
     employerNodeUrl,
-    hrToolUrl,
     adminToken,
+    hrToolSetup: hrToolSetupFor(employerNodeUrl),
+  };
+}
+
+/**
+ * What the employer's HR administrator needs in order to run the HR Tool on their own machine
+ * (A7). The tool is never started on the insurer's host: the correlation table it keeps, with
+ * employee names, birth dates and the enrollment PINs, belongs to the employer (rule I5).
+ */
+export function hrToolSetupFor(employerNodeUrl: string): HrToolSetup {
+  return {
+    command: 'npm run start:hr-tool',
+    employerNodeUrl,
+    steps: [
+      'On the HR administrator\'s own machine, in a checkout of this repository, run: npm run start:hr-tool',
+      'Open http://localhost:5050 and choose "Set up a workspace"',
+      'Enter this employer node URL, the admin token shown once with it, and a passphrase of at least 12 characters',
+      'The token and every employee record stay encrypted on that machine; only hashes reach the employer node',
+    ],
   };
 }
 
@@ -435,7 +426,6 @@ export function shutdownAllTenants(): void {
     keepaliveTimer = null;
   }
   for (const [id, tenant] of liveTenants.entries()) {
-    try { tenant.hrToolChild.kill('SIGTERM'); } catch {}
     try { tenant.employerChild.kill('SIGTERM'); } catch {}
     console.log(`[orchestrator] Tenant "${id}" shut down`);
   }
@@ -443,11 +433,10 @@ export function shutdownAllTenants(): void {
 }
 
 /** For the leviathan startup banner + diagnostics. */
-export function listLiveTenants(): Array<{ employerId: string; employerNodeUrl: string; hrToolUrl: string; startedAt: number }> {
+export function listLiveTenants(): Array<{ employerId: string; employerNodeUrl: string; startedAt: number }> {
   return Array.from(liveTenants.values()).map(t => ({
     employerId: t.employerId,
     employerNodeUrl: t.employerNodeUrl,
-    hrToolUrl: t.hrToolUrl,
     startedAt: t.startedAt,
   }));
 }

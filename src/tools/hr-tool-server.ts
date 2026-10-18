@@ -38,14 +38,19 @@
  *   - Error messages sanitized (no internal paths leaked)
  *   - Atomic file writes via core module
  *
- * Usage: npx tsx src/tools/hr-tool-server.ts
+ * Usage: npm run start:hr-tool   (on the HR admin's own machine — phase A item A7)
  *   PORT=5050 (default)
  *   HR_TOOL_DATA_DIR=./hr-tool-data (default)
- *   EMPLOYER_NODE_URL=http://localhost:4005 (default)
- *   EMPLOYER_ADMIN_TOKEN= (optional)
+ *   EMPLOYER_NODE_URL=http://localhost:4005 (default offered on the setup screen only)
+ *
+ * The employer node URL and the admin token are entered once at POST /api/setup and stored
+ * encrypted under the workspace passphrase. Neither is read from the environment any more.
  */
 import { createServer } from 'http';
-import { readFileSync, existsSync, readdirSync, mkdirSync, appendFileSync } from 'fs';
+import { readFileSync, existsSync, readdirSync, mkdirSync, appendFileSync, writeFileSync } from 'fs';
+import { timingSafeEqual } from 'crypto';
+import { PersistedAttemptLimiter } from '../security/attempt-limiter.js';
+import { encryptWithPassphrase, decryptWithPassphrase, workspaceDirName } from './hr-tool-core.js';
 import { join, resolve, extname, sep } from 'path';
 import { fileURLToPath } from 'url';
 import {
@@ -75,8 +80,13 @@ import type { CorrelationTable, CorrelationEntry, TokenDistributionRecord, HrToo
 
 const PORT = parseInt(process.env.PORT || '5050', 10);
 const DATA_DIR = process.env.HR_TOOL_DATA_DIR || './hr-tool-data';
-const EMPLOYER_NODE_URL = process.env.EMPLOYER_NODE_URL || 'http://localhost:4005';
-const EMPLOYER_ADMIN_TOKEN = process.env.EMPLOYER_ADMIN_TOKEN || '';
+/** Wrong-passphrase counter: plaintext, no secrets, beside the encrypted workspaces (A7). */
+const attempts = new PersistedAttemptLimiter(join(DATA_DIR, 'attempts.json'));
+/** Offered as the default on the setup screen; the workspace records the real one. */
+const DEFAULT_EMPLOYER_NODE_URL = process.env.EMPLOYER_NODE_URL || 'http://localhost:4005';
+/** A7: the admin token is entered once at setup and kept encrypted beside the client key. */
+const ADMIN_TOKEN_FILE = 'admin.token.enc';
+const PASSPHRASE_MIN_LENGTH = 12;
 
 const thisDir = fileURLToPath(new URL('.', import.meta.url));
 const DASHBOARD_DIR = resolve(thisDir, '..', '..', 'dashboard-hr-tool');
@@ -136,24 +146,23 @@ async function readBody(req: any): Promise<any> {
 /**
  * Proxy a request to the employer node with timeout.
  *
- * Authentication priority:
- *   1. Bearer token (if EMPLOYER_ADMIN_TOKEN set) — orchestrator mode (Phase C)
- *      The orchestrator spawns employer node + HR Tool with a shared per-tenant
- *      token, so Bearer auth is authoritative. Ed25519 signing would require a
- *      separate key-registration handshake which we don't do.
- *   2. Ed25519 signature (if activeClientKey loaded AND no Bearer token) —
- *      legacy standalone mode. Only used when the HR Tool connects to an
- *      employer node whose public key registry was populated out-of-band.
+ * Authentication (A7):
+ *   1. Bearer token from the open workspace, decrypted at unlock and held only in memory.
+ *   2. Ed25519 signature with the workspace's client key when no token is on file: a node whose
+ *      key registry was populated out of band. Moving every HR Tool onto this path, with the
+ *      employer node registering the key, is item A9's remainder.
+ * The target URL is the open workspace's employer node, never a process-wide setting.
  */
 async function proxyToEmployer(method: string, path: string, body?: any): Promise<any> {
-  const url = EMPLOYER_NODE_URL + path;
+  if (!activeWorkspaceUrl) throw new Error('No active workspace');
+  const url = activeWorkspaceUrl + path;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const bodyStr = body ? JSON.stringify(body) : undefined;
 
   // Prefer Bearer token when present (Phase C orchestrator path).
   // Ed25519 signing is a fallback for legacy standalone deployments.
-  if (EMPLOYER_ADMIN_TOKEN) {
-    headers['Authorization'] = 'Bearer ' + EMPLOYER_ADMIN_TOKEN;
+  if (activeAdminToken) {
+    headers['Authorization'] = 'Bearer ' + activeAdminToken;
   } else if (activeClientKey) {
     const sig = signEmployerRequest(method, path, bodyStr, activeClientKey);
     headers['X-Admin-Signature'] = sig.signature;
@@ -218,6 +227,8 @@ let activeWorkspaceMeta: WorkspaceMeta | null = null;
 let activePassphrase: string | null = null;
 /** Ed25519 client key for signing employer node requests. Workspace-scoped. */
 let activeClientKey: HrToolClientKey | null = null;
+/** Employer node admin token, decrypted from the workspace at unlock. Workspace-scoped (A7). */
+let activeAdminToken: string | null = null;
 
 /** Currently-selected group within the active workspace. */
 let activeGroupId: string | null = null;
@@ -246,6 +257,7 @@ function lockSession(): void {
   activeWorkspaceMeta = null;
   activePassphrase = null;
   activeClientKey = null;
+  activeAdminToken = null;
   activeGroupId = null;
   activeSeed = null;
   activeTable = null;
@@ -279,6 +291,91 @@ function saveTable(): void {
   saveCorrelationTable(paths.tableFile, activeTable, activePassphrase);
 }
 
+// ─── A7: workspace setup, passphrase policy, re-authentication ───────────────
+//
+// The HR Tool runs on the employer's own machine. Nothing it needs arrives in the environment
+// any more: the employer node URL and the admin token are entered once at setup and kept encrypted
+// under the passphrase, beside the client key. A workspace directory is named by a hash of the
+// employer node URL, so an unlock can find it without knowing the URL first.
+
+/** The paths of a workspace known only by its directory name (before its metadata is decrypted). */
+function pathsForWorkspaceDir(dirName: string) {
+  const wsDir = join(DATA_DIR, dirName);
+  return {
+    wsDir,
+    metaFile: join(wsDir, 'workspace.meta.enc'),
+    keyFile: join(wsDir, 'client.key.enc'),
+    groupsDir: join(wsDir, 'groups'),
+    tokenFile: join(wsDir, ADMIN_TOKEN_FILE),
+  };
+}
+
+function listWorkspaceDirs(): string[] {
+  ensureDataDir(DATA_DIR);
+  try {
+    return readdirSync(DATA_DIR, { withFileTypes: true })
+      .filter(d => d.isDirectory() && d.name.startsWith('workspace-'))
+      .map(d => d.name);
+  } catch {
+    return [];
+  }
+}
+
+/** Length over complexity, with a confirmation so a typo does not lock the admin out of a new workspace. */
+function passphrasePolicyError(passphrase: unknown, confirm: unknown): string | null {
+  if (typeof passphrase !== 'string' || passphrase.length === 0) return 'Passphrase is required';
+  if (passphrase.length < PASSPHRASE_MIN_LENGTH) return `Passphrase must be at least ${PASSPHRASE_MIN_LENGTH} characters`;
+  if (passphrase !== confirm) return 'Passphrase confirmation does not match';
+  return null;
+}
+
+function openWorkspace(url: string, meta: WorkspaceMeta, passphrase: string, clientKey: HrToolClientKey | null, adminToken: string | null): void {
+  activeWorkspaceUrl = url;
+  activeWorkspaceMeta = meta;
+  activePassphrase = passphrase;
+  activeClientKey = clientKey;
+  activeAdminToken = adminToken;
+  activeGroupId = null;
+  activeSeed = null;
+  activeTable = null;
+  touchSession();
+}
+
+function sendRetryAfter(res: any, status: number, retryAfterMs: number, what: string): void {
+  const secs = Math.max(1, Math.ceil(retryAfterMs / 1000));
+  try { res.setHeader('Retry-After', String(secs)); } catch { /* fake responses in tests */ }
+  errRes(res, status, `Too many wrong ${what}. Try again in ${secs} s.`);
+}
+
+/**
+ * Ask for the passphrase again before something sensitive (revealing a PIN, changing the stored
+ * admin token). Compared in constant time against the passphrase that opened this workspace, and
+ * counted on the same limiter as unlocking, so it cannot be used to grind the passphrase either.
+ */
+function reauth(res: any, passphrase: unknown): boolean {
+  if (!activeWorkspaceUrl || !activePassphrase) { errRes(res, 401, 'No active workspace. Unlock the HR Tool first.'); return false; }
+  const key = 'reauth:' + workspaceDirName(activeWorkspaceUrl);
+  const verdict = attempts.check(key);
+  if (!verdict.allowed) { sendRetryAfter(res, 429, verdict.retryAfterMs, 'passphrases'); return false; }
+  const a = Buffer.from(typeof passphrase === 'string' ? passphrase : '', 'utf8');
+  const b = Buffer.from(activePassphrase, 'utf8');
+  if (a.length !== b.length || !timingSafeEqual(a, b)) {
+    const delay = attempts.recordFailure(key);
+    auditLog('reauth:failed');
+    if (delay > 0) { try { res.setHeader('Retry-After', String(Math.ceil(delay / 1000))); } catch { /* fake responses */ } }
+    errRes(res, 403, 'Passphrase does not match');
+    return false;
+  }
+  attempts.reset(key);
+  return true;
+}
+
+/** What a list or lookup may return: everything the HR admin manages, minus the second factor. */
+function publicEntry(e: CorrelationEntry): Omit<CorrelationEntry, 'tokenPIN' | 'tokenPinHash'> {
+  const { tokenPIN: _pin, tokenPinHash: _hash, ...rest } = e;
+  return rest;
+}
+
 // ─── API Routes ─────────────────────────────────────────────
 
 async function handleApi(req: any, res: any, path: string, method: string): Promise<void> {
@@ -295,100 +392,131 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
       return ok(res, {
         // Only directory names are exposed — actual metadata requires passphrase.
         count: dirs.length,
-        employerNodeUrl: EMPLOYER_NODE_URL,
-        currentWorkspace: EMPLOYER_NODE_URL,
+        needsSetup: dirs.length === 0,
+        defaultEmployerNodeUrl: DEFAULT_EMPLOYER_NODE_URL,
       });
     } catch {
-      return ok(res, { count: 0, employerNodeUrl: EMPLOYER_NODE_URL });
+      return ok(res, { count: 0, needsSetup: true, defaultEmployerNodeUrl: DEFAULT_EMPLOYER_NODE_URL });
     }
   }
 
-  // ── Unlock (create-or-open workspace)
-  // Phase F3: unified entry point. If a workspace exists for EMPLOYER_NODE_URL,
-  // open it with the passphrase. If not, create it (first-run bootstrap).
-  if (path === '/api/unlock' && method === 'POST') {
+  // ── Set up a workspace (A7: first run on the employer's machine)
+  // Replaces the old create-on-first-unlock, which took the employer URL and the admin token from
+  // the environment the orchestrator set, on the insurer's host. Both are entered here once and
+  // stored encrypted under the passphrase; the token never appears in a process environment again.
+  if (path === '/api/setup' && method === 'POST') {
     const body = await readBody(req);
-    const { passphrase } = body;
-    if (!passphrase) return errRes(res, 400, 'Passphrase is required');
-    if (typeof passphrase !== 'string' || passphrase.length < 8) {
-      return errRes(res, 400, 'Passphrase must be at least 8 characters');
+    const { employerNodeUrl, adminToken, passphrase, passphraseConfirm } = body ?? {};
+    let url: string;
+    try {
+      const u = new URL(String(employerNodeUrl ?? ''));
+      if (!/^https?:$/.test(u.protocol)) throw new Error('scheme');
+      url = u.origin;
+    } catch {
+      return errRes(res, 400, 'employerNodeUrl must be an http or https URL');
     }
+    if (typeof adminToken !== 'string' || adminToken.trim().length < 16) {
+      return errRes(res, 400, 'adminToken is required: the token collected once when the employer was activated');
+    }
+    const policy = passphrasePolicyError(passphrase, passphraseConfirm);
+    if (policy) return errRes(res, 400, policy);
 
     ensureDataDir(DATA_DIR);
-    const ws = workspacePaths(DATA_DIR, EMPLOYER_NODE_URL);
+    const ws = workspacePaths(DATA_DIR, url);
+    if (existsSync(ws.metaFile)) {
+      return errRes(res, 409, 'A workspace for this employer node already exists on this machine. Unlock it instead.');
+    }
+    mkdirSync(ws.wsDir, { recursive: true });
+    mkdirSync(ws.groupsDir, { recursive: true });
+    const meta: WorkspaceMeta = { version: 1, employerNodeUrl: url, createdAt: new Date().toISOString(), label: url };
+    saveWorkspaceMeta(ws.metaFile, meta, passphrase);
+    const clientId = `hr-tool-${ws.wsDir.split(sep).pop()}`;
+    const clientKey = generateClientKey(clientId);
+    saveClientKey(ws.keyFile, clientKey, passphrase);
+    writeFileSync(join(ws.wsDir, ADMIN_TOKEN_FILE), encryptWithPassphrase(adminToken.trim(), passphrase), { mode: 0o600 });
 
-    // Create workspace on first unlock
-    const isNewWorkspace = !existsSync(ws.metaFile);
-    if (isNewWorkspace) {
-      mkdirSync(ws.wsDir, { recursive: true });
-      mkdirSync(ws.groupsDir, { recursive: true });
-      const meta: WorkspaceMeta = {
-        version: 1,
-        employerNodeUrl: EMPLOYER_NODE_URL,
-        createdAt: new Date().toISOString(),
-        label: EMPLOYER_NODE_URL,
-      };
-      saveWorkspaceMeta(ws.metaFile, meta, passphrase);
-      // Generate an Ed25519 client key for this workspace
-      const clientId = `hr-tool-${workspacePaths(DATA_DIR, EMPLOYER_NODE_URL).wsDir.split(sep).pop()}`;
-      const clientKey = generateClientKey(clientId);
-      saveClientKey(ws.keyFile, clientKey, passphrase);
+    openWorkspace(url, meta, passphrase, clientKey, adminToken.trim());
+    auditLog('workspace:created', `employer=${url}`);
+    return ok(res, {
+      workspace: { employerNodeUrl: url, createdAt: meta.createdAt, firstRun: true },
+      authMode: 'bearer',
+      clientId: clientKey.clientId,
+      publicKeyHex: clientKey.publicKeyHex,
+    });
+  }
 
-      activeWorkspaceUrl = EMPLOYER_NODE_URL;
-      activeWorkspaceMeta = meta;
-      activePassphrase = passphrase;
-      activeClientKey = clientKey;
-      activeGroupId = null;
-      activeSeed = null;
-      activeTable = null;
-      touchSession();
-      auditLog('workspace:created', `employer=${EMPLOYER_NODE_URL}`);
+  // ── Unlock an existing workspace
+  // Attempt-limited: three free, then a doubling delay to fifteen minutes, counted in a plaintext
+  // sidecar because the counter cannot live inside a file encrypted under the passphrase being
+  // guessed. Never a wipe.
+  if (path === '/api/unlock' && method === 'POST') {
+    const body = await readBody(req);
+    const { passphrase, employerNodeUrl } = body ?? {};
+    if (typeof passphrase !== 'string' || passphrase.length === 0) return errRes(res, 400, 'Passphrase is required');
 
-      return ok(res, {
-        workspace: {
-          employerNodeUrl: EMPLOYER_NODE_URL,
-          createdAt: meta.createdAt,
-          firstRun: true,
-        },
-        authMode: 'ed25519',
-        clientId: clientKey.clientId,
-        publicKeyHex: clientKey.publicKeyHex,
-      });
+    const dirs = listWorkspaceDirs();
+    let dirName: string;
+    if (typeof employerNodeUrl === 'string' && employerNodeUrl.length > 0) {
+      dirName = workspaceDirName(employerNodeUrl);
+      if (!dirs.includes(dirName)) return errRes(res, 404, 'No workspace for that employer node on this machine. Set one up first.');
+    } else if (dirs.length === 1) {
+      dirName = dirs[0];
+    } else if (dirs.length === 0) {
+      return errRes(res, 409, 'No workspace on this machine yet. Set one up first.');
+    } else {
+      return errRes(res, 409, 'Several workspaces exist on this machine; say which employer node to unlock.');
     }
 
-    // Open existing workspace
+    const limiterKey = 'unlock:' + dirName;
+    const verdict = attempts.check(limiterKey);
+    if (!verdict.allowed) return sendRetryAfter(res, 429, verdict.retryAfterMs, 'passphrases');
+
+    const ws = pathsForWorkspaceDir(dirName);
     try {
       const meta = loadWorkspaceMeta(ws.metaFile, passphrase);
       let clientKey: HrToolClientKey | null = null;
       if (existsSync(ws.keyFile)) {
         try { clientKey = loadClientKey(ws.keyFile, passphrase); }
-        catch { console.warn('[hr-tool-server] Could not load client key — falling back to Bearer token auth'); }
+        catch { console.warn('[hr-tool-server] Could not load client key for this workspace'); }
       }
+      let token: string | null = null;
+      if (existsSync(ws.tokenFile)) token = decryptWithPassphrase(readFileSync(ws.tokenFile), passphrase);
 
-      activeWorkspaceUrl = EMPLOYER_NODE_URL;
-      activeWorkspaceMeta = meta;
-      activePassphrase = passphrase;
-      activeClientKey = clientKey;
-      activeGroupId = null;
-      activeSeed = null;
-      activeTable = null;
-      touchSession();
-      auditLog('workspace:unlock', `employer=${EMPLOYER_NODE_URL} auth=${clientKey ? 'ed25519' : 'bearer'}`);
-
+      attempts.reset(limiterKey);
+      openWorkspace(meta.employerNodeUrl, meta, passphrase, clientKey, token);
+      const authMode = token ? 'bearer' : (clientKey ? 'ed25519' : 'none');
+      auditLog('workspace:unlock', `employer=${meta.employerNodeUrl} auth=${authMode}`);
       return ok(res, {
-        workspace: {
-          employerNodeUrl: meta.employerNodeUrl,
-          createdAt: meta.createdAt,
-          firstRun: false,
-        },
-        authMode: clientKey ? 'ed25519' : 'bearer',
+        workspace: { employerNodeUrl: meta.employerNodeUrl, createdAt: meta.createdAt, firstRun: false },
+        authMode,
+        adminTokenOnFile: Boolean(token),
         clientId: clientKey?.clientId ?? null,
         publicKeyHex: clientKey?.publicKeyHex ?? null,
       });
-    } catch (e: any) {
+    } catch {
       lockSession();
+      const delay = attempts.recordFailure(limiterKey);
+      if (delay > 0) { try { res.setHeader('Retry-After', String(Math.ceil(delay / 1000))); } catch { /* fake responses */ } }
       return errRes(res, 403, 'Wrong passphrase or corrupted workspace');
     }
+  }
+
+  // ── Store or rotate the employer node admin token for the open workspace
+  // For a workspace created before A7 (which has no token on file) and for token rotation. Asks
+  // for the passphrase again.
+  if (path === '/api/workspace/admin-token' && method === 'POST') {
+    if (!requireWorkspace(res)) return;
+    const body = await readBody(req);
+    if (!reauth(res, body?.passphrase)) return;
+    const { adminToken } = body ?? {};
+    if (typeof adminToken !== 'string' || adminToken.trim().length < 16) {
+      return errRes(res, 400, 'adminToken is required');
+    }
+    const ws = workspacePaths(DATA_DIR, activeWorkspaceUrl!);
+    writeFileSync(join(ws.wsDir, ADMIN_TOKEN_FILE), encryptWithPassphrase(adminToken.trim(), activePassphrase!), { mode: 0o600 });
+    activeAdminToken = adminToken.trim();
+    auditLog('workspace:admin-token-set');
+    return ok(res, { stored: true, authMode: 'bearer' });
   }
 
   // ── List groups from employer node (after unlock)
@@ -660,7 +788,8 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
       }
 
       // Generate tokens + PINs — only add entries to table AFTER successful generation
-      const results: Array<{ employeeId: string; status: string; tokenId?: string; error?: string }> = [];
+      // A7: the PIN rides in this response once, for the SMS step, and is not listed or exported again.
+      const results: Array<{ employeeId: string; status: string; tokenId?: string; tokenPIN?: string; error?: string }> = [];
       const successEntries: CorrelationEntry[] = [];
       const failedEntries: CorrelationEntry[] = [];
 
@@ -721,7 +850,7 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
           entry.tokenPIN = pin;
           entry.tokenPinHash = pinHash;
           entry.status = 'token_generated';
-          results.push({ employeeId: entry.employeeId, status: 'ok', tokenId });
+          results.push({ employeeId: entry.employeeId, status: 'ok', tokenId, tokenPIN: pin });
           successEntries.push(entry);
         } catch (e: any) {
           const msg = e.name === 'AbortError' ? 'Employer node timeout' : 'Connection failed';
@@ -745,6 +874,7 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
       return ok(res, {
         total: records.length, processed: toProcess.length, skipped, success, failed, results,
         csvWarning: 'Remember to securely delete the source CSV file after import.',
+        pinNotice: 'PINs are shown here once. Send each by SMS now; they are not listed or exported afterwards.',
       });
     } catch (e: any) {
       return errRes(res, 400, 'Import failed: check CSV format');
@@ -770,8 +900,9 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
       );
     }
 
-    auditLog('employees:list', `filter=${status || 'all'} search=${search || 'none'} results=${entries.length}`);
-    return ok(res, { total: entries.length, entries });
+    // A7: the audit log records that a search happened, never what was searched for.
+    auditLog('employees:list', `filter=${status || 'all'} search=${search ? 'yes' : 'no'} results=${entries.length}`);
+    return ok(res, { total: entries.length, entries: entries.map(publicEntry) });
   }
 
   // ── Lookup single employee
@@ -789,8 +920,25 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
     if (!entry) entry = activeTable!.entries.find(e => e.employeeIdHash === id);
     if (!entry) return errRes(res, 404, 'Employee not found');
 
-    auditLog('employees:lookup', `employeeId=${entry.employeeId}`);
-    return ok(res, entry);
+    auditLog('employees:lookup', `employeeIdHash=${entry.employeeIdHash.slice(0, 12)}`);
+    return ok(res, publicEntry(entry));
+  }
+
+  // ── Reveal one employee's PIN again (A7)
+  // PINs are shown once, at import, for the SMS step. They stay encrypted in the table so that a
+  // lost text can be re-sent, but reading one back is a deliberate act: passphrase again, counted
+  // on the unlock limiter, and an audit line that names the hash and never the person.
+  if (path.startsWith('/api/employees/') && path.endsWith('/pin') && method === 'POST') {
+    if (!requireGroup(res)) return;
+    const hash = decodeURIComponent(path.slice('/api/employees/'.length, -'/pin'.length));
+    if (!hash || hash.includes('/')) return errRes(res, 400, 'Invalid employee identifier');
+    const body = await readBody(req);
+    if (!reauth(res, body?.passphrase)) return;
+    const entry = activeTable!.entries.find(e => e.employeeIdHash === hash);
+    if (!entry) return errRes(res, 404, 'Employee not found');
+    if (!entry.tokenPIN || !entry.tokenId) return errRes(res, 404, 'No PIN on file for this employee');
+    auditLog('pin:reveal', `employeeIdHash=${hash.slice(0, 12)}`);
+    return ok(res, { tokenId: entry.tokenId, tokenPIN: entry.tokenPIN });
   }
 
   // ── Reconcile with employer node
@@ -845,7 +993,6 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
         employeeIdHash: e.employeeIdHash,
         tokenId: e.tokenId!,
         tokenIdHash: e.tokenIdHash || '',
-        tokenPIN: e.tokenPIN || '',
         validUntil: '',
         displayName: e.firstName + ' ' + e.lastName.charAt(0) + '.',
       }));
@@ -971,7 +1118,7 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log('  ╠══════════════════════════════════════════════╣');
   console.log(`  ║  UI:            http://localhost:${PORT}          ║`);
   console.log(`  ║  Data dir:      ${DATA_DIR.padEnd(27)}║`);
-  console.log(`  ║  Employer node: ${EMPLOYER_NODE_URL.padEnd(27)}║`);
+  console.log(`  ║  Default node:  ${DEFAULT_EMPLOYER_NODE_URL.padEnd(27)}║`);
   console.log('  ║  Session timeout: 15 minutes                ║');
   console.log('  ║                                              ║');
   console.log('  ║  All PII stays on this machine.              ║');

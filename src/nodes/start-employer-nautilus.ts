@@ -51,6 +51,7 @@ import type { NautilusAppConfig } from './nautilus-app-types.js';
 import { buildEmployerRoutes } from './routes/employer-routes.js';
 import { EmployerNode } from './employer-node.js';
 import { resolveBindHost, resolveAllowedOrigins, resolveRpcProxyPolicy } from '../security/network-policy.js';
+import { parentPidFromEnv, watchParent } from './parent-watchdog.js';
 
 // ─── Environment ─────────────────────────────────────────────
 
@@ -249,6 +250,19 @@ async function main(): Promise<void> {
 
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+  // A7: a spawned tenant must not outlive the process that spawned it. The orchestrator passes its
+  // PID; when that process is gone, so is the reason for this one.
+  const parentPid = parentPidFromEnv();
+  if (parentPid) {
+    watchParent({
+      parentPid,
+      onGone: () => {
+        console.log('  [parent] the process that spawned this node (%d) is gone; shutting down', parentPid);
+        void shutdown('parent-gone');
+      },
+    });
+  }
 }
 
 main().catch((err) => {

@@ -210,7 +210,9 @@ async function main() {
   }
 
   // 3. Discover the employer tenants the way an unauthenticated caller can.
-  let tenants: Array<{ employerId: string; employerNodeUrl: string; hrToolUrl: string }> = [];
+  // A7: no HR Tool is hosted on the network any more; `hrToolUrl` only appears on registrations
+  // made before that change, and the probe below runs only where one is present.
+  let tenants: Array<{ employerId: string; employerNodeUrl: string; hrToolUrl?: string }> = [];
   try {
     const listed = JSON.parse((await rpc(SEQ, 'l2_listEmployerNodes', {})).split('\n').slice(1).join('\n'));
     tenants = (listed?.result ?? []).filter((t: any) => t?.employerNodeUrl);
@@ -289,7 +291,7 @@ async function main() {
   places.push({
     name: 'HR Tools, no credentials (/api/status, /api/employees, /api/export/tokens)',
     text: async () => (await Promise.all(
-      tenants.filter(t => t.hrToolUrl).flatMap(t => ['/api/status', '/api/employees', '/api/export/tokens'].map(r => get(t.hrToolUrl + r))),
+      tenants.filter(t => t.hrToolUrl).flatMap(t => ['/api/status', '/api/employees', '/api/export/tokens'].map(r => get(t.hrToolUrl! + r))),
     )).join('\n'),
   });
   if (networkLog) places.push({ name: 'Sequencer + node log (stdout of the network run)', text: async () => fs.readFileSync(networkLog, 'utf8') });

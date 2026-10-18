@@ -216,7 +216,7 @@ export class L2SequencerService {
   private employerNodeRegistry: Map<string, {
     employerId: string;
     employerNodeUrl: string;
-    hrToolUrl: string;
+    hrToolUrl?: string;
     pid: number;
     startedAt: number;
     lastHeartbeatAt: number;
@@ -1836,7 +1836,7 @@ export class L2SequencerService {
   registerEmployerNode(entry: {
     employerId: string;
     employerNodeUrl: string;
-    hrToolUrl: string;
+    hrToolUrl?: string;
     pid: number;
     adminTokenFingerprint?: string;
   }): void {
@@ -1853,7 +1853,7 @@ export class L2SequencerService {
   getEmployerNode(employerId: string): {
     employerId: string;
     employerNodeUrl: string;
-    hrToolUrl: string;
+    hrToolUrl?: string;
     pid: number;
     startedAt: number;
     lastHeartbeatAt: number;
@@ -1867,7 +1867,7 @@ export class L2SequencerService {
   listEmployerNodes(): Array<{
     employerId: string;
     employerNodeUrl: string;
-    hrToolUrl: string;
+    hrToolUrl?: string;
     pid: number;
     startedAt: number;
     lastHeartbeatAt: number;

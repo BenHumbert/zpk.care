@@ -46,13 +46,42 @@
     <div class="unlock-card">
       <img src="logo.png" alt="zkpCare" class="unlock-logo">
       <h2>HR Tool</h2>
-      <p class="unlock-desc">Enter your workspace passphrase. First time? A new encrypted workspace will be created.</p>
-      <div class="form-group">
-        <label for="unlock-passphrase">Passphrase</label>
-        <input type="password" id="unlock-passphrase" placeholder="Minimum 8 characters" autofocus>
-        <span class="field-error" id="unlock-error"></span>
+      <div id="unlock-form">
+        <p class="unlock-desc">Enter your workspace passphrase.</p>
+        <div class="form-group">
+          <label for="unlock-passphrase">Passphrase</label>
+          <input type="password" id="unlock-passphrase" placeholder="Workspace passphrase" autofocus>
+          <span class="field-error" id="unlock-error"></span>
+        </div>
+        <button class="btn primary full-width" id="btn-unlock">Unlock</button>
+        <div class="unlock-hint" style="margin-top:12px;font-size:12px;color:var(--text-muted);text-align:center">
+          First time on this machine? <a href="#" id="link-to-setup">Set up a workspace</a>
+        </div>
       </div>
-      <button class="btn primary full-width" id="btn-unlock">Unlock</button>
+      <div id="setup-form" class="hidden">
+        <p class="unlock-desc">Set up this machine for your employer. Use the employer node URL and the admin token shown once when your employer was activated. Everything is stored encrypted under the passphrase you choose.</p>
+        <div class="form-group">
+          <label for="setup-url">Employer node URL</label>
+          <input type="url" id="setup-url" placeholder="http://127.0.0.1:…" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="form-group">
+          <label for="setup-token">Admin token</label>
+          <input type="password" id="setup-token" placeholder="Shown once at activation" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label for="setup-passphrase">Passphrase (at least 12 characters)</label>
+          <input type="password" id="setup-passphrase" placeholder="Choose a passphrase" autocomplete="new-password">
+        </div>
+        <div class="form-group">
+          <label for="setup-confirm">Confirm passphrase</label>
+          <input type="password" id="setup-confirm" placeholder="Type it again" autocomplete="new-password">
+          <span class="field-error" id="setup-error"></span>
+        </div>
+        <button class="btn primary full-width" id="btn-setup">Create workspace</button>
+        <div class="unlock-hint" style="margin-top:12px;font-size:12px;color:var(--text-muted);text-align:center">
+          Already set up? <a href="#" id="link-to-unlock">Unlock instead</a>
+        </div>
+      </div>
       <div class="unlock-hint" style="margin-top:12px;font-size:12px;color:var(--text-muted);text-align:center">
         Groups are created in the Employer Dashboard.<br>
         This tool imports employees into existing groups.

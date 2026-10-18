@@ -58,7 +58,7 @@ const docxCache: Map<string, Buffer> = new Map();
 interface ActivationJob {
   status: 'pending' | 'complete' | 'error';
   startedAt: number;
-  result?: { employerNodeUrl: string; hrToolUrl: string; adminToken: string };
+  result?: { employerNodeUrl: string; adminToken: string; hrToolSetup: import('../employer-orchestrator.js').HrToolSetup };
   error?: string;
 }
 const activationJobs: Map<string, ActivationJob> = new Map();
@@ -802,7 +802,7 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
           publicKeyHex: app.publicKeyHex,
           effectiveDate: app.effectiveDate,
           employerNodeUrl: existingJob.result.employerNodeUrl,
-          hrToolUrl: existingJob.result.hrToolUrl,
+          hrToolSetup: existingJob.result.hrToolSetup,
           credentialsCollected: Boolean(app.credentialsCollectedAt),
         });
       }
@@ -833,7 +833,7 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
           job.status = 'complete';
           job.result = {
             employerNodeUrl: spawnResult.employerNodeUrl,
-            hrToolUrl: spawnResult.hrToolUrl,
+            hrToolSetup: spawnResult.hrToolSetup,
             adminToken: spawnResult.adminToken,
           };
           // Only flip app status after successful spawn
@@ -901,7 +901,7 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
         publicKeyHex: app.publicKeyHex,
         effectiveDate: app.effectiveDate,
         employerNodeUrl: job.result!.employerNodeUrl,
-        hrToolUrl: job.result!.hrToolUrl,
+        hrToolSetup: job.result!.hrToolSetup,
         credentialsCollected: Boolean(app.credentialsCollectedAt),
       });
     },
@@ -955,7 +955,7 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
       return server.sendResponse(res, 200, true, {
         employerId: app.employerId,
         employerNodeUrl: job.result.employerNodeUrl,
-        hrToolUrl: job.result.hrToolUrl,
+        hrToolSetup: job.result.hrToolSetup,
         adminToken: job.result.adminToken,
         message: 'Store this token securely. It will not be shown again.',
       });

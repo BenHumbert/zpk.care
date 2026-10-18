@@ -792,7 +792,7 @@
       );
 
       // Phase C: live URLs from the orchestrator, token from the one-time collection
-      var hrToolUrl = creds.hrToolUrl || config.hrToolUrl || '';
+      var hrToolSetup = creds.hrToolSetup || null;   // A7: the HR Tool is run by the employer, not hosted here
       var employerNodeUrl = creds.employerNodeUrl || config.employerNodeUrl || '';
       var adminToken = creds.adminToken || '';
       // It has been handed over; keep it out of storage from here on.
@@ -805,8 +805,12 @@
         '<div class="card" style="margin-bottom:20px"><div class="card-header"><div class="card-title">Your Employer URLs</div></div><div class="card-body">' +
         '<div style="display:flex;flex-direction:column;gap:12px">' +
           '<div><strong>HR Tool (for your HR Admin)</strong><br>' +
-            '<a href="' + esc(hrToolUrl) + '" target="_blank" style="font-family:monospace;font-size:14px">' + esc(hrToolUrl) + '</a>' +
-            '<div style="font-size:12px;color:var(--text-muted);margin-top:4px">This is where you import employees and generate enrollment codes.</div>' +
+            '<div style="font-size:13px;margin-top:4px">Runs on your HR administrator\'s own machine, never on this host, so employee names, birth dates and PINs stay with you.</div>' +
+            '<ol style="font-size:12px;color:var(--text-muted);margin:6px 0 0 18px;padding:0">' +
+              (hrToolSetup && hrToolSetup.steps ? hrToolSetup.steps.map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('') :
+                '<li>On the HR admin\'s machine, run <code>npm run start:hr-tool</code>, open http://localhost:5050 and choose "Set up a workspace".</li>' +
+                '<li>Enter the employer node URL and admin token below and a passphrase of at least 12 characters.</li>') +
+            '</ol>' +
           '</div>' +
           '<div><strong>Employer Dashboard</strong><br>' +
             '<a href="' + esc(employerNodeUrl) + '" target="_blank" style="font-family:monospace;font-size:14px">' + esc(employerNodeUrl) + '</a>' +
@@ -844,7 +848,7 @@
 
       // Wire the URL buttons
       var openHrBtn = document.getElementById('btn-open-hr');
-      if (openHrBtn) openHrBtn.onclick = function() { window.open(hrToolUrl, '_blank'); };
+      if (openHrBtn) openHrBtn.style.display = 'none';   // A7: no hosted HR Tool to open
       var openEmpBtn = document.getElementById('btn-open-employer');
       if (openEmpBtn) openEmpBtn.onclick = function() { window.open(employerNodeUrl, '_blank'); };
       var copyTokenBtn = document.getElementById('btn-copy-token');

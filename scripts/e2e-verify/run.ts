@@ -52,6 +52,42 @@ const ADMIN = process.env.ZKTRIDENT_ADMIN_TOKEN || '';
 const OUT = path.resolve(process.argv[2] || './e2e-out');
 const NETWORK_LOG = process.argv[3] || '';
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+// A7: the harness runs the HR Tool as the employer's machine would. Spawned without npx or a shell
+// so there is one process to stop, and stopped however this harness ends.
+let hrToolChild: import('child_process').ChildProcess | null = null;
+async function startHrTool(employerId: string): Promise<string> {
+  const { spawn } = await import('child_process');
+  const net = await import('net');
+  const port = await new Promise<number>((resolve, reject) => {
+    const s = net.createServer();
+    s.on('error', reject);
+    s.listen(0, '127.0.0.1', () => {
+      const a = s.address();
+      const p = typeof a === 'object' && a ? a.port : 0;
+      s.close(() => resolve(p));
+    });
+  });
+  hrToolChild = spawn(process.execPath, ['--import', 'tsx', path.join(REPO, 'src', 'tools', 'hr-tool-server.ts')], {
+    cwd: REPO,
+    env: { ...process.env, PORT: String(port), HR_TOOL_DATA_DIR: `./hr-tool-data/${employerId}` },
+    stdio: ['ignore', 'ignore', 'pipe'],
+    windowsHide: true,
+  });
+  hrToolChild.stderr?.on('data', (d: Buffer) => process.stderr.write(`[hr-tool] ${d}`));
+  const url = `http://127.0.0.1:${port}`;
+  const deadline = Date.now() + 60_000;
+  for (;;) {
+    try { const r = await fetch(`${url}/api/session`); if (r.ok) break; } catch { /* not up yet */ }
+    if (Date.now() > deadline) throw new Error('HR Tool did not start within 60 s');
+    await sleep(500);
+  }
+  return url;
+}
+function stopHrTool(): void {
+  if (hrToolChild && !hrToolChild.killed) { try { hrToolChild.kill(); } catch { /* best effort */ } }
+  hrToolChild = null;
+}
+process.on('exit', stopHrTool);
 const STATE_DIR = process.env.ZKTRIDENT_STATE_DIR || path.join(REPO, 'nautilus-data');
 
 const trace = new Trace(OUT);
@@ -222,13 +258,12 @@ async function main() {
   const jobKey = unwrap(act.json)?.jobKey ?? appId;
   const actDone = await poll(quiet, `${INS}/marketplace/api/activate-status/${jobKey}`, j => ['complete', 'error'].includes(unwrap(j)?.status), 300_000, 2000);
   const actData = unwrap(actDone.json);
-  trace.check('Employer node and HR Tool activated', actData?.status === 'complete', 'complete', actData?.status ?? actData);
+  trace.check('Employer node activated', actData?.status === 'complete', 'complete', actData?.status ?? actData);
   // A8: the admin token is no longer on the open poll. It is collected once, with the secret.
   const empCred = await http('POST', `${INS}/marketplace/api/activate-credentials/${appId}`, { claimSecret });
   trace.check('Admin credentials collected with the activation secret', empCred.status < 300, '2xx', empCred.status);
   const credData = unwrap(empCred.json);
   const employerNodeUrl = credData?.employerNodeUrl ?? actData?.employerNodeUrl;
-  const hrToolUrl = credData?.hrToolUrl ?? actData?.hrToolUrl;
   const empAdmin = credData?.adminToken;
   trace.secret('employer node admin token', String(empAdmin));
   // Single use: a replay must be refused, and that is worth asserting here because it is the
@@ -238,29 +273,44 @@ async function main() {
   const noSecret = await http('POST', `${INS}/marketplace/api/activate-credentials/${appId}`, {});
   trace.check('Collection without the secret is refused', noSecret.status === 401, '401', noSecret.status);
   trace.check('The open status poll carries no admin token', !actData?.adminToken, 'absent', actData?.adminToken ?? 'absent');
-  trace.note(`employer node ${employerNodeUrl} · HR Tool ${hrToolUrl}`);
+  trace.note(`employer node ${employerNodeUrl}; the HR Tool is run by the employer, below`);
+  trace.check('Activation hands over HR Tool setup steps, not a hosted URL', Array.isArray(credData?.hrToolSetup?.steps) && !credData?.hrToolUrl, 'steps, no URL', credData?.hrToolUrl ? 'a hosted URL' : (credData?.hrToolSetup ? 'steps' : 'nothing'));
 
   trace.begin('employer', 'Create the benefit group');
   const groupId = `GRP-${RUN}`;
   const grp = await http('POST', `${employerNodeUrl}/groups`, { groupId, planId, effectiveDate: new Date().toISOString().slice(0, 10), enrollmentCap: 10 }, { Authorization: `Bearer ${empAdmin}` });
   trace.check('Group created', grp.status < 300, '2xx', grp.status);
 
-  // ── 5. HR Tool issues enrollment codes ──────────────────────
-  trace.begin('employer HR', 'Import two fictional employees and issue enrollment codes');
-  const passphrase = `hr-pass-${RUN}`;
+  // ── 5. HR Tool issues enrollment codes ─────────────────────
+  // A7: the HR Tool runs on the employer's machine, never on the insurer's host. The harness plays
+  // that machine: it starts the tool itself and sets it up with what activation handed over.
+  trace.begin('employer HR', 'Run the HR Tool as the employer machine, import two fictional employees and issue enrollment codes');
+  const hrToolUrl = await startHrTool(employerId);
+  trace.note(`HR Tool started by the harness at ${hrToolUrl}, data under hr-tool-data/${employerId}`);
+  const passphrase = `hr-pass-${RUN}-${crypto.randomBytes(4).toString('hex')}`;
   trace.secret('HR Tool passphrase', passphrase);
-  await http('POST', `${hrToolUrl}/api/unlock`, { passphrase });
+  const shortPass = await http('POST', `${hrToolUrl}/api/setup`, { employerNodeUrl, adminToken: empAdmin, passphrase: 'short', passphraseConfirm: 'short' });
+  trace.check('A short passphrase is refused at setup', shortPass.status === 400, '400', shortPass.status);
+  const setupRes = await http('POST', `${hrToolUrl}/api/setup`, { employerNodeUrl, adminToken: empAdmin, passphrase, passphraseConfirm: passphrase });
+  trace.check('HR Tool workspace set up with the activation credentials', setupRes.status < 300, '2xx', setupRes.json);
   await http('POST', `${hrToolUrl}/api/group/select`, { groupId });
   const csv = ['employee_id,family_id,first_name,last_name,dob,email',
     `${MEMBER.employeeId},${MEMBER.familyId},${MEMBER.firstName},${MEMBER.lastName},${MEMBER.dob},${MEMBER.email}`,
     `${DECOY.employeeId},${DECOY.familyId},${DECOY.firstName},${DECOY.lastName},${DECOY.dob},`].join('\n');
   const imp = await http('POST', `${hrToolUrl}/api/import`, { csvContent: csv, validUntil: '2027-12-31', dryRun: false });
-  trace.check('Both employees imported', unwrap(imp.json)?.success === 2 || imp.json?.success === 2, 2, imp.json);
+  const impData = unwrap(imp.json) ?? imp.json;
+  trace.check('Both employees imported', impData?.success === 2, 2, imp.json);
+  const issued = ((impData?.results ?? []) as Array<{ employeeId: string; status: string; tokenId?: string; tokenPIN?: string }>).filter(r => r.status === 'ok');
+  trace.check('PINs were returned once, at import', issued.length === 2 && issued.every(r => /^\d{8}$/.test(r.tokenPIN ?? '')), '2 eight-digit PINs', issued.map(r => (r.tokenPIN ? 'pin' : 'none')));
   const tok = await http('GET', `${hrToolUrl}/api/export/tokens`);
-  const tokens = (unwrap(tok.json)?.tokens ?? tok.json?.tokens ?? []) as Array<{ tokenId: string; tokenPIN: string; employeeIdHash: string }>;
+  const tokens = (unwrap(tok.json)?.tokens ?? tok.json?.tokens ?? []) as Array<{ tokenId: string; tokenPIN?: string; employeeIdHash: string }>;
   trace.check('Two enrollment codes issued', tokens.length === 2, 2, tokens.length);
+  trace.check('The export carries no PINs', tokens.every(t => !t.tokenPIN), 'none', tokens.some(t => t.tokenPIN) ? 'a PIN was exported' : 'none');
+  const empl = await http('GET', `${hrToolUrl}/api/employees`);
+  trace.check('The employee list carries no PINs', !JSON.stringify(unwrap(empl.json) ?? empl.json ?? '').includes('tokenPIN'), 'none', 'checked');
   const empHash = hashString(MEMBER.employeeId).toString();
-  const myToken = tokens.find(t => t.employeeIdHash === empHash) ?? tokens[0];
+  const myIssue = issued.find(r => r.employeeId === MEMBER.employeeId) ?? issued[0];
+  const myToken = { tokenId: myIssue?.tokenId ?? tokens[0]?.tokenId ?? '', tokenPIN: myIssue?.tokenPIN ?? '' };
   trace.check('Codes reference employees only by hash', tokens.every(t => !JSON.stringify(t).includes(MEMBER.lastName)), 'no names', 'checked');
   trace.secret('member enrollment code', myToken.tokenId);
   trace.secret('member enrollment PIN', myToken.tokenPIN);

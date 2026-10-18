@@ -920,6 +920,94 @@ hygiene problem for A7 or phase F. And the smoke and showcase suites do not hang
 then does not exit, because of open handles; run them with `--forceExit`, and treat a "wedged" run
 as finished until proven otherwise.
 
+**A7 implementation record.** Done 2026-10-17. Closes **A-21** (PHI-4, CONT-3) and the other half
+of **AUTH-13**; records why the orchestrator's children used to outlive it, and stops it.
+
+Where the HR Tool runs. Nowhere on the insurer's host. The orchestrator no longer spawns it;
+activation returns `hrToolSetup` (a command and four steps) instead of a hosted URL, the marketplace
+page shows those steps where the link used to be, and the sequencer's tenant registry no longer
+requires `hrToolUrl`. The employer's HR administrator runs `npm run start:hr-tool` on their own
+machine and, the first time, `POST /api/setup` takes the employer node URL and the admin token that
+activation handed over once, plus a passphrase of at least 12 characters typed twice. The token is
+stored encrypted under that passphrase beside the workspace's client key (`admin.token.enc`, mode
+0600) and is never read from a process environment again; `EMPLOYER_NODE_URL` survives only as the
+default offered on the setup screen. `POST /api/workspace/admin-token` stores or rotates it for a
+workspace created before this change, after the passphrase is typed again.
+
+Unlocking. `POST /api/unlock` opens the one workspace on the machine, or the one named by its
+employer node URL, and no longer creates anything. It is attempt-limited by
+`src/security/attempt-limiter.ts`, the device PIN's shape from A4: three free attempts, then a delay
+that doubles from two seconds to a fifteen-minute cap, counted in a plaintext sidecar beside the
+encrypted workspaces because the counter cannot live inside a file encrypted under the passphrase
+being guessed. A throttled attempt is a 429 with `Retry-After`. Never a wipe.
+
+The second factor. The PIN is returned once, in the import result, for the SMS step; the import
+response says so and the page offers the one-time download there. It is kept encrypted in the
+correlation table so that a lost text can be re-sent, but `/api/employees`, `/api/employees/:id` and
+`/api/export/tokens` never carry it again. Reading one back is `POST /api/employees/:hash/pin`: the
+passphrase again, compared in constant time and counted on the unlock limiter, and an audit line
+that names the hash. The reason for keeping it at all is stated in the code: an HR insider who can
+read code and PIN later holds both factors, so the reveal is deliberate and recorded rather than
+a column in a list. The audit log otherwise records hashes and counts: `employees:lookup` names a
+hash prefix, `employees:list` records whether a search happened and never the term.
+
+The employer node. `GET /groups`, `/groups/:groupId` and `/groups/:groupId/stats` are admin, which
+closes AUTH-13; the HR Tool and the employer dashboard both hold the token, and the smoke test that
+read them bare now sends it and asserts the 401 first.
+
+Tenants that die with their parent. Five employer nodes and three HR Tools from four harness runs
+were found alive on this machine, and a later shutdown of mine missed a whole network because a
+PowerShell filter was mangled by shell quoting and I read "0 processes" as success while the port
+count said otherwise. Two things change. The orchestrator spawns the employer node from the node
+binary with tsx's loader rather than through `npx` and a shell, so a tenant is one process instead
+of three, and passes `ZKTRIDENT_PARENT_PID`; `src/nodes/parent-watchdog.ts` polls that PID every
+ten seconds and shuts the node down when it is gone, which is the case the graceful handlers can
+never cover. `ZKTRIDENT_UNSECURE` is no longer passed to the child, and is stripped from what it
+inherits; the employer launcher never read it, so this is hygiene, and the "bearer-mode admin" on
+spawned nodes is simply what every node does until a client key is registered, which is A9's
+remainder. The harness and `run-multi.ts` start their own HR Tool(s), as an employer would, and
+stop them however they exit.
+
+Verified. `tests/hr-tool-lockdown.test.ts`, 15 tests that start the real server binary the way an
+employer would, against a stub employer node that records the credential it is shown: unlock before
+setup refused; the passphrase policy; setup stores the token encrypted and the environment token is
+ignored; the stored token is what reaches the employer node; three wrong passphrases plain, the
+fourth throttled with `Retry-After`, the right one accepted after the delay with the token on file;
+PINs once at import, never in lists or exports; the reveal needs the passphrase and returns the same
+PIN; the audit log names hashes and events only; and, by construction, the orchestrator spawns no
+HR Tool and ties the tenant to its parent, the launcher watches it, the group reads are admin, and
+the server reads no token from its environment. `tests/attempt-limiter.test.ts` (6) and
+`tests/parent-watchdog.test.ts` (4). The A6 and marketplace suites pass; `smoke-e2e` stays at 30 of
+65 failing with P2f and P13a passing under the gate. Typecheck src 20 (one of the 21 baseline errors
+was in the code replaced), scripts 2. Live, on a secured boot after the stale network was found and
+killed (below): `Activation hands over HR Tool setup steps, not a hosted URL`, `A short passphrase is
+refused at setup`, `HR Tool workspace set up with the activation credentials`, `PINs were returned
+once, at import`, `The export carries no PINs`, `The employee list carries no PINs`, then enrollment
+through `Insurer accepted the enrollment` and the registration proof, with the three known failures
+(two A-9, one A-30) and nothing new. Tenant shape and the orphan fix: the tenant is one `node.exe --import tsx
+…start-employer-nautilus.ts` with the insurer's node process as its parent, and the harness's HR Tool one
+process under the harness, both confirmed in the process table. When the insurer's node process was then
+killed hard, the tenant was gone within two seconds. Whether the watchdog's poll or the broken stdio pipe
+got there first is not observable from outside, so the mechanism is also proven in isolation:
+`tests/parent-watchdog.test.ts` spawns a quiet child with no pipes at all watching a dummy parent, kills
+the dummy, and the child exits on its own. Full pipeline:
+100 of 117 checks passed across 24 steps, to the end; the six checks A7 added all pass and the 34
+failures are identical by name to the A6 run.
+
+A mistake, recorded because it changed a result. The first A7 live run was invalid: the A6-era
+network was still running underneath it, so the old insurer answered activation with a hosted URL
+and the only failure that run showed was the old code. The check that said the network was down
+counted processes through a filter that shell quoting had broken; the port count in the same output
+said nine. The rule from it: trust the port count over the process count, and put any PowerShell
+filter in a `.ps1` file run with `-File`, never inline.
+
+Left for later, by design. The correlation table is still plaintext inside its encrypted file, on
+the employer's machine, which is where I5 puts it. The legacy CLI `src/tools/hr-tool.ts` still
+takes `EMPLOYER_ADMIN_TOKEN` from its environment; it is not in the product path and is queued for
+the fixture clean-up. Moving the HR Tool from the bearer token to its Ed25519 client key, with the
+employer node registering that key and `checkNautilusAdminAuth` recomputing the body hash, is A9's
+remainder, now with the verifier and the hand-over flow in place.
+
 ### Phase B — Keep identity on the device
 
 The largest phase, and the one that changes the pipeline. Section 7 covers the consequences.
@@ -1378,3 +1466,15 @@ the spawned-tenant lifecycle and the bearer-mode admin auth the orchestrator giv
 then the cheap half of **B1**, then **A9's remainder** (per-node credentials, moving admin auth onto
 `signed-request.ts`), then **Step 2** (A12b → C1 → B2 → C2 → C4, the one-shot identity change), then
 A10b, A13, full B1, phase D.
+
+**Addendum, later the same session: A7 done.** Scoreboard: 31 findings; 14 fixed (A-21 joins the list); 1
+mitigated; 16 open, three of them critical (A-1, A-2, A-6). AUTH-13 is closed. Phase A items still open:
+A9 remainder, A10b, A12b, A13. Acceptance suites added this session: 13, 251 tests, all passing. Typecheck
+src 20 (a baseline error sat in code A7 replaced), scripts 2. Git: with this commit, 32 commits on local
+`dev`, nothing pushed, `origin/main` untouched. One lesson added to the list above, because it invalidated a
+live run: (4) a process count that says zero while the port count says nine is a broken check, not a clean
+box; trust the ports, and keep any PowerShell filter in a `.ps1` file run with `-File`, never inline through
+bash. **Next:** the cheap half of B1 (stop couriering fixture data through the gated identity dump), then
+A9's remainder (per-node credentials; the HR Tool onto its Ed25519 key with the employer node registering
+it; admin auth onto `signed-request.ts`), then Step 2 (A12b → C1 → B2 → C2 → C4), then A10b, A13, full B1,
+phase D.

@@ -17,7 +17,7 @@ Entry `spawnEmployerTenant({employerId, employerPubKeyHex, sequencerUrl, insurer
 | Admin token | `${employerId.toLowerCase()}-admin-${randomBytes(16).hex.slice(0,16)}` = 64 random bits (158-162); fingerprint = sha256 hex[0:16] (164-166) | 154-166 |
 | Employer child | `spawn('npx', ['tsx', start-employer-nautilus.ts], {shell:true, stdio:['ignore','pipe','pipe']})` (289-304); env = `...process.env` (parent insurer env inherited, 291) + `ZKTRIDENT_PORT`, `ZKTRIDENT_HOST='127.0.0.1'`, `ZKTRIDENT_EMPLOYER_ID`, `ZKTRIDENT_EMPLOYER_PUBKEY_HEX`, `ZKTRIDENT_SEQUENCER_URL`, `ZKTRIDENT_INSURER_URL`, `ZKTRIDENT_ADMIN_TOKEN=<token>`, `ZKTRIDENT_UNSECURE='true'` (inert for this script), ~~`ZKTRIDENT_CORS_ORIGINS='*'`~~ **removed by A2: the spawned node resolves the local dashboard origins itself** (292-300); child stdout/stderr relayed with `[tenant id]` prefix (305-306); no `cwd` set | 287-308 |
 | Employer health wait | poll `GET /health` until `body.ok && body.data.phase==='ready'`, 60 s budget, 500 ms interval, 2 s per request (130-152, 312-317); failure → SIGTERM employer (319) | 310-321 |
-| HR Tool child | `spawn('npx', ['tsx', src/tools/hr-tool-server.ts], {shell:true})`; env = `...process.env` + `PORT`, `HR_TOOL_DATA_DIR='./hr-tool-data/<employerId>'` (relative to the insurer process cwd), `EMPLOYER_NODE_URL`, `EMPLOYER_ADMIN_TOKEN=<token>`, `EMPLOYER_ID`, `EMPLOYER_PUBKEY_HEX` (the last two are not read by hr-tool-server.ts/hr-tool-core.ts) | 323-342 |
+| HR Tool child | **Not spawned since A7.** The HR Tool runs on the employer's machine (`npm run start:hr-tool`); activation returns `hrToolSetup` steps instead of a URL. The employer child is now spawned from `process.execPath` with `--import tsx` (no npx, no shell), given `ZKTRIDENT_PARENT_PID`, and exits on its own when that process is gone (`parent-watchdog.ts`); `ZKTRIDENT_UNSECURE` is stripped from the inherited environment | employer-orchestrator.ts (Step 4) |
 | HR Tool wait | poll `GET /api/session` for any JSON, 30 s (345-350); failure → SIGTERM both (352-353) | 344-355 |
 | Register tenant | `l2_registerEmployerNode {employerId, employerNodeUrl, hrToolUrl, pid, adminTokenFingerprint}` with `Authorization: Bearer <insurerAdminToken>` (359-376); JSON-RPC error → SIGTERM both, throw (378-384) | 357-385 |
 | Track / keepalive | `liveTenants.set` (388-399); keepalive every 60 s re-sends `l2_registerEmployerNode` for live tenants (69-101, timer `unref`'d 103-105) | 387-400, 64-106 |
@@ -57,9 +57,9 @@ Checks inside the node: `createGroup` dup (171), fail-closed without attestation
 |---|---|---|---|---|---|---|
 | POST | /onboarding/configure | OPEN | phase==='ready' → 409 (47-50; always true after startup); `employerId` required (52-55). GAP: I7 — unauthenticated route that would replace the entity node (58-66) if the phase check ever passed | — | new EmployerNode; state.save if state loaded (68-75) | 43-84 |
 | POST | /groups | ADMIN | node (97-98); groupId/planId/effectiveDate (100-108); createGroup dup/attestation/plan (employer-node.ts:171-187) → 409 on error | — | groups | 92-118 |
-| GET | /groups | OPEN | node | — | — (returns groupId, planId, counts, remainingSlots via listGroupsWithStats 129) | 120-131 |
-| GET | /groups/:groupId | OPEN | node; 404 | — | — | 133-143 |
-| GET | /groups/:groupId/stats | OPEN | node; 404 | — | — | 147-157 |
+| GET | /groups | ADMIN (A7) | node | — | — (returns groupId, planId, counts, remainingSlots via listGroupsWithStats 129) | 120-131 |
+| GET | /groups/:groupId | ADMIN (A7) | node; 404 | — | — | 133-143 |
+| GET | /groups/:groupId/stats | ADMIN (A7) | node; 404 | — | — | 147-157 |
 | DELETE | /groups/:groupId | ADMIN | node; terminationDate default today (168); not found / already terminated → 409 (employer-node.ts:209-210) | — | group.status='terminated' (212-213) | 159-178 |
 | POST | /tokens/generate | ADMIN | node; groupId, employeeIdHash, validUntil required (199-201); familyIdHash defaults to employeeIdHash (202); ISO→CCYYMMDD (205-207); **caller may supply tokenId** (197, 210); node checks group/terminated/cap (employer-node.ts:298-303) | — | TokenRecord status 'unused' (token-authority.ts:152-161); roster entry 'pending' (employer-node.ts:315-323) | 184-222 |
 | GET | /tokens/:tokenId | ADMIN | node; 404 | — | — (status, groupIdHash, planIdHash, validUntil, consumedByWalletId, consumedAt 233-241) | 224-243 |
@@ -104,10 +104,10 @@ Token ID: `tokenId ?? \`TOKEN-${Date.now()}-${this.nonceCounter}\`` (token-autho
 
 | Item | Fact | Source |
 |---|---|---|
-| Instance | One per employer, forked by the orchestrator (employer-orchestrator.ts:324-338) in the insurer/marketplace process's cwd; standalone default `PORT` 5050 | hr-tool-server.ts:76 |
+| Instance | One per employer, run by the employer on the HR admin's own machine (`npm run start:hr-tool`, default `PORT` 5050). Not forked by the orchestrator since A7 | hr-tool-server.ts |
 | Bind | `server.listen(PORT, '127.0.0.1')` | 967 |
-| Config | `HR_TOOL_DATA_DIR` default ./hr-tool-data (77); `EMPLOYER_NODE_URL` default http://localhost:4005 (78); `EMPLOYER_ADMIN_TOKEN` default '' (79) — both supplied by the orchestrator (employer-orchestrator.ts:329-331) | 76-79 |
-| Auth to employer | Bearer `EMPLOYER_ADMIN_TOKEN` when set (155-156); else Ed25519 `X-Admin-Signature`/`X-Content-Hash` over `${method}:${path}|${timestamp}|${sha256(body)}` (157-160; hr-tool-core.ts:655-674) — dead in practice (no `registerClientKey` caller). 10 s fetch timeout (86, 163-164) | 148-183 |
+| Config | `HR_TOOL_DATA_DIR` default ./hr-tool-data; `EMPLOYER_NODE_URL` is only the default offered on the setup screen. The employer node URL and the admin token are entered once at `POST /api/setup` and stored encrypted under the passphrase (`admin.token.enc`, mode 0600); `EMPLOYER_ADMIN_TOKEN` is not read (A7) | hr-tool-server.ts |
+| Auth to employer | Bearer with the token decrypted from the open workspace and held in memory while unlocked (A7); else Ed25519 `X-Admin-Signature`/`X-Content-Hash` with the workspace client key, for a node whose key registry was populated out of band (A9's remainder wires this up). 10 s fetch timeout | hr-tool-server.ts proxyToEmployer |
 | Browser-side auth | none per request; one global session (214-230); `requireWorkspace` = unlocked (256-263), `requireGroup` = unlocked + group selected (267-274); 15-min inactivity lock (85, 236-242, 965); no CORS headers, CSP/X-Frame headers (914-918); 10 MB body cap (84, 116-134) | 206-274, 909-960 |
 | Passphrase in memory | `activePassphrase` retained for re-encryption (218, 339, 370), cleared on lock/timeout (247, 240) — header comment at 29 says "discarded"; code keeps it | 218, 244-252 |
 | Audit log | plaintext TSV `ts\taction group=…\tdetail` to the group or workspace `audit.log` (187-204); details include `employeeId=<plaintext>` (792) and search strings (773) | 187-204 |
@@ -154,7 +154,9 @@ Wire to employer node per row, by name: `groupId` (plaintext), `employeeIdHash`,
 | Method | Path | Auth | Checks in order (GAP:) | Calls out | Writes | Source |
 |---|---|---|---|---|---|---|
 | GET | /api/workspaces | NONE | lists `workspace-*` dir count | — | ensureDataDir | 289-304 |
-| POST | /api/unlock | NONE | passphrase ≥ 8 (312-315); create or decrypt (321-391). GAP: I5 — any ≥8-char string becomes the key on first run, no confirmation, no attempt limit | — | meta/key files; session | 309-392 |
+| POST | /api/unlock | NONE | passphrase required; opens the one existing workspace or the one named by `employerNodeUrl`; wrong passphrase → 403 and counted, throttled → 429 with Retry-After (three free, then 2 s doubling to 15 min, `attempts.json`); no workspace → 409 pointing at setup (A7) | — | session; token decrypted into memory | hr-tool-server.ts |
+| POST | /api/setup | NONE | `employerNodeUrl` http(s), `adminToken` ≥ 16 chars, passphrase ≥ 12 and equal to its confirmation; 409 if the workspace exists (A7) | — | workspace.meta.enc, client.key.enc, admin.token.enc (0600) | hr-tool-server.ts |
+| POST | /api/workspace/admin-token | WS | passphrase again (re-auth, counted on the unlock limiter); stores or rotates the token (A7) | — | admin.token.enc | hr-tool-server.ts |
 | GET | /api/groups | WS | proxy `GET /groups` (400); annotate local seed/table (405-423) | employer | — | 397-428 |
 | POST | /api/group/select | WS | groupId required + regex (440-441); employer `GET /groups/:id` 404/502 (446-452); load seed (460-465) or create seed+table (498-511); corrupt table → 500 (469-480); planId reconcile (493-497) | employer | group.seed.enc, correlation.table.enc | 436-531 |
 | POST | /api/group/deselect | WS | — | — | session | 534-541 |
@@ -163,10 +165,11 @@ Wire to employer node per row, by name: `groupId` (plaintext), `employeeIdHash`,
 | GET | /api/stats | GROUP | status counts; employer `/health` (574) | employer | — | 564-579 |
 | POST | /api/csv/preview | GROUP | csvContent required; parseCsv; returns first 10 raw PII rows (590) | — | audit | 582-594 |
 | POST | /api/import | GROUP | §3.4 | employer stats/generate/roster/set-pin-hash/revoke | table | 597-752 |
-| GET | /api/employees | GROUP | `?status`, `?search` | — | audit | 755-775 |
-| GET | /api/employees/:id | GROUP | id has no '/' (781) | — | audit with plaintext employeeId (792) | 778-794 |
+| GET | /api/employees | GROUP | `?status`, `?search`; entries without `tokenPIN`/`tokenPinHash` (A7) | — | audit: filter and whether a search happened, never the term | hr-tool-server.ts |
+| GET | /api/employees/:id | GROUP | id has no '/'; entry without PIN fields (A7) | — | audit with an `employeeIdHash` prefix, not the ID | hr-tool-server.ts |
+| POST | /api/employees/:employeeIdHash/pin | GROUP | passphrase again (re-auth, counted on the unlock limiter); 404 when no PIN is on file (A7) | — | audit `pin:reveal employeeIdHash=…` | hr-tool-server.ts |
 | POST | /api/reconcile | GROUP | employer `GET /roster` (800); hash-set reconcile (804; core 492-535); sync 'enrolled' (808-815) | employer | table if synced | 797-837 |
-| GET | /api/export/tokens | GROUP | §3.5 | — | audit | 840-854 |
+| GET | /api/export/tokens | GROUP | §3.5; codes only, no `tokenPIN` since A7 | — | audit | hr-tool-server.ts |
 | GET | /api/employer/health | NONE | proxy `/health` (Bearer attached, 155-156) | employer | — | 857-864 |
 | GET | /api/employer/plans | NONE | proxy `/plans/available` | employer | — | 867-874 |
 | GET | /api/identity | WS | — | — | — | 877-885 |
@@ -318,7 +321,7 @@ Seed `PHARMACIES[providerIndex]` (1055); key from repo JSON (1061); derive walle
 
 | Item | Process | Memory / disk / wire | Source |
 |---|---|---|---|
-| Employee names, IDs, DOB, email | HR Tool (runs on the host of the insurer/marketplace process; GAP: I5) | memory `activeTable` (hr-tool-server.ts:227); disk `groups/<gid>/correlation.table.enc` AES-256-GCM/scrypt (hr-tool-core.ts:408-416, 596-597); plaintext `employeeId` in `audit.log` (hr-tool-server.ts:792); wire only browser↔127.0.0.1 (`/api/employees` 774, `/api/export/tokens` 853, `/api/csv/preview` 590, dry-run 625-631); never to the employer node (676-681, 707-709) | employer-orchestrator.ts:324-338 |
+| Employee names, IDs, DOB, email | HR Tool (runs on the employer's machine since A7; the gap that it ran on the insurer host is closed) | memory `activeTable` (hr-tool-server.ts:227); disk `groups/<gid>/correlation.table.enc` AES-256-GCM/scrypt (hr-tool-core.ts:408-416, 596-597); audit.log carries hashes and counts, not IDs (A7); wire only browser↔127.0.0.1 (`/api/employees` 774, `/api/export/tokens` 853, `/api/csv/preview` 590, dry-run 625-631); never to the employer node (676-681, 707-709) | hr-tool-server.ts |
 | Employee hashes | HR Tool; employer node | HR table; employer `roster` Map (employer-node.ts:93, 315-323) and `TokenRecord.token.employeeIdHash` (re-hashed, token-authority.ts:142; group-enrollment-token.ts:120), memory only; wire HR→employer `POST /tokens/generate` over http://127.0.0.1 with Bearer (hr-tool-server.ts:149-156, 676-681) | — |
 | Enrollment codes (tokenId) | employer node; HR Tool; insurer | employer `TokenAuthority.tokens` memory (token-authority.ts:89, 161); HR table + disk (hr-tool-server.ts:719, 738); wire employer→HR 201 body (employer-routes.ts:211-216), HR→browser (853, 774), insurer→employer URL path (insurer-routes.ts:236, 289) | — |
 | PINs (plaintext) | HR Tool only | generated hr-tool-server.ts:670 (core 285-293); stored `entry.tokenPIN` in correlation.table.enc (721; core 83-84); returned to browser (848, 774); never sent to the employer node | — |

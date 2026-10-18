@@ -79,6 +79,9 @@
     // Phase F3: unlock no longer takes groupId — one passphrase opens the
     // employer-keyed workspace. Groups are listed from the employer node.
     unlock(passphrase)        { return this.call('POST', '/api/unlock', { passphrase }); },
+    setup(employerNodeUrl, adminToken, passphrase, passphraseConfirm) { return this.call('POST', '/api/setup', { employerNodeUrl, adminToken, passphrase, passphraseConfirm }); },
+    workspaces()              { return this.call('GET', '/api/workspaces'); },
+    revealPin(employeeIdHash, passphrase) { return this.call('POST', '/api/employees/' + encodeURIComponent(employeeIdHash) + '/pin', { passphrase }); },
     lock()                    { return this.call('POST', '/api/lock'); },
     getSession()              { return this.call('GET', '/api/session'); },
     // Phase F3: listGroups now proxies to the employer node and returns
@@ -203,38 +206,76 @@
     activeGroup = null;
   }
 
-  // ─── Unlock / Workspace Open ──────────────────────────────
-  // Phase F3: single passphrase opens the employer-keyed workspace.
-  // No groupId prompt — groups are picked from the Group Selection Screen
-  // AFTER the workspace is unlocked.
+  // ─── Unlock / Set up ──────────────────────────────────────
+  // A7: the HR Tool runs on the employer's own machine. The first run on a machine sets up a
+  // workspace from what activation handed over (employer node URL + admin token) under a
+  // passphrase of at least 12 characters, confirmed. After that, one passphrase unlocks it.
+  var unlockForm = document.getElementById('unlock-form');
+  var setupForm = document.getElementById('setup-form');
+  function showSetup(show) {
+    if (show) { setupForm.classList.remove('hidden'); unlockForm.classList.add('hidden'); }
+    else { setupForm.classList.add('hidden'); unlockForm.classList.remove('hidden'); }
+  }
+  document.getElementById('link-to-setup').onclick = function (e) { e.preventDefault(); showSetup(true); };
+  document.getElementById('link-to-unlock').onclick = function (e) { e.preventDefault(); showSetup(false); };
+  API.workspaces().then(function (w) {
+    if (w && w.needsSetup) showSetup(true);
+    if (w && w.defaultEmployerNodeUrl && !document.getElementById('setup-url').value) {
+      document.getElementById('setup-url').value = w.defaultEmployerNodeUrl;
+    }
+  }).catch(function () { /* the server decides; the unlock form is a safe default */ });
+
+  function enterApp(result, created) {
+    unlockOverlay.classList.add('hidden');
+    app.classList.remove('hidden');
+    startHealthPolling();
+    toast(created ? 'Workspace created for ' + result.workspace.employerNodeUrl : 'Workspace unlocked', 'success');
+    if (result && result.adminTokenOnFile === false) {
+      toast('No admin token on file for this workspace. Store one under Settings before importing.', 'error');
+    }
+    // After unlock, always land on the Group Selection Screen.
+    navigate('groups');
+  }
 
   document.getElementById('btn-unlock').onclick = async function() {
     var passphrase = document.getElementById('unlock-passphrase').value;
     var errEl = document.getElementById('unlock-error');
     errEl.textContent = '';
-
     if (!passphrase) { errEl.textContent = 'Enter passphrase'; return; }
-    if (passphrase.length < 8) { errEl.textContent = 'Passphrase must be at least 8 characters'; return; }
-
     try {
       var result = await API.unlock(passphrase);
-      unlockOverlay.classList.add('hidden');
-      app.classList.remove('hidden');
-      startHealthPolling();
-      if (result.workspace && result.workspace.firstRun) {
-        toast('Workspace created for ' + result.workspace.employerNodeUrl, 'success');
-      } else {
-        toast('Workspace unlocked', 'success');
-      }
-      // After unlock, always land on the Group Selection Screen.
-      navigate('groups');
+      enterApp(result, false);
     } catch (e) {
       errEl.textContent = e.message || 'Unlock failed — check your passphrase';
+      if (/Set one up first/.test(errEl.textContent)) showSetup(true);
     }
   };
-
+  document.getElementById('btn-setup').onclick = async function() {
+    var errEl = document.getElementById('setup-error');
+    errEl.textContent = '';
+    var url = document.getElementById('setup-url').value.trim();
+    var token = document.getElementById('setup-token').value.trim();
+    var pass = document.getElementById('setup-passphrase').value;
+    var confirm = document.getElementById('setup-confirm').value;
+    if (!url) { errEl.textContent = 'Enter the employer node URL'; return; }
+    if (!token) { errEl.textContent = 'Enter the admin token'; return; }
+    if (pass.length < 12) { errEl.textContent = 'Passphrase must be at least 12 characters'; return; }
+    if (pass !== confirm) { errEl.textContent = 'Passphrase confirmation does not match'; return; }
+    try {
+      var created = await API.setup(url, token, pass, confirm);
+      document.getElementById('setup-token').value = '';
+      document.getElementById('setup-passphrase').value = '';
+      document.getElementById('setup-confirm').value = '';
+      enterApp(created, true);
+    } catch (e) {
+      errEl.textContent = e.message || 'Setup failed';
+    }
+  };
   document.getElementById('unlock-passphrase').addEventListener('keydown', function(e) {
     if (e.key === 'Enter') document.getElementById('btn-unlock').click();
+  });
+  document.getElementById('setup-confirm').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') document.getElementById('btn-setup').click();
   });
 
   // Phase F8: new-group modal handlers removed. Groups are created in the
@@ -661,6 +702,14 @@
           '</div>' +
           '<div class="progress-bar" style="margin-top:16px"><div class="progress-fill green" style="width:' + pct + '%"></div></div>' +
           '<div style="text-align:center;margin-top:8px;font-size:12px;color:var(--text-muted)">' + esc(pct) + '% success rate</div>' +
+          (data.results && data.results.some(function(r) { return r.tokenPIN; }) ?
+            '<div style="margin-top:16px"><div class="recon-section-title">PINs for SMS — shown once</div>' +
+            '<div class="info-banner warning">' + esc(data.pinNotice || 'PINs are shown here once. Send each by SMS now; they are not listed or exported afterwards.') + '</div>' +
+            '<div class="table-wrap"><table class="data-table"><thead><tr><th>Employee ID</th><th>Enrollment Code</th><th>PIN</th></tr></thead><tbody>' +
+            data.results.filter(function(r) { return r.tokenPIN; }).map(function(r) {
+              return '<tr><td class="mono">' + esc(r.employeeId) + '</td><td class="mono">' + esc(r.tokenId) + '</td><td class="mono" style="font-size:16px;letter-spacing:2px">' + esc(r.tokenPIN) + '</td></tr>';
+            }).join('') + '</tbody></table></div>' +
+            '<button class="btn sm" id="btn-download-pins-once" style="margin-top:8px">Download PINs CSV (shown once)</button></div>' : '') +
           (data.csvWarning ? '<div class="info-banner warning" style="margin-top:16px">' + esc(data.csvWarning) + '</div>' : '') +
           (data.results && data.results.some(function(r) { return r.status === 'error'; }) ?
             '<div style="margin-top:16px"><div class="recon-section-title recon-danger">Failed — Will Retry on Next Import</div>' +
@@ -669,6 +718,18 @@
             }).join('') + '</div>' : '') +
           '</div></div>';
         toast(data.success + ' enrollment codes generated', 'success');
+        // A7: the one chance to take the PINs away for the SMS step.
+        var dl = document.getElementById('btn-download-pins-once');
+        if (dl) dl.onclick = function () {
+          var rows = (data.results || []).filter(function(r) { return r.tokenPIN; });
+          var csv = 'EmployeeId,EnrollmentCode,PIN\n' + rows.map(function(r) { return csvEscape(r.employeeId) + ',' + csvEscape(r.tokenId) + ',' + csvEscape(r.tokenPIN); }).join('\n');
+          var blob = new Blob([csv], { type: 'text/csv' });
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url; a.download = 'enrollment-pins-SMS.csv'; a.click();
+          URL.revokeObjectURL(url);
+          toast('Downloaded. These PINs will not be shown again.', 'info');
+        };
       }
     } catch (e) {
       resultsPanel.innerHTML = '<div class="error-banner">' + esc(e.message) + '</div>';
@@ -771,18 +832,17 @@
       '<div class="section-header"><div><div class="section-title">Enrollment Codes</div>' +
         '<div class="section-subtitle">Each employee needs TWO things to enroll: their enrollment code AND their PIN.</div></div></div>' +
       activeGroupBanner() +
-      '<div class="info-banner warning">Distribute the enrollment code via portal or sealed letter. Send the PIN separately via SMS to the employee\'s personal phone. Never send both through the same channel.</div>' +
+      '<div class="info-banner warning">Distribute the enrollment code via portal or sealed letter. PINs were shown once, at import, for SMS to the employee\'s personal phone. To resend one, reveal it below with your passphrase; every reveal is recorded in the audit log.</div>' +
       '<div class="two-col">' +
         '<div class="panel"><div class="panel-header"><span class="panel-title">Channel A: Enrollment Codes</span>' +
           '<button class="btn sm primary" id="btn-export-codes">Download Codes CSV</button></div>' +
           '<div class="panel-body no-pad" id="codes-table">' + loading() + '</div></div>' +
-        '<div class="panel"><div class="panel-header"><span class="panel-title">Channel B: PINs (SMS)</span>' +
-          '<button class="btn sm" id="btn-export-pins">Download PINs CSV</button></div>' +
+        '<div class="panel"><div class="panel-header"><span class="panel-title">Channel B: PINs (SMS) — resend</span>' +
+          '<input type="password" id="reveal-passphrase" placeholder="Passphrase to reveal" style="max-width:220px"></div>' +
           '<div class="panel-body no-pad" id="pins-table">' + loading() + '</div></div>' +
       '</div>';
 
     document.getElementById('btn-export-codes').onclick = function() { doExportCsv('codes'); };
-    document.getElementById('btn-export-pins').onclick = function() { doExportCsv('pins'); };
     loadTokenTable();
   }
 
@@ -806,13 +866,30 @@
           return '<tr><td>' + esc(t.displayName) + '</td>' +
           '<td class="mono">' + esc(t.tokenId) + '</td></tr>';
         }).join('') + '</tbody></table></div>';
-      // Channel B: PINs (for SMS)
+      // Channel B: PINs are not listed. One row per employee with a deliberate reveal.
       pinsEl.innerHTML = '<div class="table-wrap"><table class="data-table"><thead><tr>' +
-        '<th>Employee</th><th>PIN</th></tr></thead><tbody>' +
+        '<th>Employee</th><th>PIN</th><th></th></tr></thead><tbody>' +
         tokens.map(function(t) {
           return '<tr><td>' + esc(t.displayName) + '</td>' +
-          '<td class="mono" style="font-size:16px;letter-spacing:2px">' + esc(t.tokenPIN || '--') + '</td></tr>';
+          '<td class="mono" style="font-size:16px;letter-spacing:2px" id="pin-' + esc(t.employeeIdHash) + '">••••••••</td>' +
+          '<td><button class="btn sm" data-reveal="' + esc(t.employeeIdHash) + '">Reveal</button></td></tr>';
         }).join('') + '</tbody></table></div>';
+      pinsEl.querySelectorAll('button[data-reveal]').forEach(function (btn) {
+        btn.onclick = async function () {
+          var hash = btn.getAttribute('data-reveal');
+          var pass = document.getElementById('reveal-passphrase').value;
+          if (!pass) { toast('Enter your passphrase to reveal a PIN', 'error'); return; }
+          try {
+            var r = await API.revealPin(hash, pass);
+            var cell = document.getElementById('pin-' + hash);
+            if (cell) cell.textContent = r.tokenPIN;
+            btn.disabled = true;
+            toast('PIN revealed and recorded in the audit log', 'info');
+          } catch (e) {
+            toast(e.message || 'Reveal failed', 'error');
+          }
+        };
+      });
     } catch (e) {
       codesEl.innerHTML = '<div class="error-banner">' + esc(e.message) + '</div>';
       pinsEl.innerHTML = '<div class="error-banner">' + esc(e.message) + '</div>';
@@ -824,12 +901,8 @@
       var tokens = data.tokens || [];
       if (tokens.length === 0) { toast('No codes to export', 'info'); return; }
       var csv, filename;
-      if (type === 'pins') {
-        csv = 'Name,PIN\n' + tokens.map(function(t) {
-          return csvEscape(t.displayName) + ',' + csvEscape(t.tokenPIN || '');
-        }).join('\n');
-        filename = 'enrollment-pins-SMS.csv';
-      } else {
+      // A7: PINs are never exported from here; they are shown once at import.
+      {
         csv = 'Name,EnrollmentCode\n' + tokens.map(function(t) {
           return csvEscape(t.displayName) + ',' + csvEscape(t.tokenId);
         }).join('\n');
@@ -840,7 +913,7 @@
       var a = document.createElement('a');
       a.href = url; a.download = filename; a.click();
       URL.revokeObjectURL(url);
-      toast('CSV downloaded — ' + (type === 'pins' ? 'send PINs via SMS only' : 'distribute codes via portal or sealed letter'), 'info');
+      toast('CSV downloaded — distribute codes via portal or sealed letter', 'info');
     }).catch(function(e) { toast('Export failed: ' + e.message, 'error'); });
   }
 

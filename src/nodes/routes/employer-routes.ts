@@ -129,6 +129,9 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
   routes.push({
     method: 'GET',
     path: '/groups',
+    // A7 (AUTH-13): group IDs, plan IDs and utilisation are the employer's to read, not the
+    // network's. The HR Tool and the employer dashboard both hold the admin token.
+    adminOnly: true,
     handler: async (_req, res) => {
       const node = server.getEntityNode() as EmployerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
@@ -142,6 +145,7 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
   routes.push({
     method: 'GET',
     path: '/groups/:groupId',
+    adminOnly: true,
     handler: async (_req, res, params) => {
       const node = server.getEntityNode() as EmployerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
@@ -156,6 +160,7 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
   routes.push({
     method: 'GET',
     path: '/groups/:groupId/stats',
+    adminOnly: true,
     handler: async (_req, res, params) => {
       const node = server.getEntityNode() as EmployerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
