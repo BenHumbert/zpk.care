@@ -428,7 +428,7 @@
           '<div class="onboard-title">Enrollment Credentials</div>' +
           '<div class="onboard-desc">Enter the enrollment code from your employer portal and the 8-digit PIN sent to your phone via SMS. These were provided through separate channels for security.</div>' +
           '<div class="form-group"><label>Enrollment Code</label>' +
-          '<input class="form-input mono" id="ob-token" placeholder="e.g. TOKEN-1776172084733-0" value="' + esc(onboardState.tokenId) + '"></div>' +
+          '<input class="form-input mono" id="ob-token" placeholder="e.g. 7Q4K-9XMD-2PWT-R8HN-5VZC" autocapitalize="characters" autocomplete="off" spellcheck="false" value="' + esc(onboardState.tokenId) + '"></div>' +
           '<div class="form-group"><label>8-Digit PIN (from SMS)</label>' +
           '<input class="form-input mono" id="ob-enroll-pin" type="text" inputmode="numeric" maxlength="8" placeholder="e.g. 12345678" value="' + esc(onboardState.enrollPIN || '') + '"></div>' +
           '<div class="form-actions">' +
@@ -446,7 +446,11 @@
             await fetch(location.origin + '/onboarding/accept-token', {
               method: 'POST', headers: RPC.deviceHeaders(),
               body: JSON.stringify({ tokenId: v }),
-            }).then(function (r) { return r.json(); }).then(function (j) { if (!j.ok) throw new Error(errMsg(j.error) || 'Failed'); });
+            }).then(function (r) { return r.json(); }).then(function (j) {
+              if (!j.ok) throw new Error(errMsg(j.error) || 'Failed');
+              // The node canonicalises the code (case, spacing, O/0, I/L/1); keep its spelling.
+              if (j.data && j.data.tokenId) onboardState.tokenId = j.data.tokenId;
+            });
           } catch (e) { toast('Token error: ' + e.message, 'error'); return; }
           onboardStep = 2;
           renderOnboardStep();

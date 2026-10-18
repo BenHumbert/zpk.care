@@ -31,6 +31,7 @@
 import { Encoding, Field, MerkleTree, Poseidon } from 'o1js';
 import { generateEnrollmentKey } from '../../wallets/wallet-derivation.js';
 import { hashString } from '../../zkp/hash-utils.js';
+import { canonicalizeEnrollmentCode } from '../../onboarding/enrollment-code.js';
 import { WalletRegistryWitness, CREDENTIAL_INVENTORY_HEIGHT } from '../../wallets/wallet-state.js';
 import { LifecycleWitness } from '../../engine/lifecycle.js';
 import { secureMemberDerivation } from '../../security/secure-context.js';
@@ -158,15 +159,18 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       }
 
       const b = body as { tokenId?: string; groupId?: string; planId?: string; validUntil?: string } | undefined;
-      if (!b?.tokenId) {
+      if (!b?.tokenId || typeof b.tokenId !== 'string' || !b.tokenId.trim()) {
         return server.sendResponse(res, 400, false, undefined, 'Missing tokenId');
       }
+      // A6: people type these. Canonicalise case, spacing and the O/0 and I/L/1 confusions here,
+      // so the PIN hash is computed over exactly the string the employer holds.
+      const tokenId = canonicalizeEnrollmentCode(b.tokenId) ?? b.tokenId.trim();
 
       const state = server.getLocalState();
       const data = state.getState();
       if (data) {
         data.onboarding.phase = 'token_received';
-        data.onboarding.tokenId = b.tokenId;
+        data.onboarding.tokenId = tokenId;
         data.onboarding.tokenData = {
           groupId: b.groupId ?? '',
           planId: b.planId ?? '',
@@ -176,7 +180,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       }
 
       server.setOnboardingPhase('token_received');
-      server.sendResponse(res, 200, true, { phase: 'token_received', tokenId: b.tokenId });
+      server.sendResponse(res, 200, true, { phase: 'token_received', tokenId });
     },
   });
 
@@ -456,37 +460,10 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         console.warn('[enroll] Sequencer registration failed:', seqErr instanceof Error ? seqErr.message : String(seqErr));
       }
 
-      // Notify employer of enrollment (non-blocking — confirms token was used).
-      // Post-Phase A, there is no static employer URL at boot. The employer node
-      // for a given tenant is looked up dynamically on the sequencer's tenant
-      // registry via the tokenId (which was issued by that employer's node).
-      //
-      // In Phase A/B we don't yet have the orchestrator's tenant registry, so
-      // this notification is deferred. The employer's roster will show the
-      // enrollment as `pending` until the first HR Tool poll.
-      let employerNotified = false;
-      const employerUrl = server.getConfig().employerUrl || null;
-      if (employerUrl && data.onboarding.tokenId) {
-        try {
-          const eUrl = employerUrl.replace(/\/+$/, '');
-          console.log('[enroll] Notifying employer at %s...', eUrl);
-          const resp = await fetch(`${eUrl}/enrollment/confirm`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              tokenId: data.onboarding.tokenId,
-              walletId: data.walletId,
-            }),
-          });
-          employerNotified = resp.ok;
-          if (!resp.ok) console.warn('[enroll] Employer confirmation returned non-OK:', resp.status);
-          else console.log('[enroll] Employer notified successfully');
-        } catch (empErr: unknown) {
-          console.warn('[enroll] Employer notification failed:', empErr instanceof Error ? empErr.message : String(empErr));
-        }
-      } else if (!employerUrl) {
-        console.log('[enroll] No static employer URL configured — skipping callback (expected post-Phase A; will be wired via tenant registry in Phase C)');
-      }
+      // A6: the member no longer tells the employer anything. The old callback posted the wallet
+      // ID to the employer's /enrollment/confirm, which rule I6 forbids; it only ever failed with a
+      // 401 because that route is admin-only. The code is consumed by the employer's validate
+      // oracle during the insurer step above, so there is nothing left to confirm.
 
       // Adjudication engine registration is deferred to /proof/registration.
       // Calling /interactive/register-member here would pre-register the wallet
@@ -498,7 +475,6 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         walletId: data.walletId,
         sequencerUrl: seqUrl,
         insurerNotified,
-        employerNotified,
         sequencerRegistered,
         ...(sequencerRegistered ? {} : {
           warning: 'Enrollment approved but network registration pending. Your enrollment is valid but claims may not work until registration completes.',

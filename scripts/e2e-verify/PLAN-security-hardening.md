@@ -825,6 +825,101 @@ then a lost device loses the wallet, which was already true in practice — the 
 encrypts the literal string `server-managed` for normally-enrolled users (MEM-M5), so the designed
 recovery path has never worked.
 
+**A6 implementation record.** Done 2026-10-17. Closes the validate half of AUTH-13 and the
+cross-tenant exposure recorded the same day as **A-31**; FIG. 4 `456` (DISTRIBUTED → CONSUMED) now
+describes the code.
+
+What a code is now. `src/onboarding/enrollment-code.ts`: `PPPP-XXXX-XXXX-XXXX-XXXX`, 80 random
+bits in Crockford base32 behind a four-character routing prefix derived from the issuing employer's
+ID, with one canonical spelling (upper case; `O`→`0`, `I`/`L`→`1`; `U` is not in the alphabet). The
+member node canonicalises at `accept-token`, so the PIN hash is computed over exactly the string the
+employer holds. `TokenAuthority.generateToken` issues these when no ID is named; the employer's
+`/tokens/generate` refuses a caller-chosen ID outright, since the HR Tool never sends one and an
+operator-chosen code is exactly as guessable as its operator.
+
+How a code is consumed. `TokenAuthority.redeemTokenWithPin` validates and consumes in one step and
+returns no wallet ID; `EmployerNode.redeemTokenWithPin` wraps it and does the roster and
+enrollment-cap bookkeeping that `confirmEnrollment` used to do on the member's say-so. The validate
+oracle calls it. `validateToken`, `validateTokenWithPin` and `consumeToken(walletId)` remain for the
+in-process `EnrollmentService` and the engine, where employer and insurer are one process and I6
+does not arise. `/enrollment/confirm`, `/tokens/:id/submit`, `confirmEnrollment` and
+`submitTokenToInsurer` are deleted: every one of them carried the member's wallet ID to the
+employer, and the only reason the first never leaked one is that the member node called an
+admin-only route without credentials and got a 401. The member node no longer calls the employer
+at all.
+
+Who may ask the oracle. `POST /tokens/:tokenId/validate` answers only a request signed by the
+insurer: `X-Admin-Signature` / `X-Content-Hash` in the format the HR Tool already uses, verified by
+`src/security/signed-request.ts` against `attestation.insurerPublicKeyHex`, the key the sequencer
+only stored after checking the insurer's counter-signature against the key it pins (A9). The trust
+chain is insurer → sequencer → attestation → employer, and no secret had to be distributed. The
+verifier recomputes the content hash from the body actually received, names the signer it expects,
+enforces a 30 s window and refuses a replayed signature; `checkNautilusAdminAuth` does none of the
+first (AUTH-14), and moving it onto this verifier is part of A9's remainder. Order of refusals: an
+unsigned request is 401 before anything about the node is disclosed; no attestation loaded is 503;
+a bad signature 401; then `tokenPinHash` required, the orphan check (generation succeeded,
+set-pin-hash did not: 409, not a PIN attempt), then redemption. In front of all of it,
+`src/security/rate-limit.ts`: 60 a minute per caller address and 600 overall, per node.
+
+How the insurer finds the employer. A code is required; there is no enrollment the insurer
+accepts on a wallet's say-so. The code's prefix is matched against the sequencer's tenant registry
+and exactly the matching employer is asked; an identifier that is not a code is tried only against
+the employer the member named; a static `employerUrl` still wins for single-tenant deployments. The
+fan-out is gone. It had posted each member's code and `Poseidon(code, 0, PIN)` hash to every
+tenant's open oracle until one recognised it, and an 8-digit PIN inverts offline from that hash in
+minutes, so any tenant could have enrolled as another employer's employee first. That is A-31. A
+401, 503 or 429 from an employer is reported as a 502 and never read as a verdict; "not found"
+moves to the next candidate; any other reason is the verdict and a 403. On `valid` the insurer
+records the redemption against the wallet and persists it before doing anything else, so a retry
+after a crash is idempotent for that wallet and a 403 for any other. The window in which a crash
+between the employer's consumption and that write burns a code is one in-memory write and a file
+save; recovery is HR re-issuing a code, which is an existing flow. Persistence is best-effort while
+the insurer's local state is locked, which it is in the production boot, where only the member
+child receives a PIN; the enrollment registry has had the same limitation since it was written,
+and both belong with the insurer-host work in A7.
+
+Verified. `tests/enrollment-codes.test.ts`, 48 tests: the code (format, randomness, the base32 bit
+reader at both ends of the alphabet, repair of what people type), the authority (redeem consumes,
+twice refused, wrong PIN does not consume, five lock it, no PIN bound cannot be redeemed), the
+verifier (wrong key, wrong signer, wrong path or method, swapped body, stale, replayed, no key),
+the limiter, the employer oracle through its real handlers (unsigned 401 with and without an
+attestation, attacker key 401, swapped body 401, wrong PIN leaves the code unused, right PIN
+consumes it and counts the cap once, replay 401, second redemption "already consumed", orphan 409,
+foreign code "not found", caller-chosen ID 400, the removed routes absent), the insurer against a
+stub sequencer and two stub tenants (code required; only the issuing tenant is probed, with a
+signature the stub verifies; redemption persisted; same wallet idempotent without a second probe;
+other wallet 403; unknown prefix 403 with no probe; wrong PIN not recorded; a tenant's 401 is a
+502; a non-code identifier never fans out; no seed is a 500; redeemed codes survive a restart), and
+the member node (what was typed is stored canonical; the employer callback is gone). The eight
+A-phase suites pass; `onboarding` and `wallet-migration` carry the same 17 failures by name as
+HEAD; `smoke-leviathan` is 14 of 46 with identical names; `smoke-e2e` went from 32 failures to 30,
+P2d and P2e, with no new failure by name; `production-showcase` 26 of 35 failing, its recorded baseline exactly
+(count-matched rather than diffed by name: the suite takes 22 minutes, and it never touches the
+enrollment-code path, with no `/tokens/generate` and no employer node, so a swap is not plausible). Typecheck unchanged
+at the 21-error src baseline. Live: on a secured boot (random admin token and gossip secret, no `ZKTRIDENT_UNSECURE`; the harness
+confirms the old demo token is refused), the HR Tool issued two codes, the member device accepted
+`JF8M-79KP-6AD8-4YFB-7WP1`, and the insurer logged `Code redeemed with employer E2E-EMP-MVD53IDO`
+and then `Member enrolled`, with no 401, 403, 502 or 503 anywhere on the path: the signed probe
+was verified by a spawned employer node against its own attestation and the code was redeemed.
+Through the enrollment and registration stages the harness recorded 38 passes and 3 failures, all
+three known: two are A-9 (the wallet is not bound to the employer group, item C2) and one is A-30
+(the pharmacy never registers an encryption key, so an eScript cannot be sent). Full pipeline for
+this run, with the sequencer's stderr captured in the boot log this time: 94 of 111 checks passed across 24 steps by the harness's own
+summary, 94 PASS / 34 FAIL lines against 93 / 36 on the last complete run. It reached the end
+for the first time since the stage-19 deaths, with the sequencer still up afterwards and nothing
+in its captured stderr beyond a routine `Worker 0 recycled after 3 jobs (WASM heap reclaimed)`;
+the earlier deaths coincided with the orphaned processes described below, which is consistent
+with starvation rather than a defect, though not proof of it..
+
+Found on the way, recorded rather than fixed. `GET /groups` is still open (AUTH-13's other half,
+A7). `role`, `groupId` and `planId` are still taken from the body (A-9, C2). Anyone holding a valid
+code and PIN can still name any `walletId`; binding the wallet to its prover is B2. The orchestrator
+never reaps the employer nodes and HR Tools it spawns: five employer nodes and three HR Tools from
+four harness runs since 14:08 were still alive on this machine, which is an availability and
+hygiene problem for A7 or phase F. And the smoke and showcase suites do not hang: Jest finishes and
+then does not exit, because of open handles; run them with `--forceExit`, and treat a "wedged" run
+as finished until proven otherwise.
+
 ### Phase B — Keep identity on the device
 
 The largest phase, and the one that changes the pipeline. Section 7 covers the consequences.
@@ -1241,3 +1336,45 @@ recovery card first (**A12b**), then salt the identity fields (**C1**, closing A
 real registration proof (**B2**, closing A-6), then bind the real group and plan (**C2**, closing
 A-9), then re-enroll. One migration, three criticals, and it only stays cheap while there are no
 real members.
+
+## State of work (2026-10-17, Session 5: phase A items A9 third clause and A6; B1 re-prioritised)
+
+Since the previous entry: **A9's third clause** (the insurer signs with a key of its own, pinned on
+the sequencer; A-29 closed, A-14 narrowed) and **A6** (enrollment codes random, single-use and
+redeemed through one insurer-signed question; AUTH-13's validate half and the new **A-31** closed) are
+done, both verified on a secured live network. Two audit corrections: A-13 and A-17 claimed the
+production launcher does not serve the engine's routes. It does (`start-leviathan.ts:452`), so those
+gates are load-bearing in production. Measured the same day: 668 of 716 requests in a live pipeline
+run go to `/interactive/*`, so the pipeline measures the engine's orchestration far more than the
+node servers' own. **B1 therefore moves from "later" to before phase D**, with a cheap first half
+slotted right after A7: stop couriering static fixture data through the gated identity dump, and
+split the real identity fields onto their own gated path, which unblanks the visualizer and shrinks
+the privileged surface instead of merely locking it.
+
+**Scoreboard:** 31 findings; 13 fixed (A-3, A-4, A-5, A-7, A-12, A-13, A-14, A-19, A-20, A-24, A-28,
+A-29, A-31); 1 mitigated (A-17); 17 open, three of them critical (A-1, A-2, A-6). Phase A items
+still open: A7, A9 remainder, A10b, A12b, A13.
+
+**Baselines, re-matched by failing-test name rather than by count:** `onboarding` + `wallet-migration`
+17; `smoke-leviathan` 14 of 46; `smoke-e2e` 30 of 65 failing, down from 32 (P2d and P2e pass under the
+new contract); `production-showcase` see the A6 record; full pipeline 94 of 111 checks across 24
+steps, to the end. Typecheck src 21, scripts 2. Acceptance suites added this session: 10, 226 tests,
+all passing.
+
+**Operational lessons, recorded because they cost an hour each.** (1) The smoke and showcase suites
+finish and then Jest does not exit; run them with `--forceExit`, read a "wedged" run as finished
+until proven otherwise, and give `production-showcase` more than ten minutes. (2) The orchestrator
+never reaps the employer nodes and HR Tools it spawns, and stopping a shell does not stop its node
+child: list node processes by command line before blaming the code for a stall. Eight such orphans,
+one from 10:09, were starving the box. (3) `git stash` under `core.autocrlf=true` re-checks every
+file out as CRLF; a script that edits files must match in LF and write back in each file's own
+endings, and refuse to write anything when an anchor is not found exactly once.
+
+**Git:** with this commit, 31 commits on local `dev`, nothing pushed, `origin/main` untouched.
+
+**Next, in the agreed upstream-to-downstream order:** **A7** (HR Tool off the insurer host, plaintext
+PINs out of exports and `/api/employees`, passphrase policy with attempt limits, `GET /groups` gated,
+the spawned-tenant lifecycle and the bearer-mode admin auth the orchestrator gives spawned nodes),
+then the cheap half of **B1**, then **A9's remainder** (per-node credentials, moving admin auth onto
+`signed-request.ts`), then **Step 2** (A12b → C1 → B2 → C2 → C4, the one-shot identity change), then
+A10b, A13, full B1, phase D.

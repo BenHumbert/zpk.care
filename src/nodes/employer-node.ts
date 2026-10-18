@@ -350,64 +350,52 @@ export class EmployerNode extends EntityNodeBase {
     return this.tokenAuthority.validateTokenWithPin(tokenId, currentDate, tokenPinHash);
   }
 
-  /** Get total tokens managed */
-  get tokenCount(): number {
-    return this.tokenAuthority.count;
+  /**
+   * Redeem a token at validation — phase A item A6. The employer learns that one of its codes was
+   * used, and when; no wallet ID crosses this boundary (rule I6). The roster and enrollment-cap
+   * bookkeeping that `confirmEnrollment` used to do on the member's say-so now happens here, on
+   * the oracle's own verdict, which is the only place it can be trusted.
+   */
+  redeemTokenWithPin(
+    tokenId: string,
+    currentDate: string,
+    tokenPinHash: string | undefined,
+  ): TokenValidationResult & { consumed?: boolean } {
+    const result = this.tokenAuthority.redeemTokenWithPin(tokenId, currentDate, tokenPinHash);
+    if (result.valid && result.consumed) this.markRosterEnrolled(tokenId);
+    return result;
+  }
+
+  /** Mark the roster entry that carries `tokenId` enrolled and count it against its group once. */
+  private markRosterEnrolled(tokenId: string): void {
+    for (const entry of this.roster.values()) {
+      if (entry.tokenId !== tokenId) continue;
+      if (entry.status !== 'enrolled') {
+        entry.status = 'enrolled';
+        for (const group of this.groups.values()) {
+          if (group.groupIdHash === entry.groupIdHash) {
+            group.enrolledCount++;
+            break;
+          }
+        }
+      }
+      return;
+    }
   }
 
   /**
-   * Submit a token to the insurer Nautilus for enrollment processing.
-   * HTTP POST to the insurer's /enrollment/process endpoint.
+   * The insurer public key this employer trusts: the one inside its own attestation, which the
+   * sequencer only stored after verifying the insurer's counter-signature against the key it pins
+   * (item A9). Null when no attestation is loaded, and every caller treats null as "refuse".
    */
-  async submitTokenToInsurer(
-    tokenId: string,
-    walletId: string,
-  ): Promise<{ success: boolean; error?: string }> {
-    if (!this.insurerUrl) {
-      return { success: false, error: 'No insurer URL configured' };
-    }
+  getInsurerPublicKeyHex(): string | null {
+    const key = this.attestation?.insurerPublicKeyHex;
+    return typeof key === 'string' && /^[0-9a-f]{64}$/i.test(key) ? key.toLowerCase() : null;
+  }
 
-    const record = this.tokenAuthority.getTokenRecord(tokenId);
-    if (!record) {
-      return { success: false, error: 'Token not found' };
-    }
-
-    try {
-      const resp = await fetch(`${this.insurerUrl}/enrollment/process`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          walletId,
-          tokenId,
-          role: 'member',
-        }),
-      });
-
-      if (!resp.ok) {
-        return { success: false, error: `Insurer returned ${resp.status}` };
-      }
-
-      // Mark enrolled on roster and increment group count
-      for (const entry of this.roster.values()) {
-        if (entry.tokenId === tokenId) {
-          entry.status = 'enrolled';
-          entry.walletId = walletId;
-          // Find group by groupIdHash
-          for (const group of this.groups.values()) {
-            if (group.groupIdHash === entry.groupIdHash) {
-              group.enrolledCount++;
-              break;
-            }
-          }
-          break;
-        }
-      }
-
-      return { success: true };
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return { success: false, error: msg };
-    }
+  /** Get total tokens managed */
+  get tokenCount(): number {
+    return this.tokenAuthority.count;
   }
 
   // ─── Roster Management ─────────────────────────────────────
@@ -420,33 +408,6 @@ export class EmployerNode extends EntityNodeBase {
   /** Get roster entry by employee ID hash */
   getRosterEntry(employeeIdHash: string): EmployerRosterEntry | undefined {
     return this.roster.get(employeeIdHash);
-  }
-
-  /**
-   * Confirm enrollment for a roster entry (called when member notifies employer).
-   * Matches by tokenId, sets walletId and status = 'enrolled'.
-   */
-  confirmEnrollment(tokenId: string, walletId: string): { found: boolean } {
-    for (const entry of this.roster.values()) {
-      if (entry.tokenId === tokenId) {
-        const wasAlreadyEnrolled = entry.status === 'enrolled';
-        entry.status = 'enrolled';
-        entry.walletId = walletId;
-        // Only increment group count if not already enrolled (avoid double-count)
-        if (!wasAlreadyEnrolled) {
-          // Find group by groupIdHash match
-          for (const group of this.groups.values()) {
-            if (group.groupIdHash === entry.groupIdHash) {
-              group.enrolledCount++;
-              break;
-            }
-          }
-        }
-        console.log('[employer] Enrollment confirmed: token=%s wallet=%s', tokenId, walletId.slice(0, 16));
-        return { found: true };
-      }
-    }
-    return { found: false };
   }
 
   /** Terminate a roster entry */

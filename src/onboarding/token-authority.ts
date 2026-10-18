@@ -21,6 +21,7 @@ import {
   buildGroupEnrollmentToken,
 } from './group-enrollment-token.js';
 import type { GroupEnrollmentTokenLocalData } from './group-enrollment-token.js';
+import { generateEnrollmentCode } from './enrollment-code.js';
 
 /**
  * Token record — the TokenAuthority's internal tracking of a token.
@@ -127,7 +128,11 @@ export class TokenAuthority {
     validUntil: string,
     tokenId?: string,
   ): { token: GroupEnrollmentToken; tokenId: string } {
-    const id = tokenId ?? `TOKEN-${Date.now()}-${this.nonceCounter}`;
+    // A6 (AUTH-13): a code is random and self-routing, never a clock reading and a counter. A
+    // caller may still name one, which tests and the in-process service rely on; over the network
+    // the employer route refuses that (employer-routes.ts, /tokens/generate).
+    let id = tokenId ?? generateEnrollmentCode(this.issuer);
+    while (tokenId === undefined && this.tokens.has(id)) id = generateEnrollmentCode(this.issuer);
     const nonce = this.nonceCounter++;
 
     // Build the ZK-compatible token using the hashes as the "local data"
@@ -310,6 +315,36 @@ export class TokenAuthority {
   /** Get the internal token record (for inspection/debugging) */
   getTokenRecord(tokenId: string): TokenRecord | undefined {
     return this.tokens.get(tokenId);
+  }
+
+  /**
+   * Redeem a token: validate it with its PIN and, when the PIN verifies, consume it in the same
+   * step — phase A item A6 (AUTH-13; FIG. 4 `456`, DISTRIBUTED → CONSUMED).
+   *
+   * This is what the employer node's validate oracle calls. It records that the code was used and
+   * when, and nothing else: no wallet ID reaches the employer (rule I6). `consumeToken` below, which
+   * takes a wallet ID, remains for the in-process `EnrollmentService`, where employer and insurer
+   * are the same process and that rule does not arise.
+   *
+   * A token with no PIN hash cannot be redeemed at all. Generation and PIN binding are two calls,
+   * and a token whose second call never landed is an orphan the HR Tool revokes; refusing it here
+   * closes the window in which such a token would be a code with no second factor.
+   */
+  redeemTokenWithPin(
+    tokenId: string,
+    currentDate: string,
+    tokenPinHash: string | undefined,
+  ): TokenValidationResult & { consumed?: boolean } {
+    const record = this.tokens.get(tokenId);
+    if (record && record.status === 'unused' && !record.tokenPinHash) {
+      return { valid: false, reason: 'Enrollment PIN not set for this code; ask HR to re-issue it' };
+    }
+    const result = this.validateTokenWithPin(tokenId, currentDate, tokenPinHash);
+    if (!result.valid) return result;
+    const live = this.tokens.get(tokenId)!;
+    live.status = 'consumed';
+    live.consumedAt = new Date().toISOString();
+    return { ...result, consumed: true };
   }
 
   /**

@@ -524,7 +524,7 @@ describe('Onboarding — TokenAuthority', () => {
       '20260228',
     );
 
-    expect(tokenId).toContain('TOKEN-');
+    expect(tokenId).toMatch(/^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){4}$/);
     expect(token.groupIdHash.toString()).toBe(
       hashString('ACME-CORP-001').toString(),
     );

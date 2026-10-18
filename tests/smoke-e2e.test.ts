@@ -65,6 +65,11 @@ import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js'
 const TEST_PIN = '123456';
 const TEST_ADMIN_TOKEN = 'smoke-e2e-admin';
 const AUTH = { Authorization: `Bearer ${TEST_ADMIN_TOKEN}` };
+// A6: the employer node generates enrollment codes; callers no longer choose them. These hold the
+// codes P2d receives so the later onboarding steps present real ones.
+let aliceCode = 'TKN-ALICE-001';
+let prescriberCode = 'TKN-PRESCRIBER-001';
+let pharmacyCode = 'TKN-PHARMACY-001';
 
 const emptyTree = new MerkleTree(WALLET_TREE_HEIGHT);
 const INITIAL_ROOT = emptyTree.getRoot();
@@ -468,41 +473,51 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
   });
 
   test('P2d — employer generates enrollment tokens', async () => {
+    const CODE = /^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){4}$/;
     // Token for Alice (member)
     const r1 = await post(employerPort, '/tokens/generate', {
       groupId: 'GRP-EPIC-2026',
-      employeeId: 'EMP-10001',
+      employeeIdHash: 'EMP-10001',
       validUntil: '20261231',
-      tokenId: 'TKN-ALICE-001',
     }, AUTH);
     expect(r1.status).toBe(201);
-    expect((r1.body as any).data.tokenId).toBe('TKN-ALICE-001');
+    aliceCode = (r1.body as any).data.tokenId;
+    expect(aliceCode).toMatch(CODE);
 
     // Token for prescriber
     const r2 = await post(employerPort, '/tokens/generate', {
       groupId: 'GRP-EPIC-2026',
-      employeeId: 'PROV-RX-001',
+      employeeIdHash: 'PROV-RX-001',
       validUntil: '20261231',
-      tokenId: 'TKN-PRESCRIBER-001',
     }, AUTH);
     expect(r2.status).toBe(201);
+    prescriberCode = (r2.body as any).data.tokenId;
 
     // Token for pharmacy
     const r3 = await post(employerPort, '/tokens/generate', {
       groupId: 'GRP-EPIC-2026',
-      employeeId: 'PROV-PH-001',
+      employeeIdHash: 'PROV-PH-001',
       validUntil: '20261231',
-      tokenId: 'TKN-PHARMACY-001',
     }, AUTH);
     expect(r3.status).toBe(201);
+    pharmacyCode = (r3.body as any).data.tokenId;
+
+    // A6: a caller-chosen code is refused.
+    const r4 = await post(employerPort, '/tokens/generate', {
+      groupId: 'GRP-EPIC-2026',
+      employeeIdHash: 'EMP-10002',
+      validUntil: '20261231',
+      tokenId: 'TKN-CHOSEN-001',
+    }, AUTH);
+    expect(r4.status).toBe(400);
   });
 
-  test('P2e — employer can validate token', async () => {
-    const r = await post(employerPort, '/tokens/TKN-ALICE-001/validate', {
-      currentDate: '20260315',
+  test('P2e — the validate oracle answers only the insurer', async () => {
+    // A6: unsigned, the oracle refuses before it looks at the code.
+    const r = await post(employerPort, `/tokens/${encodeURIComponent(aliceCode)}/validate`, {
+      tokenPinHash: '0',
     });
-    expect(r.status).toBe(200);
-    expect((r.body as any).data.valid).toBe(true);
+    expect(r.status).toBe(401);
   });
 
   test('P2f — employer lists groups', async () => {
@@ -520,7 +535,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
 
   test('P3a — prescriber accepts token', async () => {
     const r = await post(prescriberPort, '/onboarding/accept-token', {
-      tokenId: 'TKN-PRESCRIBER-001',
+      tokenId: prescriberCode,
       groupId: 'GRP-EPIC-2026',
       planId: 'PLAN-GOLD-001',
     });
@@ -559,7 +574,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
 
   test('P4a — pharmacy accepts token', async () => {
     const r = await post(pharmacyPort, '/onboarding/accept-token', {
-      tokenId: 'TKN-PHARMACY-001',
+      tokenId: pharmacyCode,
       groupId: 'GRP-EPIC-2026',
       planId: 'PLAN-GOLD-001',
     });
@@ -597,7 +612,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
 
   test('P5a — member accepts token from employer', async () => {
     const r = await post(memberPort, '/onboarding/accept-token', {
-      tokenId: 'TKN-ALICE-001',
+      tokenId: aliceCode,
       groupId: 'GRP-EPIC-2026',
       planId: 'PLAN-GOLD-001',
     });
