@@ -70,6 +70,7 @@ export const ROUTES_BY_ROLE: Readonly<Record<Exclude<NodeRole, 'operator'>, Read
     'POST:/interactive/terminate-group',
     'POST:/interactive/update-formulary',
     'POST:/interactive/plan-year-rollover',
+    'POST:/interactive/approve-member',
   ]),
   member: new Set<string>(),
   prescriber: new Set<string>(),

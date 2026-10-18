@@ -44,7 +44,8 @@ import { Trace, makeHttp, poll, sleep, abbrev } from './trace.js';
 import { expectedAdjudication, findSecrets } from './reference.js';
 import { hashString, hashIdentityField, hashIdentityDate, isIdentitySalt } from '../../src/zkp/hash-utils.js';
 import { combineEnrollmentKey, recoveryPinVerifier, type RecoveryCardV3 } from '../../src/security/recovery-card.js';
-import { deriveMemberWalletId } from '../../src/wallets/wallet-derivation.js';
+import { deriveMemberWalletId, derivePrescriberWalletId, derivePharmacyWalletId } from '../../src/wallets/wallet-derivation.js';
+import { PRESCRIBERS, PHARMACIES } from '../../src/data/index.js';
 import { NautilusLocalState } from '../../src/nodes/nautilus-local-state.js';
 import { l2Parse } from '../../src/l2/l2-json.js';
 import { deriveNodeAdminToken } from '../../src/security/node-roles.js';
@@ -225,7 +226,19 @@ async function main() {
   // ── 3. Insurer creates a plan ───────────────────────────────
   trace.begin('insurer', 'Create and publish the benefit plan');
   const planId = `PLAN-E2E-${RUN}`;
-  const plan = { planId, name: 'E2E Gold', coverageType: 1, copayAmountCents: 1000, deductibleAmountCents: 50000, oopMaxCents: 800000, annualBenefitMaxCents: 0, familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000 };
+  // Step 2 commit two: the engine binds each member's provider network from the plan the insurer
+  // publishes, so this plan names its network by wallet id: the seven prescribers and five pharmacies
+  // the demo table had (the fixture providers' ids derive from the fixture data, as in the engine),
+  // plus the prescriber and pharmacy nodes themselves. Prescribers 5, 6 and 8 stay outside on purpose.
+  const networkPrescriberIdx = [0, 1, 2, 3, 4, 7, 9];
+  const networkPharmacyIdx = [0, 1, 2, 3, 4];
+  const fixturePrescriberIds = PRESCRIBERS.map(p => derivePrescriberWalletId(p.localData, p.enrollmentKey).toString());
+  const fixturePharmacyIds = PHARMACIES.map(p => derivePharmacyWalletId(p.localData, p.enrollmentKey).toString());
+  const networkProviderWalletIds = [
+    ...networkPrescriberIdx.map(i => fixturePrescriberIds[i]), ...networkPharmacyIdx.map(i => fixturePharmacyIds[i]),
+    ...[results.prescriberWalletId, results.pharmacyWalletId].filter((x): x is string => typeof x === 'string' && x.length > 0),
+  ];
+  const plan = { planId, name: 'E2E Gold', coverageType: 1, copayAmountCents: 1000, deductibleAmountCents: 50000, oopMaxCents: 780000, annualBenefitMaxCents: 0, familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000, networkProviderWalletIds };
   const planRes = await insAdmin('POST', '/plans', plan);
   trace.check('Plan created', planRes.status === 201 || planRes.status === 200, '201', planRes.status);
   const mkt = await http('GET', `${INS}/marketplace/api/plans`);
@@ -392,6 +405,23 @@ async function main() {
     await sleep(5000);
   }
   results.registrationMs = Date.now() - tr;
+
+  // ── Step 2 commit two: the engine bound the member to the plan the insurer sold, and the A-6 door ──
+  trace.begin('verifier', 'The engine binds the member to the insurer\'s plan, and refuses a wallet the insurer never approved');
+  const dumpRes = await httpAdmin('GET', `${SEQ}/interactive/state`);
+  const dumpState = unwrap(dumpRes.json) ?? dumpRes.json ?? {};
+  const mine = ((dumpState?.enrolledMembers ?? []) as any[]).find(m => m.walletId === walletId || (typeof m.walletIdDisplay === 'string' && walletId.startsWith(m.walletIdDisplay.replace(/\.\.\.$/, ''))));
+  trace.check('The engine has the member record', !!mine, 'record', mine ? 'found' : Object.keys(dumpState ?? {}));
+  trace.check('The engine bound the member to the plan the insurer sold, not a default', mine?.planId === planId, planId, mine?.planId);
+  trace.check('The engine bound the member to the employer group', mine?.groupId === hashString(groupId).toString(), hashString(groupId).toString(), mine?.groupId);
+  trace.check('The accumulator limits come from that plan (its out-of-pocket maximum, not PLAN-GOLD\'s)', Number(mine?.accumulator?.limits?.oopMaxCents) === plan.oopMaxCents, plan.oopMaxCents, mine?.accumulator?.limits);
+  const sameList = (a: unknown, b: number[]) => Array.isArray(a) && a.length === b.length && a.every((v, i) => Number(v) === b[i]);
+  trace.check('The provider network comes from the plan the insurer published, not a demo table', sameList(mine?.inNetworkPrescribers, networkPrescriberIdx) && sameList(mine?.inNetworkPharmacies, networkPharmacyIdx), `${networkPrescriberIdx.join(',')} / ${networkPharmacyIdx.join(',')}`, `${mine?.inNetworkPrescribers} / ${mine?.inNetworkPharmacies}`);
+  const mallory = [1n, 2n, 3n, 4n, 5n, 6n].map(n => Field(n * 7919n + 17n));
+  const malloryWallet = Poseidon.hash([Field(0), ...mallory]).toString();
+  const forged = await http('POST', `${SEQ}/interactive/register-member`, { walletId: malloryWallet, preimageFields: mallory.map(f => f.toString()), displayName: 'Mallory' });
+  trace.check('register-member refuses a wallet the insurer never approved (A-6)', forged.status === 403, 403, forged.status);
+  trace.check('…and says why without provisioning anything', /insurer approval/.test(JSON.stringify(forged.json ?? forged.text ?? '')), 'no insurer approval', forged.json ?? forged.text);
   const receipts = await rpc('l2_getReceiptsByWallet', { walletId }, false);
   const recList = receipts.result?.receipts ?? receipts.result ?? [];
   trace.check('Sequencer issued a receipt for the registration proof', Array.isArray(recList) && recList.length > 0, '≥1 receipt', recList?.length ?? receipts);
@@ -577,7 +607,7 @@ async function main() {
 
   // ── 8b. Out-of-network prescriber ───────────────────────────
   trace.begin('prescriber', 'Out-of-network doctor prescribes for this member');
-  const network = [0, 1, 2, 3, 4, 7, 9];   // PLAN_NETWORKS['PLAN-GOLD-2026'] in interactive-service.ts:179
+  const network = networkPrescriberIdx;   // the network this run's plan named (stage 3); the engine bound it from the plan overlay
   const outIdx = prescribers.findIndex((_p: any, i: number) => !network.includes(i));
   const oonRx = `RX-${RUN}-OON`;
   const oon = await http('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: outIdx, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId: oonRx });

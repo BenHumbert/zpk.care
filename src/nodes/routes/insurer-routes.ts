@@ -34,6 +34,7 @@ import type { RouteRegistration } from '../nautilus-app-types.js';
 import type { KeyObject } from 'crypto';
 import { signRequest } from '../../security/signed-request.js';
 import { timingSafeEqual } from 'crypto';
+import { hashString } from '../../zkp/hash-utils.js';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { join } from 'path';
 import { PersistedAttemptLimiter } from '../../security/attempt-limiter.js';
@@ -467,6 +468,33 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       const existing = registry.get(b.walletId) as Record<string, unknown> | undefined;
       if (existing && existing.tokenId !== code) {
         return server.sendResponse(res, 409, false, undefined, 'Wallet already enrolled');
+      }
+      // Step 2 commit two (B2, C2): the engine provisions ELIGIBLE only for a wallet the insurer
+      // approved, and binds the plan the approval names. The plan is the one the insurer sold,
+      // resolved from the hash the employer's code carried; it has to be on the sequencer already.
+      let plans: BenefitPlanConfig[] = [];
+      try { plans = (await node.listPlans()) ?? []; } catch { plans = []; }
+      if (!Array.isArray(plans)) plans = [];
+      const plan = rec.planIdHash ? plans.find((p) => p && typeof p.planId === 'string' && hashString(p.planId).toString() === rec.planIdHash) : undefined;
+      if (!plan) {
+        return server.sendResponse(res, 409, false, undefined,
+          'The plan this enrollment code enrols into is not on the sequencer; the insurer must publish it before members enroll.');
+      }
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const approval = await server.signedFetch(`${seqUrl}/interactive/approve-member`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ walletId: b.walletId, groupIdHash: rec.groupIdHash, planIdHash: rec.planIdHash, planId: plan.planId, employerId: rec.employerId }),
+        });
+        if (!approval.ok) {
+          const text = await approval.text().catch(() => '');
+          console.warn('[enrollment] The sequencer did not record the approval:', approval.status, text);
+          return server.sendResponse(res, 502, false, undefined, 'The sequencer did not record the insurer approval for this wallet');
+        }
+      } catch (err: unknown) {
+        console.warn('[enrollment] Cannot reach the sequencer to approve the wallet:', err instanceof Error ? err.message : String(err));
+        return server.sendResponse(res, 502, false, undefined, 'Cannot reach the sequencer to approve the wallet. Try again later.');
       }
       if (!rec.walletId) {
         rec.walletId = b.walletId;

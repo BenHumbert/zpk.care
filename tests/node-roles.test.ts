@@ -34,7 +34,7 @@ describe('role tables', () => {
     for (const m of ['l2_gossipRelay', 'l2_recordFill', 'l2_approveAdmission', 'l2_registerEntity']) {
       expect(roleMayCall('insurer', { kind: 'rpc', method: m })).toBe(false);
     }
-    for (const p of ['approve-prior-auth', 'deny-prior-auth', 'terminate-member', 'terminate-group', 'update-formulary', 'plan-year-rollover']) {
+    for (const p of ['approve-prior-auth', 'deny-prior-auth', 'terminate-member', 'terminate-group', 'update-formulary', 'plan-year-rollover', 'approve-member']) {
       expect(roleMayCall('insurer', { kind: 'route', method: 'POST', path: `/interactive/${p}` })).toBe(true);
       expect(roleMayCall('insurer', { kind: 'route', method: 'GET', path: `/interactive/${p}` })).toBe(false);
     }

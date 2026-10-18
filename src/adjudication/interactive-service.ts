@@ -53,6 +53,7 @@ import { BatchProgram } from '../l2/batch-program.js';
 import { WalletState } from '../wallets/wallet-state.js';
 import type { L2Node } from '../l2/l2-node.js';
 import type { L2Receipt } from '../l2/l2-types.js';
+import type { BenefitPlanConfig } from '../l2/l2-types.js';
 import { CredentialInventory } from '../credentials/credential-inventory.js';
 
 // ZKP
@@ -435,6 +436,62 @@ export interface AdjudicationCheckpointState {
   msgNonce: number;
   threadCounter: number;
   nextPaLeafIndex: Record<string, string>;       // Map<walletId, bigint as string>
+  /** Step 2 commit two: the wallets the insurer approved, with the plan each is bound to. Absent in older checkpoints. */
+  approvedMembers?: MemberApproval[];
+}
+
+// ─── Insurer approval and plan binding — plan item B2 (now) and C2, findings A-6 and A-9 ───
+//
+// `register-member` used to provision an ELIGIBLE wallet for any caller whose six fields hashed to
+// the wallet ID they named, and bound every member to PLAN-GOLD-2026 / ACME-CORP. Now the insurer
+// approves a wallet at enrollment completion, naming the group, the plan and the employer; the engine
+// provisions ELIGIBLE only for an approved wallet whose own registration proof the sequencer has
+// already accepted (REGISTERED in the lifecycle tree), and binds the plan from the approval, never
+// from the request.
+
+export interface MemberApproval {
+  walletId: string;
+  groupIdHash: string;
+  planIdHash: string;
+  /** The plan as stored on the sequencer (`l2_storePlan`), resolved by the insurer from the hash. */
+  planId: string;
+  employerId: string | null;
+  approvedAt: number;
+}
+
+/** A registration refused by the gate, with the status the route answers. */
+export class RegistrationRefused extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = 'RegistrationRefused';
+  }
+}
+
+/**
+ * What a member bound to a plan gets: the accumulator limits from the plan, and the provider network
+ * from the plan's overlay, where an empty list means every credentialed provider (the overlay's own
+ * convention; the insurer publishes `networkProviderWalletIds: []` for an all-provider network).
+ */
+export function bindPlan(
+  plan: BenefitPlanConfig,
+  providers: { prescribers: Map<number, Field>; pharmacies: Map<number, Field> },
+): { accumulator: { deductibleAmountCents: number; oopMaxCents: number; annualBenefitMaxCents: number }; prescriberIndices: number[]; pharmacyIndices: number[] } {
+  const ids = plan.networkProviderWalletIds ?? [];
+  const inNetwork = (map: Map<number, Field>): number[] => {
+    const all = [...map.keys()].sort((a, b) => a - b);
+    if (ids.length === 0) return all;
+    const wanted = new Set(ids);
+    return all.filter((i) => wanted.has(map.get(i)!.toString()));
+  };
+  return {
+    accumulator: {
+      deductibleAmountCents: plan.deductibleAmountCents,
+      oopMaxCents: plan.oopMaxCents,
+      annualBenefitMaxCents: plan.annualBenefitMaxCents,
+    },
+    prescriberIndices: inNetwork(providers.prescribers),
+    pharmacyIndices: inNetwork(providers.pharmacies),
+  };
 }
 
 // ─── Service ────────────────────────────────────────────
@@ -501,6 +558,8 @@ export class AdjudicationService {
   }> = new Map();
   /** Next available PA leaf index per member (leaves 1-126 in ACCESS_CONTROL tree) */
   private nextPaLeafIndex: Map<string, bigint> = new Map();
+  /** Step 2 commit two: wallets the insurer approved, by wallet ID; persisted with the checkpoint. */
+  private approvedMembers: Map<string, MemberApproval> = new Map();
   private compiled = false;
   private ready = false;
   private reportingService = new ReportingService();
@@ -1521,12 +1580,46 @@ export class AdjudicationService {
   // NO seed data lookup. NO ZK proof generation. Just state construction
   // from the provided hashed preimage fields + plan configuration.
 
+  /**
+   * Record the insurer's approval of a wallet — plan item B2 (now), finding A-6. Idempotent for the
+   * same binding; a different group or plan for an already approved wallet is refused.
+   */
+  approveMember(a: Omit<MemberApproval, 'approvedAt'>): { approved: true; alreadyApproved: boolean } {
+    const existing = this.approvedMembers.get(a.walletId);
+    if (existing) {
+      if (existing.groupIdHash !== a.groupIdHash || existing.planIdHash !== a.planIdHash || existing.planId !== a.planId) {
+        throw new RegistrationRefused(409, 'This wallet is already approved under a different group or plan');
+      }
+      return { approved: true, alreadyApproved: true };
+    }
+    this.approvedMembers.set(a.walletId, { ...a, approvedAt: Date.now() });
+    this.emit('info', 'register', `Insurer approval recorded for ${a.walletId.slice(0, 12)}... (plan ${a.planId})`);
+    return { approved: true, alreadyApproved: false };
+  }
+
+  /** The insurer's approval for a wallet, if any. */
+  approvalFor(walletId: string): MemberApproval | undefined {
+    return this.approvedMembers.get(walletId);
+  }
+
+  /** What the sequencer's trees say about a wallet: the member's own registration proof puts it at REGISTERED. */
+  private ledgerLifecycleOf(walletId: Field): 'absent' | 'registered' | 'eligible' | 'other' {
+    let index: bigint;
+    try {
+      index = this.walletRegistry.getIndex(walletId);
+    } catch {
+      return 'absent';
+    }
+    const leaf = this.lifecycleTree.getNode(0, index).toString();
+    if (leaf === lifecycleLeafCommitment(walletId, LIFECYCLE_REGISTERED).toString()) return 'registered';
+    if (leaf === lifecycleLeafCommitment(walletId, LIFECYCLE_ELIGIBLE).toString()) return 'eligible';
+    return 'other';
+  }
+
   async registerMemberFromEnrollment(opts: {
     walletId: string;
     preimageFields: string[];  // 6 decimal-string Field values (all Poseidon hashes)
     displayName: string;
-    groupId?: string;
-    planId?: string;
     familyId?: string;
     relationship?: string;
     employeeId?: string;
@@ -1541,6 +1634,21 @@ export class AdjudicationService {
     if (this.enrolledMembers.has(opts.walletId)) {
       const existing = this.enrolledMembers.get(opts.walletId)!;
       return { walletId: opts.walletId, displayName: existing.displayName, alreadyRegistered: true };
+    }
+
+    // Step 2 commit two (B2, A-6): ELIGIBLE only for a wallet the insurer approved, and only once the
+    // member's own registration proof has been accepted by the sequencer, which is what REGISTERED in
+    // the lifecycle tree means. Nothing in the request decides either.
+    const approval = this.approvedMembers.get(opts.walletId);
+    if (!approval) {
+      throw new RegistrationRefused(403, 'This wallet has no insurer approval: complete enrollment with the insurer first');
+    }
+    const ledger = this.ledgerLifecycleOf(walletId);
+    if (ledger === 'absent') {
+      throw new RegistrationRefused(409, 'The wallet is not registered on the ledger yet: submit the registration proof first');
+    }
+    if (ledger !== 'registered') {
+      throw new RegistrationRefused(409, `The wallet's lifecycle on the ledger is not REGISTERED (${ledger})`);
     }
 
     this.emit('info', 'register', `Registering externally-enrolled member: ${opts.displayName} (${walletIdStr})`);
@@ -1559,13 +1667,20 @@ export class AdjudicationService {
 
     // Build eligibility + accumulator using the plan configuration
     const eligibilityData = this.sharedEligibilityData;
+// Step 2 commit two (C2, A-9): the limits come from the plan the insurer approved, read from the
+    // sequencer's plan store, and the network from that plan's overlay.
+    const plan = this.l2Node.getSequencer().getPlan(approval.planId);
+    if (!plan) {
+      throw new RegistrationRefused(409, `The approved plan ${approval.planId} is not on the sequencer`);
+    }
+    const binding = bindPlan(plan, { prescribers: this.prescriberWalletIds, pharmacies: this.pharmacyWalletIds });
     const accumulatorData = buildAccumulatorData({
       planYear: '20260101',
-      deductibleAmountCents: 50000,
+      deductibleAmountCents: binding.accumulator.deductibleAmountCents,
       deductiblePaidCents: 0,
-      oopMaxCents: 800000,
+      oopMaxCents: binding.accumulator.oopMaxCents,
       oopPaidCents: 0,
-      annualBenefitMaxCents: 0,
+      annualBenefitMaxCents: binding.accumulator.annualBenefitMaxCents,
       annualBenefitUsedCents: 0,
     });
 
@@ -1615,9 +1730,9 @@ export class AdjudicationService {
     this.emit('info', 'register', `  ProofGateProof cached — member ready for claim adjudication`);
 
     // Determine in-network providers
-    const planId = opts.planId || 'PLAN-GOLD-2026';
-    const groupId = opts.groupId || 'ACME-CORP';
-    const network = PLAN_NETWORKS[planId] || { prescriberIndices: [], pharmacyIndices: [] };
+    const planId = approval.planId;
+    const groupId = approval.groupIdHash; // the hash is what the engine knows; the plain group id stays with the employer (I5)
+    const network = { prescriberIndices: binding.prescriberIndices, pharmacyIndices: binding.pharmacyIndices };
 
     // Register encryption public key (provided by member's device — private key never leaves device)
     if (opts.publicKeyHex) {
@@ -5842,6 +5957,7 @@ export class AdjudicationService {
       msgNonce: this.msgNonce,
       threadCounter: this.threadCounter,
       nextPaLeafIndex,
+      approvedMembers: [...this.approvedMembers.values()],
     };
   }
 
@@ -5862,6 +5978,7 @@ export class AdjudicationService {
     this.rxCounter = state.rxCounter;
     this.paCounter = state.paCounter;
     this.msgNonce = state.msgNonce;
+    this.approvedMembers = new Map((state.approvedMembers ?? []).map((a) => [a.walletId, a]));
     this.threadCounter = state.threadCounter;
 
     // --- Restore nextPaLeafIndex ---
@@ -6066,6 +6183,11 @@ export class AdjudicationService {
           deductiblePaidCents: Number(m.accumulatorData.deductiblePaidCents.toBigInt()),
           oopPaidCents: Number(m.accumulatorData.oopPaidCents.toBigInt()),
           benefitUsedCents: Number(m.accumulatorData.annualBenefitUsedCents.toBigInt()),
+          limits: {
+            deductibleAmountCents: Number(m.accumulatorData.deductibleAmountCents.toBigInt()),
+            oopMaxCents: Number(m.accumulatorData.oopMaxCents.toBigInt()),
+            annualBenefitMaxCents: Number(m.accumulatorData.annualBenefitMaxCents.toBigInt()),
+          },
         },
         pcpAssignment: pcpInfo,
         inNetworkPrescribers: m.inNetworkPrescriberIndices,

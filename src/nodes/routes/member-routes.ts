@@ -837,8 +837,8 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
               walletId: data.walletId,
               preimageFields: data.preimageFields,
               displayName: server.getConfig().displayName || 'Member',
-              groupId: data.onboarding?.tokenData?.groupId,
-              planId: data.onboarding?.tokenData?.planId,
+              // Step 2 commit two: the engine binds the plan and the group from the insurer's approval;
+              // nothing the device says about either is read.
               publicKeyHex,
             }),
           });

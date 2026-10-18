@@ -1282,11 +1282,63 @@ PIN and issues two opaque cards whose deposits match and recombine, a second dev
 same wallet and a wrong PIN or a wrong name does not). `tests/enrollment-codes.test.ts` follows the
 split; `tests/key-custody.test.ts` derives with the device's salt; `tests/entity-nodes.test.ts` and
 `tests/wallet-migration.test.ts` pass the salt; onboarding + wallet-migration 17 failing, identical
-by name. Typecheck src 20, scripts 2. Live: 120 of 134 checks across 24 steps on a clean secured boot (A9: 104 of 121; the harness gained the redeem, card, salt and recovery checks), 14 failing checks, all among the A9 run's 17, three of which now pass: the wallet is bound to the employer group, the sixth input recomputes from the raw value, and hash(enrollmentKey) no longer reaches the network.
+by name. Typecheck src 20, scripts 2. Live: 120 of 134 checks across 25 steps on a clean secured boot (A9: 104 of 121; the harness gained the redeem, card, salt and recovery checks), 14 failing checks, all among the A9 run's 17, three of which now pass: the wallet is bound to the employer group, the sixth input recomputes from the raw value, and hash(enrollmentKey) no longer reaches the network.
 
 Not here, by design: the preimage still reaches the engine and the engine still provisions ELIGIBLE
 on it; the insurer's approval and the real plan in the engine are commit two. State from before this
 commit is not readable by design (C4, genesis).
+
+**Step 2, commit two implementation record: the engine's door, and the real plan.** Done 2026-10-18.
+Closes **A-6** (B2 as far as it can go before the engine stops proving for members) and **A-9**
+(C2's engine half), and records **C4** as a note.
+
+The approval. `/enrollment/complete` now does one more thing before it answers: it resolves the plan
+the employer's code enrols into from its hash against the plans the insurer published
+(`l2_getPlans`; a code whose plan is not on the sequencer is a 409 with the reason), and posts
+`POST /interactive/approve-member {walletId, groupIdHash, planIdHash, planId, employerId}` to the
+engine, signed with the insurer node's own key; the route is admin-gated and listed for the insurer
+role (`node-roles.ts`), so the operator's bearer or the insurer's signature opens it and a member's
+key is a 403. The engine keeps approvals in memory and in its checkpoint (`approvedMembers`, absent
+in older checkpoints), idempotent for the same binding and 409 for a different one.
+
+The door (B2 now, A-6). `register-member` provisions ELIGIBLE only when three things hold, in this
+order: the insurer approved this wallet (otherwise 403, "no insurer approval"); the sequencer's
+lifecycle tree shows the wallet REGISTERED, which only the member's own registration proof puts
+there under A1 (otherwise 409, "not registered on the ledger yet"); and the six fields hash to the
+wallet (as before). Refusals carry their status (`RegistrationRefused`) instead of a 500. Nothing in
+the request body decides any of it: `groupId` and `planId` are gone from the request contract.
+
+The plan (C2, A-9). The member record is bound from the approval, never from the request: `planId`
+is the insurer's plan, `groupId` is the employer group hash (the plain group id stays with the
+employer, I5), the accumulator limits come from that plan as stored on the sequencer
+(`getPlan(planId)` → `bindPlan`: deductible, out-of-pocket maximum, annual benefit maximum), and
+the provider network from the plan's overlay, where an empty list means every credentialed provider,
+the overlay's own convention. The `PLAN-GOLD-2026` / `ACME-CORP` defaults are deleted from this
+path; the console's fixture enrollment keeps its demo plan. The state dump's member entry now shows
+`accumulator.limits`, and the pharmacy's fill result already carried them, so the harness's claim
+expectations follow the real plan automatically.
+
+Around it. The member node stops sending plan and group hints with `register-member`; the engine never
+reads them now. The harness publishes its plan with a provider network named by wallet id (the seven
+prescribers and five pharmacies the demo table had, plus the prescriber and pharmacy nodes), so the
+out-of-network check exercises the plan-bound network, and a new check asserts the engine took the
+network from the plan rather than from a table.
+
+C4. Production starts at genesis (owner). Device state and engine checkpoints from before Step 2 are
+not readable by design: the wallet formula changed with the salt and the group, and nothing enrolled
+before it survives. `npm run clean:state` before the first boot on this commit.
+
+Verified. `tests/register-member-gate.test.ts` (5, the engine's routes on a real sequencer server
+with a stand-in service: approve-member 401 unsigned, 403 for a member key, 200 for the insurer key
+and the operator; a conflicting re-approval 409; register-member 403 for an unapproved wallet, 409
+before the ledger registration, 200 after, with the plan from the approval and the body's plan
+ignored), `tests/engine-plan-binding.test.ts` (4, the pure binding), `tests/enrollment-codes.test.ts`
+(completion resolves the plan and approves, asserted against the stub), `tests/node-roles.test.ts`
+(the insurer may call approve-member). Typecheck src 20, scripts 2. Live: 127 of 141 checks across 26 steps on a clean secured genesis boot, every commit-two check passing (the member record carries the harness's plan, its group hash, its out-of-pocket maximum and its provider network; a fabricated identity is refused with 403 and told why; the out-of-network prescriber is refused against the plan-bound network), the 14 failing checks identical by name to the previous run.
+
+Still inside the engine, by design: the preimage still arrives with `register-member`, because the
+engine still proves wallet updates for members; that leaves with B1 step two. A-1 therefore stays
+half open until then.
 
 **B1 implementation record, first half.** Done 2026-10-17. Closes the residue of **A-13** and unblanks
 the console without weakening any gate.
@@ -1906,8 +1958,20 @@ real group (C2), and two recovery cards are issued at the enrollment tap with th
 the insurer behind an attempt-limited PIN verifier (A12b, PRD-1 closed). Scoreboard: 31 findings; 13
 fixed; 3 partly fixed (A-12, A-1, A-9); 1 mitigated (A-17); 14 open, three of them critical (A-1 and
 A-6 until commit two, A-2). Acceptance suites added this session: 22, 331 tests, all passing.
-Typecheck src 20, scripts 2. Onboarding + wallet-migration 17 by name. Pipeline 120 of 134 checks across 24 steps on a clean secured boot (A9: 104 of 121; the harness gained the redeem, card, salt and recovery checks), 14 failing checks, all among the A9 run's 17, three of which now pass: the wallet is bound to the employer group, the sixth input recomputes from the raw value, and hash(enrollmentKey) no longer reaches the network. Git: with
+Typecheck src 20, scripts 2. Onboarding + wallet-migration 17 by name. Pipeline 120 of 134 checks across 25 steps on a clean secured boot (A9: 104 of 121; the harness gained the redeem, card, salt and recovery checks), 14 failing checks, all among the A9 run's 17, three of which now pass: the wallet is bound to the employer group, the sixth input recomputes from the raw value, and hash(enrollmentKey) no longer reaches the network. Git: with
 this commit, 36 commits on local `dev`, nothing pushed, `origin/main` untouched. **Next:** Step 2,
 commit two (the insurer approves the wallet with the engine; `register-member` requires the approval
 and the member's accepted registration proof; the real plan in the engine; the defaults deleted), then
 A10b (with A-30), A13, B1 step two with phase B, phase D.
+
+**Addendum, 2026-10-18: Step 2, commit two done.** The insurer approves each wallet with the engine
+at enrollment completion, naming the plan it resolved from the employer's code; `register-member`
+provisions ELIGIBLE only for an approved wallet whose own registration proof the sequencer accepted,
+and binds the plan, the group and the accumulator limits from the approval. Scoreboard: 31 findings;
+15 fixed; 2 partly fixed (A-12, A-1); 1 mitigated (A-17); 12 open, two of them critical (A-1 until
+B1 step two, A-2). Phase A items still open: A10b, A13. Acceptance suites added this session: 24,
+340 tests, all passing. Typecheck src 20, scripts 2. Pipeline 127 of 141 checks across 26 steps on a clean secured genesis boot, every commit-two check passing (the member record carries the harness's plan, its group hash, its out-of-pocket maximum and its provider network; a fabricated identity is refused with 403 and told why; the out-of-network prescriber is refused against the plan-bound network), the 14 failing checks identical by name to the previous run. Git: with this commit, 37
+commits on local `dev`, nothing pushed, `origin/main` untouched. **Next:** A10b (authenticate
+`l2_storeMessage`, proofs for `l2_registerPcpAssignment` and `l2_requestAttestation`, the pharmacy's
+encryption key for A-30), then A13 (replica keys under the `replica` role and the invariant monitor),
+then B1 step two with phase B, then phase D.

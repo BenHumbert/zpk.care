@@ -37,6 +37,7 @@
  * prefix names, records a redemption against the wallet before anything else, and never fans out.
  */
 import fs from 'fs';
+import { hashString } from '../src/zkp/hash-utils.js';
 import os from 'os';
 import path from 'path';
 import http from 'http';
@@ -558,7 +559,12 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
   const probesB: Probe[] = [];
   let answerA: () => { status: number; body: unknown };
   let answerB: () => { status: number; body: unknown };
-  const VALID = () => ({ status: 200, body: { ok: true, data: { valid: true, groupIdHash: 'g1', planIdHash: 'p1', consumed: true } } });
+  // Real hashes, because completion resolves the plan from its hash and approves the wallet with the engine (Step 2 commit two).
+  const G1 = hashString('GRP-1').toString();
+  const P1 = hashString('PLAN-1').toString();
+  const PLAN_1 = { planId: 'PLAN-1', name: 'Plan 1', coverageType: 1, copayAmountCents: 1000, deductibleAmountCents: 50000, oopMaxCents: 800000, annualBenefitMaxCents: 0, familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0, formularyNdcs: [], networkProviderWalletIds: [], published: true, createdAt: 0, updatedAt: 0 };
+  const approvals: unknown[] = [];
+  const VALID = () => ({ status: 200, body: { ok: true, data: { valid: true, groupIdHash: G1, planIdHash: P1, consumed: true } } });
   const NOT_FOUND = () => ({ status: 200, body: { ok: true, data: { valid: false, reason: 'Token not found' } } });
   const servers: http.Server[] = [];
   let seqUrl: string;
@@ -596,8 +602,10 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
     const a = await stubEmployer(probesA, () => answerA());
     const b = await stubEmployer(probesB, () => answerB());
     servers.push(a.server, b.server);
-    const seq = await jsonServer((_req, bodyText) => {
+    const seq = await jsonServer((req, bodyText) => {
+      if ((req.url ?? '') === '/interactive/approve-member') { approvals.push(JSON.parse(bodyText || '{}')); return { status: 200, body: { approved: true } }; }
       const rpc = JSON.parse(bodyText || '{}') as { method?: string };
+      if (rpc.method === 'l2_getPlans') return { status: 200, body: { jsonrpc: '2.0', id: 1, result: [PLAN_1] } };
       if (rpc.method === 'l2_listEmployerNodes') {
         return { status: 200, body: { jsonrpc: '2.0', id: 1, result: [
           { employerId: 'EMP-A', employerNodeUrl: a.url },
@@ -630,8 +638,8 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
     expect(r.status).toBe(200);
     expect(r.payload.data.redeemed).toBe(true);
     expect(r.payload.data.employerId).toBe('EMP-A');
-    expect(r.payload.data.groupIdHash).toBe('g1');
-    expect(r.payload.data.planIdHash).toBe('p1');
+    expect(r.payload.data.groupIdHash).toBe(G1);
+    expect(r.payload.data.planIdHash).toBe(P1);
     expect(probesA).toHaveLength(1);
     expect(probesB).toHaveLength(0);                            // never fanned out
     expect(probesA[0].verified).toBe(true);                     // a real insurer signature over the body
@@ -649,7 +657,10 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
     expect(r.status).toBe(200);
     expect(r.payload.data.enrolled).toBe(true);
     expect(r.payload.data.tokenId).toBe(codeA);                 // stored canonical, not as typed
-    expect(r.payload.data.groupIdHash).toBe('g1');
+    expect(r.payload.data.groupIdHash).toBe(G1);
+    // completion approved the wallet with the engine, naming the plan it resolved from the hash
+    expect(approvals.length).toBe(1);
+    expect(approvals[0]).toMatchObject({ walletId: '11', groupIdHash: G1, planIdHash: P1, planId: 'PLAN-1', employerId: 'EMP-A' });
     const data = main.server.getLocalState().getState() as unknown as { redeemedEnrollmentCodes?: Record<string, { walletId: string | null }> };
     expect(data.redeemedEnrollmentCodes?.[codeA]?.walletId).toBe('11');
     expect(probesA).toHaveLength(1);                            // completion asks the employer nothing
@@ -660,7 +671,7 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
     const again = await call(main.process, { body: { tokenId: codeA, tokenPinHash: 'pinhash-1' } });
     expect(again.status).toBe(200);
     expect(again.payload.data.repeated).toBe(true);
-    expect(again.payload.data.groupIdHash).toBe('g1');
+    expect(again.payload.data.groupIdHash).toBe(G1);
     // Simulate a crash between the completion and the registry write: the same wallet completes again.
     ((main.server as unknown as { __enrollmentRegistry: Map<string, unknown> }).__enrollmentRegistry).delete('11');
     const r = await call(main.complete, { body: { walletId: '11', tokenId: codeA } });

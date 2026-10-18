@@ -168,3 +168,9 @@ Not present in getState: enrollmentKey (all `enrollmentKey` uses are S:580-609, 
 - `GET /interactive/step-therapy-check` can mutate the formulary and every member's eligibility data (S:809-866) without submitting wallet updates — intended?
 - Which process is meant to enforce member consent for assign-pcp and to check badge sessions, given no route reads a session token?
 - Should `/interactive/badge/:key` be matched by prefix (R:2013-2043 vs RPC:500)?
+
+## Approval and the register-member gate (Step 2, commit two, 2026-10-18)
+
+`POST /interactive/approve-member {walletId, groupIdHash, planIdHash, planId, employerId?}` — admin-gated; `ROUTES_BY_ROLE.insurer` lists it, so the insurer node's signature or the operator's bearer opens it. Records `MemberApproval` (idempotent for the same binding; 409 for a different plan or group). Posted by the insurer's `/enrollment/complete`.
+
+`POST /interactive/register-member {walletId, preimageFields, displayName, familyId?, relationship?, employeeId?, publicKeyHex?}` — open, but it provisions nothing unless the engine holds an approval for the wallet (403 "no insurer approval") and the sequencer's lifecycle tree shows the wallet REGISTERED by the member's own proof (409 "not registered on the ledger yet"); the six fields must hash to the wallet as before. `groupId`/`planId` in the body are ignored: the member is bound from the approval through `bindPlan` (limits from `getPlan(planId)`, network from the overlay).

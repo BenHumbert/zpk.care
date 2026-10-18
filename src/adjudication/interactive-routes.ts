@@ -54,6 +54,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { L2RpcServer } from '../l2/l2-rpc-server.js';
 import type { AdjudicationService, ConsoleEvent } from './interactive-service.js';
+import { RegistrationRefused } from './interactive-service.js';
 import type { NfcReader, NfcTagEvent, NdefPayload } from './nfc-port.js';
 import type { NfcCredentialAttestation } from '../credentials/nfc-attestation.js';
 import { MEDICATIONS, PRESCRIBERS, PHARMACIES } from '../data/index.js';
@@ -79,6 +80,8 @@ export function registerInteractiveRoutes(
     '/interactive/update-formulary',
     '/interactive/plan-year-rollover',
     '/interactive/reset',
+    // Step 2 commit two: only the insurer (role) or the operator may approve a wallet for ELIGIBLE
+    '/interactive/approve-member',
 
     /*
      * Added by phase A item A11.
@@ -201,12 +204,11 @@ export function registerInteractiveRoutes(
         return;
       }
 
+      // Step 2 commit two: the group and plan come from the insurer's approval, never from this body.
       const result = await service.registerMemberFromEnrollment({
         walletId: String(params.walletId),
         preimageFields: params.preimageFields.map(String),
         displayName: params.displayName || 'Member',
-        groupId: params.groupId,
-        planId: params.planId,
         familyId: params.familyId,
         relationship: params.relationship,
         employeeId: params.employeeId,
@@ -216,6 +218,35 @@ export function registerInteractiveRoutes(
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(result));
     } catch (err) {
+      if (err instanceof RegistrationRefused) return sendError(res, err.status, err.message);
+      sendError(res, 500, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  // POST /interactive/approve-member — the insurer approves a wallet for ELIGIBLE and names its plan
+  // (Step 2 commit two; admin-gated, insurer role). register-member honours only approved wallets.
+  reg('POST', '/interactive/approve-member', async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      const params = JSON.parse(await readBody(req) || '{}');
+      const decimal = /^\d+$/;
+      if (typeof params.walletId !== 'string' || !decimal.test(params.walletId)
+        || typeof params.groupIdHash !== 'string' || !decimal.test(params.groupIdHash)
+        || typeof params.planIdHash !== 'string' || !decimal.test(params.planIdHash)
+        || typeof params.planId !== 'string' || params.planId.length === 0 || params.planId.length > 64) {
+        sendError(res, 400, 'Required: walletId, groupIdHash, planIdHash (decimal strings) and planId');
+        return;
+      }
+      const result = service.approveMember({
+        walletId: params.walletId,
+        groupIdHash: params.groupIdHash,
+        planIdHash: params.planIdHash,
+        planId: params.planId,
+        employerId: typeof params.employerId === 'string' ? params.employerId : null,
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ...result, walletId: params.walletId }));
+    } catch (err) {
+      if (err instanceof RegistrationRefused) return sendError(res, err.status, err.message);
       sendError(res, 500, err instanceof Error ? err.message : String(err));
     }
   });
