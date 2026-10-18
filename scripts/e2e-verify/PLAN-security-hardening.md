@@ -1288,6 +1288,48 @@ Not here, by design: the preimage still reaches the engine and the engine still 
 on it; the insurer's approval and the real plan in the engine are commit two. State from before this
 commit is not readable by design (C4, genesis).
 
+**B1 step two, commit three — implementation record: the member's primary-care choice goes through the engine's queue.**
+Done 2026-10-18.
+
+*What was wrong.* `POST /proof/pcp-assignment` on the member node built a fresh, empty `MerkleForest`,
+set only the PCP leaf in it, rebuilt a `CredentialData` from that root and proved a wallet update to
+the inventory root it yielded — a credential without the eligibility and accumulator leaves the
+engine holds for the member. It then pushed the new root to the sequencer with `l2_syncWalletState`
+and registered the link. Nothing checked that the chosen wallet was a prescriber at all, let alone a
+credentialed, active one; the engine never learned of the assignment, so its copy of the member's
+credential and the ledger disagreed from that point on.
+
+*Now.* The device asks the engine: `POST /interactive/pcp-assignment`, wallet-signed (A10b), opened
+only by the member's own key. `AdjudicationService.assignPcpForDevice` refuses a fixture member (the
+console path stays for them), a revoked member, a malformed date or scope, and any wallet that is not
+a credentialed prescriber in ACTIVE state in the provider registry; it writes the assignment to the
+member's forest (MEMBER leaf 0), rebuilds the credential, and queues the wallet update through the
+same `updateCredentialAndSubmitToL2` every other change uses. The device then runs its wallet-update
+pass (a second pass if the first joined one already in flight), proving the queued update with the
+preimage only it holds, and registers the link on the sequencer signed as the wallet. No proof is
+made in the engine: the member's wallet-signed request and proved update are the consent; the PCP
+verification proof belongs at prescribing (B5). The engine's member record, the family summary and
+the operator's state dump report `pcpAssigned` from the assignment itself, not from a fixture index.
+`l2_syncWalletState` has no caller left; it goes with the fixtures (F). The member app's log line
+says what happened instead of naming a receipt that no longer exists.
+
+*And a second defect the run caught.* The member node's server answered every request within a fixed
+30 s or sent 504; the device's registration proof takes 25-27 s and its credential proof 25-31 s, so
+the credential route timed out once on the first live run of this commit. Routes that prove
+in-request now declare `timeoutMs: PROVING_BUDGET_MS` (180 s), which re-arms the server's timer once
+the route is matched; the server's default is `NautilusAppConfig.requestTimeoutMs` (30 s). Six routes
+declare it: `/proof/registration` on the member, prescriber and pharmacy nodes, and the member's
+`/proof/wallet-updates`, `/proof/pcp-assignment` and `/credential/generate`.
+
+*Verified.* `tests/pcp-via-queue.test.ts` (4: the route takes only the named wallet's signature,
+not the operator's or another wallet's; it validates its body, passes the engine's refusal through
+with its status and hands the service exactly what the device sent with the documented defaults;
+the member node's proof route asks the engine and proves what it queued, with no empty forest and
+no sync RPC; the engine checks the registry and lifecycle before recording). `tests/proving-budget.test.ts`
+(10: a quick route answers, a slow one is answered 504 with the message, a route with its own budget
+runs past the default; the six proof routes declare the budget; the budget is minutes). Regression
+batch 43 suites, 710 tests. Typecheck src 20, scripts 2. Live: 167/174 checks across 29 steps on a clean secured genesis boot — the seven failing checks identical by name to commit two's run; the five primary-care checks pass, the device's credential verifies offline (29.3 s of proving, inside the new budget) and a tampered copy is rejected.
+
 **B1 step two, commit two — implementation record: the device proves its own portable credential.**
 Done 2026-10-18. Closes **A-17**, the last mitigated finding.
 
@@ -2309,3 +2351,17 @@ suites added this program: 33, 385 tests, all passing. Typecheck src 20, scripts
 162/169 checks across 28 steps on a clean secured genesis boot — the previous eight failing checks minus "Portable credential generated"; the device's credential verifies offline, a tampered copy is rejected, and the operator's request to the engine is refused. Git: with this commit, 42 commits on local `dev`, nothing pushed, `origin/main`
 untouched. **Next:** the device's PCP update through the engine's queue, then B3 (adjudicate then
 finalize, with the §7 questions settled first), then B5, B7, B8, B6, B4.
+
+**Addendum, 2026-10-18: B1 step two, commit three done.** The member's primary-care choice goes
+through the engine's queue: wallet-signed `POST /interactive/pcp-assignment` →
+`assignPcpForDevice` (prescriber credentialed and ACTIVE, member not revoked, fixture members
+refused) → PCP leaf and credential rebuilt → wallet update queued → the device proves it and signs
+the sequencer link. The device's `/proof/pcp-assignment` no longer rebuilds a credential from an
+empty forest or calls `l2_syncWalletState`, which now has no caller (remove with F). The six routes
+that prove in-request declare a 180 s proving budget (`timeoutMs`, `PROVING_BUDGET_MS`): the fixed
+30 s timer answered 504 to a 31 s credential proof in this commit's first live run. Scoreboard
+unchanged: 32 findings; 23 fixed; 9 open (A-2, A-10, A-11, A-18, A-22, A-23, A-25, A-26, A-27), one
+critical (A-2, item D1); A-18's lifecycle gap is closed on this one path. Acceptance suites added
+this program: 35, 399 tests, all passing. Typecheck src 20, scripts 2. Pipeline 167/174 checks across 29 steps on a clean secured genesis boot — the seven failing checks identical by name to commit two's run; the five primary-care checks pass, the device's credential verifies offline (29.3 s of proving, inside the new budget) and a tampered copy is rejected. Git:
+with this commit, 43 commits on local `dev`, nothing pushed, `origin/main` untouched. **Next:**
+B3 (adjudicate then finalize, with the §7 questions settled first), then B5, B7, B8, B6, B4.

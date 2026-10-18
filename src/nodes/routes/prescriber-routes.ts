@@ -34,7 +34,7 @@ import { LifecycleWitness } from '../../engine/lifecycle.js';
 import { PrescriberNode } from '../prescriber-node.js';
 import { registerProviderEntity } from '../provider-registration.js';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
-import type { RouteRegistration } from '../nautilus-app-types.js';
+import { PROVING_BUDGET_MS, type RouteRegistration } from '../nautilus-app-types.js';
 import type { PrescriberLocalData } from '../../models/prescriber.js';
 import { ProviderNetworkRegistry } from '../../eligibility/provider-network-registry.js';
 
@@ -363,6 +363,7 @@ export function buildPrescriberRoutes(
   routes.push({
     method: 'POST',
     path: '/proof/registration',
+    timeoutMs: PROVING_BUDGET_MS,
     handler: async (_req, res, _params, _query, _body) => {
       if (server.getOnboardingPhase() !== 'ready') {
         return server.sendResponse(res, 409, false, undefined, `Cannot generate proof in phase: ${server.getOnboardingPhase()}`);

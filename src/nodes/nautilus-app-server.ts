@@ -77,6 +77,7 @@ interface CompiledRoute {
   handler: RouteHandler;
   adminOnly: boolean;
   deviceOnly: boolean;
+  timeoutMs?: number;
 }
 
 /** Compile a path like '/drugs/medication/:ndcHash' into a regex */
@@ -93,6 +94,7 @@ function compileRoute(reg: RouteRegistration): CompiledRoute {
     handler: reg.handler,
     adminOnly: reg.adminOnly ?? false,
     deviceOnly: reg.deviceOnly ?? false,
+    timeoutMs: reg.timeoutMs,
   };
 }
 
@@ -438,15 +440,21 @@ export class NautilusAppServer {
     const pathname = url.pathname;
     const method = req.method ?? 'GET';
 
-    // Request timeout (exclude SSE)
+    // Request budget (SSE excepted): the server's default, re-armed to the route's own `timeoutMs`
+    // once the route is known — a route that proves runs for longer than a lookup.
     const isSSE = pathname === '/events';
-    if (!isSSE) {
-      const timeout = setTimeout(() => {
+    let budgetTimer: NodeJS.Timeout | null = null;
+    const armBudget = (ms: number): void => {
+      if (budgetTimer) clearTimeout(budgetTimer);
+      budgetTimer = setTimeout(() => {
         if (!res.writableEnded) {
           this.sendJson(res, 504, { ok: false, error: 'Request timeout', timestamp: Date.now() });
         }
-      }, REQUEST_TIMEOUT_MS);
-      res.on('finish', () => clearTimeout(timeout));
+      }, ms);
+    };
+    if (!isSSE) {
+      armBudget(this.config.requestTimeoutMs ?? REQUEST_TIMEOUT_MS);
+      res.on('finish', () => { if (budgetTimer) clearTimeout(budgetTimer); });
     }
 
     // CORS (A2): one shared policy. A disallowed or absent origin gets no header at all,
@@ -490,6 +498,7 @@ export class NautilusAppServer {
       if (route.method !== method) continue;
       const match = pathname.match(route.pattern);
       if (!match) continue;
+      if (!isSSE && route.timeoutMs) armBudget(route.timeoutMs);
 
       // Admin auth (A9): this node's own bearer token, or a signature from a client key it registered
       if (route.adminOnly) {

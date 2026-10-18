@@ -1301,7 +1301,7 @@
       }).then(function (r) { return r.json(); });
       if (proofRes.ok) {
         toast('PCP proof submitted to sequencer', 'success');
-        logSystem('pcp_assign', 'PCP proof submitted, receipt: ' + (proofRes.data?.receiptId || 'ok'), shortHash(wid));
+        logSystem('pcp_assign', 'PCP recorded on the credential; wallet update proved on this device' + (proofRes.data?.registeredOnSequencer ? '; link registered' : ''), shortHash(wid));
         console.log('[PCP] Wallet update proof submitted:', proofRes.data);
       } else {
         toast('PCP saved but proof failed: ' + (errMsg(proofRes.error) || 'unknown'), 'error');

@@ -82,6 +82,8 @@ export interface NautilusAppConfig {
   proverApiKey?: string;
   /** Allowed CORS origins */
   allowedOrigins: string[];
+  /** The budget for a request before the server answers 504 (default 30 s). A route may declare a longer `timeoutMs`. */
+  requestTimeoutMs?: number;
   /** A2: whether and how POST /rpc forwards to the sequencer. Off unless explicitly set. */
   rpcProxy?: RpcProxyPolicy;
   /** Insurer Nautilus URL for enrollment notification (optional) */
@@ -132,10 +134,19 @@ export type RouteHandler = (
 ) => Promise<void>;
 
 /** A single route registration */
+/**
+ * How long a route that proves in-request may run before the server answers 504. A device's
+ * registration proof takes 25 s on a workstation and a credential proof 25-31 s, behind a default
+ * budget of 30 s: a slow proof must not read as a dead request.
+ */
+export const PROVING_BUDGET_MS = 180_000;
+
 export interface RouteRegistration {
   method: HttpMethod;
   path: string;
   handler: RouteHandler;
+  /** This route's own budget before a 504, replacing the server's default; a route that proves declares `PROVING_BUDGET_MS`. */
+  timeoutMs?: number;
   /** If true, requires this node's admin credential: its own bearer token, or a signature from a client key it registered (A9). */
   adminOnly?: boolean;
   /**

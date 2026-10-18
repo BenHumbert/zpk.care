@@ -86,6 +86,7 @@ import { ProviderNetworkRegistry } from '../eligibility/provider-network-registr
 
 // PCP Assignment
 import { buildPcpAssignmentData, PCP_ASSIGNMENT_LEAF_INDEX, PcpAssignmentData } from '../eligibility/pcp-assignment-data.js';
+import { ProviderLifecycle } from '../l2/provider-registry-types.js';
 import { PcpVerificationProgram } from '../eligibility/pcp-verification-program.js';
 
 // Access Control
@@ -1745,6 +1746,62 @@ export class AdjudicationService {
     }
     this.emit('info', update.phase, `  Wallet update ${updateId} (${update.reason}) proved by the member's device — receipt ${receiptId}`);
     return update;
+  }
+
+  /**
+   * A member with a device names its primary-care prescriber (B1 step two, commit three). The engine
+   * checks the prescriber is credentialed and active, writes the assignment to the member's forest
+   * and credential, and queues the wallet update for the device to prove; the device then registers
+   * the link on the sequencer under its own signature (A10b). No proof is made here: the member's own
+   * wallet-signed request and proved wallet update are the consent; the PCP verification proof
+   * belongs at prescribing (B5). A fixture member, which has no device, keeps the console path.
+   */
+  async assignPcpForDevice(opts: { walletId: string; pcpWalletId: string; effectiveDate: string; specialty: string; consentScopeFlags: number }): Promise<Record<string, unknown>> {
+    if (!this.compiled) throw new RegistrationRefused(503, 'Programs not compiled yet');
+    const enrolled = this.enrolledMembers.get(opts.walletId);
+    if (!enrolled) throw new RegistrationRefused(404, 'This wallet is not registered with the engine');
+    if (enrolled.memberIndex >= 0) throw new RegistrationRefused(409, 'A fixture member is assigned a primary-care prescriber through the console (POST /interactive/assign-pcp)');
+    if (enrolled.lifecycle === 'REVOKED') throw new RegistrationRefused(409, 'A revoked member cannot name a primary-care prescriber');
+    const effectiveDate = opts.effectiveDate.replace(/-/g, '');
+    if (!/^\d{8}$/.test(effectiveDate)) throw new RegistrationRefused(400, 'effectiveDate must be a calendar date, CCYYMMDD');
+    if (!/^\d+$/.test(opts.pcpWalletId)) throw new RegistrationRefused(400, 'pcpWalletId must be a decimal wallet id');
+    if (!Number.isInteger(opts.consentScopeFlags) || opts.consentScopeFlags < 0 || opts.consentScopeFlags > 7) throw new RegistrationRefused(400, 'consentScopeFlags is a bitfield 0..7');
+    if (typeof opts.specialty !== 'string' || opts.specialty.length === 0 || opts.specialty.length > 64) throw new RegistrationRefused(400, 'specialty must be 1..64 characters');
+    const provider = this.l2Node.getSequencer().getProvider(opts.pcpWalletId);
+    if (!provider || provider.metadata.providerType !== 'prescriber') throw new RegistrationRefused(404, 'The named wallet is not a credentialed prescriber');
+    if (Number(provider.leaf.credentialState) !== ProviderLifecycle.ACTIVE) throw new RegistrationRefused(409, 'The named prescriber is not active');
+    const pcpData = buildPcpAssignmentData({
+      memberWalletId: enrolled.walletId.toBigInt().toString(),
+      pcpWalletId: BigInt(opts.pcpWalletId).toString(),
+      effectiveDate,
+      terminationDate: '',
+      specialty: opts.specialty,
+      consentTimestamp: effectiveDate,
+      consentScopeFlags: opts.consentScopeFlags,
+    });
+    enrolled.forest.setLeaf(ForestDomain.MEMBER, PCP_ASSIGNMENT_LEAF_INDEX, pcpData.commitment());
+    enrolled.credentialData = new CredentialData({
+      credentialType: enrolled.credentialData.credentialType,
+      forestRoot: enrolled.forest.getForestRoot(),
+      issuerWalletId: enrolled.credentialData.issuerWalletId,
+      subjectWalletId: enrolled.credentialData.subjectWalletId,
+      issuedAt: enrolled.credentialData.issuedAt,
+      expiresAt: enrolled.credentialData.expiresAt,
+      revoked: enrolled.credentialData.revoked,
+    });
+    const outcome = await this.updateCredentialAndSubmitToL2(enrolled, 'pcp');
+    enrolled.pcpAssignment = pcpData;
+    enrolled.pcpPrescriberIndex = undefined;
+    this.emit('info', 'pcp', `  Primary care named by the member's device: prescriber ${opts.pcpWalletId.slice(0, 12)}… — the device proves the wallet update`);
+    return {
+      walletId: opts.walletId,
+      pcpWalletId: opts.pcpWalletId,
+      effectiveDate,
+      commitment: pcpData.commitment().toString(),
+      walletUpdate: outcome.pending
+        ? { status: 'pending', updateId: outcome.pending.updateId, newInventoryRoot: outcome.pending.newInventoryRoot }
+        : { status: 'applied', receiptId: outcome.receipt?.receiptId ?? null },
+    };
   }
 
   async registerMemberFromEnrollment(opts: {
@@ -5176,7 +5233,7 @@ export class AdjudicationService {
       eligibility,
       accumulator,
       prescriptionHistory,
-      pcpAssigned: enrolled.pcpPrescriberIndex !== undefined,
+      pcpAssigned: enrolled.pcpAssignment !== undefined,
     };
   }
 
@@ -5245,7 +5302,7 @@ export class AdjudicationService {
           benefitMaxCents: Number(m.accumulatorData.annualBenefitMaxCents.toBigInt()),
         },
         prescriptionHistory: rxHistory,
-        pcpAssigned: m.pcpPrescriberIndex !== undefined,
+        pcpAssigned: m.pcpAssignment !== undefined,
       });
     }
 
@@ -6350,6 +6407,7 @@ export class AdjudicationService {
         },
         pcpAssignment: pcpInfo,
         pendingWalletUpdates: this.pendingUpdatesFor(m.walletId.toString()).length,
+        pcpAssigned: m.pcpAssignment !== undefined,
         inNetworkPrescribers: m.inNetworkPrescriberIndices,
         inNetworkPharmacies: m.inNetworkPharmacyIndices,
         lifecycle: m.lifecycle,

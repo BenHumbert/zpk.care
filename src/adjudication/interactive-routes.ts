@@ -132,6 +132,7 @@ export function registerInteractiveRoutes(
   const WALLET_ROUTES: Record<string, { from: 'query' | 'body'; param: string }> = {
     'GET:/interactive/wallet-updates': { from: 'query', param: 'walletId' },
     'POST:/interactive/wallet-update-applied': { from: 'body', param: 'walletId' },
+    'POST:/interactive/pcp-assignment': { from: 'body', param: 'walletId' },
   };
 
   // Helper: register route with automatic admin gating for Tier 3 routes, and the wallet gate for wallet routes
@@ -263,6 +264,30 @@ export function registerInteractiveRoutes(
       const update = service.markWalletUpdateApplied(params.walletId, params.updateId, params.receiptId);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ updateId: update.updateId, reason: update.reason, status: update.status, receiptId: update.receiptId }));
+    } catch (err) {
+      if (err instanceof RegistrationRefused) return sendError(res, err.status, err.message);
+      sendError(res, 500, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  // B1 step two, commit three: a member with a device names its primary-care prescriber. The engine
+  // records it on the member's credential and queues the wallet update for the device to prove.
+  // Wallet-signed: only the member's own key opens it.
+  reg('POST', '/interactive/pcp-assignment', async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      const params = JSON.parse(await readBody(req) || '{}');
+      for (const field of ['walletId', 'pcpWalletId', 'effectiveDate']) {
+        if (typeof params[field] !== 'string' || params[field].length === 0) { sendError(res, 400, `Missing ${field}`); return; }
+      }
+      const result = await service.assignPcpForDevice({
+        walletId: String(params.walletId),
+        pcpWalletId: String(params.pcpWalletId),
+        effectiveDate: String(params.effectiveDate),
+        specialty: typeof params.specialty === 'string' && params.specialty.length > 0 ? params.specialty : 'General Practice',
+        consentScopeFlags: typeof params.consentScopeFlags === 'number' ? params.consentScopeFlags : 7,
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
     } catch (err) {
       if (err instanceof RegistrationRefused) return sendError(res, err.status, err.message);
       sendError(res, 500, err instanceof Error ? err.message : String(err));

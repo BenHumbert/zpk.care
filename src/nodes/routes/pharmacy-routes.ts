@@ -41,7 +41,7 @@ import {
 } from '../../credentials/nfc-attestation.js';
 import { PharmacyNode } from '../pharmacy-node.js';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
-import type { RouteRegistration } from '../nautilus-app-types.js';
+import { PROVING_BUDGET_MS, type RouteRegistration } from '../nautilus-app-types.js';
 import type { PharmacyLocalData } from '../../models/pharmacy.js';
 
 const DOMAIN_TAG_PHARMACY = 2;
@@ -288,6 +288,7 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
   routes.push({
     method: 'POST',
     path: '/proof/registration',
+    timeoutMs: PROVING_BUDGET_MS,
     handler: async (_req, res, _params, _query, _body) => {
       if (server.getOnboardingPhase() !== 'ready') {
         return server.sendResponse(res, 409, false, undefined, `Cannot generate proof in phase: ${server.getOnboardingPhase()}`);

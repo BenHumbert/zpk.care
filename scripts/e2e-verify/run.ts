@@ -766,6 +766,22 @@ async function main() {
     trace.check('Portable credential generated', false, 'credential.proofJson', unwrap(devCred.json) ?? devCred.json);
   }
 
+  // ── 12b. Primary care, from the device (B1 step two, commit three) ──
+  trace.begin('member', 'The member names the prescriber node as primary care; the engine queues it, the device proves it');
+  const pcpPick = await mem('POST', '/pcp/assign', { pcpWalletId: String(results.prescriberWalletId), effectiveDate: '20261018', specialty: 'Internal Medicine' });
+  trace.check('The device records the choice locally', pcpPick.status === 200, 200, pcpPick.status);
+  const pcpProve = await mem('POST', '/proof/pcp-assignment', {});
+  const pcpOut = unwrap(pcpProve.json) ?? pcpProve.json;
+  const pcpRun = pcpOut?.walletUpdates ?? {};
+  trace.check('The engine recorded the assignment and the device proved the wallet update', pcpProve.status === 200 && Number(pcpRun.pending) === 0 && (pcpRun.errors ?? []).length === 0 && (pcpRun.refused ?? []).length === 0, 'pending 0, no errors', pcpProve.status === 200 ? pcpRun : (pcpOut ?? pcpProve.status));
+  trace.check('The device registered the link on the sequencer under its own signature', pcpOut?.registeredOnSequencer === true, true, pcpOut?.registeredOnSequencer ?? pcpOut);
+  const pcpLinks = await rpc('l2_getPcpAssignments', { prescriberWalletId: String(results.prescriberWalletId) });
+  trace.check('The sequencer lists the member under the prescriber as a primary-care patient', Array.isArray(pcpLinks.result) && pcpLinks.result.some((a: any) => a.memberWalletId === walletId), walletId.slice(0, 12) + '…', pcpLinks.result ?? pcpLinks.error);
+  const pcpState = unwrap((await httpAdmin('GET', `${SEQ}/interactive/state`)).json) ?? {};
+  const pcpMine = memberRecordOf(pcpState);
+  trace.check('The engine holds the assignment on the member record with nothing left to prove', pcpMine?.pcpAssigned === true && Number(pcpMine?.pendingWalletUpdates) === 0, 'pcpAssigned, 0 pending', pcpMine ? { pcpAssigned: pcpMine.pcpAssigned, pendingWalletUpdates: pcpMine.pendingWalletUpdates } : 'no record');
+
+
   // ── 13. More security probes ────────────────────────────────
   trace.begin('attacker', 'Probe routes that touch this member without credentials');
   const dur = await http('GET', `${PHA}/dur/patient/${walletId}/full-history`);

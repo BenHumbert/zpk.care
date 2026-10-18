@@ -73,7 +73,7 @@ Insurer memory only: `__enrollmentRegistry` Map walletId → {walletId, tokenId,
 | 20 | POST /pcp/assign | open | node; pcpWalletId+effectiveDate | none (commitment computed locally) | blob: pcpAssignment{…} | MR:856-925 |
 | 21 | GET /pcp/current | open | none | none | — | MR:927-936 |
 | 22 | DELETE /pcp/current | open | none | none | blob: delete pcpAssignment | MR:938-954 |
-| 23 | POST /proof/pcp-assignment | open | phase==ready; node; walletId+preimageFields; pcpAssignment present | (a) L2Client getWalletState(walletId) (MR:988); (b) getWalletWitnesses (MR:1035); (c) proveWalletUpdate on device (MN:128-162); (d) submitProof(proof, {newCredentialInventoryRoot}) (MR:1070); (e) raw /rpc `l2_syncWalletState` {walletId, newCredentialInventoryRoot, newNonce} **no auth** (MR:1076-1088); (f) L2Client registerPcpAssignment(walletId, pcpWalletId, effectiveDate) (MR:1103) | blob: pcpAssignment.proofSubmitted, receiptId | MR:961-1124 |
+| 23 | POST /proof/pcp-assignment | device session | phase==ready; node compiled; walletId; pcpAssignment present | (a) wallet-signed `POST /interactive/pcp-assignment` on the engine (`assignPcpForDevice`); (b) `applyPendingWalletUpdates` proves the queued update on the device (second pass if the first joined one in flight); (c) L2Client registerPcpAssignment(walletId, pcpWalletId, effectiveDate) signed as the wallet. No empty forest, no `l2_syncWalletState` (B1 step two, commit three) | blob: pcpAssignment.proofSubmitted, walletUpdateId, registeredOnSequencer | member-routes.ts |
 | 24 | GET /nfc/id-payload | open | walletId in blob | none | — (NDEF `zktrident.care:member-id` {v, t, w: walletId, ts}, NI:107-130) | MR:1128-1152 |
 | 25 | GET /nfc/id-qr | open | walletId in blob | none | — (base64url payload + walletId) | MR:1154-1170 |
 | 26 | GET /proof-timings | open | node | none | — | MR:1174-1185 |
@@ -180,7 +180,7 @@ Insurer admin token in MK: Bearer to sequencer (MK:612-614, 971-973), insurer Ed
 ## Open questions
 - Is the member node meant to hold ZKTRIDENT_ADMIN_TOKEN (SM:89; SL:651 passes it)? With it every member RPC is an admin call; without it, does `l2_registerEntity` (MR:373-387) still succeed?
 - What does the engine do with `preimageFields` at /interactive/register-member (src/adjudication/interactive-routes.ts:147)? If it proves on the member's behalf, I2 is violated structurally, not just in transit.
-- Sequencer-side auth: `l2_registerEntity` is node-signed (A9) and, since A10b, carries `signingPublicKeyHex`; `l2_registerPcpAssignment` is signed as the member (A10b, `node.walletSigner()`); `l2_syncWalletState` (MR, no header) and `l2_getEmployerNode` / `l2_listEmployerNodes` are still assumed open.
+- Sequencer-side auth: `l2_registerEntity` is node-signed (A9) and, since A10b, carries `signingPublicKeyHex`; `l2_registerPcpAssignment` is signed as the member (A10b, `node.walletSigner()`); `l2_syncWalletState` has no caller since B1 step two, commit three (the member node asks the engine instead); `l2_getEmployerNode` / `l2_listEmployerNodes` are still assumed open.
 - Employer POST /tokens/:id/validate is called by the insurer with no credentials (IR:236-241, 289-293); is it open on the employer node?
 - All node types default stateDir to `./nautilus-data` (SM:76, SI:59) and SL passes no ZKTRIDENT_STATE_DIR; do member and insurer share one directory in the default boot?
 - Wrong-PIN-leaves-unlocked (LS:150 vs LS:201-219; MR:91-94): bug or accepted? It satisfies the /onboarding/eject gate (MR:1355) without the correct PIN.
@@ -208,3 +208,7 @@ Member node: `POST /proof/registration` now proves ownership (`MemberNode.proveO
 ## The device's own portable credential (B1 step two, commit two, 2026-10-18)
 
 Member node: `POST /credential/generate` (device session, phase ready, programs compiled) runs a pass over the wallet's queue first, rebuilds the credential and the inventory from the parts the engine last handed it (`credentialParts` in the device state, written after each applied update; `rebuildCredential`), checks the ledger's credential root matches, and proves `Credential.proveHoldingByType` over the ownership proof made at registration (`ownershipProofJson` in the device state). Returns `{credential, proofType: 'credential-type-holding', timeMs}`; the credential verifies offline with `verifyCredentialOffline`. 409 when updates are outstanding, the ledger disagrees, or the device has no credential yet.
+
+## Proving budget (B1 step two, commit three, 2026-10-18)
+
+The Nautilus server answers 504 when a request outruns its budget: the server's default (`NautilusAppConfig.requestTimeoutMs`, 30 s) unless the matched route declares `timeoutMs`. The routes that prove in-request declare `PROVING_BUDGET_MS` (180 s): member `POST /proof/registration`, `/proof/wallet-updates`, `/proof/pcp-assignment`, `/credential/generate`; prescriber and pharmacy `POST /proof/registration`. Measured on the workstation: registration 25-27 s, credential 25-31 s, a wallet update 8-13 s. Acceptance test `tests/proving-budget.test.ts`.
