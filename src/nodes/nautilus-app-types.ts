@@ -32,6 +32,7 @@ export type OnboardingPhase =
   | 'awaiting_token'     // Waiting for GroupEnrollmentToken
   | 'token_received'     // Token validated, ready for wallet creation
   | 'key_generated'      // Enrollment key generated on device
+  | 'code_redeemed'      // C2: the insurer redeemed the code and answered the real group and plan
   | 'wallet_derived'     // Wallet ID computed from local data + enrollment key
   | 'enrolled'           // Enrollment complete, wallet active on sequencer
   | 'compiling'          // Compiling ZkPrograms (member/prescriber/pharmacy)

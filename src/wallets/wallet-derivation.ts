@@ -16,7 +16,7 @@
 
 import { Field, Poseidon } from 'o1js';
 import { randomBytes } from 'crypto';
-import { hashString, dateToField, hashDate, codeToField } from '../zkp/hash-utils.js';
+import { hashString, dateToField, hashDate, codeToField, hashIdentityField, hashIdentityDate, isIdentitySalt } from '../zkp/hash-utils.js';
 import type { MemberLocalData } from '../models/member.js';
 import type { PrescriberLocalData } from '../models/prescriber.js';
 import type { PharmacyLocalData } from '../models/pharmacy.js';
@@ -65,6 +65,15 @@ export function generateEnrollmentKey(): string {
 }
 
 /**
+ * The member's identity salt — plan item C1, finding A-1. Generated on the device when the wallet
+ * is derived, kept in the encrypted device state and in the recovery deposit, mixed into every
+ * identity field hash. Never sent in a request, never returned in a response.
+ */
+export function generateIdentitySalt(): string {
+  return randomBytes(32).toString('hex');
+}
+
+/**
  * Validate that an enrollment key meets minimum security requirements.
  *
  * Requirements:
@@ -106,7 +115,9 @@ export const DOMAIN_TAG_REPRESENTATIVE = Field(3);
 /**
  * Derive a member's wallet identity from their local data + enrollment key + groupIdHash.
  *
- * Preimage: [0, hash(cardholderId), hashDate(dob), hash(firstName), hash(lastName), hash(enrollmentKey), groupIdHash]
+ * Preimage: [0, h(cardholderId), hDate(dob), h(firstName), h(lastName), h(enrollmentKey), groupIdHash]
+ * where h and hDate are the identity-salted hashes of `hash-utils.ts` (C1): the salt is the
+ * member's, generated on the device, and is what makes these six Fields non-invertible by search.
  *
  * groupIdHash cryptographically binds the wallet to the employer group.
  * Changing jobs = changing groupIdHash = different wallet ID = new enrollment ceremony.
@@ -115,17 +126,9 @@ export const DOMAIN_TAG_REPRESENTATIVE = Field(3);
  * plain integer. This prevents brute-force recovery of the date of birth from
  * the on-chain wallet ID (~36,500 possible DOB values).
  */
-export function deriveMemberWalletId(local: MemberLocalData, enrollmentKey: string, groupIdHash: Field): Field {
+export function deriveMemberWalletId(local: MemberLocalData, enrollmentKey: string, groupIdHash: Field, identitySalt: string): Field {
   validateEnrollmentKey(enrollmentKey);
-  return Poseidon.hash([
-    DOMAIN_TAG_MEMBER,
-    hashString(local.cardholderId),
-    hashDate(local.dateOfBirth),
-    hashString(local.firstName),
-    hashString(local.lastName),
-    hashString(enrollmentKey),
-    groupIdHash,
-  ]);
+  return Poseidon.hash([DOMAIN_TAG_MEMBER, ...memberWalletPreimage(local, enrollmentKey, groupIdHash, identitySalt)]);
 }
 
 /**
@@ -134,13 +137,14 @@ export function deriveMemberWalletId(local: MemberLocalData, enrollmentKey: stri
  * Computed off-circuit from raw local data, then used inside the ZK proof.
  * Returns 6 Fields: [cardholderIdHash, dobHash, firstNameHash, lastNameHash, enrollmentKeyHash, groupIdHash]
  */
-export function memberWalletPreimage(local: MemberLocalData, enrollmentKey: string, groupIdHash: Field): Field[] {
+export function memberWalletPreimage(local: MemberLocalData, enrollmentKey: string, groupIdHash: Field, identitySalt: string): Field[] {
+  if (!isIdentitySalt(identitySalt)) throw new Error('memberWalletPreimage: identitySalt must be 32 bytes of hex');
   return [
-    hashString(local.cardholderId),
-    hashDate(local.dateOfBirth),
-    hashString(local.firstName),
-    hashString(local.lastName),
-    hashString(enrollmentKey),
+    hashIdentityField(local.cardholderId, identitySalt),
+    hashIdentityDate(local.dateOfBirth, identitySalt),
+    hashIdentityField(local.firstName, identitySalt),
+    hashIdentityField(local.lastName, identitySalt),
+    hashIdentityField(enrollmentKey, identitySalt),
     groupIdHash,
   ];
 }
@@ -265,8 +269,8 @@ export function paddedPreimage(domainTag: Field, preimage: Field[]): Field[] {
 }
 
 /** Build padded StateTransitionProgram input for a member */
-export function memberTransitionPreimage(local: MemberLocalData, enrollmentKey: string, groupIdHash: Field): Field[] {
-  return paddedPreimage(DOMAIN_TAG_MEMBER, memberWalletPreimage(local, enrollmentKey, groupIdHash));
+export function memberTransitionPreimage(local: MemberLocalData, enrollmentKey: string, groupIdHash: Field, identitySalt: string): Field[] {
+  return paddedPreimage(DOMAIN_TAG_MEMBER, memberWalletPreimage(local, enrollmentKey, groupIdHash, identitySalt));
 }
 
 /** Build padded StateTransitionProgram input for a prescriber */

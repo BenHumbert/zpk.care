@@ -6,22 +6,22 @@ Scope: wallet derivation, enrollment key lifecycle, backup/recovery/migration, m
 
 | Item | Exactly | File:line |
 |---|---|---|
-| String hashing | `hashString(v) = Poseidon.hash(Encoding.stringToFields(v))` — no salt, no per-field domain tag | `src/zkp/hash-utils.ts:31-34` |
-| Date hashing | `hashDate(d) = Poseidon.hash([Field(BigInt(d))])` (CCYYMMDD) — no salt | `hash-utils.ts:62-64` |
+| String hashing | `hashString(v) = Poseidon.hash(Encoding.stringToFields(v))` for public identifiers; **member identity fields use `hashIdentityField(v, salt) = Poseidon([hashString(salt), ...stringToFields(v)])` since C1 (2026-10-18)** | `src/zkp/hash-utils.ts` |
+| Date hashing | `hashDate(d) = Poseidon([Field(BigInt(d))])` (public dates); **the member's birth date uses `hashIdentityDate(d, salt)` since C1** | `hash-utils.ts` |
 | Plain date | `dateToField(d) = Field(BigInt(d))` (reversible; used in models/EligibilityData, not in wallet IDs) | `hash-utils.ts:49-52` |
 | Code | `codeToField(n) = Field(BigInt(n))` (qualifier codes, raw) | `hash-utils.ts:84-86` |
 | Domain tags | MEMBER 0, PRESCRIBER 1, PHARMACY 2, REPRESENTATIVE 3 | :101-104 |
-| Member wallet ID | `Poseidon.hash([0, hashString(cardholderId), hashDate(dateOfBirth), hashString(firstName), hashString(lastName), hashString(enrollmentKey), groupIdHash])`; calls `validateEnrollmentKey` first | `deriveMemberWalletId` :118-129 |
-| Member preimage (6 Fields, private inputs) | [cardholderIdHash, dobHash, firstNameHash, lastNameHash, enrollmentKeyHash, groupIdHash] | `memberWalletPreimage` :137-146 |
+| Member wallet ID | `Poseidon.hash([0, hId(cardholderId), hIdDate(dateOfBirth), hId(firstName), hId(lastName), hId(enrollmentKey), groupIdHash])` with `hId = hashIdentityField(·, identitySalt)`; `deriveMemberWalletId(local, key, groupIdHash, identitySalt)`; calls `validateEnrollmentKey` | `wallet-derivation.ts` |
+| Member preimage (6 Fields, private inputs) | [cardholderIdHash, dobHash, firstNameHash, lastNameHash, enrollmentKeyHash, groupIdHash], the first five salted (C1) | `memberWalletPreimage(local, key, groupIdHash, identitySalt)` |
 | Prescriber | `Poseidon.hash([1, codeToField(prescriberIdQualifier), hashString(prescriberId), hashString(enrollmentKey)])`; preimage 3 Fields | :153-161, :166-172 |
 | Pharmacy | `Poseidon.hash([2, codeToField(serviceProviderIdQualifier), hashString(serviceProviderId), hashString(enrollmentKey)])`; preimage 3 Fields | :179-187, :192-198 |
 | Representative | `Poseidon.hash([3, codeToField(representativeIdQualifier), hashString(representativeId), hashString(enrollmentKey)])`; preimage 3 Fields | :221-232, :237-246 |
-| Enrollment key hashing | `hashString(enrollmentKey)` = Poseidon over `Encoding.stringToFields` of the base64url string; no salt | :126, :159, :185, :230 |
+| Enrollment key hashing | member: `hashIdentityField(enrollmentKey, identitySalt)` (C1); providers: `hashString(enrollmentKey)`, no salt | `wallet-derivation.ts` |
 | Padded 7-Field transition input | `[domainTag, f0..f5]`, trailing `Field(0)` for non-members | `paddedPreimage` :261-265; `memberTransitionPreimage` :268-270, `prescriberTransitionPreimage` :273-275, `pharmacyTransitionPreimage` :278-280 |
-| groupIdHash source | member node: `hashString(tokenData.groupId)` else `Field(0)` | `src/nodes/routes/member-routes.ts:235-236`; engine `hashString('ACME-CORP')` `interactive-service.ts:1016` |
+| groupIdHash source | member node: `data.enrollment.groupIdHash`, answered by the insurer at `/onboarding/redeem` before derivation (C2); a device with no insurer falls back to `hashString(tokenData.groupId)` or `Field(0)`; engine fixtures `hashString('ACME-CORP')` | `src/nodes/routes/member-routes.ts` derive-wallet |
 | In-circuit re-derivations | member/prescriber/pharmacy in `state-transition.ts:88-90`; ProofGate `proof-gate.ts:70-78,95-100,117-122,139-144`; migration `wallet-migration-program.ts:134-135`; pharmacy binding `fulfillment-program.ts:141-146`, `accumulator-fulfillment-program.ts:147-152,513-518`; prescriber binding `prescription-program.ts:124-129,249-254`; engine off-circuit check `Poseidon.hash([0, ...preimageFields]) == walletId` `interactive-service.ts:1554` |
 
-- GAP: per-field hashes are unsalted (`hash-utils.ts:31-34, 62-64`): each of cardholderIdHash/dobHash/firstNameHash/lastNameHash is a deterministic function of one PHI value; these six Fields are persisted (`member-routes.ts:245-248`) and sent off-phone to the sequencer (`member-routes.ts:558-565` → POST /interactive/register-member) — I2.
+- Closed 2026-10-18 (C1): the member's per-field hashes are salted with a per-device salt (`identitySalt`, 32 bytes, in `nautilus-state.enc` and inside the recovery deposit); the dictionary inversion of A-1 no longer applies to a member's stored fields.
 - Callers by process: MEM `secureMemberDerivation` (`member-routes.ts:239-240`) → `deriveMemberWalletId` + `memberWalletPreimage` (`secure-context.ts:74-75`); proofs rebuild the padded preimage from stored strings (`member-routes.ts:498-501`, `:1050-1053`); `MemberNode.buildPreimage` → `memberTransitionPreimage` (`member-node.ts:260-266`). PRE `securePrescriberDerivation` (`prescriber-routes.ts:249`), `derivePrescriberWalletId` (`:1249`); PHA `securePharmacyDerivation` (`pharmacy-routes.ts:130`), `derivePharmacyWalletId` (`:1065`). SEQ engine: `deriveMemberWalletId`/`memberWalletPreimage` (`interactive-service.ts:1017,1053-1054,1694`), `derivePrescriberWalletId`/`prescriberWalletPreimage` (:580-581), `derivePharmacyWalletId`/`pharmacyWalletPreimage` (:585-586). INS: `derivePrescriberWalletId`/`derivePharmacyWalletId` from seed data (`start-insurer-nautilus.ts:153-157,183-187`). Nobody calls `deriveRepresentativeWalletId`/`secureRepresentativeDerivation` at runtime.
 
 ## 2. Enrollment key lifecycle

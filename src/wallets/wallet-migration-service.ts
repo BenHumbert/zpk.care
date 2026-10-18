@@ -45,6 +45,12 @@ import type { PharmacyLocalData } from '../models/pharmacy.js';
 import { WalletMigrationProgram } from './wallet-migration-program.js';
 import type { WalletMigrationProof } from './wallet-migration-program.js';
 
+/** C1: a member wallet cannot be derived without its identity salt, which the recovery path supplies from the released deposit. */
+function requireSalt(identitySalt: string | undefined): string {
+  if (!identitySalt) throw new Error('A member wallet needs its identity salt (released with the recovery deposit)');
+  return identitySalt;
+}
+
 // ─── Types ──────────────────────────────────────────────
 
 /** Result of recovering wallet identity from an NFC card */
@@ -112,6 +118,7 @@ export class WalletMigrationService {
     card: RecoveryCard,
     pin: string,
     local: EntityLocalData,
+    identitySalt?: string,
   ): RecoveryResult {
     const oldEnrollmentKey = importRecoveryCard(card, pin);
 
@@ -126,7 +133,7 @@ export class WalletMigrationService {
           'Expected a decimal numeric string. The card data may be corrupted.',
         );
       }
-      oldWalletId = deriveMemberWalletId(local as MemberLocalData, oldEnrollmentKey, groupIdHash);
+      oldWalletId = deriveMemberWalletId(local as MemberLocalData, oldEnrollmentKey, groupIdHash, requireSalt(identitySalt));
     } else if (card.domainTag === 1) {
       oldWalletId = derivePrescriberWalletId(local as PrescriberLocalData, oldEnrollmentKey);
     } else if (card.domainTag === 2) {
@@ -165,12 +172,13 @@ export class WalletMigrationService {
     local: EntityLocalData,
     domainTag: number,
     groupIdHash?: Field,
+    identitySalt?: string,
   ): NewWalletResult {
     const newEnrollmentKey = generateEnrollmentKey();
 
     let newWalletId: Field;
     if (domainTag === 0) {
-      newWalletId = deriveMemberWalletId(local as MemberLocalData, newEnrollmentKey, groupIdHash ?? Field(0));
+      newWalletId = deriveMemberWalletId(local as MemberLocalData, newEnrollmentKey, groupIdHash ?? Field(0), requireSalt(identitySalt));
     } else if (domainTag === 1) {
       newWalletId = derivePrescriberWalletId(local as PrescriberLocalData, newEnrollmentKey);
     } else if (domainTag === 2) {
@@ -203,13 +211,14 @@ export class WalletMigrationService {
     newEnrollmentKey: string,
     domainTag: number,
     groupIdHash?: Field,
+    identitySalt?: string,
   ): Promise<WalletMigrationProof> {
     let oldPreimage: Field[];
     let newPreimage: Field[];
 
     if (domainTag === 0) {
-      oldPreimage = memberTransitionPreimage(local as MemberLocalData, oldEnrollmentKey, groupIdHash ?? Field(0));
-      newPreimage = memberTransitionPreimage(local as MemberLocalData, newEnrollmentKey, groupIdHash ?? Field(0));
+      oldPreimage = memberTransitionPreimage(local as MemberLocalData, oldEnrollmentKey, groupIdHash ?? Field(0), requireSalt(identitySalt));
+      newPreimage = memberTransitionPreimage(local as MemberLocalData, newEnrollmentKey, groupIdHash ?? Field(0), requireSalt(identitySalt));
     } else if (domainTag === 1) {
       oldPreimage = prescriberTransitionPreimage(local as PrescriberLocalData, oldEnrollmentKey);
       newPreimage = prescriberTransitionPreimage(local as PrescriberLocalData, newEnrollmentKey);

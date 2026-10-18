@@ -29,8 +29,11 @@
  *   - The enrollment key NEVER appears in any API response
  */
 import { Encoding, Field, MerkleTree, Poseidon } from 'o1js';
-import { generateEnrollmentKey } from '../../wallets/wallet-derivation.js';
-import { hashString } from '../../zkp/hash-utils.js';
+import { generateEnrollmentKey, generateIdentitySalt } from '../../wallets/wallet-derivation.js';
+import { hashString, isIdentitySalt } from '../../zkp/hash-utils.js';
+import {
+  issueRecoveryCards, validateRecoveryPin, isRecoveryCardV3, combineEnrollmentKey, recoveryPinVerifier, recoveryCardBytes,
+} from '../../security/recovery-card.js';
 import { canonicalizeEnrollmentCode } from '../../onboarding/enrollment-code.js';
 import { WalletRegistryWitness, CREDENTIAL_INVENTORY_HEIGHT } from '../../wallets/wallet-state.js';
 import { LifecycleWitness } from '../../engine/lifecycle.js';
@@ -224,6 +227,68 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
     },
   });
 
+  // ── Onboarding: Redeem the enrollment code — plan item C2, finding A-9 ──────
+  // Before the wallet is derived, because the group hash the employer answers is one of the
+  // wallet's inputs. The insurer redeems the code with the issuing employer (A6) and answers the
+  // group and plan hashes; the wallet is bound to them at derivation, and `/onboarding/enroll`
+  // then binds the wallet to this redemption. The device never sends a wallet before it has one.
+  routes.push({
+    method: 'POST',
+    path: '/onboarding/redeem',
+    deviceOnly: true,
+    handler: async (_req, res, _params, _query, body) => {
+      const phase = server.getOnboardingPhase();
+      if (phase !== 'key_generated' && phase !== 'code_redeemed') {
+        return server.sendResponse(res, 409, false, undefined, `Cannot redeem the enrollment code in phase: ${phase}`);
+      }
+      const state = server.getLocalState();
+      const data = state.getState();
+      if (!data?.onboarding?.tokenId) {
+        return server.sendResponse(res, 409, false, undefined, 'No enrollment code has been accepted on this device');
+      }
+      const insurerUrl = server.getConfig().insurerUrl || null;
+      if (!insurerUrl) {
+        return server.sendResponse(res, 503, false, undefined, 'No insurer is configured for this device, so the enrollment code cannot be redeemed');
+      }
+      const b = body as { tokenPIN?: string } | undefined;
+      if (typeof b?.tokenPIN !== 'string' || b.tokenPIN.length === 0) {
+        return server.sendResponse(res, 400, false, undefined, 'The enrollment PIN is required');
+      }
+      const tokenPinHash = Poseidon.hash([
+        ...Encoding.stringToFields(data.onboarding.tokenId),
+        Field(0),
+        ...Encoding.stringToFields(b.tokenPIN),
+      ]).toString();
+      let answer: { groupIdHash?: string; planIdHash?: string; employerId?: string | null } | undefined;
+      try {
+        const resp = await fetch(`${insurerUrl.replace(/\/+$/, '')}/enrollment/process`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tokenId: data.onboarding.tokenId, tokenPinHash, role: 'member' }),
+        });
+        if (!resp.ok) {
+          const text = await resp.text().catch(() => '');
+          console.warn('[redeem] The insurer refused the enrollment code:', resp.status, text);
+          return server.sendResponse(res, resp.status === 429 ? 429 : 403, false, undefined,
+            'The insurer did not accept this enrollment code and PIN.');
+        }
+        const json = await resp.json() as { data?: typeof answer } & NonNullable<typeof answer>;
+        answer = json.data ?? json;
+      } catch (err: unknown) {
+        console.warn('[redeem] Insurer unreachable:', err instanceof Error ? err.message : String(err));
+        return server.sendResponse(res, 502, false, undefined, 'Cannot reach the insurer to redeem the enrollment code. Try again later.');
+      }
+      if (!answer?.groupIdHash || !/^\d+$/.test(answer.groupIdHash) || !answer.planIdHash || !/^\d+$/.test(answer.planIdHash)) {
+        return server.sendResponse(res, 502, false, undefined, 'The insurer answered without the group and plan this code enrols into.');
+      }
+      data.enrollment = { groupIdHash: answer.groupIdHash, planIdHash: answer.planIdHash, employerId: answer.employerId ?? null, redeemedAt: Date.now() };
+      data.onboarding.phase = 'code_redeemed';
+      await state.save(data);
+      server.setOnboardingPhase('code_redeemed');
+      server.sendResponse(res, 200, true, { phase: 'code_redeemed', groupIdHash: answer.groupIdHash, planIdHash: answer.planIdHash, employerId: answer.employerId ?? null });
+    },
+  });
+
   // ── Onboarding: Derive Wallet ─────────────────────────────
   // This is the ONLY endpoint that receives raw PHI (cardholderId, dob, etc.)
 
@@ -232,8 +297,15 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
     path: '/onboarding/derive-wallet',
     deviceOnly: true,
     handler: async (_req, res, _params, _query, body) => {
-      if (server.getOnboardingPhase() !== 'key_generated') {
-        return server.sendResponse(res, 409, false, undefined, `Cannot derive wallet in phase: ${server.getOnboardingPhase()}`);
+      {
+        const phase = server.getOnboardingPhase();
+        const insurerConfigured = Boolean(server.getConfig().insurerUrl);
+        // C2: with an insurer, the code is redeemed first so the wallet can carry the real group.
+        if (phase !== 'code_redeemed' && !(phase === 'key_generated' && !insurerConfigured)) {
+          return server.sendResponse(res, 409, false, undefined, phase === 'key_generated'
+            ? 'Redeem the enrollment code first: the wallet is bound to the group the code enrols into'
+            : `Cannot derive wallet in phase: ${phase}`);
+        }
       }
 
       const b = body as {
@@ -299,14 +371,21 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         lastName: b.lastName,
       };
 
-      // Compute groupIdHash from the accepted token's groupId
+      // C2: the group hash the insurer answered when the code was redeemed, so the wallet is bound
+      // to the group the employer enrolled this person into. A device with no insurer configured
+      // has no group and derives an unbound wallet, which the response says.
       const data = state.getState();
-      const groupId = data?.onboarding?.tokenData?.groupId ?? '';
-      const groupIdHash = groupId ? hashString(groupId) : Field(0);
+      // A standalone device (no insurer) keeps the pre-C2 behaviour: the group named with the code, or none.
+      const groupIdHash = data?.enrollment?.groupIdHash
+        ? Field(BigInt(data.enrollment.groupIdHash))
+        : (data?.onboarding?.tokenData?.groupId ? hashString(data.onboarding.tokenData.groupId) : Field(0));
+      // C1: the identity salt is made here, once, and lives only in this device's encrypted state
+      // and inside the recovery deposit. It goes into every identity field hash.
+      const identitySalt = data?.identitySalt && isIdentitySalt(data.identitySalt) ? data.identitySalt : generateIdentitySalt();
 
       // Enrollment key is reconstructed only for the duration of derivation
       const result = state.useEnrollmentKey((key) =>
-        secureMemberDerivation(localData, key, groupIdHash),
+        secureMemberDerivation(localData, key, groupIdHash, identitySalt),
       );
       const walletId = result.walletId.toString();
 
@@ -315,6 +394,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       if (data) {
         data.walletId = walletId;
         data.preimageFields = preimageFields;
+        data.identitySalt = identitySalt;
         data.domainTag = DOMAIN_TAG_MEMBER;
         data.onboarding.phase = 'wallet_derived';
         // Store HIPAA consent record with timestamp
@@ -327,7 +407,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
 
       // Don't dispose preimage yet — needed for proof generation
       server.setOnboardingPhase('wallet_derived');
-      server.sendResponse(res, 200, true, { phase: 'wallet_derived', walletId });
+      server.sendResponse(res, 200, true, { phase: 'wallet_derived', walletId, boundToGroup: groupIdHash.toString() !== '0' });
     },
   });
 
@@ -359,44 +439,56 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       // Build auth headers for cross-node calls
       const rpcHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
 
-      // Compute enrollment PIN hash if PIN provided (enrollment 2FA)
-      const b = body as { tokenPIN?: string } | undefined;
-      let tokenPinHash: string | undefined;
-      if (b?.tokenPIN && data.onboarding.tokenId) {
-        tokenPinHash = Poseidon.hash([
-          ...Encoding.stringToFields(data.onboarding.tokenId),
-          Field(0),
-          ...Encoding.stringToFields(b.tokenPIN),
-        ]).toString();
-      }
-
-      // ── Step 1: Insurer validation (BLOCKING — must succeed before sequencer registration)
-      // The insurer validates the enrollment token + PIN before the wallet touches the sequencer.
+      /*
+       * C2 + A12b. The code was redeemed at /onboarding/redeem; this completes it with the wallet.
+       * At the same tap, the only moment the enrollment key is at hand, two recovery cards are
+       * issued (PRD-1): each carries one share of the key and a random id, nothing that depends on
+       * the PIN; the other shares, the identity salt, the group and plan hashes and a PIN verifier
+       * computed here go to the insurer with the completion. The device keeps the card ids only.
+       */
+      const b = body as { recoveryPin?: string } | undefined;
       let insurerNotified = false;
+      let issued: ReturnType<typeof issueRecoveryCards> | null = null;
       if (insurerUrl) {
+        if (!data.enrollment?.groupIdHash || !data.enrollment.planIdHash) {
+          return server.sendResponse(res, 409, false, undefined, 'Redeem the enrollment code first');
+        }
+        if (!data.identitySalt || !isIdentitySalt(data.identitySalt)) {
+          return server.sendResponse(res, 409, false, undefined, 'The wallet was derived without an identity salt; derive it again');
+        }
+        try {
+          validateRecoveryPin(b?.recoveryPin);
+        } catch {
+          return server.sendResponse(res, 400, false, undefined,
+            'A recovery PIN of 6 to 32 characters is required: it protects the two recovery cards issued now.');
+        }
+        const recoveryPin = b!.recoveryPin!;
+        const { groupIdHash, planIdHash } = data.enrollment;
+        const identitySalt = data.identitySalt;
+        issued = state.useEnrollmentKey((key) => issueRecoveryCards({
+          enrollmentKey: key, recoveryPin, identitySalt, groupIdHash, planIdHash, domainTag: 0,
+        }));
         try {
           const iUrl = insurerUrl.replace(/\/+$/, '');
-          console.log('[enroll] Validating enrollment with insurer at %s...', iUrl);
-          const resp = await fetch(`${iUrl}/enrollment/process`, {
+          console.log('[enroll] Completing the enrollment with the insurer at %s...', iUrl);
+          const resp = await fetch(`${iUrl}/enrollment/complete`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               walletId: data.walletId,
               tokenId: data.onboarding.tokenId,
               role: 'member',
-              groupId: data.onboarding.tokenData?.groupId ?? null,
-              planId: data.onboarding.tokenData?.planId ?? null,
-              tokenPinHash,
+              recoveryDeposits: issued.deposits,
             }),
           });
           if (!resp.ok) {
             const errBody = await resp.text().catch(() => '');
-            console.warn('[enroll] Insurer rejected enrollment:', resp.status, errBody);
+            console.warn('[enroll] Insurer rejected the enrollment:', resp.status, errBody);
             return server.sendResponse(res, 403, false, undefined,
               'Enrollment rejected by insurer. Check your enrollment code and PIN.');
           }
           insurerNotified = true;
-          console.log('[enroll] Insurer validated enrollment successfully');
+          console.log('[enroll] Insurer completed the enrollment and filed %d recovery deposits', issued.deposits.length);
         } catch (insErr: unknown) {
           console.warn('[enroll] Insurer unreachable:', insErr instanceof Error ? insErr.message : String(insErr));
           return server.sendResponse(res, 502, false, undefined,
@@ -408,8 +500,12 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       data.onboarding.phase = 'enrolled';
       data.onboarding.enrollmentTimestamp = Date.now();
       data.lastSequencerUrl = server.getConfig().sequencerUrl;
+      if (issued) {
+        // card ids only: a share never rests on this device
+        data.recoveryCards = issued.cards.map((c) => ({ cardId: c.id, issuedAt: Date.now() }));
+        if (data.enrollment) data.enrollment.completedAt = Date.now();
+      }
       await state.save(data);
-
       // Create MemberNode and advance in-memory phase (deferred from before insurer validation)
       const node = new MemberNode({
         role: 'member',
@@ -474,6 +570,9 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         sequencerUrl: seqUrl,
         insurerNotified,
         sequencerRegistered,
+        // A12b: shown once, for the app to write to the two tags; the device keeps the ids only
+        recoveryCards: issued?.cards ?? [],
+        recoveryCardBytes: issued ? issued.cards.map(recoveryCardBytes) : [],
         ...(sequencerRegistered ? {} : {
           warning: 'Enrollment approved but network registration pending. Your enrollment is valid but claims may not work until registration completes.',
         }),
@@ -481,8 +580,145 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
     },
   });
 
-  // ── Onboarding: Compile Programs ──────────────────────────
+  // ── Onboarding: Recover a wallet onto this device from a recovery card — plan item A12b ──
+  // The card plus the recovery PIN on a new phone: the insurer releases the deposited share only
+  // against the PIN verifier, attempt-limited per card; the shares recombine into the enrollment
+  // key; the released salt and group re-derive the same wallet from the fields the member types;
+  // and the sequencer confirms the wallet exists. No migration: it is the same wallet again.
+  routes.push({
+    method: 'POST',
+    path: '/onboarding/recover',
+    deviceOnly: true,
+    handler: async (_req, res, _params, _query, body) => {
+      if (server.getOnboardingPhase() !== 'awaiting_token') {
+        return server.sendResponse(res, 409, false, undefined, `Cannot recover in phase: ${server.getOnboardingPhase()}`);
+      }
+      const insurerUrl = server.getConfig().insurerUrl || null;
+      if (!insurerUrl) return server.sendResponse(res, 503, false, undefined, 'No insurer is configured for this device, so a recovery card cannot be used');
+      const b = body as {
+        card?: unknown; recoveryPin?: string;
+        cardholderId?: string; dateOfBirth?: string; genderCode?: number; firstName?: string; lastName?: string;
+      } | undefined;
+      if (!isRecoveryCardV3(b?.card)) return server.sendResponse(res, 400, false, undefined, 'A v3 recovery card ({v, id, s}) is required');
+      try { validateRecoveryPin(b?.recoveryPin); } catch { return server.sendResponse(res, 400, false, undefined, 'The recovery PIN is required (6 to 32 characters)'); }
+      if (!b?.cardholderId || !b?.dateOfBirth || !b?.firstName || !b?.lastName || !/^\d{8}$/.test(b.dateOfBirth)) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing required fields: cardholderId, dateOfBirth (CCYYMMDD), firstName, lastName');
+      }
+      const card = b.card;
+      const pinVerifier = recoveryPinVerifier(b.recoveryPin!, card.id);
+      let released: { share2Hex?: string; identitySalt?: string; groupIdHash?: string; planIdHash?: string; domainTag?: number } | undefined;
+      try {
+        const resp = await fetch(`${insurerUrl.replace(/\/+$/, '')}/recovery/release`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cardId: card.id, pinVerifier }),
+        });
+        if (resp.status === 429) {
+          const retry = resp.headers.get('retry-after');
+          if (retry) res.setHeader('Retry-After', retry);
+          return server.sendResponse(res, 429, false, undefined, 'Too many recovery attempts for this card. Try again later.');
+        }
+        if (!resp.ok) return server.sendResponse(res, 403, false, undefined, 'This card and PIN do not recover a wallet.');
+        const json = await resp.json() as { data?: typeof released } & NonNullable<typeof released>;
+        released = json.data ?? json;
+      } catch (err: unknown) {
+        console.warn('[recover] Insurer unreachable:', err instanceof Error ? err.message : String(err));
+        return server.sendResponse(res, 502, false, undefined, 'Cannot reach the insurer to release the recovery deposit. Try again later.');
+      }
+      if (!released?.share2Hex || !isIdentitySalt(released.identitySalt) || !released.groupIdHash || !/^\d+$/.test(released.groupIdHash) || released.domainTag !== 0) {
+        return server.sendResponse(res, 502, false, undefined, 'The insurer released an incomplete deposit');
+      }
+      let enrollmentKey: string;
+      try { enrollmentKey = combineEnrollmentKey(card, released.share2Hex); }
+      catch { return server.sendResponse(res, 502, false, undefined, 'The released share does not belong to this card'); }
+      const genderCode = typeof b.genderCode === 'number' && Number.isInteger(b.genderCode) && b.genderCode >= 0 && b.genderCode <= 9 ? b.genderCode : 0;
+      const localData: MemberLocalData = { cardholderId: b.cardholderId, dateOfBirth: b.dateOfBirth, genderCode, firstName: b.firstName, lastName: b.lastName };
+      const groupIdHash = Field(BigInt(released.groupIdHash));
+      const result = secureMemberDerivation(localData, enrollmentKey, groupIdHash, released.identitySalt);
+      const walletId = result.walletId.toString();
+      // The wallet has to exist on the network: a wrong name or birth date derives a wallet nobody registered.
+      let known = false;
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const resp = await fetch(`${seqUrl}/rpc`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getEntity', params: { walletId } }),
+        });
+        const json = await resp.json() as { result?: unknown };
+        known = Boolean(json.result);
+      } catch (err: unknown) {
+        console.warn('[recover] Sequencer unreachable:', err instanceof Error ? err.message : String(err));
+        return server.sendResponse(res, 502, false, undefined, 'Cannot reach the sequencer to confirm the recovered wallet. Try again later.');
+      }
+      if (!known) {
+        result.dispose();
+        return server.sendResponse(res, 404, false, undefined, 'No wallet on the network matches this card and these details. Check the name, cardholder ID and date of birth exactly as enrolled.');
+      }
+      const state = server.getLocalState();
+      const data = state.getState();
+      if (!data) return server.sendResponse(res, 409, false, undefined, 'Device state is not open');
+      state.setEnrollmentKey(enrollmentKey);
+      data.walletId = walletId;
+      data.preimageFields = result.preimage.map((f) => f.toString());
+      data.domainTag = DOMAIN_TAG_MEMBER;
+      data.identitySalt = released.identitySalt;
+      data.enrollment = { groupIdHash: released.groupIdHash, planIdHash: released.planIdHash ?? '0', employerId: null, redeemedAt: Date.now(), completedAt: Date.now() };
+      data.onboarding.phase = 'enrolled';
+      data.onboarding.enrollmentTimestamp = Date.now();
+      data.lastSequencerUrl = server.getConfig().sequencerUrl;
+      await state.save(data);
+      result.dispose();
+      const node = new MemberNode({
+        role: 'member',
+        walletId,
+        sequencerUrl: server.getConfig().sequencerUrl,
+        displayName: server.getConfig().displayName,
+        clientOptions: server.sequencerClientOptions(),
+      });
+      server.setEntityNode(node);
+      server.setOnboardingPhase('enrolled');
+      console.log('[recover] Wallet %s… recovered from card %s', walletId.slice(0, 16), card.id);
+      server.sendResponse(res, 200, true, { phase: 'enrolled', walletId, recoveredFromCard: card.id });
+    },
+  });
 
+  // ── Recovery cards: issue a fresh pair later (a lost card, or after revoking one) ──
+  routes.push({
+    method: 'POST',
+    path: '/recovery-card/issue',
+    deviceOnly: true,
+    handler: async (_req, res, _params, _query, body) => {
+      const phase = server.getOnboardingPhase();
+      if (phase !== 'enrolled' && phase !== 'compiling' && phase !== 'ready') {
+        return server.sendResponse(res, 409, false, undefined, `Cannot issue recovery cards in phase: ${phase}`);
+      }
+      const insurerUrl = server.getConfig().insurerUrl || null;
+      if (!insurerUrl) return server.sendResponse(res, 503, false, undefined, 'No insurer is configured for this device');
+      const state = server.getLocalState();
+      const data = state.getState();
+      if (!data?.walletId || !data.identitySalt || !data.enrollment?.groupIdHash || !state.hasEnrollmentKey()) {
+        return server.sendResponse(res, 409, false, undefined, 'This device holds no enrolled wallet with an identity salt');
+      }
+      const b = body as { recoveryPin?: string } | undefined;
+      try { validateRecoveryPin(b?.recoveryPin); } catch { return server.sendResponse(res, 400, false, undefined, 'A recovery PIN of 6 to 32 characters is required'); }
+      const recoveryPin = b!.recoveryPin!;
+      const { groupIdHash, planIdHash } = data.enrollment;
+      const identitySalt = data.identitySalt;
+      const issued = state.useEnrollmentKey((key) => issueRecoveryCards({ enrollmentKey: key, recoveryPin, identitySalt, groupIdHash, planIdHash, domainTag: 0 }));
+      try {
+        const resp = await fetch(`${insurerUrl.replace(/\/+$/, '')}/recovery/deposit`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ walletId: data.walletId, deposits: issued.deposits }),
+        });
+        if (!resp.ok) return server.sendResponse(res, 502, false, undefined, 'The insurer did not file the recovery deposits');
+      } catch (err: unknown) {
+        return server.sendResponse(res, 502, false, undefined, 'Cannot reach the insurer to file the recovery deposits');
+      }
+      data.recoveryCards = [...(data.recoveryCards ?? []), ...issued.cards.map((c) => ({ cardId: c.id, issuedAt: Date.now() }))];
+      await state.save(data);
+      server.sendResponse(res, 200, true, { recoveryCards: issued.cards, recoveryCardBytes: issued.cards.map(recoveryCardBytes) });
+    },
+  });
+
+  // ── Onboarding: Compile Programs ──────────────────────────
   routes.push({
     method: 'POST',
     path: '/onboarding/compile',

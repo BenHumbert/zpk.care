@@ -260,8 +260,9 @@ export class MemberNode extends EntityNodeBase {
   static buildPreimage(
     local: MemberLocalData,
     enrollmentKey: string,
+    identitySalt: string,
     groupIdHash: Field = Field(0),
   ): Field[] {
-    return memberTransitionPreimage(local, enrollmentKey, groupIdHash);
+    return memberTransitionPreimage(local, enrollmentKey, groupIdHash, identitySalt);
   }
 }

@@ -237,3 +237,123 @@ function validatePin(pin: string): void {
     );
   }
 }
+
+// ─── Recovery card v3 — plan item A12b, risk PRD-1 ──────────────────────────────
+//
+// PRD-1, read exactly: a card must yield nothing to unlimited offline compute, so nothing on it
+// depends on the PIN. The enrollment key is split with a one-time pad; the card carries one share
+// and a random id, about ninety bytes, and the other share goes to the insurer in a deposit together
+// with the identity salt, the group and plan hashes and a PIN verifier computed on the device. The
+// insurer releases the deposit only to a caller presenting the matching verifier, attempt-limited
+// per card. A found card reveals nothing: no wallet ID, no hash of anything, no ciphertext to test
+// a PIN against. Two cards are issued at enrollment, each with its own id and shares, so one can be
+// revoked without the other. The v2 format above remains for the migration service until C3.
+
+export interface RecoveryCardV3 {
+  v: 3;
+  /** 8 random bytes, hex: the handle the insurer files the deposit under. Carries no meaning. */
+  id: string;
+  /** One share of the enrollment key's bytes, hex. Useless without the deposited share. */
+  s: string;
+}
+
+/** What the device deposits with the insurer for one card; the device keeps none of it. */
+export interface RecoveryDeposit {
+  cardId: string;
+  share2Hex: string;
+  /** scrypt(recoveryPin, cardId), hex, computed on the device; the insurer never sees the PIN. */
+  pinVerifier: string;
+  identitySalt: string;
+  groupIdHash: string;
+  planIdHash: string;
+  domainTag: number;
+}
+
+export const RECOVERY_CARD_ID_BYTES = 8;
+export const RECOVERY_PIN_MIN_LENGTH = 6;
+export const RECOVERY_PIN_MAX_LENGTH = 32;
+
+export function isRecoveryCardV3(value: unknown): value is RecoveryCardV3 {
+  if (!value || typeof value !== 'object') return false;
+  const c = value as Record<string, unknown>;
+  return c.v === 3
+    && typeof c.id === 'string' && /^[0-9a-f]{16}$/i.test(c.id)
+    && typeof c.s === 'string' && /^[0-9a-f]+$/i.test(c.s) && c.s.length % 2 === 0 && c.s.length >= 32;
+}
+
+export function validateRecoveryPin(pin: unknown): asserts pin is string {
+  if (typeof pin !== 'string' || pin.length < RECOVERY_PIN_MIN_LENGTH || pin.length > RECOVERY_PIN_MAX_LENGTH) {
+    throw new Error(`The recovery PIN must be ${RECOVERY_PIN_MIN_LENGTH} to ${RECOVERY_PIN_MAX_LENGTH} characters`);
+  }
+}
+
+/** Split the enrollment key for one card. Each call makes an independent pair. */
+export function splitEnrollmentKey(enrollmentKey: string, rng: (n: number) => Buffer = randomBytes): { card: RecoveryCardV3; share2Hex: string } {
+  const keyBytes = Buffer.from(enrollmentKey, 'utf8');
+  if (keyBytes.length < 16) throw new Error('splitEnrollmentKey: the enrollment key is too short to be real');
+  const share1 = rng(keyBytes.length);
+  const share2 = Buffer.alloc(keyBytes.length);
+  for (let i = 0; i < keyBytes.length; i++) share2[i] = keyBytes[i] ^ share1[i];
+  return {
+    card: { v: 3, id: rng(RECOVERY_CARD_ID_BYTES).toString('hex'), s: share1.toString('hex') },
+    share2Hex: share2.toString('hex'),
+  };
+}
+
+/** The enrollment key from a card and its released share. */
+export function combineEnrollmentKey(card: RecoveryCardV3, share2Hex: string): string {
+  const share1 = Buffer.from(card.s, 'hex');
+  const share2 = Buffer.from(share2Hex, 'hex');
+  if (share1.length !== share2.length || share1.length === 0) throw new Error('combineEnrollmentKey: the shares do not belong together');
+  const key = Buffer.alloc(share1.length);
+  for (let i = 0; i < share1.length; i++) key[i] = share1[i] ^ share2[i];
+  return key.toString('utf8');
+}
+
+/** The verifier the insurer stores and the device presents: a slow hash of the PIN under the card id. */
+export function recoveryPinVerifier(pin: string, cardId: string): string {
+  validateRecoveryPin(pin);
+  const derived = scryptSync(pin, Buffer.from('zpk.care/recovery-pin/v1\n' + cardId, 'utf8'), SCRYPT_KEY_LENGTH, {
+    N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P, maxmem: SCRYPT_MAXMEM,
+  });
+  try {
+    return derived.toString('hex');
+  } finally {
+    derived.fill(0);
+  }
+}
+
+/** Both cards and both deposits for one enrollment, in one call so they are issued together. */
+export function issueRecoveryCards(opts: {
+  enrollmentKey: string;
+  recoveryPin: string;
+  identitySalt: string;
+  groupIdHash: string;
+  planIdHash: string;
+  domainTag: number;
+  count?: number;
+  rng?: (n: number) => Buffer;
+}): { cards: RecoveryCardV3[]; deposits: RecoveryDeposit[] } {
+  validateRecoveryPin(opts.recoveryPin);
+  const cards: RecoveryCardV3[] = [];
+  const deposits: RecoveryDeposit[] = [];
+  for (let i = 0; i < (opts.count ?? 2); i++) {
+    const { card, share2Hex } = splitEnrollmentKey(opts.enrollmentKey, opts.rng);
+    cards.push(card);
+    deposits.push({
+      cardId: card.id,
+      share2Hex,
+      pinVerifier: recoveryPinVerifier(opts.recoveryPin, card.id),
+      identitySalt: opts.identitySalt,
+      groupIdHash: opts.groupIdHash,
+      planIdHash: opts.planIdHash,
+      domainTag: opts.domainTag,
+    });
+  }
+  return { cards, deposits };
+}
+
+/** Bytes of a v3 card as written to a tag. */
+export function recoveryCardBytes(card: RecoveryCardV3): number {
+  return Buffer.byteLength(JSON.stringify(card), 'utf8');
+}

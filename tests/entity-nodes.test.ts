@@ -364,6 +364,7 @@ describe('MemberNode', () => {
         lastName: 'Smith',
       },
       'SuperSecretKey123456!@#$',
+      'ab'.repeat(32),
     );
     expect(preimage).toHaveLength(7);
     // First element is domain tag (0 for member)

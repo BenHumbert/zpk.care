@@ -69,10 +69,11 @@ export function secureMemberDerivation(
   localData: MemberLocalData,
   enrollmentKey: string,
   groupIdHash: Field,
+  identitySalt: string,
 ): SecureWalletResult {
-  // Step 1: Compute cryptographic values while data is live
-  const walletId = deriveMemberWalletId(localData, enrollmentKey, groupIdHash);
-  const preimage = memberWalletPreimage(localData, enrollmentKey, groupIdHash);
+  // Step 1: Compute cryptographic values while data is live (C1: salted identity hashes)
+  const walletId = deriveMemberWalletId(localData, enrollmentKey, groupIdHash, identitySalt);
+  const preimage = memberWalletPreimage(localData, enrollmentKey, groupIdHash, identitySalt);
 
   // Step 2: Immediately scrub the raw data
   scrubObject(localData as unknown as Record<string, unknown>);

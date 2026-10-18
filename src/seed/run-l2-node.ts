@@ -63,6 +63,7 @@ import { AuditService } from '../audit/audit-service.js';
 
 // Seed data
 import { MEMBERS } from './members.js';
+import { fixtureIdentitySalt } from '../data/index.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -163,13 +164,13 @@ async function main() {
   const alice = MEMBERS[0]; // Alice Johnson
   const bob = MEMBERS[1];   // Bob Martinez
 
-  const aliceWalletId = deriveMemberWalletId(alice.localData, alice.enrollmentKey, Field(0));
-  const alicePreimage = memberWalletPreimage(alice.localData, alice.enrollmentKey, Field(0));
+  const aliceWalletId = deriveMemberWalletId(alice.localData, alice.enrollmentKey, Field(0), fixtureIdentitySalt(alice));
+  const alicePreimage = memberWalletPreimage(alice.localData, alice.enrollmentKey, Field(0), fixtureIdentitySalt(alice));
   console.log(`  Alice: ${alice.localData.firstName} ${alice.localData.lastName} (${alice.localData.cardholderId})`);
   console.log(`         Wallet: ${truncField(aliceWalletId)}`);
 
-  const bobWalletId = deriveMemberWalletId(bob.localData, bob.enrollmentKey, Field(0));
-  const bobPreimage = memberWalletPreimage(bob.localData, bob.enrollmentKey, Field(0));
+  const bobWalletId = deriveMemberWalletId(bob.localData, bob.enrollmentKey, Field(0), fixtureIdentitySalt(bob));
+  const bobPreimage = memberWalletPreimage(bob.localData, bob.enrollmentKey, Field(0), fixtureIdentitySalt(bob));
   console.log(`  Bob:   ${bob.localData.firstName} ${bob.localData.lastName} (${bob.localData.cardholderId})`);
   console.log(`         Wallet: ${truncField(bobWalletId)}`);
 

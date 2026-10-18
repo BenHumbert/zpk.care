@@ -28,6 +28,7 @@
  */
 
 import * as fs from 'fs';
+import { createHash } from 'crypto';
 import * as path from 'path';
 
 import type { PrescriberLocalData } from '../models/prescriber.js';
@@ -602,3 +603,12 @@ export function getExactMembers(): SeedMember[] {
 // Backward-compatible aliases
 export const getAcmeMembers = getEpicMembers;
 export const getGlobexMembers = getExactMembers;
+
+/**
+ * A fixture person's identity salt — plan item C1. Real members generate theirs on the device; the
+ * fixture people are fictional and the console and the suites need them reproducible, so theirs is
+ * a function of the fixture itself. F1 isolates the fixtures from the production entry point.
+ */
+export function fixtureIdentitySalt(seed: { localData: { cardholderId: string } }): string {
+  return createHash('sha256').update('zpk.care/fixture-identity-salt/v1\n' + seed.localData.cardholderId, 'utf8').digest('hex');
+}

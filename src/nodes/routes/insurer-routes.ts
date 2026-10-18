@@ -33,6 +33,12 @@ import type { NautilusAppServer } from '../nautilus-app-server.js';
 import type { RouteRegistration } from '../nautilus-app-types.js';
 import type { KeyObject } from 'crypto';
 import { signRequest } from '../../security/signed-request.js';
+import { timingSafeEqual } from 'crypto';
+import type { IncomingMessage, ServerResponse } from 'http';
+import { join } from 'path';
+import { PersistedAttemptLimiter } from '../../security/attempt-limiter.js';
+import { SlidingWindowLimiter } from '../../security/rate-limit.js';
+import type { RecoveryDeposit } from '../../security/recovery-card.js';
 import { deriveInsurerKeypair } from '../../onboarding/employer-attestation.js';
 import {
   canonicalizeEnrollmentCode,
@@ -54,11 +60,26 @@ import type {
 
 /** What the insurer remembers about a code it has redeemed, keyed by the canonical code. */
 interface RedeemedCode {
-  walletId: string;
+  /** The wallet bound at /enrollment/complete; null between redemption and completion (C2). */
+  walletId: string | null;
+  /** The PIN hash the code was redeemed with, so a repeat from the same device is answered and a code-only holder is not. */
+  pinHash: string | null;
   employerId: string | null;
   groupIdHash: string | null;
   planIdHash: string | null;
   at: number;
+  completedAt?: number;
+}
+
+/** A recovery deposit as filed — plan item A12b. The share is useless without the card; the verifier is a slow hash of the PIN under the card id. */
+interface StoredDeposit extends RecoveryDeposit {
+  walletId: string;
+  filedAt: number;
+  failures: number;
+  releaseCount: number;
+  releasedAt?: number;
+  revokedAt?: number;
+  revokedReason?: string;
 }
 
 function redeemedCodes(server: NautilusAppServer): Map<string, RedeemedCode> {
@@ -87,6 +108,71 @@ async function persistRedeemedCodes(server: NautilusAppServer): Promise<void> {
   }
 }
 
+function recoveryDeposits(server: NautilusAppServer): Map<string, StoredDeposit> {
+  const s = server as unknown as { __recoveryDeposits?: Map<string, StoredDeposit> };
+  return (s.__recoveryDeposits ??= new Map<string, StoredDeposit>());
+}
+function restoreRecoveryDeposits(server: NautilusAppServer, data: Record<string, unknown>): void {
+  const persisted = data.recoveryDeposits;
+  if (!persisted || typeof persisted !== 'object') return;
+  const map = recoveryDeposits(server);
+  for (const [cardId, rec] of Object.entries(persisted as Record<string, StoredDeposit>)) map.set(cardId, rec);
+  if (map.size > 0) console.log('[insurer] Restored %d recovery deposits from local state', map.size);
+}
+async function persistRecoveryDeposits(server: NautilusAppServer): Promise<void> {
+  try {
+    const localState = server.getLocalState();
+    const stateData = localState.getState() as any;
+    if (!stateData) return;
+    stateData.recoveryDeposits = Object.fromEntries(recoveryDeposits(server));
+    await localState.save(stateData);
+  } catch (err: unknown) {
+    console.warn('[recovery] Failed to persist recovery deposits:', err instanceof Error ? err.message : String(err));
+  }
+}
+/** Release attempts per card: three free, then a doubling delay to fifteen minutes, counted in a plaintext sidecar (A7's limiter). */
+function recoveryAttempts(server: NautilusAppServer): PersistedAttemptLimiter {
+  const s = server as unknown as { __recoveryAttempts?: PersistedAttemptLimiter };
+  return (s.__recoveryAttempts ??= new PersistedAttemptLimiter(join(server.getConfig().stateDir, 'recovery-attempts.json')));
+}
+function recoveryPerCaller(server: NautilusAppServer): SlidingWindowLimiter {
+  const s = server as unknown as { __recoveryPerCaller?: SlidingWindowLimiter };
+  return (s.__recoveryPerCaller ??= new SlidingWindowLimiter(30, 60_000));
+}
+const HEX16 = /^[0-9a-f]{16}$/i;
+const HEX64 = /^[0-9a-f]{64}$/i;
+const DECIMAL = /^\d+$/;
+function parseDeposits(value: unknown): RecoveryDeposit[] | null {
+  if (!Array.isArray(value) || value.length > 4) return null;
+  const out: RecoveryDeposit[] = [];
+  for (const d of value as Array<Record<string, unknown>>) {
+    if (!d || typeof d !== 'object') return null;
+    const { cardId, share2Hex, pinVerifier, identitySalt, groupIdHash, planIdHash, domainTag } = d;
+    if (typeof cardId !== 'string' || !HEX16.test(cardId)) return null;
+    if (typeof share2Hex !== 'string' || !/^[0-9a-f]+$/i.test(share2Hex) || share2Hex.length % 2 !== 0 || share2Hex.length < 32 || share2Hex.length > 256) return null;
+    if (typeof pinVerifier !== 'string' || !HEX64.test(pinVerifier)) return null;
+    if (typeof identitySalt !== 'string' || !HEX64.test(identitySalt)) return null;
+    if (typeof groupIdHash !== 'string' || !DECIMAL.test(groupIdHash) || typeof planIdHash !== 'string' || !DECIMAL.test(planIdHash)) return null;
+    if (typeof domainTag !== 'number' || !Number.isInteger(domainTag) || domainTag < 0 || domainTag > 3) return null;
+    out.push({ cardId: cardId.toLowerCase(), share2Hex: share2Hex.toLowerCase(), pinVerifier: pinVerifier.toLowerCase(), identitySalt: identitySalt.toLowerCase(), groupIdHash, planIdHash, domainTag });
+  }
+  return out;
+}
+/** File deposits for an enrolled wallet; a card id already filed for another wallet is refused. */
+function fileDeposits(server: NautilusAppServer, walletId: string, deposits: RecoveryDeposit[]): Array<{ cardId: string; filed: boolean }> {
+  const map = recoveryDeposits(server);
+  return deposits.map((d) => {
+    const existing = map.get(d.cardId);
+    if (existing && existing.walletId !== walletId) return { cardId: d.cardId, filed: false };
+    map.set(d.cardId, { ...d, walletId, filedAt: Date.now(), failures: 0, releaseCount: 0 });
+    return { cardId: d.cardId, filed: true };
+  });
+}
+function sameHex(a: string, b: string): boolean {
+  const ab = Buffer.from(a, 'utf8');
+  const bb = Buffer.from(b, 'utf8');
+  return ab.length === bb.length && timingSafeEqual(ab, bb);
+}
 /** The insurer's request signer, derived once from the configured seed (the A9 key). */
 function insurerSigner(server: NautilusAppServer): { privateKey: KeyObject } | null {
   const seed = server.getConfig().insurerSigningSeed;
@@ -275,6 +361,8 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       }
       // A6: the codes already redeemed, so a retry after a restart is still idempotent.
       if (data) restoreRedeemedCodes(server, data as unknown as Record<string, unknown>);
+      // A12b: the recovery deposits, so a card issued before a restart still recovers.
+      if (data) restoreRecoveryDeposits(server, data as unknown as Record<string, unknown>);
 
       server.setOnboardingPhase('ready');
       server.sendResponse(res, 200, true, {
@@ -294,118 +382,109 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!node) {
         return server.sendResponse(res, 503, false, undefined, 'Insurer node not configured');
       }
+      /*
+       * C2 (A-9): the code is redeemed BEFORE the member derives a wallet, because the group hash
+       * the employer answers is one of the wallet's inputs. So this step takes no wallet. It redeems
+       * the code with the issuing employer exactly as A6 built it (routed by its prefix, probed with
+       * the insurer's own key, consumed on success, never fanned out), records the redemption against
+       * the code with no wallet yet, and answers the group and plan hashes. /enrollment/complete binds
+       * the wallet. A repeat with the same code and PIN hash (a device that died before deriving) is
+       * answered from the record; a repeat with another PIN hash is refused, so a code-only holder
+       * learns nothing after consumption.
+       */
+      const b = body as { tokenId?: string; tokenPinHash?: string; role?: string; employerId?: string } | undefined;
+      if (typeof b?.tokenId !== 'string' || b.tokenId.trim().length === 0) {
+        return server.sendResponse(res, 400, false, undefined, 'An enrollment code is required.');
+      }
+      if (typeof b.tokenPinHash !== 'string' || b.tokenPinHash.length === 0) {
+        return server.sendResponse(res, 400, false, undefined, 'The enrollment PIN hash is required.');
+      }
+      const code = canonicalizeEnrollmentCode(b.tokenId) ?? b.tokenId.trim();
+      const redeemed = redeemedCodes(server);
+      const prior = redeemed.get(code);
+      if (prior) {
+        if (!prior.pinHash || !sameHex(prior.pinHash, b.tokenPinHash)) {
+          return server.sendResponse(res, 403, false, undefined, 'Enrollment denied: this enrollment code has already been used.');
+        }
+        console.log('[enrollment] Code already redeemed with this PIN; answering the same group and plan');
+        return server.sendResponse(res, 200, true, { redeemed: true, repeated: true, groupIdHash: prior.groupIdHash, planIdHash: prior.planIdHash, employerId: prior.employerId });
+      }
+      const signer = insurerSigner(server);
+      if (!signer) {
+        return server.sendResponse(res, 500, false, undefined,
+          'The insurer signing seed is not configured, so enrollment codes cannot be validated.');
+      }
+      const targets = await resolveCodeTargets(server, code, b.employerId);
+      if ('error' in targets) return server.sendResponse(res, targets.status, false, undefined, targets.error);
+      const outcome = await redeemWithEmployers(targets.candidates, code, b.tokenPinHash, signer);
+      if (!outcome.ok) return server.sendResponse(res, outcome.status, false, undefined, outcome.error);
+      if (!outcome.groupIdHash || !outcome.planIdHash) {
+        return server.sendResponse(res, 502, false, undefined, 'The employer redeemed the code but did not say which group and plan it enrols into.');
+      }
+      redeemed.set(code, {
+        walletId: null,
+        pinHash: b.tokenPinHash,
+        employerId: outcome.employerId,
+        groupIdHash: outcome.groupIdHash,
+        planIdHash: outcome.planIdHash,
+        at: Date.now(),
+      });
+      await persistRedeemedCodes(server);
+      console.log('[enrollment] Code redeemed with employer %s; awaiting the wallet', outcome.employerId ?? 'static');
+      server.sendResponse(res, 200, true, { redeemed: true, groupIdHash: outcome.groupIdHash, planIdHash: outcome.planIdHash, employerId: outcome.employerId });
+    },
+  });
 
-      const b = body as {
-        walletId?: string;
-        tokenId?: string;
-        role?: string;
-        groupId?: string;
-        planId?: string;
-        employerId?: string;
-        /** Poseidon(tokenId + PIN) — enrollment 2FA from member's device */
-        tokenPinHash?: string;
-      } | undefined;
-      if (!b?.walletId) {
+  // ── Enrollment completion: the wallet, and the recovery deposits (C2, A12b) ──
+  routes.push({
+    method: 'POST',
+    path: '/enrollment/complete',
+    handler: async (_req, res, _params, _query, body) => {
+      const node = server.getEntityNode() as InsurerNode | null;
+      if (!node) {
+        return server.sendResponse(res, 503, false, undefined, 'Insurer node not configured');
+      }
+      const b = body as { tokenId?: string; walletId?: string; role?: string; recoveryDeposits?: unknown } | undefined;
+      if (typeof b?.walletId !== 'string' || !DECIMAL.test(b.walletId)) {
         return server.sendResponse(res, 400, false, undefined, 'Missing walletId');
       }
-
-      // -- Step 1: Redeem the enrollment code with the employer that issued it --
-      // Phase A item A6 (AUTH-13, C-2, and the fan-out exposure recorded as A-31). Four things
-      // changed here.
-      //
-      //   1. A code is required. The insurer accepts no enrollment on a wallet's say-so alone.
-      //   2. The code routes itself. Its first group is a prefix derived from the issuing
-      //      employer's ID, so the insurer asks ONE employer. Before, it fanned the member's code
-      //      and PIN hash out to every tenant on the network, any of which could brute-force an
-      //      8-digit PIN offline from that hash and enroll first.
-      //   3. The probe is signed with the insurer's own key (the A9 key). The employer verifies it
-      //      against the insurer key inside its own counter-signed attestation, so the oracle
-      //      answers nobody else.
-      //   4. The employer consumes the code the moment the PIN verifies, and the insurer records
-      //      that success against this wallet before doing anything else. A retry after a crash is
-      //      therefore idempotent for the same wallet and refused for any other.
-      //
-      // The employer URL still never comes from the request body: it is the static config or the
-      // sequencer's attestation-gated registry. The member's employerId is at most a tie-break
-      // among employers whose prefix already matches.
       if (typeof b.tokenId !== 'string' || b.tokenId.trim().length === 0) {
         return server.sendResponse(res, 400, false, undefined, 'An enrollment code is required.');
       }
       const code = canonicalizeEnrollmentCode(b.tokenId) ?? b.tokenId.trim();
-      let resolvedEmployerId: string | null = null;
-      const redeemed = redeemedCodes(server);
-      const prior = redeemed.get(code);
-      if (prior) {
-        if (prior.walletId !== b.walletId) {
-          return server.sendResponse(res, 403, false, undefined,
-            'Enrollment denied: this enrollment code has already been used.');
-        }
-        resolvedEmployerId = prior.employerId;
-        console.log('[enrollment] Code already redeemed by this wallet; continuing idempotently');
-      } else {
-        const signer = insurerSigner(server);
-        if (!signer) {
-          return server.sendResponse(res, 500, false, undefined,
-            'The insurer signing seed is not configured, so enrollment codes cannot be validated.');
-        }
-        const targets = await resolveCodeTargets(server, code, b.employerId);
-        if ('error' in targets) return server.sendResponse(res, targets.status, false, undefined, targets.error);
-        const outcome = await redeemWithEmployers(targets.candidates, code, b.tokenPinHash, signer);
-        if (!outcome.ok) return server.sendResponse(res, outcome.status, false, undefined, outcome.error);
-        resolvedEmployerId = outcome.employerId;
-        redeemed.set(code, {
-          walletId: b.walletId,
-          employerId: outcome.employerId,
-          groupIdHash: outcome.groupIdHash,
-          planIdHash: outcome.planIdHash,
-          at: Date.now(),
-        });
+      const rec = redeemedCodes(server).get(code);
+      if (!rec) {
+        return server.sendResponse(res, 404, false, undefined, 'This enrollment code has not been redeemed. Redeem it first.');
+      }
+      if (rec.walletId && rec.walletId !== b.walletId) {
+        return server.sendResponse(res, 403, false, undefined, 'Enrollment denied: this enrollment code has already been used.');
+      }
+      const deposits = b.recoveryDeposits === undefined ? [] : parseDeposits(b.recoveryDeposits);
+      if (deposits === null) {
+        return server.sendResponse(res, 400, false, undefined, 'recoveryDeposits must be a list of {cardId, share2Hex, pinVerifier, identitySalt, groupIdHash, planIdHash, domainTag}');
+      }
+      const registry = (server as any).__enrollmentRegistry ??= new Map<string, Record<string, unknown>>();
+      const existing = registry.get(b.walletId) as Record<string, unknown> | undefined;
+      if (existing && existing.tokenId !== code) {
+        return server.sendResponse(res, 409, false, undefined, 'Wallet already enrolled');
+      }
+      if (!rec.walletId) {
+        rec.walletId = b.walletId;
+        rec.completedAt = Date.now();
         await persistRedeemedCodes(server);
-        console.log('[enrollment] Code redeemed with employer %s', outcome.employerId ?? 'static');
       }
-
-      // ── Step 2: Check sequencer for walletId (informational only, NOT a gate) ──
-      // The wallet is registered on the sequencer AFTER insurer approval (member-routes Step 3).
-      // This check is for observability — it does NOT block enrollment.
-      const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
-      let sequencerVerified = false;
-      try {
-        const resp = await fetch(`${seqUrl}/rpc`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0', id: 1,
-            method: 'l2_getEntity',
-            params: { walletId: b.walletId },
-          }),
-        });
-        const json = await resp.json() as any;
-        sequencerVerified = !!(json.result);
-      } catch {
-        console.warn('[enrollment] Could not check sequencer — continuing with enrollment');
-      }
-
-      // ── Step 3: Record enrollment ──
       const enrollmentRecord = {
         walletId: b.walletId,
         tokenId: code,
         role: b.role ?? 'member',
-        groupId: b.groupId ?? null,
-        planId: b.planId ?? null,
-        employerId: resolvedEmployerId ?? b.employerId ?? null,
-        enrolledAt: Date.now(),
+        groupId: null,
+        planId: null,
+        groupIdHash: rec.groupIdHash,
+        planIdHash: rec.planIdHash,
+        employerId: rec.employerId,
+        enrolledAt: (existing?.enrolledAt as number | undefined) ?? Date.now(),
       };
-
-      const registry = (server as any).__enrollmentRegistry ??= new Map<string, typeof enrollmentRecord>();
-
-      // Prevent double-enrollment of the same wallet
-      if (registry.has(b.walletId)) {
-        return server.sendResponse(res, 409, false, undefined, 'Wallet already enrolled');
-      }
-
       registry.set(b.walletId, enrollmentRecord);
-
-      // Persist registry to local state
       try {
         const localState = server.getLocalState();
         const stateData = localState.getState() as any;
@@ -417,14 +496,82 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       } catch (saveErr: any) {
         console.warn('[enrollment] Failed to persist enrollment to local state:', saveErr?.message ?? saveErr);
       }
-
-      console.log('[enrollment] Member enrolled: wallet=%s token=%s', b.walletId.slice(0, 16), b.tokenId ?? 'none');
-
+      const filed = fileDeposits(server, b.walletId, deposits);
+      if (filed.length > 0) await persistRecoveryDeposits(server);
+      console.log('[enrollment] Member enrolled: wallet=%s code=%s deposits=%d', b.walletId.slice(0, 16), code, filed.filter((f) => f.filed).length);
       server.sendResponse(res, 200, true, {
         enrolled: true,
-        sequencerVerified,
         ...enrollmentRecord,
+        recoveryCards: filed,
       });
+    },
+  });
+
+  // ── Recovery deposits — plan item A12b (PRD-1) ───────────────────────────────
+  // A card carries one share and nothing that depends on the PIN; the other share, the salt and
+  // the group and plan hashes are here, released only against the PIN verifier the device computed
+  // at enrollment, attempt-limited per card and locked after ten failures. Revocable.
+  const RELEASE_LOCK_AFTER = 10;
+  async function releaseOrRevoke(req: IncomingMessage, res: ServerResponse, body: unknown, mode: 'release' | 'revoke'): Promise<void> {
+    const caller = req.socket?.remoteAddress ?? 'unknown';
+    if (!recoveryPerCaller(server).allow(caller)) {
+      res.setHeader('Retry-After', '60');
+      return server.sendResponse(res, 429, false, undefined, 'Too many recovery requests. Try again in a minute.');
+    }
+    const b = body as { cardId?: string; pinVerifier?: string } | undefined;
+    if (typeof b?.cardId !== 'string' || !HEX16.test(b.cardId) || typeof b.pinVerifier !== 'string' || !HEX64.test(b.pinVerifier)) {
+      return server.sendResponse(res, 400, false, undefined, 'cardId (16 hex) and pinVerifier (64 hex) are required');
+    }
+    const cardId = b.cardId.toLowerCase();
+    const key = 'recovery:' + cardId;
+    const limiter = recoveryAttempts(server);
+    const verdict = limiter.check(key);
+    if (!verdict.allowed) {
+      res.setHeader('Retry-After', String(Math.max(1, Math.ceil(verdict.retryAfterMs / 1000))));
+      return server.sendResponse(res, 429, false, undefined, 'Too many attempts for this card. Try again later.');
+    }
+    const dep = recoveryDeposits(server).get(cardId);
+    const matches = Boolean(dep) && !dep!.revokedAt && sameHex(dep!.pinVerifier, b.pinVerifier.toLowerCase());
+    if (!matches) {
+      limiter.recordFailure(key);
+      if (dep && !dep.revokedAt) {
+        dep.failures = (dep.failures ?? 0) + 1;
+        if (dep.failures >= RELEASE_LOCK_AFTER) { dep.revokedAt = Date.now(); dep.revokedReason = 'locked after repeated failed attempts'; }
+        await persistRecoveryDeposits(server);
+      }
+      return server.sendResponse(res, 403, false, undefined, mode === 'release' ? 'This card and PIN do not release a deposit.' : 'This card and PIN do not revoke a deposit.');
+    }
+    limiter.reset(key);
+    if (mode === 'revoke') {
+      dep!.revokedAt = Date.now();
+      dep!.revokedReason = 'revoked by the member';
+      await persistRecoveryDeposits(server);
+      console.log('[recovery] card %s revoked', cardId);
+      return server.sendResponse(res, 200, true, { cardId, revoked: true });
+    }
+    dep!.releasedAt = Date.now();
+    dep!.releaseCount = (dep!.releaseCount ?? 0) + 1;
+    await persistRecoveryDeposits(server);
+    console.log('[recovery] deposit released for card %s', cardId);
+    server.sendResponse(res, 200, true, {
+      share2Hex: dep!.share2Hex, identitySalt: dep!.identitySalt, groupIdHash: dep!.groupIdHash, planIdHash: dep!.planIdHash, domainTag: dep!.domainTag,
+    });
+  }
+  routes.push({ method: 'POST', path: '/recovery/release', handler: (req, res, _p, _q, body) => releaseOrRevoke(req, res, body, 'release') });
+  routes.push({ method: 'POST', path: '/recovery/revoke', handler: (req, res, _p, _q, body) => releaseOrRevoke(req, res, body, 'revoke') });
+  routes.push({
+    method: 'POST',
+    path: '/recovery/deposit',
+    handler: async (_req, res, _params, _query, body) => {
+      const b = body as { walletId?: string; deposits?: unknown } | undefined;
+      if (typeof b?.walletId !== 'string' || !DECIMAL.test(b.walletId)) return server.sendResponse(res, 400, false, undefined, 'Missing walletId');
+      const registry = (server as any).__enrollmentRegistry as Map<string, unknown> | undefined;
+      if (!registry?.has(b.walletId)) return server.sendResponse(res, 404, false, undefined, 'No enrollment for this wallet');
+      const deposits = parseDeposits(b.deposits);
+      if (!deposits || deposits.length === 0) return server.sendResponse(res, 400, false, undefined, 'deposits must be a non-empty list');
+      const filed = fileDeposits(server, b.walletId, deposits);
+      await persistRecoveryDeposits(server);
+      server.sendResponse(res, 201, true, { recoveryCards: filed });
     },
   });
 

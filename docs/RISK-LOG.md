@@ -91,7 +91,7 @@ Certification is required before the software processes its first controlled-sub
 | | |
 |---|---|
 | **Severity** | high. Re-rated from the audit's medium, which judged it as dead code rather than as a benefit-entitlement failure |
-| **Status** | open. Design agreed 2026-10-16, card writing moves into phase A |
+| **Status** | **closed 2026-10-18 (Step 2, commit one, A12b).** Two cards are issued at the enrollment tap, each one share of the key under a random id and nothing PIN-dependent; the other shares, the salt and the group and plan hashes are held by the insurer behind a device-computed PIN verifier, attempt-limited per card and locked after ten failures; revocable; recovery on a new device re-derives the same wallet. `recovery-card.ts` v3, `tests/recovery-card.test.ts`, `tests/enrollment-order.test.ts` |
 
 There is no recovery path today. The inputs work and the proof exists; every piece of plumbing between them is broken or uncalled.
 

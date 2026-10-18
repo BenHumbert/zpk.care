@@ -241,6 +241,7 @@ describe('generate-key ignores a key supplied by the caller', () => {
       local as Parameters<typeof deriveMemberWalletId>[0],
       ATTACKER_KEY,
       hashString('ACME-CORP'),
+      server.getLocalState().getState()?.identitySalt as string, // C1: the device's own salt
     ).toString();
 
     expect(walletId).not.toBe(attackerWallet);
@@ -360,6 +361,7 @@ describe('a device can set its own key in-process, and the wallet follows it', (
       local as Parameters<typeof deriveMemberWalletId>[0],
       SEED_KEY,
       hashString('ACME-CORP'),
+      server.getLocalState().getState()?.identitySalt as string, // C1: the device's own salt
     ).toString();
 
     expect(walletId).toBe(expected);

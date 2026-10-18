@@ -52,7 +52,7 @@ import {
   derivePrescriberWalletId,
   derivePharmacyWalletId,
 } from '../wallets/wallet-derivation.js';
-import { MEMBERS, PRESCRIBERS, PHARMACIES, MEDICATIONS } from '../data/index.js';
+import { MEMBERS, PRESCRIBERS, PHARMACIES, MEDICATIONS, fixtureIdentitySalt } from '../data/index.js';
 import { MerkleForest, ForestDomain, TREE_HEIGHT } from '../zkp/merkle-forest.js';
 import { buildMemberData } from '../zkp/index.js';
 import { WALLET_TREE_HEIGHT } from '../wallets/wallet-state.js';
@@ -114,7 +114,7 @@ function collectClaim1(): ClaimEvidence {
   const medication = MEDICATIONS[0]; // Atorvastatin (Generic, Tier 1)
 
   // Demonstrate Poseidon hash computation for wallet derivation
-  const memberWalletId = deriveMemberWalletId(member.localData, member.enrollmentKey, Field(0));
+  const memberWalletId = deriveMemberWalletId(member.localData, member.enrollmentKey, Field(0), fixtureIdentitySalt(member));
 
   // Demonstrate FulfillmentData construction — the inputs to the ZK circuit
   const ndcHash = hashString(medication.ndc);
@@ -285,10 +285,10 @@ function collectClaim3(): ClaimEvidence {
   const lastNameHash = hashString(member.localData.lastName);
   const enrollmentKeyHash = hashString(member.enrollmentKey);
 
-  const walletId = deriveMemberWalletId(member.localData, member.enrollmentKey, Field(0));
+  const walletId = deriveMemberWalletId(member.localData, member.enrollmentKey, Field(0), fixtureIdentitySalt(member));
 
   // Verify determinism: same inputs → same walletId
-  const walletId2 = deriveMemberWalletId(member.localData, member.enrollmentKey, Field(0));
+  const walletId2 = deriveMemberWalletId(member.localData, member.enrollmentKey, Field(0), fixtureIdentitySalt(member));
 
   // Derive prescriber wallet to show different domain tag
   const prescriber = PRESCRIBERS[0];
@@ -353,7 +353,7 @@ function collectClaim4(): ClaimEvidence {
   console.log('  Collecting Claim 4 — Enrollment Ceremony...');
 
   const member = MEMBERS[0]; // Alice
-  const memberWalletId = deriveMemberWalletId(member.localData, member.enrollmentKey, Field(0));
+  const memberWalletId = deriveMemberWalletId(member.localData, member.enrollmentKey, Field(0), fixtureIdentitySalt(member));
 
   // Simulate the three-party flow
   // Party 1: Employer creates a GroupEnrollmentToken
@@ -504,7 +504,7 @@ function collectClaim6(): ClaimEvidence {
   const pharmacy = PHARMACIES[0];
   const medication = MEDICATIONS[0];
 
-  const memberWalletId = deriveMemberWalletId(member.localData, member.enrollmentKey, Field(0));
+  const memberWalletId = deriveMemberWalletId(member.localData, member.enrollmentKey, Field(0), fixtureIdentitySalt(member));
   const prescriberWalletId = derivePrescriberWalletId(prescriber.localData, prescriber.enrollmentKey);
   const pharmacyWalletId = derivePharmacyWalletId(pharmacy.localData, pharmacy.enrollmentKey);
   const ndcHash = hashString(medication.ndc);
@@ -748,7 +748,7 @@ function collectClaim8(): ClaimEvidence {
 
   const wallets: { name: string; walletId: string; partition: number }[] = [];
   for (const member of MEMBERS) {
-    const wid = deriveMemberWalletId(member.localData, member.enrollmentKey, Field(0));
+    const wid = deriveMemberWalletId(member.localData, member.enrollmentKey, Field(0), fixtureIdentitySalt(member));
     const widStr = f(wid);
     const partition = getPartition(widStr, partitionCount);
     wallets.push({
@@ -777,7 +777,7 @@ function collectClaim8(): ClaimEvidence {
   }
 
   // Demonstrate deterministic routing
-  const aliceWid = f(deriveMemberWalletId(MEMBERS[0].localData, MEMBERS[0].enrollmentKey, Field(0)));
+  const aliceWid = f(deriveMemberWalletId(MEMBERS[0].localData, MEMBERS[0].enrollmentKey, Field(0), fixtureIdentitySalt(MEMBERS[0])));
   const alicePartition = getPartition(aliceWid, partitionCount);
   const alicePartition2 = getPartition(aliceWid, partitionCount);
 
@@ -889,9 +889,9 @@ function collectClaim10(): ClaimEvidence {
   router.setPartition(2, 'http://leviathan-gamma:3102');
 
   // Route several wallets
-  const aliceWid = f(deriveMemberWalletId(MEMBERS[0].localData, MEMBERS[0].enrollmentKey, Field(0)));
-  const bobWid = f(deriveMemberWalletId(MEMBERS[1].localData, MEMBERS[1].enrollmentKey, Field(0)));
-  const carolWid = f(deriveMemberWalletId(MEMBERS[2].localData, MEMBERS[2].enrollmentKey, Field(0)));
+  const aliceWid = f(deriveMemberWalletId(MEMBERS[0].localData, MEMBERS[0].enrollmentKey, Field(0), fixtureIdentitySalt(MEMBERS[0])));
+  const bobWid = f(deriveMemberWalletId(MEMBERS[1].localData, MEMBERS[1].enrollmentKey, Field(0), fixtureIdentitySalt(MEMBERS[1])));
+  const carolWid = f(deriveMemberWalletId(MEMBERS[2].localData, MEMBERS[2].enrollmentKey, Field(0), fixtureIdentitySalt(MEMBERS[2])));
 
   const routingResults: Record<string, string> = {
     alice: `${router.getSequencerUrl(aliceWid)} (partition ${getPartition(aliceWid, partitionCount)})`,
@@ -944,7 +944,7 @@ function collectClaim11(): ClaimEvidence {
   const rootBefore = messageStore.getRoot().toString();
 
   // Create a stored message
-  const senderWalletId = f(deriveMemberWalletId(MEMBERS[0].localData, MEMBERS[0].enrollmentKey, Field(0)));
+  const senderWalletId = f(deriveMemberWalletId(MEMBERS[0].localData, MEMBERS[0].enrollmentKey, Field(0), fixtureIdentitySalt(MEMBERS[0])));
   const recipientWalletId = f(derivePrescriberWalletId(PRESCRIBERS[0].localData, PRESCRIBERS[0].enrollmentKey));
   const messageContent = 'Requesting refill for Atorvastatin 20mg';
   const messageCommitment = Poseidon.hash([Field(BigInt(hashString(messageContent).toString()))]);
@@ -1122,7 +1122,7 @@ function collectClaim13(): ClaimEvidence {
   const epochService = new EpochAccumulatorService('2026-01');
 
   // Insert claims into the active epoch
-  const memberWid = f(deriveMemberWalletId(MEMBERS[0].localData, MEMBERS[0].enrollmentKey, Field(0)));
+  const memberWid = f(deriveMemberWalletId(MEMBERS[0].localData, MEMBERS[0].enrollmentKey, Field(0), fixtureIdentitySalt(MEMBERS[0])));
   const prescriberWid = f(derivePrescriberWalletId(PRESCRIBERS[0].localData, PRESCRIBERS[0].enrollmentKey));
   const pharmacyWid = f(derivePharmacyWalletId(PHARMACIES[0].localData, PHARMACIES[0].enrollmentKey));
   const ndcHash = f(hashString(MEDICATIONS[0].ndc));
@@ -1235,7 +1235,7 @@ function collectClaim14(): ClaimEvidence {
   console.log('  Collecting Claim 14 — Portable ZK Credential...');
 
   // Demonstrate the credential structure (without actual ZkProgram compilation)
-  const memberWid = f(deriveMemberWalletId(MEMBERS[0].localData, MEMBERS[0].enrollmentKey, Field(0)));
+  const memberWid = f(deriveMemberWalletId(MEMBERS[0].localData, MEMBERS[0].enrollmentKey, Field(0), fixtureIdentitySalt(MEMBERS[0])));
 
   // Simulate a PortableCredential structure
   const portableCredential = {

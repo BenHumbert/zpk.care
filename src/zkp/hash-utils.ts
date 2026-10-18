@@ -93,3 +93,34 @@ export function quantityToField(qty: number): Field {
   const scaled = Math.round(qty * 1000);
   return Field(BigInt(scaled));
 }
+
+// ─── Salted identity fields — plan item C1, finding A-1 ──────────────────────────
+//
+// The four PHI fields of a member wallet (cardholder ID, date of birth, first and last name) were
+// hashed with no salt, so each field hash was a deterministic function of one low-entropy value
+// and the audit inverted all four members' names and birth dates by search. A per-member random
+// salt, generated on the device and held in the device state and the recovery deposit, goes into
+// every identity field hash. The circuits take the field hashes as private inputs and never see a
+// name, so no program, verification key or proof format changes.
+
+/** 32 random bytes as 64 hex characters. */
+export const IDENTITY_SALT_PATTERN = /^[0-9a-f]{64}$/i;
+
+export function isIdentitySalt(value: unknown): value is string {
+  return typeof value === 'string' && IDENTITY_SALT_PATTERN.test(value);
+}
+
+function saltField(identitySalt: string): Field {
+  if (!isIdentitySalt(identitySalt)) throw new Error('identitySalt must be 32 bytes of hex');
+  return hashString(identitySalt);
+}
+
+/** Poseidon over the salt's hash followed by the value's own fields; distinct from `hashString` of either. */
+export function hashIdentityField(value: string, identitySalt: string): Field {
+  return Poseidon.hash([saltField(identitySalt), ...Encoding.stringToFields(value)]);
+}
+
+/** The salted form of `hashDate`. */
+export function hashIdentityDate(dateStr: string, identitySalt: string): Field {
+  return Poseidon.hash([saltField(identitySalt), Field(BigInt(dateStr))]);
+}

@@ -354,6 +354,8 @@
     RPC.disconnectSSE();
     onboardStep = 0;
     onboardState = {
+    recoveryPin: '',
+    recoveryCards: null,
       pin: '', tokenId: '', enrollPIN: '', cardholderId: '', firstName: '', lastName: '', dob: '',
       enrollmentKey: '', walletId: '', preimageFields: null,
       statusMessage: '', error: '',
@@ -380,6 +382,8 @@
   var ONBOARD_TOTAL_STEPS = 7;
   var onboardStep = 0;
   var onboardState = {
+    recoveryPin: '',
+    recoveryCards: null,
     pin: '', tokenId: '', enrollPIN: '', cardholderId: '', firstName: '', lastName: '', dob: '',
     enrollmentKey: '', walletId: '', preimageFields: null,
     statusMessage: '', error: '',
@@ -431,6 +435,9 @@
           '<input class="form-input mono" id="ob-token" placeholder="e.g. 7Q4K-9XMD-2PWT-R8HN-5VZC" autocapitalize="characters" autocomplete="off" spellcheck="false" value="' + esc(onboardState.tokenId) + '"></div>' +
           '<div class="form-group"><label>8-Digit PIN (from SMS)</label>' +
           '<input class="form-input mono" id="ob-enroll-pin" type="text" inputmode="numeric" maxlength="8" placeholder="e.g. 12345678" value="' + esc(onboardState.enrollPIN || '') + '"></div>' +
+          '<div class="form-group"><label>Recovery PIN (choose 6 or more characters)</label>' +
+          '<input class="form-input mono" id="ob-recovery-pin" type="password" maxlength="32" placeholder="Protects your two recovery cards" value="' + esc(onboardState.recoveryPin || '') + '">' +
+          '<div style="font-size:11px;color:var(--text-secondary);margin-top:4px">Two recovery cards are issued when you enroll. A card alone reveals nothing; this PIN, checked online and attempt-limited, is what releases the other half.</div></div>' +
           '<div class="form-actions">' +
           '<button class="btn" id="ob-back">Back</button>' +
           '<button class="btn btn-primary" id="ob-next">Next</button></div>';
@@ -440,8 +447,11 @@
           var pin = $('ob-enroll-pin').value.trim();
           if (!v) { toast('Enrollment code is required', 'error'); return; }
           if (!pin || pin.length < 4) { toast('Enter the 8-digit PIN from your SMS', 'error'); return; }
+          var rp = $('ob-recovery-pin').value;
+          if (!rp || rp.length < 6) { toast('Choose a recovery PIN of at least 6 characters', 'error'); return; }
           onboardState.tokenId = v;
           onboardState.enrollPIN = pin;
+          onboardState.recoveryPin = rp;
           try {
             await fetch(location.origin + '/onboarding/accept-token', {
               method: 'POST', headers: RPC.deviceHeaders(),
@@ -538,9 +548,10 @@
           '<div style="margin:16px 0;padding:12px;background:var(--accent-dim);border-radius:var(--radius-sm);font-size:12px">' +
           '<div style="color:var(--text-secondary);margin-bottom:4px">Your Wallet ID</div>' +
           '<div class="mono" style="word-break:break-all;color:var(--accent)">' + esc(onboardState.walletId) + '</div></div>' +
-          '<div style="color:var(--yellow);font-size:11px;margin-bottom:16px">Please create a backup immediately in the Backup tab.</div>' +
+          renderRecoveryCards(onboardState.recoveryCards) +
           '<div class="form-actions"><button class="btn btn-primary btn-lg" id="ob-enter">Enter App</button></div>';
         $('ob-enter').addEventListener('click', function () {
+          onboardState.recoveryCards = null; // shown once
           walletId = onboardState.walletId;
           enrollmentKey = onboardState.enrollmentKey;
           lsSet(LS.WALLET_ID, walletId);
@@ -560,6 +571,20 @@
     }
   }
 
+  // A12b: a recovery card is {v, id, s}: one share of the enrollment key and a random id, nothing
+  // that depends on the PIN. Written to a tag as an NDEF text record; the PIN is checked online.
+  function renderRecoveryCards(cards) {
+    if (!cards || !cards.length) return '';
+    var html = '<div style="margin:12px 0;padding:12px;border:1px solid var(--yellow);border-radius:var(--radius-sm);font-size:12px">' +
+      '<div style="color:var(--yellow);margin-bottom:6px"><b>Write your two recovery cards now.</b> They are shown once. Keep one at home.</div>';
+    for (var i = 0; i < cards.length; i++) {
+      html += '<div style="margin:6px 0"><div style="color:var(--text-secondary)">Card ' + String.fromCharCode(65 + i) + ' (id ' + esc(cards[i].id) + ')</div>' +
+        '<div class="mono" style="word-break:break-all;user-select:all">' + esc(JSON.stringify(cards[i])) + '</div></div>';
+    }
+    html += '<div style="color:var(--text-secondary);margin-top:6px">A found card reveals nothing: it holds half of a key and no wallet ID. Recovery on a new phone needs the card, your recovery PIN and your enrollment details.</div></div>';
+    return html;
+  }
+
   async function generateKeyAndWallet() {
     try {
       // Step 1: Generate enrollment key on the server (Nautilus local state)
@@ -569,6 +594,14 @@
         body: JSON.stringify({}),
       }).then(function (r) { return r.json(); });
       if (!keyRes.ok) throw new Error(errMsg(keyRes.error) || 'Key generation failed');
+
+      // C2: redeem the code with the insurer first; the wallet is bound to the group it answers.
+      if ($('ob-keygen-msg')) $('ob-keygen-msg').textContent = 'Redeeming the enrollment code with the insurer...';
+      var redeemRes = await fetch(location.origin + '/onboarding/redeem', {
+        method: 'POST', headers: RPC.deviceHeaders(),
+        body: JSON.stringify({ tokenPIN: onboardState.enrollPIN }),
+      }).then(function (r) { return r.json(); });
+      if (!redeemRes.ok) throw new Error(errMsg(redeemRes.error) || 'The insurer did not accept the enrollment code and PIN');
 
       // Step 2: Derive wallet via server-side Poseidon hashing (PHI sent to local device only)
       if ($('ob-keygen-msg')) $('ob-keygen-msg').textContent = 'Deriving wallet ID (Poseidon hash)...';
@@ -615,9 +648,12 @@
       if ($('ob-enroll-msg')) $('ob-enroll-msg').textContent = onboardState.statusMessage;
       var enrollRes = await fetch(location.origin + '/onboarding/enroll', {
         method: 'POST', headers: RPC.deviceHeaders(),
-        body: JSON.stringify({ tokenPIN: onboardState.enrollPIN || undefined }),
+        body: JSON.stringify({ recoveryPin: onboardState.recoveryPin }),
       }).then(function (r) { return r.json(); });
       if (!enrollRes.ok) throw new Error(errMsg(enrollRes.error) || 'Enrollment failed');
+      // A12b: the two recovery cards, shown once on the completion screen and then dropped
+      onboardState.recoveryCards = (enrollRes.data && enrollRes.data.recoveryCards) || [];
+      onboardState.recoveryPin = '';
 
       // Step 2: Compile programs (transitions phase: enrolled → ready)
       // Must happen before proof generation since /proof/registration requires phase=ready

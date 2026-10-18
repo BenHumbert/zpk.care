@@ -130,6 +130,18 @@ export interface NautilusStateData {
   preimageFields?: string[];
   /** Domain tag (0=member, 1=prescriber, 2=pharmacy) */
   domainTag?: number;
+  /** C1: the member's identity salt, 32 bytes of hex, generated here at derivation; never leaves the device except inside a recovery deposit */
+  identitySalt?: string;
+  /** C2: what the insurer answered when the enrollment code was redeemed, before the wallet was derived */
+  enrollment?: {
+    groupIdHash: string;
+    planIdHash: string;
+    employerId: string | null;
+    redeemedAt: number;
+    completedAt?: number;
+  };
+  /** A12b: the recovery cards issued for this wallet, by id only; a card's share is never kept here */
+  recoveryCards?: Array<{ cardId: string; issuedAt: number; revokedAt?: number }>;
   /** Onboarding state */
   onboarding: {
     phase: string;

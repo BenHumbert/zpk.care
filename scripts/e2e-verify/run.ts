@@ -42,7 +42,9 @@ import { fileURLToPath } from 'url';
 import { Field, Poseidon, verify } from 'o1js';
 import { Trace, makeHttp, poll, sleep, abbrev } from './trace.js';
 import { expectedAdjudication, findSecrets } from './reference.js';
-import { hashString, hashDate } from '../../src/zkp/hash-utils.js';
+import { hashString, hashIdentityField, hashIdentityDate, isIdentitySalt } from '../../src/zkp/hash-utils.js';
+import { combineEnrollmentKey, recoveryPinVerifier, type RecoveryCardV3 } from '../../src/security/recovery-card.js';
+import { deriveMemberWalletId } from '../../src/wallets/wallet-derivation.js';
 import { NautilusLocalState } from '../../src/nodes/nautilus-local-state.js';
 import { l2Parse } from '../../src/l2/l2-json.js';
 import { deriveNodeAdminToken } from '../../src/security/node-roles.js';
@@ -123,6 +125,7 @@ const mem = (method: string, urlPath: string, body?: unknown) =>
     memSession ? { 'X-Device-Session': memSession } : {});
 const quietAdmin = makeHttp(new Trace(path.join(OUT, 'polls')), { headers: bearer });
 const RUN = Date.now().toString(36).toUpperCase();
+const RECOVERY_PIN = '246813';
 
 // Fictional member. Nothing here refers to a real person.
 const MEMBER = {
@@ -348,6 +351,11 @@ async function main() {
   trace.check('Enrollment code accepted', acc.status < 300, '2xx', acc.json);
   const gk = await mem('POST', '/onboarding/generate-key', {});
   trace.check('Enrollment key generated and not returned', gk.status < 300 && !JSON.stringify(gk.json).match(/[A-Za-z0-9_-]{40,}/), 'no key in response', gk.json);
+  // C2: the code is redeemed before the wallet exists; the insurer answers the real group and plan
+  const rd = await mem('POST', '/onboarding/redeem', { tokenPIN: myToken.tokenPIN });
+  const redeemedGroup = unwrap(rd.json)?.groupIdHash as string | undefined;
+  trace.check('Enrollment code redeemed before derivation; the insurer answered the employer group', rd.status < 300 && /^\d+$/.test(redeemedGroup ?? '') && redeemedGroup !== '0', 'groupIdHash', rd.json);
+  trace.check('The group the insurer answered is the employer group', redeemedGroup === hashString(groupId).toString(), hashString(groupId).toString(), redeemedGroup);
   const today = new Date().toISOString().slice(0, 10);
   const dw = await mem('POST', '/onboarding/derive-wallet', {
     cardholderId: MEMBER.employeeId, dateOfBirth: MEMBER.dob, firstName: MEMBER.firstName, lastName: MEMBER.lastName,
@@ -356,8 +364,16 @@ async function main() {
   const walletId = unwrap(dw.json)?.walletId as string;
   trace.check('Wallet derived on the device', !!walletId, 'walletId', dw.json);
   results.memberWalletId = walletId;
-  const en = await mem('POST', '/onboarding/enroll', { tokenPIN: myToken.tokenPIN });
+  const noRecoveryPin = await mem('POST', '/onboarding/enroll', {});
+  trace.check('Enrollment refuses to proceed without a recovery PIN', noRecoveryPin.status === 400, 400, noRecoveryPin.status);
+  const en = await mem('POST', '/onboarding/enroll', { recoveryPin: RECOVERY_PIN });
   trace.check('Insurer accepted the enrollment', en.status < 300 && unwrap(en.json)?.insurerNotified !== false, 'insurerNotified', en.json);
+  const cards = (unwrap(en.json)?.recoveryCards ?? []) as RecoveryCardV3[];
+  trace.check('Two recovery cards issued once, at the enrollment tap', cards.length === 2, 2, cards.length);
+  trace.check('A recovery card is opaque: an id and one share, under 160 bytes, no wallet ID or hash on it', cards.every(c => Object.keys(c).sort().join() === 'id,s,v' && JSON.stringify(c).length < 160 && !JSON.stringify(c).includes(walletId)), 'opaque', cards.map(c => JSON.stringify(c).length));
+  trace.secret('recovery card A', JSON.stringify(cards[0] ?? null));
+  trace.secret('recovery card B', JSON.stringify(cards[1] ?? null));
+  trace.secret('member recovery PIN', RECOVERY_PIN);
 
   trace.begin('member', 'Compile the circuit and prove registration (real ZK proof)');
   const tc = Date.now();
@@ -395,14 +411,19 @@ async function main() {
   const groupIdOnDevice = dev?.onboarding?.tokenData?.groupId ?? '';
   trace.note(`group on the device: "${groupIdOnDevice}" (the employer group is "${groupId}")`);
   const pre = (dev?.preimageFields ?? []) as string[];
-  const expectedPre: Array<[string, string]> = [
-    ['cardholder ID hash', hashString(MEMBER.employeeId).toString()],
-    ['date of birth hash', hashDate(MEMBER.dob).toString()],
-    ['first name hash', hashString(MEMBER.firstName).toString()],
-    ['last name hash', hashString(MEMBER.lastName).toString()],
-    ['enrollment key hash', hashString(enrollmentKey).toString()],
+  // C1: every identity field hash is salted with the device's own salt, which lives only on the device
+  const salt = dev?.identitySalt ?? '';
+  trace.check('The device holds an identity salt (32 bytes, hex)', isIdentitySalt(salt), 'salt', isIdentitySalt(salt) ? 'present' : salt);
+  trace.secret('member identity salt (device only)', salt);
+  const expectedPre: Array<[string, string]> = isIdentitySalt(salt) ? [
+    ['cardholder ID hash', hashIdentityField(MEMBER.employeeId, salt).toString()],
+    ['date of birth hash', hashIdentityDate(MEMBER.dob, salt).toString()],
+    ['first name hash', hashIdentityField(MEMBER.firstName, salt).toString()],
+    ['last name hash', hashIdentityField(MEMBER.lastName, salt).toString()],
+    ['enrollment key hash', hashIdentityField(enrollmentKey, salt).toString()],
     ['employer group hash', hashString(groupId).toString()],
-  ];
+  ] : [];
+  trace.check('The unsalted dictionary no longer matches the stored name hash (the A-1 inversion)', pre[2] !== hashString(MEMBER.firstName).toString(), 'no match', pre[2] === hashString(MEMBER.firstName).toString() ? 'matched' : 'no match');
   expectedPre.forEach(([label, v], i) => trace.check(`Wallet input ${i + 1}: ${label} recomputes from the raw value`, pre[i] === v, v, pre[i],
     i === 5 && pre[i] === '0' ? 'device never received the group; wallet is not bound to the employer group' : undefined));
   const fromDevice = Poseidon.hash([Field(0), ...pre.map(f => Field(BigInt(f)))]).toString();
@@ -410,9 +431,33 @@ async function main() {
   const bound = Poseidon.hash([Field(0), ...expectedPre.map(([, v]) => Field(BigInt(v)))]).toString();
   trace.check('Wallet ID is bound to the employer group, as the design specifies', bound === walletId, bound, walletId);
   if (pre[5] === '0') results.findings.push({ id: 'group-binding', severity: 'medium', title: 'Wallet is not bound to the employer group', evidence: `Device token data has groupId "${groupIdOnDevice}"; wallet input 6 is 0 instead of hash("${groupId}"). accept-token stores the group only if the caller sends it, and the dashboard sends only tokenId.` });
-  const wrongKey = Poseidon.hash([Field(0), ...pre.slice(0, 4).map(f => Field(BigInt(f))), hashString(enrollmentKey + 'x'), Field(BigInt(pre[5] ?? '0'))]).toString();
+  const wrongKey = isIdentitySalt(salt) ? Poseidon.hash([Field(0), ...pre.slice(0, 4).map(f => Field(BigInt(f))), hashIdentityField(enrollmentKey + 'x', salt), Field(BigInt(pre[5] ?? '0'))]).toString() : '';
   trace.check('A different enrollment key gives a different wallet', wrongKey !== walletId, '≠ walletId', wrongKey);
-  results.secrets = { enrollmentKey, preimageFields: dev?.preimageFields, enrollmentKeyHash: hashString(enrollmentKey).toString() };
+  results.secrets = { enrollmentKey, preimageFields: dev?.preimageFields, enrollmentKeyHash: isIdentitySalt(salt) ? hashIdentityField(enrollmentKey, salt).toString() : '', identitySalt: salt };
+
+  // ── 7b. Recover from a card: the insurer releases the other share against the PIN, attempt-limited ──
+  trace.begin('member', 'Recover the enrollment key from card B: a wrong PIN is refused, the right one releases the deposit');
+  if (cards.length === 2 && isIdentitySalt(salt)) {
+    const cardB = cards[1];
+    const wrong = await http('POST', `${INS}/recovery/release`, { cardId: cardB.id, pinVerifier: recoveryPinVerifier('000000', cardB.id) });
+    trace.check('A wrong recovery PIN releases nothing', wrong.status === 403, 403, wrong.status);
+    const right = await http('POST', `${INS}/recovery/release`, { cardId: cardB.id, pinVerifier: recoveryPinVerifier(RECOVERY_PIN, cardB.id) });
+    const bundle = unwrap(right.json) ?? {};
+    trace.check('The right recovery PIN releases the deposit', right.status === 200 && typeof bundle.share2Hex === 'string', 'share2Hex', right.status);
+    let recombined = '';
+    try { recombined = combineEnrollmentKey(cardB, bundle.share2Hex); } catch { recombined = ''; }
+    trace.check('Card B and the released share recombine into the device\'s enrollment key', recombined === enrollmentKey, 'same key', recombined === enrollmentKey ? 'same key' : 'different');
+    trace.check('The released salt is the device\'s, and the released group is the employer group', bundle.identitySalt === salt && bundle.groupIdHash === hashString(groupId).toString(), 'match', [bundle.identitySalt === salt, bundle.groupIdHash === hashString(groupId).toString()]);
+    let rederived = '';
+    try { rederived = deriveMemberWalletId({ cardholderId: MEMBER.employeeId, dateOfBirth: MEMBER.dob, genderCode: 0, firstName: MEMBER.firstName, lastName: MEMBER.lastName }, recombined, Field(BigInt(bundle.groupIdHash ?? '0')), bundle.identitySalt ?? ''). toString(); } catch { rederived = ''; }
+    trace.check('The released deposit re-derives the enrolled wallet from the member\'s details', rederived === walletId, walletId, rederived);
+    trace.check('The release carries no wallet ID', !JSON.stringify(right.json).includes(walletId), 'absent', 'checked');
+    const revoke = await http('POST', `${INS}/recovery/revoke`, { cardId: cardB.id, pinVerifier: recoveryPinVerifier(RECOVERY_PIN, cardB.id) });
+    const afterRevoke = await http('POST', `${INS}/recovery/release`, { cardId: cardB.id, pinVerifier: recoveryPinVerifier(RECOVERY_PIN, cardB.id) });
+    trace.check('A revoked card releases nothing, even with the right PIN', revoke.status === 200 && afterRevoke.status === 403, '200 then 403', [revoke.status, afterRevoke.status]);
+  } else {
+    trace.note('recovery stage skipped: no cards or no salt');
+  }
 
   // ── 8. Prescriptions and fills ──────────────────────────────
   const st = await httpAdmin('GET', `${SEQ}/interactive/state`);
@@ -664,8 +709,11 @@ async function main() {
     firstName: MEMBER.firstName, lastName: MEMBER.lastName, dateOfBirth: MEMBER.dob, cardholderId: MEMBER.employeeId,
     email: MEMBER.email, enrollmentKey, enrollmentPIN: myToken.tokenPIN, devicePIN: MEMBER.memberPin,
     'hash(enrollmentKey)': hashString(enrollmentKey).toString(),
-    ...Object.fromEntries((dev?.preimageFields ?? []).map((f: string, i: number) => [`preimage[${i}]`, f])),
+    // C2: the sixth input is the employer group hash, a public identifier the insurer and the group
+    // registry hold by design; it is not a secret and is not swept. The five salted inputs are.
+    ...Object.fromEntries((dev?.preimageFields ?? []).slice(0, 5).map((f: string, i: number) => [`preimage[${i}]`, f])),
   };
+  trace.note('preimage[5] is the employer group hash, public by design (C2), and is not swept');
   const sources: Array<[string, string]> = [];
   sources.push(['sequencer /interactive/state', (await http('GET', `${SEQ}/interactive/state`)).text]);
   for (const m of ['l2_getClaimsByMember', 'l2_getReceiptsByWallet', 'l2_getMessagesByWallet']) sources.push([`sequencer RPC ${m}`, jsonSafe((await rpc(m, { walletId }, false)).result ?? '')]);

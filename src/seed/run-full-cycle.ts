@@ -89,7 +89,7 @@ import { EnrollmentService } from '../onboarding/enrollment-service.js';
 
 // Seed data
 import { PRESCRIBERS, PHARMACIES, MEMBERS } from './index.js';
-import { getAllFormularyEntries } from '../data/index.js';
+import { getAllFormularyEntries, fixtureIdentitySalt } from '../data/index.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -187,8 +187,8 @@ async function main() {
   console.log('');
 
   const memberWalletId = await timed('P2', 'Derive member wallet', 'offchain', false, () =>
-    deriveMemberWalletId(member.localData, member.enrollmentKey, Field(0)));
-  const memberPreimageFields = memberWalletPreimage(member.localData, member.enrollmentKey, Field(0));
+    deriveMemberWalletId(member.localData, member.enrollmentKey, Field(0), fixtureIdentitySalt(member)));
+  const memberPreimageFields = memberWalletPreimage(member.localData, member.enrollmentKey, Field(0), fixtureIdentitySalt(member));
 
   console.log(`    -> ${member.localData.firstName} ${member.localData.lastName} (${member.localData.cardholderId})`);
   console.log(`       Wallet ID: ${truncField(memberWalletId)}`);

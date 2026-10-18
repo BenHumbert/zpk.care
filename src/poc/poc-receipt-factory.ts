@@ -38,7 +38,7 @@ import {
   derivePharmacyWalletId,
 } from '../wallets/wallet-derivation.js';
 import { hashString } from '../zkp/hash-utils.js';
-import { MEMBERS, PRESCRIBERS, PHARMACIES, MEDICATIONS } from '../data/index.js';
+import { MEMBERS, PRESCRIBERS, PHARMACIES, MEDICATIONS, fixtureIdentitySalt } from '../data/index.js';
 import type { SeedMedication } from '../data/index.js';
 
 // ─── Wallet ID Derivation ────────────────────────────────
@@ -55,7 +55,7 @@ export interface DerivedWallets {
  */
 export function deriveAllWalletIds(): DerivedWallets {
   const members = MEMBERS.slice(0, 5).map((m) => {
-    const walletId = deriveMemberWalletId(m.localData, m.enrollmentKey, Field(0));
+    const walletId = deriveMemberWalletId(m.localData, m.enrollmentKey, Field(0), fixtureIdentitySalt(m));
     return {
       walletId,
       walletIdStr: walletId.toString(),

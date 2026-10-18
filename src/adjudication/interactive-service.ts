@@ -133,6 +133,7 @@ import {
   MEDICATIONS,
   getAllFormularyEntries,
   getMembersByFamily,
+  fixtureIdentitySalt,
 } from '../data/index.js';
 
 // Full NADAC formulary (always 32K, ignores FORMULARY_LIMIT env var)
@@ -1014,7 +1015,7 @@ export class AdjudicationService {
 
     // Check if already fully enrolled (e.g., user clicked "Enroll" twice)
     const demoGroupIdHash = hashString('ACME-CORP');
-    const existingWalletId = deriveMemberWalletId(member.localData, member.enrollmentKey, demoGroupIdHash);
+    const existingWalletId = deriveMemberWalletId(member.localData, member.enrollmentKey, demoGroupIdHash, fixtureIdentitySalt(member));
     if (this.enrolledMembers.has(existingWalletId.toString())) {
       const existing = this.enrolledMembers.get(existingWalletId.toString())!;
       this.emit('info', 'enroll', `${displayName} is already enrolled — skipping`);
@@ -1050,8 +1051,8 @@ export class AdjudicationService {
     // 2. Derive wallet ID (member step — on their device)
     this.emit('offchain', 'enroll', `Step 2: ${member.localData.firstName} computes walletId on their device...`, 'start');
     const start2 = performance.now();
-    const walletId = deriveMemberWalletId(member.localData, member.enrollmentKey, demoGroupIdHash);
-    const preimageFields = memberWalletPreimage(member.localData, member.enrollmentKey, demoGroupIdHash);
+    const walletId = deriveMemberWalletId(member.localData, member.enrollmentKey, demoGroupIdHash, fixtureIdentitySalt(member));
+    const preimageFields = memberWalletPreimage(member.localData, member.enrollmentKey, demoGroupIdHash, fixtureIdentitySalt(member));
     const elapsed2 = performance.now() - start2;
 
     const walletIdStr = truncField(walletId);
@@ -1691,7 +1692,7 @@ export class AdjudicationService {
     for (const fm of familyMembers) {
       const idx = MEMBERS.indexOf(fm);
       // Skip if already enrolled
-      const existingWalletId = deriveMemberWalletId(fm.localData, fm.enrollmentKey, hashString('ACME-CORP'));
+      const existingWalletId = deriveMemberWalletId(fm.localData, fm.enrollmentKey, hashString('ACME-CORP'), fixtureIdentitySalt(fm));
       if (this.enrolledMembers.has(existingWalletId.toString())) {
         this.emit('info', 'enroll', `  ${fm.localData.firstName} ${fm.localData.lastName} already enrolled — skipping`);
         const existing = this.enrolledMembers.get(existingWalletId.toString())!;

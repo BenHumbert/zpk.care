@@ -1147,6 +1147,147 @@ Still open under A-14's heading, deliberately: the operator's credential is a be
 mode still defaults it to `admin123` (F1b removes that mode). The replicas' keys are A13, now one
 `registerNodeKey` call each.
 
+**Step 2 implementation spec: the one-shot identity change.** Written 2026-10-18 before the work.
+Items A12b, C1, B2 (the half that can be done before the engine stops proving for members), C2 and
+C4, in two commits, because the second depends on the protocol the first establishes and each has
+to be verified live on its own. Production starts at genesis (owner), so C4 is a clean state and a
+note, not a migration; wallet IDs change with this step and nothing enrolled before it survives it.
+
+What is wrong, measured. The member's wallet ID is `Poseidon(0, hash(cardholderId), hash(dob),
+hash(firstName), hash(lastName), hash(enrollmentKey), groupIdHash)` with every field hash unsalted
+(`hash-utils.ts:31-34, 62-64`); A-1 inverted all four members' names and birth dates from the engine's
+state file in 75 seconds. The app sends only the code at `/onboarding/accept-token`, so the device
+derives the wallet with `groupIdHash = Field(0)` and the engine binds every member to `PLAN-GOLD-2026`
+/ `ACME-CORP` (A-9), even though the insurer learns the real `groupIdHash` and `planIdHash` from the
+employer when it redeems the code (`insurer-routes.ts` `redeemWithEmployers`) and the member's own
+device never does. `register-member` provisions ELIGIBLE for any caller whose six fields hash to the
+wallet ID they name (A-6). `exportRecoveryCard` has no caller, so no card is ever written (PRD-1).
+
+Where the salt goes. Every circuit that re-derives a member wallet (ProofGate `verifyMember`,
+StateTransition `proveRegistration` / `proveWalletUpdate`, WalletMigration) takes the six field
+hashes as private inputs and recomputes the Poseidon over them; none hashes a name. So the salt is
+mixed into each field hash **off-circuit** — `hashIdentityField(value, salt) = Poseidon(hash(salt),
+...fields(value))`, `hashIdentityDate` likewise — and no program, verification key or proof format
+changes. The salt is 32 random bytes generated on the device at `derive-wallet`, kept in the encrypted
+device state and inside the recovery deposit, never in a request or a response. Provider wallets
+are unchanged (an NPI is public; B4 replaces provider keys anyway). Fixture identities get a
+deterministic salt per fixture so the console and the suites stay reproducible; they are fake people,
+and F1 isolates them.
+
+The enrollment order (C2). Redeem before derive, so the device knows the real group:
+`accept-token` (code) → `generate-key` → **`/onboarding/redeem {tokenPIN}`**, which asks the insurer
+`POST /enrollment/process {code, tokenPinHash}` with no wallet; the insurer redeems the code with the
+employer exactly as A6 built it, records the redemption keyed by the code with no wallet yet, and
+returns `{groupIdHash, planIdHash, employerId}` → `derive-wallet` with that `groupIdHash` → `enroll`,
+which calls **`POST /enrollment/complete {code, walletId, recoveryDeposits}`**: the insurer binds the
+wallet to the redemption (idempotent for the same wallet, 403 for another), records the enrollment,
+stores the deposits, and from commit two on approves the wallet with the engine. A code consumed by a
+device that dies before deriving is a new code from HR, the same window A6 already has.
+
+The recovery cards (A12b). PRD-1's design, read exactly: the card must yield nothing to unlimited
+offline compute, so nothing on it depends on the PIN. At `enroll` the device splits the enrollment
+key twice with one-time pads: card A carries `{v:3, id: cardIdA, s: shareA1}` and card B likewise,
+each about ninety bytes, each with its own random id and share, so one can be revoked without the
+other. The other halves go to the insurer in the deposits, with the identity salt, the group and plan
+hashes and the domain tag, and a **PIN verifier** `scrypt(recoveryPin, cardId)` computed on the device,
+so the insurer never sees the PIN and a found card reveals nothing: no wallet ID, no hash, no
+ciphertext to test a PIN against. Recovery on a new phone is `POST /onboarding/recover {card, pin,
+identity fields}`: the device asks `POST /recovery/release {cardId, pinVerifier}`, which the insurer
+answers only when the verifier matches, attempt-limited per card with `attempt-limiter.ts` (three
+free, doubling to fifteen minutes) and locked after ten; the device combines the shares, re-derives
+the wallet from the typed fields with the released salt and group, confirms it on the sequencer, and
+is the same wallet again, no migration needed. `POST /recovery/revoke {cardId, pinVerifier}` closes a
+card; `POST /recovery-card/issue {recoveryPin}` on the device issues a fresh pair later. The device
+keeps the card ids and nothing else of the cards; the enroll response carries the two payloads once,
+for the app to write to tags. Route names stay clear of the custody tests' rule (no backup, restore,
+export-key or reveal).
+
+Commit two: the engine's gate (B2 now) and the real plan. The insurer, at `complete`, posts
+`POST /interactive/approve-member {walletId, groupIdHash, planIdHash, employerId}` signed with its
+node key (role insurer, added to the route table). `register-member` then provisions ELIGIBLE only
+when three things hold: the insurer approved this wallet, the sequencer's lifecycle tree shows it
+REGISTERED (the member's own registration proof was accepted under A1), and the six fields hash to
+it; and it binds the plan from the approval, never from the request: the member record carries the
+real `planId`, `groupId`, `employerId`, the accumulator limits come from the sequencer's plan store
+(`getPlan`), the network from the plan's overlay with an empty list meaning every credentialed
+provider, and the `PLAN-GOLD-2026` / `ACME-CORP` defaults are deleted. The preimage still reaches the
+engine, because the engine still proves wallet updates for members; that half of B2 is phase B's,
+with the engine's move. C4: `clean:state`, and a note that device and engine state from before this
+step is not readable.
+
+Verified by. Commit one: `tests/identity-salt.test.ts` (domain separation, salt sensitivity and
+reproducibility, preimage/transition/migration consistency, the wallet is the Poseidon of the
+salted preimage), `tests/recovery-card.test.ts` (split/combine, payload size and opacity, release
+refused with a wrong verifier and throttled, correct verifier releases once per card id, revoke, two
+cards independent, the device stores no share, the custody route rule), `tests/enrollment-order.test.ts`
+(redeem before derive against a stub insurer; the wallet carries the real group; complete binds one
+wallet only); the harness enrolls with a recovery PIN, checks the two cards are opaque, exercises
+release with a wrong PIN and then the right one, recombines, re-derives the enrolled wallet from the
+fields it enrolled with, and checks no salt appears in `/health` or the state dump. Commit two:
+`tests/register-member-gate.test.ts` (no approval → 403; approval without REGISTERED → 409; both →
+ELIGIBLE with the real plan; the request's plan is ignored); the harness checks the enrolled member's
+record carries `PLAN-E2E-…` and the employer's group, and that the deductible comes from that plan.
+Both commits: the full secured pipeline, failures compared by name.
+
+**Step 2, commit one implementation record: salted identities, redeem before derive, two recovery cards.**
+Done 2026-10-18. Closes the inversion half of **A-1** (C1), the wallet-binding half of **A-9** (C2) and
+**PRD-1** (A12b). The engine's gate and plan binding are commit two.
+
+The salt (C1). `hash-utils.ts` gained `hashIdentityField(value, salt)` and `hashIdentityDate`, Poseidon
+over the salt's hash and the value's fields, distinct from `hashString` of either. The member wallet's
+five private inputs are now those salted hashes; the group hash is the sixth as before; the wallet is
+still the Poseidon of the domain tag and the six, so ProofGate, StateTransition and WalletMigration
+are untouched and no verification key changed. `deriveMemberWalletId`, `memberWalletPreimage`,
+`memberTransitionPreimage`, `secureMemberDerivation`, `MemberNode.buildPreimage` and the migration
+service's member branches take the salt; every caller passes one, fixture code through
+`fixtureIdentitySalt(seed)`, a function of the fixture. The device generates its salt at
+`derive-wallet` (`generateIdentitySalt`, 32 bytes), keeps it in `nautilus-state.enc`, and sends it
+nowhere but inside a recovery deposit. The harness recomputes the six inputs with the salt from the
+device state, and checks that the unsalted dictionary no longer matches the stored name hash.
+
+The order (C2). `POST /onboarding/redeem {tokenPIN}` is the new step between `generate-key` and
+`derive-wallet`: the device asks the insurer's `/enrollment/process` with the code and PIN hash and
+**no wallet**, the insurer redeems with the issuing employer exactly as A6 built it, records the
+redemption against the code with the PIN hash and no wallet, and answers `{groupIdHash, planIdHash,
+employerId}`, which the device keeps as `enrollment` and bakes into the wallet at derivation. A
+repeat with the same code and PIN hash is answered from the record; another PIN hash is refused, so
+a code-only holder learns nothing after consumption. `/onboarding/enroll` then calls the new
+`/enrollment/complete {code, walletId, recoveryDeposits}`, which binds the wallet (idempotent for the
+same wallet, 403 for another) and records the enrollment with the real hashes. A device with no
+insurer configured keeps the old derivation (the group named with the code, or none). The member
+dashboard redeems before deriving, with the PIN it already collected.
+
+The cards (A12b). `recovery-card.ts` v3: `splitEnrollmentKey` one-time-pads the key; a card is
+`{v:3, id, s}`, about ninety bytes, and nothing on it depends on the PIN. `issueRecoveryCards` makes
+two cards with independent shares and ids, and two deposits: the other share, the salt, the group
+and plan hashes and `recoveryPinVerifier(pin, cardId)`, scrypt under the card id, computed on the
+device. `enroll` requires a recovery PIN, issues both at the tap, files the deposits with
+`/enrollment/complete`, keeps the card ids only, and returns the two payloads once. The insurer's
+`/recovery/release {cardId, pinVerifier}` answers only against the stored verifier, attempt-limited
+per card with `attempt-limiter.ts` (three free, doubling to fifteen minutes) and thirty a minute per
+caller, and locks a card after ten failures; `/recovery/revoke` closes one; `/recovery/deposit` files
+a fresh pair for an enrolled wallet, which `/recovery-card/issue` on the device uses. Recovery is
+`POST /onboarding/recover {card, recoveryPin, identity fields}` on a new device: release, recombine,
+re-derive with the released salt and group, confirm the wallet exists on the sequencer
+(`l2_getEntity`), and it is the same wallet again; a wrong name derives a wallet nobody registered
+and is a 404. The completion screen shows the two cards once and drops them on entering the app.
+The v2 card format stays for the migration service until C3.
+
+Verified. `tests/identity-salt.test.ts` (12), `tests/recovery-card.test.ts` (10, including a real
+insurer: wrong verifier refused and throttled with Retry-After, right verifier releases once per
+card, revocation, deposits for an unknown wallet refused), `tests/enrollment-order.test.ts` (5, a
+real member node against stub insurer and sequencer: derive refused before redeem, redeem carries
+no wallet, the wallet carries the real group and a salt that stays on the device, enroll needs the
+PIN and issues two opaque cards whose deposits match and recombine, a second device recovers the
+same wallet and a wrong PIN or a wrong name does not). `tests/enrollment-codes.test.ts` follows the
+split; `tests/key-custody.test.ts` derives with the device's salt; `tests/entity-nodes.test.ts` and
+`tests/wallet-migration.test.ts` pass the salt; onboarding + wallet-migration 17 failing, identical
+by name. Typecheck src 20, scripts 2. Live: 120 of 134 checks across 24 steps on a clean secured boot (A9: 104 of 121; the harness gained the redeem, card, salt and recovery checks), 14 failing checks, all among the A9 run's 17, three of which now pass: the wallet is bound to the employer group, the sixth input recomputes from the raw value, and hash(enrollmentKey) no longer reaches the network.
+
+Not here, by design: the preimage still reaches the engine and the engine still provisions ELIGIBLE
+on it; the insurer's approval and the real plan in the engine are commit two. State from before this
+commit is not readable by design (C4, genesis).
+
 **B1 implementation record, first half.** Done 2026-10-17. Closes the residue of **A-13** and unblanks
 the console without weakening any gate.
 
@@ -1758,3 +1899,15 @@ Onboarding + wallet-migration 17 (count-matched). Pipeline 104 of 121 checks acr
 commits on local `dev`, nothing pushed, `origin/main` untouched. **Next:** Step 2 (A12b → C1 → B2 →
 C2 → C4), then A10b (with A-30's pharmacy key registration), A13 (one `registerNodeKey` per replica
 and the invariant monitor), B1 step two with phase B, phase D.
+
+**Addendum, 2026-10-18: Step 2, commit one done.** The member's identity fields are salted on the
+device (C1), the code is redeemed before the wallet is derived so the wallet carries the employer's
+real group (C2), and two recovery cards are issued at the enrollment tap with the other share held by
+the insurer behind an attempt-limited PIN verifier (A12b, PRD-1 closed). Scoreboard: 31 findings; 13
+fixed; 3 partly fixed (A-12, A-1, A-9); 1 mitigated (A-17); 14 open, three of them critical (A-1 and
+A-6 until commit two, A-2). Acceptance suites added this session: 22, 331 tests, all passing.
+Typecheck src 20, scripts 2. Onboarding + wallet-migration 17 by name. Pipeline 120 of 134 checks across 24 steps on a clean secured boot (A9: 104 of 121; the harness gained the redeem, card, salt and recovery checks), 14 failing checks, all among the A9 run's 17, three of which now pass: the wallet is bound to the employer group, the sixth input recomputes from the raw value, and hash(enrollmentKey) no longer reaches the network. Git: with
+this commit, 36 commits on local `dev`, nothing pushed, `origin/main` untouched. **Next:** Step 2,
+commit two (the insurer approves the wallet with the engine; `register-member` requires the approval
+and the member's accepted registration proof; the real plan in the engine; the defaults deleted), then
+A10b (with A-30), A13, B1 step two with phase B, phase D.
