@@ -113,8 +113,8 @@ All proofs go through `dispatchProof(program, method, argTypes, args, inlineFn)`
 | assignPcp | ProofGate.verifyPrescriber | seed preimage | DISCARDED | S:4722-4727 |
 | | PcpVerification.verifyPcpAssignment | PCP leaf in MEMBER tree; pcpWalletId matches | DISCARDED | S:4781-4786 |
 | | StateTransition.proveWalletUpdate | new inventory root | SUBMITTED | S:4792 |
-| generateCredential | ProofGate.verifyMember | member identity (engine-held inputs) | fed into the next proof | S:5405-5415 |
-| | Credential.proveHolding / proveHoldingByType | member holds credential in inventory (recursive over ProofGate) | serialized PortableCredential RETURNED + STORED (lastCredentialJson); not submitted | S:5427-5449, 5466 |
+| generateCredential (fixture members only since B1 step two, commit two) | ProofGate.verifyMember | fixture identity (engine-held fixture inputs); a member with a device is refused (409): its device proves its own credential | fed into the next proof | generateCredential |
+| | Credential.proveHolding / proveHoldingByType | a fixture member holds its credential; a member with a device proves this on the device (MemberNode.proveCredentialHolding behind POST /credential/generate) | serialized PortableCredential RETURNED + STORED (lastCredentialJson) for a fixture; the device keeps its own | generateCredential; member-routes |
 | | (Ed25519) attestation | signed {w, cc, ls=3, fr}, 24 h | RETURNED + STORED (lastAttestation) | S:5469-5475 |
 | verifyCredential | — | — | VERIFIED(`verifyCredentialOffline`, src/credentials/portable-credential.ts) against the compiled CredentialProgram VK | S:5525 |
 | simulateBadgeTap | ProofGate.verifyPrescriber / verifyPharmacy | seed preimage from badge + raw enrollmentKey | DISCARDED; event `verified: true` hard-coded | S:6546-6569 |

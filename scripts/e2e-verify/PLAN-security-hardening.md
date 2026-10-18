@@ -1288,6 +1288,32 @@ Not here, by design: the preimage still reaches the engine and the engine still 
 on it; the insurer's approval and the real plan in the engine are commit two. State from before this
 commit is not readable by design (C4, genesis).
 
+**B1 step two, commit two — implementation record: the device proves its own portable credential.**
+Done 2026-10-18. Closes **A-17**, the last mitigated finding.
+
+*What was wrong.* `generate-credential` on the engine minted a member's portable credential — the
+proof a pharmacy verifies offline — from engine-held inputs, so whoever held the operator token
+could hold a real member's credential; A12 had gated it as an interim control. The member page never
+called it, and the harness's "Portable credential generated" had failed since the gate.
+
+*Now.* The member node compiles `CredentialProgram` beside the other two and keeps two things in its
+encrypted state: the ownership proof it made at registration, and the credential parts the engine
+last handed it (fields, leaves, slot, root), written when the device proves each wallet update.
+`POST /credential/generate` (device session) first runs a pass over the wallet's queue so the
+credential proved is the current one, rebuilds the credential and the inventory from the parts with
+the shared `rebuildCredential`, checks the ledger holds that inventory root, and proves
+`Credential.proveHoldingByType` over the ownership proof, the credential and the inventory witness:
+a portable credential that names the wallet, carries the program's verification-key hash, never
+expires, and verifies offline with `verifyCredentialOffline`. The engine's `generateCredential`
+refuses a member with a device (409, "generates its own portable credential") and keeps the path for
+fixture members, who have no device, until the fixtures leave.
+
+*Verified.* `tests/device-credential.test.ts` (3, real proofs: the node compiles StateTransition,
+ProofGate and Credential, proves ownership, rebuilds the credential from the parts, proves holding,
+the result names the wallet and verifies offline, a tampered one does not, a credential for another
+wallet cannot be proved with this wallet's ownership proof, and the engine's source refuses a member
+with a device). Typecheck src 20, scripts 2. Live: 162/169 checks across 28 steps on a clean secured genesis boot — the previous eight failing checks minus "Portable credential generated"; the device's credential verifies offline, a tampered copy is rejected, and the operator's request to the engine is refused.
+
 **B1 step two with B2, commit one — implementation record: the preimage leaves the engine; the
 device proves every change to its wallet.** Done 2026-10-18. Closes **A-1** (the identity behind a
 wallet is no longer anywhere on the sequencer) and the rest of **B2**; opens phase B.
@@ -2273,3 +2299,13 @@ commit, 41 commits on local `dev`, nothing pushed, `origin/main` untouched. **Ne
 adjudicate then finalize, with the §7 questions settled first (the pending-delta rule, the
 representative pickup, mail order's finalize); the device's PCP update through the engine's queue;
 the device proving its own credential (A-17); then B5, B7, B8, B6, B4.
+
+**Addendum, 2026-10-18: B1 step two, commit two done.** The device proves its own portable credential
+(`POST /credential/generate`, `Credential.proveHoldingByType` over its ownership proof and the
+credential parts the engine last handed it); the engine mints none for a member with a device.
+Scoreboard: 32 findings; 23 fixed (the B2 list plus A-17); nothing partly fixed or mitigated; 9 open
+(A-2, A-10, A-11, A-18, A-22, A-23, A-25, A-26, A-27), one of them critical (A-2, item D1). Acceptance
+suites added this program: 33, 385 tests, all passing. Typecheck src 20, scripts 2. Pipeline
+162/169 checks across 28 steps on a clean secured genesis boot — the previous eight failing checks minus "Portable credential generated"; the device's credential verifies offline, a tampered copy is rejected, and the operator's request to the engine is refused. Git: with this commit, 42 commits on local `dev`, nothing pushed, `origin/main`
+untouched. **Next:** the device's PCP update through the engine's queue, then B3 (adjudicate then
+finalize, with the §7 questions settled first), then B5, B7, B8, B6, B4.

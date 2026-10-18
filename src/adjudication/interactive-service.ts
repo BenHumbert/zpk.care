@@ -5630,6 +5630,11 @@ export class AdjudicationService {
     if (!enrolled) throw new Error(`Member not enrolled: ${walletIdStr}`);
     if (enrolled.lifecycle === 'REVOKED') throw new Error('Cannot generate credential for revoked member');
     if (!this.credentialProgramVkHash) throw new Error('CredentialProgram VK not available');
+    // B1 step two (A-17): a member with a device proves its own portable credential; the engine mints
+    // none for it, so no operator can hold a real member's credential. Fixture members keep this path.
+    if (enrolled.memberIndex < 0) {
+      throw new RegistrationRefused(409, 'A member with a device generates its own portable credential (POST /credential/generate on the member node); the engine mints none for it');
+    }
 
     this.emit('phase', 'credential', `═══ Generate Portable Credential: ${enrolled.displayName} ═══`);
 

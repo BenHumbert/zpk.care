@@ -130,6 +130,20 @@ export interface NautilusStateData {
   preimageFields?: string[];
   /** Domain tag (0=member, 1=prescriber, 2=pharmacy) */
   domainTag?: number;
+  /** The credential as the engine last handed it, once the device proved that update (B1 step two): what /credential/generate proves from. */
+  credentialParts?: {
+    updateId: string;
+    reason: string;
+    credential: { credentialType: string; issuerWalletId: string; subjectWalletId: string; issuedAt: string; expiresAt: string; revoked: string };
+    forestLeaves: Array<{ domain: number; index: string; leaf: string }>;
+    inventorySlot: string;
+    inventoryRoot: string;
+    appliedAt: number;
+  };
+  /** The device's wallet-ownership proof (ProofGate.verifyMember), made at registration and reused for the portable credential (B2). */
+  ownershipProofJson?: string;
+  /** The last portable credential the device proved. */
+  lastCredentialJson?: string;
   /** C1: the member's identity salt, 32 bytes of hex, generated here at derivation; never leaves the device except inside a recovery deposit */
   identitySalt?: string;
   /** C2: what the insurer answered when the enrollment code was redeemed, before the wallet was derived */

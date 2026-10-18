@@ -738,12 +738,21 @@ async function main() {
 
   // ── 12. Portable credential (CredentialProgram) ─────────────
   trace.begin('member', 'Generate a portable credential and verify it offline');
-  await http('POST', `${SEQ}/interactive/generate-credential`, { walletId });
-  const cred = await poll(quiet, `${SEQ}/interactive/credential-status?walletId=${encodeURIComponent(walletId)}`, j => ['complete', 'error'].includes(j?.status), 900_000, 5000);
-  const credential = cred.json?.credential ?? cred.json?.result?.credential;
+  // B1 step two (A-17): the device proves its own portable credential; the engine mints none for a member with a device
+  const devCred = await mem('POST', '/credential/generate', {});
+  const credential = unwrap(devCred.json)?.credential;
+  trace.check('The device generated its own portable credential', devCred.status === 200 && !!credential?.proofJson, 'credential.proofJson', devCred.status === 200 ? 'present' : (unwrap(devCred.json) ?? devCred.json));
+  const engineMint = await httpAdmin('POST', `${SEQ}/interactive/generate-credential`, { walletId });
+  const mintJob = engineMint.status < 300
+    ? await poll(quietAdmin, `${SEQ}/interactive/credential-status?walletId=${encodeURIComponent(walletId)}`, j => ['complete', 'error'].includes(j?.status), 300_000, 3000)
+    : engineMint;
+  trace.check('The engine refuses to mint a credential for a member with a device, even for the operator', mintJob.json?.status === 'error' && /own portable credential/.test(String(mintJob.json?.error ?? '')), 'error: own portable credential', mintJob.json?.status === 'error' ? mintJob.json.error : (mintJob.json ?? engineMint.status));
+
   if (credential?.proofJson) {
+    const { ProofGateProgram } = await import('../../src/wallets/proof-gate.js');
     const { CredentialProgram } = await import('../../src/credentials/credential-program.js');
     const { verifyCredentialOffline } = await import('../../src/credentials/portable-credential.js');
+    await ProofGateProgram.compile(); // CredentialProgram's proofs carry a ProofGate proof; o1js needs its key first
     await CredentialProgram.compile();
     const ok = await verifyCredentialOffline(credential, '');
     trace.check('Portable credential proof verifies offline', ok, true, ok);
@@ -754,7 +763,7 @@ async function main() {
     const badOk = await verifyCredentialOffline(bad, '').catch(() => false);
     trace.check('Tampered credential is rejected', badOk === false, false, badOk);
   } else {
-    trace.check('Portable credential generated', false, 'credential.proofJson', cred.json);
+    trace.check('Portable credential generated', false, 'credential.proofJson', unwrap(devCred.json) ?? devCred.json);
   }
 
   // ── 13. More security probes ────────────────────────────────

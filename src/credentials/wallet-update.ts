@@ -98,15 +98,19 @@ export function credentialFieldsOf(credential: CredentialData): CredentialFields
   };
 }
 
+/** The parts of a payload the credential is rebuilt from. */
+export type CredentialParts = Pick<WalletUpdatePayload, 'credential' | 'forestLeaves' | 'inventorySlot'>;
+
 /**
  * Rebuild the forest from its leaves, the credential from its fields and that root, and the
- * inventory from that credential in its slot; return the three roots. The device compares the
- * last one to what the engine named. Throws on a payload that is not well formed.
+ * inventory from that credential in its slot, as objects: what the device proves with
+ * (`Credential.proveHoldingByType` takes the credential and the inventory witness). Throws on a
+ * payload that is not well formed.
  */
-export function rederiveInventoryRoot(payload: Pick<WalletUpdatePayload, 'credential' | 'forestLeaves' | 'inventorySlot'>): {
-  forestRoot: string;
-  credentialCommitment: string;
-  inventoryRoot: string;
+export function rebuildCredential(payload: CredentialParts): {
+  forest: MerkleForest;
+  credential: CredentialData;
+  inventory: CredentialInventory;
 } {
   if (payload.inventorySlot !== '0') {
     throw new Error(`wallet update: inventory slot ${payload.inventorySlot} is not the member's eligibility slot`);
@@ -132,8 +136,21 @@ export function rederiveInventoryRoot(payload: Pick<WalletUpdatePayload, 'creden
   const inventory = new CredentialInventory();
   const minted = inventory.mint(credential);
   if (minted.index !== 0n) throw new Error(`wallet update: the credential landed in slot ${minted.index}, not 0`);
+  return { forest, credential, inventory };
+}
+
+/**
+ * The three roots the parts yield. The device compares the last one to what the engine named;
+ * the engine checks its own payload the same way before queuing it.
+ */
+export function rederiveInventoryRoot(payload: CredentialParts): {
+  forestRoot: string;
+  credentialCommitment: string;
+  inventoryRoot: string;
+} {
+  const { forest, credential, inventory } = rebuildCredential(payload);
   return {
-    forestRoot: forestRoot.toString(),
+    forestRoot: forest.getForestRoot().toString(),
     credentialCommitment: credential.commitment().toString(),
     inventoryRoot: inventory.getRoot().toString(),
   };

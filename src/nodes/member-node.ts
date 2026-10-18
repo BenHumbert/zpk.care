@@ -29,7 +29,11 @@
  * Compiles: StateTransitionProgram (~30-120s one-time).
  */
 import { Field } from 'o1js';
-import { ProofGateProgram } from '../wallets/proof-gate.js';
+import { ProofGateProgram, ProofGateProof } from '../wallets/proof-gate.js';
+import { CredentialProgram } from '../credentials/credential-program.js';
+import { CREDENTIAL_TYPE_ELIGIBILITY, type CredentialData } from '../credentials/credential-data.js';
+import type { CredentialInventory } from '../credentials/credential-inventory.js';
+import { serializeCredential, type PortableCredential } from '../credentials/portable-credential.js';
 import {
   StateTransitionProgram,
   type StateTransitionProof,
@@ -52,6 +56,8 @@ import type {
 export class MemberNode extends EntityNodeBase {
   private compiled = false;
   private proofTimings: Map<string, number> = new Map();
+  /** CredentialProgram's verification key hash, kept at compile; it travels inside each portable credential. */
+  private credentialVkHash: Field | null = null;
 
   constructor(config: MemberNodeConfig) {
     if (!config.walletId) {
@@ -80,6 +86,13 @@ export class MemberNode extends EntityNodeBase {
     const pgElapsed = Date.now() - pgStart;
     this.proofTimings.set('ProofGateProgram', pgElapsed);
     results.push({ program: 'ProofGateProgram', timeMs: pgElapsed });
+    // B1 step two (A-17): the device proves its own portable credential; the engine mints none for it.
+    const credStart = Date.now();
+    const credCompiled = await CredentialProgram.compile();
+    this.credentialVkHash = Field(credCompiled.verificationKey.hash);
+    const credElapsed = Date.now() - credStart;
+    this.proofTimings.set('CredentialProgram', credElapsed);
+    results.push({ program: 'CredentialProgram', timeMs: credElapsed });
 
     this.compiled = true;
     return results;
@@ -117,6 +130,23 @@ export class MemberNode extends EntityNodeBase {
     const result = await ProofGateProgram.verifyMember(walletId, fields[0], fields[1], fields[2], fields[3], fields[4], fields[5]);
     this.proofTimings.set('proveOwnership', Date.now() - start);
     return JSON.stringify(result.proof.toJSON());
+  }
+
+  /**
+   * The portable credential, proved here (B1 step two, A-17): the device holds an eligibility
+   * credential in its wallet's inventory — Credential.proveHoldingByType over the ownership proof,
+   * the credential as the engine last handed it, and the inventory witness. The result verifies
+   * offline against CredentialProgram's key; nothing in it identifies a person.
+   */
+  async proveCredentialHolding(ownershipProofJson: string, credential: CredentialData, inventory: CredentialInventory): Promise<PortableCredential> {
+    if (!this.compiled || !this.credentialVkHash) {
+      throw new Error('Programs not compiled — call compilePrograms() first');
+    }
+    const start = Date.now();
+    const ownership = await ProofGateProof.fromJSON(JSON.parse(ownershipProofJson));
+    const result = await CredentialProgram.proveHoldingByType(ownership, credential, inventory.getWitness(0n), inventory.getRoot(), CREDENTIAL_TYPE_ELIGIBILITY);
+    this.proofTimings.set('proveCredentialHolding', Date.now() - start);
+    return serializeCredential(result.proof, 'credential-type-holding', this.credentialVkHash, 0);
   }
 
   async proveRegistration(

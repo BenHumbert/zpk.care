@@ -45,7 +45,7 @@ import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY } from '../../credentials/c
 import { buildNfcIdentityRecord, fitsOnTag } from '../nfc-identity.js';
 import { deriveEncryptionKeyPair } from '../../messaging/encryption.js';
 import { deriveWalletSigningKey } from '../../security/wallet-key.js';
-import { rederiveInventoryRoot, type WalletUpdatePayload } from '../../credentials/wallet-update.js';
+import { rederiveInventoryRoot, rebuildCredential, type WalletUpdatePayload } from '../../credentials/wallet-update.js';
 import { MemberNode } from '../member-node.js';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
 import type { RouteRegistration } from '../nautilus-app-types.js';
@@ -168,6 +168,17 @@ async function runWalletUpdates(server: NautilusAppServer): Promise<WalletUpdate
     }
     run.applied += 1;
     run.pending -= 1;
+    // The credential as it now is, kept for the portable credential the device proves (A-17)
+    data.credentialParts = {
+      updateId: update.updateId,
+      reason: update.reason,
+      credential: update.credential,
+      forestLeaves: update.forestLeaves,
+      inventorySlot: update.inventorySlot,
+      inventoryRoot: update.newInventoryRoot,
+      appliedAt: Date.now(),
+    };
+    await server.getLocalState().save(data);
   }
   return run;
 }
@@ -961,6 +972,8 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
           // own (ProofGate.verifyMember over the six salted fields) and sends that proof; the engine
           // verifies it and keeps it for the portable credential.
           const ownershipProofJson = await node.proveOwnership(Field(BigInt(data.walletId)), padded.slice(0, 6));
+          data.ownershipProofJson = ownershipProofJson; // reused for the portable credential (A-17)
+          await state.save(data);
           const regResp = await fetch(`${seqUrlClean}/interactive/register-member`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1508,6 +1521,55 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
         console.error('[pcp-proof] Failed:', msg);
         return server.sendResponse(res, 500, false, undefined, msg);
+      }
+    },
+  });
+
+  // ── The device's own portable credential (B1 step two, A-17) ─
+  // The member proves it holds its eligibility credential (Credential.proveHoldingByType over the
+  // device's ownership proof) from the credential parts the engine last handed it. The engine mints
+  // no credential for a member with a device, so nobody but the device can hold one.
+
+  routes.push({
+    method: 'POST',
+    path: '/credential/generate',
+    deviceOnly: true,
+    handler: async (_req, res) => {
+      if (server.getOnboardingPhase() !== 'ready') {
+        return server.sendResponse(res, 409, false, undefined, `Cannot prove in phase: ${server.getOnboardingPhase()}`);
+      }
+      const node = server.getEntityNode() as MemberNode | null;
+      const state = server.getLocalState();
+      const data = state.getState();
+      if (!node || !data?.walletId) {
+        return server.sendResponse(res, 409, false, undefined, 'Wallet not derived — complete onboarding first');
+      }
+      if (!node.isCompiled()) {
+        return server.sendResponse(res, 409, false, undefined, 'Programs not compiled — call /onboarding/compile first');
+      }
+      try {
+        // Whatever the engine queued comes first, so the credential proved is the current one.
+        const pass = await applyPendingWalletUpdates(server);
+        if (pass.pending > 0 || pass.errors.length > 0 || pass.refused.length > 0) {
+          return server.sendResponse(res, 409, false, undefined, `Wallet updates outstanding: ${JSON.stringify(pass)}`);
+        }
+        const parts = data.credentialParts;
+        const ownershipProofJson = data.ownershipProofJson;
+        if (!parts || !ownershipProofJson) {
+          return server.sendResponse(res, 409, false, undefined, 'No credential on this device yet: register first');
+        }
+        const rebuilt = rebuildCredential(parts);
+        const live = await node.getClient().getWalletState(data.walletId);
+        if (!live || live.credentialInventoryRoot !== rebuilt.inventory.getRoot().toString()) {
+          return server.sendResponse(res, 409, false, undefined, 'The ledger holds a different credential root than this device: sync first');
+        }
+        const started = Date.now();
+        const credential = await node.proveCredentialHolding(ownershipProofJson, rebuilt.credential, rebuilt.inventory);
+        data.lastCredentialJson = JSON.stringify(credential);
+        await state.save(data);
+        server.sendResponse(res, 200, true, { credential, proofType: credential.proofType, timeMs: Date.now() - started });
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Credential generation failed');
       }
     },
   });
