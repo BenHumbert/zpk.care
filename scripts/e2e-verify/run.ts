@@ -45,6 +45,8 @@ import { expectedAdjudication, findSecrets } from './reference.js';
 import { hashString, hashIdentityField, hashIdentityDate, isIdentitySalt } from '../../src/zkp/hash-utils.js';
 import { combineEnrollmentKey, recoveryPinVerifier, type RecoveryCardV3 } from '../../src/security/recovery-card.js';
 import { deriveMemberWalletId, derivePrescriberWalletId, derivePharmacyWalletId } from '../../src/wallets/wallet-derivation.js';
+import { CREDENTIAL_INVENTORY_HEIGHT } from '../../src/wallets/wallet-state.js';
+import { MerkleTree } from 'o1js';
 import { PRESCRIBERS, PHARMACIES } from '../../src/data/index.js';
 import { NautilusLocalState } from '../../src/nodes/nautilus-local-state.js';
 import { l2Parse } from '../../src/l2/l2-json.js';
@@ -410,6 +412,18 @@ async function main() {
   // record follows the receipt by a moment that grows with load; wait for it rather than race it.
   const memberRecordOf = (state: any) => ((state?.enrolledMembers ?? []) as any[]).find(m => m.walletId === walletId || (typeof m.walletIdDisplay === 'string' && walletId.startsWith(m.walletIdDisplay.replace(/\.\.\.$/, ''))));
   await poll(quietAdmin, `${SEQ}/interactive/state`, j => !!memberRecordOf(unwrap(j) ?? j), 180_000, 3000);
+  // B1 step two: the credential mint is a wallet update the device proves; the engine holds no preimage
+  let mintRun: any = null;
+  for (let t = Date.now(); Date.now() - t < 300_000;) {
+    const run = await mem('POST', '/proof/wallet-updates', {});
+    mintRun = unwrap(run.json) ?? run.json;
+    if (run.status === 200 && Number(mintRun?.pending) === 0 && (mintRun?.errors ?? []).length === 0) break;
+    await sleep(5000);
+  }
+  trace.check('The device proved the credential mint it was handed; the engine never held its preimage', Number(mintRun?.pending) === 0 && (mintRun?.errors ?? []).length === 0 && (mintRun?.refused ?? []).length === 0, 'pending 0, no errors', mintRun);
+  const emptyInventoryRoot = new MerkleTree(CREDENTIAL_INVENTORY_HEIGHT).getRoot().toString();
+  const afterMint = await rpc('l2_getWalletState', { walletId }, false);
+  trace.check('The ledger holds a minted credential root for the wallet, proved by the device', typeof afterMint.result?.credentialInventoryRoot === 'string' && afterMint.result.credentialInventoryRoot !== emptyInventoryRoot && afterMint.result.credentialInventoryRoot !== '0', 'not the empty inventory root', abbrev(String(afterMint.result?.credentialInventoryRoot ?? afterMint), 14));
 
   // ── Step 2 commit two: the engine bound the member to the plan the insurer sold, and the A-6 door ──
   trace.begin('verifier', 'The engine binds the member to the insurer\'s plan, and refuses a wallet the insurer never approved');
@@ -424,7 +438,10 @@ async function main() {
   trace.check('The provider network comes from the plan the insurer published, not a demo table', sameList(mine?.inNetworkPrescribers, networkPrescriberIdx) && sameList(mine?.inNetworkPharmacies, networkPharmacyIdx), `${networkPrescriberIdx.join(',')} / ${networkPharmacyIdx.join(',')}`, `${mine?.inNetworkPrescribers} / ${mine?.inNetworkPharmacies}`);
   const mallory = [1n, 2n, 3n, 4n, 5n, 6n].map(n => Field(n * 7919n + 17n));
   const malloryWallet = Poseidon.hash([Field(0), ...mallory]).toString();
-  const forged = await http('POST', `${SEQ}/interactive/register-member`, { walletId: malloryWallet, preimageFields: mallory.map(f => f.toString()), displayName: 'Mallory' });
+  // B2: the engine takes no identity preimage at all, from anyone
+  const withPreimage = await http('POST', `${SEQ}/interactive/register-member`, { walletId: malloryWallet, preimageFields: mallory.map(f => f.toString()), displayName: 'Mallory' });
+  trace.check('The engine refuses an identity preimage outright (B2)', withPreimage.status === 400 && /never sent/.test(JSON.stringify(withPreimage.json ?? withPreimage.text ?? '')), '400, never sent', `${withPreimage.status} ${JSON.stringify(withPreimage.json ?? withPreimage.text ?? '').slice(0, 120)}`);
+  const forged = await http('POST', `${SEQ}/interactive/register-member`, { walletId: malloryWallet, ownershipProofJson: '{}', displayName: 'Mallory' });
   trace.check('register-member refuses a wallet the insurer never approved (A-6)', forged.status === 403, 403, forged.status);
   trace.check('…and says why without provisioning anything', /insurer approval/.test(JSON.stringify(forged.json ?? forged.text ?? '')), 'no insurer approval', forged.json ?? forged.text);
   const receipts = await rpc('l2_getReceiptsByWallet', { walletId }, false);
@@ -606,6 +623,17 @@ async function main() {
     trace.check('Claim is for the drug that was prescribed', fd.ndcHash === ndcHash, ndcHash, fd.ndcHash);
     trace.check('Claim names the pharmacy that filled it', fd.pharmacyWalletId === String(results.pharmacyWalletId), results.pharmacyWalletId, fd.pharmacyWalletId);
 
+    // B1 step two: the fill produced a wallet update the member's device must prove; the claim lands with it
+    let fin: any = null;
+    for (let t = Date.now(); Date.now() - t < 300_000;) {
+      const run = await mem('POST', '/proof/wallet-updates', {});
+      fin = unwrap(run.json) ?? run.json;
+      if (run.status === 200 && Number(fin?.pending) === 0 && (fin?.errors ?? []).length === 0) break;
+      await sleep(5000);
+    }
+    trace.check(`${sc.label}: the member's device finalized the fill by proving its own wallet update`, Number(fin?.pending) === 0 && (fin?.errors ?? []).length === 0 && (fin?.refused ?? []).length === 0, 'pending 0, no errors', fin);
+    const walletNow = await rpc('l2_getWalletState', { walletId }, false);
+    trace.check(`${sc.label}: the ledger holds the credential root the device proved`, !!r.walletUpdate?.newInventoryRoot && walletNow.result?.credentialInventoryRoot === r.walletUpdate.newInventoryRoot, abbrev(String(r.walletUpdate?.newInventoryRoot ?? 'walletUpdate missing from the fill result'), 14), abbrev(String(walletNow.result?.credentialInventoryRoot ?? walletNow), 14));
     results.claims.push({ label: sc.label, prescriptionId, ingredient: sc.ingredient.toString(), fee: sc.fee.toString(), adjudication: adj, accumulator: r.accumulator, expected: { ...exp, total: exp.total.toString(), patientPay: exp.patientPay.toString(), planPay: exp.planPay.toString(), deductibleCredit: exp.deductibleCredit.toString() }, proofTimesMs: r.proofTimesMs, receiptId: r.l2Receipt?.receiptId, settlementCommitment: r.settlementCommitment });
     acc0 = { ...accNow, deductiblePaidCents: BigInt(after.deductiblePaidCents), oopPaidCents: BigInt(after.oopPaidCents), annualBenefitUsedCents: BigInt(after.benefitUsedCents ?? 0) };
   }

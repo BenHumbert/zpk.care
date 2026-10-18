@@ -1288,6 +1288,71 @@ Not here, by design: the preimage still reaches the engine and the engine still 
 on it; the insurer's approval and the real plan in the engine are commit two. State from before this
 commit is not readable by design (C4, genesis).
 
+**B1 step two with B2, commit one — implementation record: the preimage leaves the engine; the
+device proves every change to its wallet.** Done 2026-10-18. Closes **A-1** (the identity behind a
+wallet is no longer anywhere on the sequencer) and the rest of **B2**; opens phase B.
+
+*What was wrong.* `register-member` carried the member's six salted identity hashes to the engine,
+which kept them in memory and in `l2-data/adjudication-state.json`, because it needed them to prove
+wallet updates on the member's behalf: the credential mint at registration, and after every fill,
+prior authorization, plan change, rollover or primary-care link. Salting (Step 2) made the hashes
+unguessable; this makes them absent.
+
+*The division of labour.* The engine stays the authority on what a member's credential says and
+keeps the only working copy of it (eligibility, the accumulator, the forest). What it may not hold
+is the preimage, so it no longer proves. Each change becomes a **pending wallet update**
+(`src/credentials/wallet-update.ts`): the credential's fields, the forest's non-empty leaves, the
+slot, the root the device must start from and the root it must reach. The device rebuilds the root
+from exactly those parts with the same two functions the engine used to check them
+(`forestLeavesOf`, `rederiveInventoryRoot`), refuses anything that does not add up, proves the
+update with the preimage only it holds against the sequencer's live tree, submits it, and reports
+the receipt. Nothing in a payload identifies a person: wallet ids, commitments, plan figures.
+
+*Registration.* `POST /interactive/register-member` takes `{walletId, ownershipProofJson,
+displayName, publicKeyHex?}` and refuses a body that carries `preimageFields` with 400, from anyone.
+The proof is `ProofGate.verifyMember` over the six fields, made on the device, verified by the
+engine with o1js `verify()` against the key it compiled (never `proof.verify()`, which only sets a
+flag) and checked to name the wallet; the engine keeps it for the portable credential, which used
+to re-prove it from the preimage. The approval and ledger gates of Step 2 run first. The credential
+mint is the member's first pending update; the engine records the member at the ledger's current
+root and nonce and advances them only when the device reports the receipt.
+
+*Fills, and the claim.* `l2_submitProof` accepts no claim metadata from outside callers, and still
+does not. The engine commits a fill's claim on the sequencer against the wallet and the root the
+update will reach (`commitPendingClaim`); when the member's proof for exactly that root is accepted,
+the sequencer attaches the claim and forgets the commitment. A member cannot invent a claim, and
+the engine cannot settle one without the member's proof — the pending settlement of §7, in its
+first form. The dispense result carries `walletUpdate: {status: 'pending', updateId,
+newInventoryRoot}`; the pharmacy's job completes faster, since the engine no longer proves the
+member's side inline.
+
+*The engine's routes for the device.* `GET /interactive/wallet-updates?walletId=` and `POST
+/interactive/wallet-update-applied {walletId, updateId, receiptId}` take only the signature of the
+wallet they name (`L2RpcServer.registerRoute(…, {walletSigned})`, the A10b gate extended to routes).
+Applying checks the receipt is the wallet's and that the ledger now holds the root; updates apply in
+order. Fixture members, who have no device, keep the engine's proving with a preimage recomputed
+from the fixture file at restore and never written; a checkpoint from before this commit has its
+preimages dropped on restore and said so.
+
+*The device.* `MemberNode` compiles ProofGate beside StateTransition and gains `proveOwnership`;
+`NautilusAppServer.walletSignedFetch` signs as the wallet; `/proof/registration` sends the proof and
+then proves the mint; `POST /proof/wallet-updates` runs a pass over the queue on demand, and a sync
+loop runs one every 20 seconds while the device is ready, so a fill finalizes without the app being
+asked. The engine's state dump shows `pendingWalletUpdates` per member.
+
+*Verified.* `tests/wallet-update-payload.test.ts` (4: the derivation against the engine's objects,
+tampering refused), `tests/engine-preimage-free.test.ts` (5: the route refuses a preimage and takes
+the proof, the two wallet routes take only the named wallet's signature in query or body, the
+engine's source writes no preimage and verifies with `verify()`), `tests/pending-claims.test.ts` (1:
+committed per wallet and root, kept across a checkpoint, given up once). `register-member-gate` and
+`interactive-admin-gates` follow the new contract. Typecheck src 20, scripts 2. Live: 158 of 166 checks across 28 steps on a clean secured genesis boot; the five identity-hash probes pass for the first time (nothing on the network holds or serves them), the device proved the credential mint and each fill and the ledger holds the roots it proved, and the engine refused a preimage outright; the 8 failing checks are the previous run's 13 minus those five, all on the provider-node paths, nothing new.
+
+*Left for the next commits of phase B, stated.* The engine still computes adjudication and the
+fulfillment proof at dispense (B3 moves adjudication to prescribing and the finalize to pickup);
+`/proof/pcp-assignment` on the device still rebuilds its root from an empty forest (it should ask
+the engine for the update like every other change); `generate-credential` stays admin-gated until
+the device proves its own credential; the fixture members' preimages leave with the fixtures (F).
+
 **A13 implementation record: the replicas have credentials, and someone is watching.** Done
 2026-10-18. Closes **A-8** and the replication half of **C-3**; the last phase A item, so phase A
 is closed.
@@ -2195,3 +2260,16 @@ reading it once. (3) Widening the regression set to suites nobody had run this p
 three stale expectations; each time the implementation was right and the test was corrected.
 (4) A script that writes JavaScript string literals must escape prose or build it with
 `JSON.stringify`; one apostrophe broke a documentation script three times before it was quoted.
+
+**Addendum, 2026-10-18: Session 6 opened on the owner's word; B1 step two with B2, commit one done.**
+The preimage leaves the engine: `register-member` takes the device's ownership proof and refuses a
+preimage from anyone; every change to a member's credential is a pending wallet update the device
+re-derives, proves and submits; a fill's claim is committed on the sequencer and lands with the
+member's proof. Scoreboard: 32 findings; 22 fixed (the A13 list plus A-1); 1 mitigated (A-17, until
+the device proves its own credential); 9 open (A-2, A-10, A-11, A-18, A-22, A-23, A-25, A-26, A-27),
+one of them critical (A-2, item D1); criticals closed six of seven. Acceptance suites added this
+program: 32, 382 tests, all passing. Typecheck src 20, scripts 2. Pipeline 158 of 166 checks across 28 steps on a clean secured genesis boot; the five identity-hash probes pass for the first time (nothing on the network holds or serves them), the device proved the credential mint and each fill and the ledger holds the roots it proved, and the engine refused a preimage outright; the 8 failing checks are the previous run's 13 minus those five, all on the provider-node paths, nothing new. Git: with this
+commit, 41 commits on local `dev`, nothing pushed, `origin/main` untouched. **Next:** B3,
+adjudicate then finalize, with the §7 questions settled first (the pending-delta rule, the
+representative pickup, mail order's finalize); the device's PCP update through the engine's queue;
+the device proving its own credential (A-17); then B5, B7, B8, B6, B4.

@@ -78,7 +78,7 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 ### Proof submission / wallet sync
 | Method | Auth | Params | Reads/writes | Member | Line |
 |---|---|---|---|---|---|
-| l2_submitProof | RATE (proof verified in `node.submitProof`) | proofJson, newCredentialInventoryRoot?, entityMetadata? | `StateTransitionProof.fromJSON` → `node.submitProof(proof, meta)`; only `newCredentialInventoryRoot` (decimal string) is forwarded as metadata; if result `isRegistration`, unverified `entityMetadata{displayName,type,specialty,pharmacyType,group}` is written to `entityRegistry` | yes: L2Receipt (walletId, roots, claimLeafIndex) | 755-790 |
+| l2_submitProof | RATE (proof verified in `node.submitProof`) | proofJson, newCredentialInventoryRoot?, entityMetadata? | `StateTransitionProof.fromJSON` → `node.submitProof(proof, meta)`; only `newCredentialInventoryRoot` (decimal string) is forwarded as metadata, plus the claim the engine committed for that wallet and root (`pendingClaimFor`, B2), cleared once the proof is accepted; if result `isRegistration`, unverified `entityMetadata{displayName,type,specialty,pharmacyType,group}` is written to `entityRegistry` | yes: L2Receipt (walletId, roots, claimLeafIndex) | 755-790 |
 | l2_syncWalletState | OPEN (verify-only) | walletId, newCredentialInventoryRoot, newNonce | `seq.syncWalletState`: refuses unless wallet registered and state reproduces current registry root; else no-op/update; errors returned as `{synced:false,error}` | no | 792-818; SEQ:1963-1975 |
 
 ### Admin keys / admission

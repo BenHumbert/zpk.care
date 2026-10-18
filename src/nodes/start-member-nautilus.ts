@@ -64,7 +64,7 @@ import { parentPidFromEnv, watchParent } from './parent-watchdog.js';
 import { nodeKeyFromEnv } from '../security/node-roles.js';
 import type { NautilusAppConfig } from './nautilus-app-types.js';
 import type { NautilusStateData } from './nautilus-local-state.js';
-import { buildMemberRoutes } from './routes/member-routes.js';
+import { buildMemberRoutes, applyPendingWalletUpdates } from './routes/member-routes.js';
 import { MemberNode } from './member-node.js';
 import { Field } from 'o1js';
 import { resolveBindHost, resolveAllowedOrigins, resolveRpcProxyPolicy } from '../security/network-policy.js';
@@ -119,6 +119,14 @@ async function main(): Promise<void> {
 
   // Register member routes
   server.registerRoutes(buildMemberRoutes(server));
+
+  // B1 step two: the device proves the wallet updates the engine queues for it. While the device is
+  // ready it looks for them every 20 seconds, so a fill finalizes without the app being asked.
+  const walletUpdateSync = setInterval(() => {
+    if (server.getOnboardingPhase() !== 'ready') return;
+    applyPendingWalletUpdates(server).catch(() => {});
+  }, 20_000);
+  walletUpdateSync.unref();
 
   // ── State Recovery ──
 

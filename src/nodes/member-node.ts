@@ -29,6 +29,7 @@
  * Compiles: StateTransitionProgram (~30-120s one-time).
  */
 import { Field } from 'o1js';
+import { ProofGateProgram } from '../wallets/proof-gate.js';
 import {
   StateTransitionProgram,
   type StateTransitionProof,
@@ -73,6 +74,12 @@ export class MemberNode extends EntityNodeBase {
     const elapsed = Date.now() - start;
     this.proofTimings.set('StateTransitionProgram', elapsed);
     results.push({ program: 'StateTransitionProgram', timeMs: elapsed });
+    // B2: the device proves it owns its wallet (ProofGate.verifyMember) instead of sending the preimage.
+    const pgStart = Date.now();
+    await ProofGateProgram.compile();
+    const pgElapsed = Date.now() - pgStart;
+    this.proofTimings.set('ProofGateProgram', pgElapsed);
+    results.push({ program: 'ProofGateProgram', timeMs: pgElapsed });
 
     this.compiled = true;
     return results;
@@ -94,6 +101,24 @@ export class MemberNode extends EntityNodeBase {
    * @param currentRegistryRoot — current on-chain registry root
    * @param currentLifecycleRoot — current on-chain lifecycle root
    */
+  /**
+   * Prove this wallet is ours — ProofGate.verifyMember over the six salted fields — for the engine's
+   * record (B2). The proof says the wallet id is the hash of six fields we know; the fields stay here.
+   * Returns the proof as JSON, which is what travels.
+   */
+  async proveOwnership(walletId: Field, fields: Field[]): Promise<string> {
+    if (!this.compiled) {
+      throw new Error('Programs not compiled — call compilePrograms() first');
+    }
+    if (fields.length !== 6) {
+      throw new Error(`proveOwnership: six fields expected, got ${fields.length}`);
+    }
+    const start = Date.now();
+    const result = await ProofGateProgram.verifyMember(walletId, fields[0], fields[1], fields[2], fields[3], fields[4], fields[5]);
+    this.proofTimings.set('proveOwnership', Date.now() - start);
+    return JSON.stringify(result.proof.toJSON());
+  }
+
   async proveRegistration(
     preimage: Field[],
     registryWitness: WalletRegistryWitness,

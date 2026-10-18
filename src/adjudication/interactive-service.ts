@@ -31,7 +31,8 @@
  * All operations emit ConsoleEvent objects via the emitter callback
  * so the browser can display real-time progress.
  */
-import { Field, MerkleTree, Poseidon } from 'o1js';
+import { Field, MerkleTree, Poseidon, verify, type VerificationKey } from 'o1js';
+import { randomUUID } from 'crypto';
 
 // Wallets
 import {
@@ -44,6 +45,7 @@ import {
   DOMAIN_TAG_MEMBER,
 } from '../wallets/wallet-derivation.js';
 import { ProofGateProgram, ProofGateProof } from '../wallets/proof-gate.js';
+import { forestLeavesOf, credentialFieldsOf, rederiveInventoryRoot, type WalletUpdatePayload } from '../credentials/wallet-update.js';
 import { WalletRegistry, WalletRegistryWitness, WALLET_TREE_HEIGHT } from '../wallets/wallet-state.js';
 
 // Engine
@@ -217,7 +219,8 @@ interface EnrolledMember {
   familyId: string;
   relationship: string;
   employeeId: string;
-  preimageFields: Field[];
+  /** Only a fixture member (memberIndex ≥ 0) has these, recomputed from the fixture file at restore; a member with a device never sends them (B2). */
+  preimageFields?: Field[];
   pcpAssignment?: PcpAssignmentData;
   pcpPrescriberIndex?: number;
   inNetworkPrescriberIndices: number[];
@@ -333,7 +336,8 @@ interface SerializedEnrolledMember {
   familyId: string;
   relationship: string;
   employeeId: string;
-  preimageFields: string[];                   // Field[].map(f => f.toString())
+  /** Not written since B2: the engine holds no member preimage. An older checkpoint's copy is dropped on restore. */
+  preimageFields?: string[];
   pcpAssignment?: Record<string, string>;     // PcpAssignmentData.toJSON() | undefined
   pcpPrescriberIndex?: number;
   inNetworkPrescriberIndices: number[];
@@ -345,6 +349,8 @@ interface SerializedEnrolledMember {
   credentialInventoryRoot: string;            // Field as decimal string
   l2Receipts: string[];
   lastCredentialJson?: string;
+  /** The device's wallet-ownership proof (ProofGate.verifyMember), kept for the portable credential (B2). */
+  ownershipProofJson?: string;
   /** Forest leaf data for MerkleForest reconstruction */
   forestLeaves: SerializedForestLeaf[];
   /** Prior auth leaf indices in ACCESS_CONTROL tree (for forest rebuild) */
@@ -438,6 +444,7 @@ export interface AdjudicationCheckpointState {
   nextPaLeafIndex: Record<string, string>;       // Map<walletId, bigint as string>
   /** Step 2 commit two: the wallets the insurer approved, with the plan each is bound to. Absent in older checkpoints. */
   approvedMembers?: MemberApproval[];
+  pendingWalletUpdates?: PendingWalletUpdate[];
 }
 
 // ─── Insurer approval and plan binding — plan item B2 (now) and C2, findings A-6 and A-9 ───
@@ -460,6 +467,24 @@ export interface MemberApproval {
 }
 
 /** A registration refused by the gate, with the status the route answers. */
+/**
+ * A change to a member's credential the engine computed and the member's device proves (B1 step
+ * two). Queued per wallet, oldest first; applied when the device reports the receipt and the
+ * ledger shows the root.
+ */
+export interface PendingWalletUpdate extends WalletUpdatePayload {
+  phase: string;
+  status: 'pending' | 'applied';
+  receiptId?: string;
+  appliedAt?: number;
+}
+
+/** What a credential update produced: a receipt when the engine proved it (a fixture member), a pending update when the device will. */
+export interface WalletUpdateOutcome {
+  receipt?: L2Receipt;
+  pending?: PendingWalletUpdate;
+}
+
 export class RegistrationRefused extends Error {
   constructor(public readonly status: number, message: string) {
     super(message);
@@ -499,6 +524,12 @@ export function bindPlan(
 export class AdjudicationService {
   // Proof pool — offloads ZK proving to child processes
   private proofPool: import('./proof-pool.js').ProofPool | null = null;
+
+  /** ProofGate's verification key, kept at compile so a device's ownership proof can be verified (B2). */
+  private proofGateVk: VerificationKey | null = null;
+
+  /** Wallet updates the engine prepared for members' devices to prove (B1 step two), by update id. */
+  private pendingWalletUpdates: Map<string, PendingWalletUpdate> = new Map();
 
   // Infrastructure
   /** The sequencer's wallet registry — the only copy. Read here; change via sequencer.adminMutate(). */
@@ -1021,7 +1052,7 @@ export class AdjudicationService {
     const vkHashes: Field[] = [];
 
     const programs = [
-      { name: 'ProofGateProgram (3 methods)', fn: async () => { const r = await ProofGateProgram.compile(); vkHashes.push(Field(r.verificationKey.hash)); } },
+      { name: 'ProofGateProgram (3 methods)', fn: async () => { const r = await ProofGateProgram.compile(); this.proofGateVk = r.verificationKey; vkHashes.push(Field(r.verificationKey.hash)); } },
       { name: 'EligibilityProgram', fn: async () => { const r = await EligibilityProgram.compile(); vkHashes.push(Field(r.verificationKey.hash)); } },
       { name: 'AccessControlProgram (2 methods)', fn: async () => { const r = await AccessControlProgram.compile(); vkHashes.push(Field(r.verificationKey.hash)); } },
       { name: 'MessagingProgram (2 methods)', fn: async () => { const r = await MessagingProgram.compile(); vkHashes.push(Field(r.verificationKey.hash)); } },
@@ -1616,9 +1647,110 @@ export class AdjudicationService {
     return 'other';
   }
 
+  /**
+   * The device's proof that the wallet is theirs (ProofGate.verifyMember over the six salted fields),
+   * verified against the compiled verification key — never `proof.verify()`, which only sets a flag.
+   * The engine keeps the proof for the portable credential and never sees a preimage (B2).
+   */
+  private async verifyOwnershipProof(walletId: string, json: unknown): Promise<string> {
+    if (typeof json !== 'string' || json.length === 0) {
+      throw new RegistrationRefused(400, 'register-member takes the wallet ownership proof made on the device (ProofGate.verifyMember); the identity preimage is never sent');
+    }
+    if (!this.proofGateVk) throw new Error('ProofGate verification key not available — programs not compiled');
+    let proof: InstanceType<typeof ProofGateProof>;
+    try {
+      proof = await ProofGateProof.fromJSON(JSON.parse(json));
+    } catch (err) {
+      throw new RegistrationRefused(400, `The ownership proof could not be read: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (proof.publicInput.toString() !== walletId) {
+      throw new RegistrationRefused(403, 'The ownership proof names another wallet');
+    }
+    const valid = await verify(proof, this.proofGateVk);
+    if (!valid) throw new RegistrationRefused(403, 'The ownership proof does not verify');
+    return json;
+  }
+
+  /** The updates for a wallet, oldest first, pending and applied alike. */
+  walletUpdatesFor(walletId: string): PendingWalletUpdate[] {
+    return [...this.pendingWalletUpdates.values()]
+      .filter((u) => u.walletId === walletId)
+      .sort((a, b) => a.createdAt - b.createdAt || a.updateId.localeCompare(b.updateId));
+  }
+
+  private pendingUpdatesFor(walletId: string): PendingWalletUpdate[] {
+    return this.walletUpdatesFor(walletId).filter((u) => u.status === 'pending');
+  }
+
+  /**
+   * Queue a change to a member's credential for the device to prove (B1 step two). The engine's
+   * working inventory has already advanced to the new state; the device starts from the root of
+   * the previous pending update, or the ledger's root when none is pending, and the parts sent
+   * must rebuild the root named, which is checked here before anything is queued. A claim rides
+   * along by being committed on the sequencer against this wallet and this root.
+   */
+  private queueWalletUpdate(enrolled: EnrolledMember, reason: string, phase: string, claim?: import('../l2/l2-types.js').ClaimSubmissionMetadata): PendingWalletUpdate {
+    const walletId = enrolled.walletId.toString();
+    const queued = this.pendingUpdatesFor(walletId);
+    const oldInventoryRoot = queued.length > 0 ? queued[queued.length - 1].newInventoryRoot : enrolled.credentialInventoryRoot.toString();
+    const payload: WalletUpdatePayload = {
+      updateId: `wu-${randomUUID()}`,
+      walletId,
+      reason,
+      oldInventoryRoot,
+      newInventoryRoot: enrolled.credentialInventory.getRoot().toString(),
+      credential: credentialFieldsOf(enrolled.credentialData),
+      forestLeaves: forestLeavesOf(enrolled.forest),
+      inventorySlot: '0',
+      claimCommitted: !!claim,
+      createdAt: Date.now(),
+    };
+    const check = rederiveInventoryRoot(payload);
+    if (check.inventoryRoot !== payload.newInventoryRoot) {
+      throw new Error(`wallet update (${reason}): the credential cannot be rebuilt from its parts (${check.inventoryRoot} vs ${payload.newInventoryRoot})`);
+    }
+    if (claim) this.l2Node.getSequencer().commitPendingClaim(walletId, payload.newInventoryRoot, claim);
+    const pending: PendingWalletUpdate = { ...payload, phase, status: 'pending' };
+    this.pendingWalletUpdates.set(pending.updateId, pending);
+    this.emit('info', phase, `  └─ Wallet update ${pending.updateId} (${reason}) queued for the member's device to prove${claim ? '; its claim is committed on the sequencer' : ''}`);
+    return pending;
+  }
+
+  /**
+   * The device proved an update and the sequencer accepted it: check that the receipt is the
+   * wallet's and that the ledger now holds the root, then mark it and advance the record. Updates
+   * apply in order; an older one still pending is refused with 409.
+   */
+  markWalletUpdateApplied(walletId: string, updateId: string, receiptId: string): PendingWalletUpdate {
+    const update = this.pendingWalletUpdates.get(updateId);
+    if (!update || update.walletId !== walletId) throw new RegistrationRefused(404, 'No such wallet update for this wallet');
+    if (update.status === 'applied') return update;
+    const older = this.pendingUpdatesFor(walletId).find((u) => u.updateId !== updateId && u.createdAt < update.createdAt);
+    if (older) throw new RegistrationRefused(409, `Update ${older.updateId} comes first`);
+    const seq = this.l2Node.getSequencer();
+    const receipt = seq.getReceipt(receiptId);
+    if (!receipt || receipt.walletId !== walletId) throw new RegistrationRefused(404, 'No receipt by that id for this wallet');
+    const live = seq.getWalletStateForRpc(walletId);
+    if (live.credentialInventoryRoot !== update.newInventoryRoot) {
+      throw new RegistrationRefused(409, `The ledger holds credential root ${live.credentialInventoryRoot.slice(0, 12)}…, not this update's`);
+    }
+    update.status = 'applied';
+    update.receiptId = receiptId;
+    update.appliedAt = Date.now();
+    const enrolled = this.enrolledMembers.get(walletId);
+    if (enrolled) {
+      enrolled.nonce = Number(live.nonce);
+      enrolled.credentialInventoryRoot = Field(BigInt(update.newInventoryRoot));
+      enrolled.l2Receipts.push(receiptId);
+    }
+    this.emit('info', update.phase, `  Wallet update ${updateId} (${update.reason}) proved by the member's device — receipt ${receiptId}`);
+    return update;
+  }
+
   async registerMemberFromEnrollment(opts: {
     walletId: string;
-    preimageFields: string[];  // 6 decimal-string Field values (all Poseidon hashes)
+    /** ProofGate.verifyMember proof made on the device: the wallet is theirs. The identity preimage is never sent (B2). */
+    ownershipProofJson: string;
     displayName: string;
     familyId?: string;
     relationship?: string;
@@ -1653,17 +1785,9 @@ export class AdjudicationService {
 
     this.emit('info', 'register', `Registering externally-enrolled member: ${opts.displayName} (${walletIdStr})`);
 
-    // Reconstruct preimage as Field array
-    const preimageFields = opts.preimageFields.map(s => Field(BigInt(s)));
-    if (preimageFields.length !== 6) {
-      throw new Error(`Expected 6 preimage fields, got ${preimageFields.length}`);
-    }
-
-    // Verify the preimage matches the walletId
-    const derivedWalletId = Poseidon.hash([Field(DOMAIN_TAG_MEMBER), ...preimageFields]);
-    if (derivedWalletId.toString() !== walletId.toString()) {
-      throw new Error('Preimage fields do not match walletId — possible data corruption');
-    }
+    // B2: the engine never sees the preimage. The device proves it owns the wallet; the proof is
+    // verified here against ProofGate's verification key and kept for the portable credential.
+    const ownershipProofJson = await this.verifyOwnershipProof(opts.walletId, opts.ownershipProofJson);
 
     // Build eligibility + accumulator using the plan configuration
     const eligibilityData = this.sharedEligibilityData;
@@ -1714,20 +1838,16 @@ export class AdjudicationService {
 
     // Credential mint is a proven wallet update (current credential root → inventoryRoot,
     // nonce + 1) that the sequencer checks against its own tree, like any other change.
-    const mintReceipt = await this.proveAndSubmitWalletUpdate(walletId, preimageFields, inventoryRoot, LIFECYCLE_ELIGIBLE, 'register: credential mint');
-    const mintedNonce = Number(this.walletRegistry.getState(walletId).nonce.toBigInt());
+    // B1 step two: the credential mint is a wallet update the member's device proves. The record is
+    // created at the ledger's current root and nonce; the device fetches the queued mint, proves it,
+    // submits it and reports the receipt (markWalletUpdateApplied), which is when the record advances.
+    const live = this.l2Node.getSequencer().getWalletStateForRpc(opts.walletId);
+    const mintedNonce = Number(live.nonce);
 
     const walletIndex = Number(this.walletRegistry.getIndex(walletId));
 
     // Generate ProofGateProof (cached for subsequent proof generation, ~2s)
-    this.emit('info', 'register', `  Generating ProofGateProof for ${opts.displayName}...`);
-    const proofGateDispatch = await this.dispatchProof(
-      'ProofGate', 'verifyMember',
-      ['Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field'],
-      [walletId, ...preimageFields],
-      () => ProofGateProgram.verifyMember(walletId, ...preimageFields as [Field, Field, Field, Field, Field, Field]),
-    );
-    this.emit('info', 'register', `  ProofGateProof cached — member ready for claim adjudication`);
+    this.emit('info', 'register', `  Ownership proof verified — made on the device, kept for the portable credential`);
 
     // Determine in-network providers
     const planId = approval.planId;
@@ -1764,19 +1884,19 @@ export class AdjudicationService {
       familyId: opts.familyId || '',
       relationship: opts.relationship || 'SELF',
       employeeId: opts.employeeId || '',
-      preimageFields,
       inNetworkPrescriberIndices: network.prescriberIndices,
       inNetworkPharmacyIndices: network.pharmacyIndices,
       lifecycle: 'ELIGIBLE',
       walletIndex,
       nonce: mintedNonce,
-      credentialInventoryRoot: inventoryRoot,
-      cachedProofGateProof: proofGateDispatch.proofJson,
-      l2Receipts: [mintReceipt.receiptId],
+      credentialInventoryRoot: Field(BigInt(live.credentialInventoryRoot)),
+      cachedProofGateProof: ownershipProofJson,
+      l2Receipts: [],
     };
     this.enrolledMembers.set(opts.walletId, enrolled);
+    const mint = this.queueWalletUpdate(enrolled, 'credential mint', 'register');
 
-    this.emit('info', 'register', `  Member registered: ${opts.displayName} — ready for prescriptions and fills`);
+    this.emit('info', 'register', `  Member registered: ${opts.displayName} — the device proves the credential mint (${mint.updateId})`);
 
     return {
       walletId: opts.walletId,
@@ -1785,6 +1905,7 @@ export class AdjudicationService {
       groupId,
       lifecycle: 'ELIGIBLE',
       registered: true,
+      walletUpdate: { status: 'pending', updateId: mint.updateId, newInventoryRoot: mint.newInventoryRoot },
     };
   }
 
@@ -1989,7 +2110,7 @@ export class AdjudicationService {
     this.emitMemory('prior-auth');
 
     // 4b. Submit wallet update to L2 (forest changed → new inventory root)
-    const paReceipt = await this.updateCredentialAndSubmitToL2(enrolled, 'prior-auth');
+    const paOutcome = await this.updateCredentialAndSubmitToL2(enrolled, 'prior-auth');
 
     // 5. Update PA state
     paState.status = 'APPROVED';
@@ -2027,8 +2148,9 @@ export class AdjudicationService {
       proofTimeMs: elapsedProof,
       forestRoot: truncField(enrolled.forest.getForestRoot()),
       l2Receipt: {
-        receiptId: paReceipt.receiptId,
-        sequenceNumber: Number(paReceipt.sequenceNumber),
+        receiptId: paOutcome.receipt?.receiptId ?? null,
+        sequenceNumber: paOutcome.receipt ? Number(paOutcome.receipt.sequenceNumber) : null,
+        walletUpdate: paOutcome.pending ? { status: 'pending', updateId: paOutcome.pending.updateId } : { status: 'applied' },
         type: 'wallet-update',
       },
       chainState: this.getChainState(),
@@ -3133,7 +3255,7 @@ export class AdjudicationService {
     };
 
     // Submit wallet update to L2 (accumulator/forest change → new inventory root)
-    const fillReceipt = await this.updateCredentialAndSubmitToL2(enrolled, 'fill', claimMeta);
+    const fillOutcome = await this.updateCredentialAndSubmitToL2(enrolled, 'fill', claimMeta);
 
     // Determine new status: partial dispense or full dispense
     const totalDispensed = rxState.quantityDispensed + qtyDispensed;
@@ -3210,6 +3332,10 @@ export class AdjudicationService {
 
     return {
       prescriptionId: opts.prescriptionId,
+      // B1 step two: the member's device proves the wallet update the fill produced; the claim lands with it
+      walletUpdate: fillOutcome.pending
+        ? { status: 'pending', updateId: fillOutcome.pending.updateId, newInventoryRoot: fillOutcome.pending.newInventoryRoot }
+        : { status: 'applied', receiptId: fillOutcome.receipt?.receiptId },
       serviceDateStr,
       rxStatus: rxState.status,
       quantityDispensed: rxState.quantityDispensed,
@@ -3291,8 +3417,8 @@ export class AdjudicationService {
       updatedEligibilityCredential: serializeCredentialData(updatedEligCredentialData),
       updatedEligibilityForest: serializeForestRoots(eligForest),
       l2Receipt: {
-        receiptId: fillReceipt.receiptId,
-        sequenceNumber: Number(fillReceipt.sequenceNumber),
+        receiptId: fillOutcome.receipt?.receiptId ?? null,
+        sequenceNumber: fillOutcome.receipt ? Number(fillOutcome.receipt.sequenceNumber) : null,
         type: 'wallet-update',
       },
       chainState: this.getChainState(),
@@ -4905,7 +5031,7 @@ export class AdjudicationService {
     this.emit('info', 'pcp', `       ZK proof IS the consent — ${enrolled.displayName} authorized ${prescriberName} as PCP`);
 
     // Submit wallet update to L2 (forest changed → new inventory root)
-    const pcpReceipt = await this.updateCredentialAndSubmitToL2(enrolled, 'pcp');
+    await this.updateCredentialAndSubmitToL2(enrolled, 'pcp');
 
     // Store assignment
     enrolled.pcpAssignment = pcpData;
@@ -5160,6 +5286,9 @@ export class AdjudicationService {
     phase: string,
     claimMetadata?: import('../l2/l2-types.js').ClaimSubmissionMetadata,
   ): Promise<L2Receipt> {
+    if (!enrolled.preimageFields) {
+      throw new Error('A member with a device proves its own wallet updates; the engine holds no preimage for it (B2)');
+    }
     const receipt = await this.proveAndSubmitWalletUpdate(
       enrolled.walletId, enrolled.preimageFields, newInventoryRoot, LIFECYCLE_ELIGIBLE, phase, claimMetadata,
     );
@@ -5253,7 +5382,7 @@ export class AdjudicationService {
     enrolled: EnrolledMember,
     phase: string,
     claimMetadata?: import('../l2/l2-types.js').ClaimSubmissionMetadata,
-  ): Promise<L2Receipt> {
+  ): Promise<WalletUpdateOutcome> {
     const oldInventoryRoot = enrolled.credentialInventory.getRoot();
     enrolled.credentialInventory.updateCredential(0n, enrolled.credentialData);
     const newInventoryRoot = enrolled.credentialInventory.getRoot();
@@ -5264,9 +5393,14 @@ export class AdjudicationService {
     this.emit('info', phase, `  │  Subject Wallet:   ${truncField(enrolled.credentialData.subjectWalletId)}`);
     this.emit('info', phase, `  │  Forest Root:      ${truncField(enrolled.credentialData.forestRoot)}`);
     this.emit('info', phase, `  │  Inventory Root:   ${truncField(oldInventoryRoot)} → ${truncField(newInventoryRoot)}`);
-    this.emit('info', phase, `  └─ Submitting StateTransitionProof to L2...`);
-
-    return this.submitWalletUpdate(enrolled, newInventoryRoot, phase, claimMetadata);
+    if (enrolled.preimageFields) {
+      // A fixture member: the engine still proves (fixtures leave last). No member with a device comes here.
+      this.emit('info', phase, `  └─ Submitting StateTransitionProof to L2...`);
+      return { receipt: await this.submitWalletUpdate(enrolled, newInventoryRoot, phase, claimMetadata) };
+    }
+    // B1 step two: the member's device proves it. The update is queued, its claim (if any) committed on
+    // the sequencer against this root; the device fetches, re-derives, proves, submits and reports.
+    return { pending: this.queueWalletUpdate(enrolled, phase, phase, claimMetadata) };
   }
 
   // ─── L2 Service Methods ───────────────────────────────
@@ -5516,25 +5650,34 @@ export class AdjudicationService {
     const witness = inventory.getWitness(0n);
     const inventoryRoot = inventory.getRoot();
 
-    // 2. Regenerate ProofGateProof from member's local data (simulates member device)
-    // In production, the member's device generates this fresh from their stored preimage.
-    // Fresh Field objects are created from bigint values to avoid o1js internal FieldVar
-    // state corruption that can occur after Fields are used as circuit inputs.
-    this.emit('proof', 'credential', 'Step 1: Generating ProofGate.verifyMember proof...', 'start');
+    // 2. The ownership proof. A member with a device made it there at registration (B2); the engine
+    // keeps it and never holds the preimage. A fixture member's is made here from the fixture preimage.
+    // Fresh Field objects are created from bigint values to avoid o1js internal FieldVar state
+    // corruption that can occur after Fields are used as circuit inputs.
+    this.emit('proof', 'credential', 'Step 1: ProofGate.verifyMember proof (the device\'s, or the fixture\'s)...', 'start');
     const pgStart = performance.now();
     const freshWalletId = Field(enrolled.walletId.toBigInt());
-    const freshPreimage = enrolled.preimageFields.map(f => Field(f.toBigInt())) as [Field, Field, Field, Field, Field, Field];
-    const pgDispatch = await this.dispatchProof(
-      'ProofGate', 'verifyMember',
-      ['Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field'],
-      [freshWalletId, ...freshPreimage],
-      () => ProofGateProgram.verifyMember(freshWalletId, ...freshPreimage as [Field, Field, Field, Field, Field, Field]),
-    );
+    let pgProofJson: string;
+    if (typeof enrolled.cachedProofGateProof === 'string' && enrolled.cachedProofGateProof.length > 0) {
+      pgProofJson = enrolled.cachedProofGateProof;
+    } else if (enrolled.preimageFields) {
+      const freshPreimage = enrolled.preimageFields.map(f => Field(f.toBigInt())) as [Field, Field, Field, Field, Field, Field];
+      const pgDispatch = await this.dispatchProof(
+        'ProofGate', 'verifyMember',
+        ['Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field'],
+        [freshWalletId, ...freshPreimage],
+        () => ProofGateProgram.verifyMember(freshWalletId, ...freshPreimage as [Field, Field, Field, Field, Field, Field]),
+      );
+      pgProofJson = pgDispatch.proofJson!;
+      enrolled.cachedProofGateProof = pgProofJson;
+    } else {
+      throw new Error('No ownership proof for this member: the device has not provided one');
+    }
     const pgElapsed = performance.now() - pgStart;
-    this.emit('proof', 'credential', 'Step 1: ProofGate proof generated', 'complete', pgElapsed);
+    this.emit('proof', 'credential', 'Step 1: ProofGate proof ready', 'complete', pgElapsed);
 
-    // Reconstruct ProofGateProof from dispatch result for CredentialProgram input
-    const pgProof = await ProofGateProof.fromJSON(JSON.parse(pgDispatch.proofJson!));
+    // The ProofGateProof as CredentialProgram input
+    const pgProof = await ProofGateProof.fromJSON(JSON.parse(pgProofJson));
 
     // 3. Generate CredentialProgram proof
     const proofTypeLabel = proofType === 'holding' ? 'proveHolding' : 'proveHoldingByType';
@@ -5823,7 +5966,8 @@ export class AdjudicationService {
         familyId: m.familyId,
         relationship: m.relationship,
         employeeId: m.employeeId,
-        preimageFields: m.preimageFields.map(f => f.toString()),
+        // B2: no identity preimage is written; the device's ownership proof is kept for the portable credential
+        ownershipProofJson: typeof m.cachedProofGateProof === 'string' ? m.cachedProofGateProof : undefined,
         pcpAssignment: m.pcpAssignment
           ? PcpAssignmentData.toJSON(m.pcpAssignment) as Record<string, string>
           : undefined,
@@ -5958,6 +6102,7 @@ export class AdjudicationService {
       threadCounter: this.threadCounter,
       nextPaLeafIndex,
       approvedMembers: [...this.approvedMembers.values()],
+      pendingWalletUpdates: [...this.pendingWalletUpdates.values()],
     };
   }
 
@@ -5979,6 +6124,7 @@ export class AdjudicationService {
     this.paCounter = state.paCounter;
     this.msgNonce = state.msgNonce;
     this.approvedMembers = new Map((state.approvedMembers ?? []).map((a) => [a.walletId, a]));
+    this.pendingWalletUpdates = new Map((state.pendingWalletUpdates ?? []).map((u) => [u.updateId, u]));
     this.threadCounter = state.threadCounter;
 
     // --- Restore nextPaLeafIndex ---
@@ -6017,7 +6163,15 @@ export class AdjudicationService {
         ? new PcpAssignmentData(PcpAssignmentData.fromJSON(sm.pcpAssignment as any))
         : undefined;
       const walletId = Field(BigInt(sm.walletId));
-      const preimageFields = sm.preimageFields.map(s => Field(BigInt(s)));
+      // B2: a member with a device has no preimage here. A fixture member's is recomputed from the
+      // fixture file, as enrollMember derives it; an older checkpoint's copy is dropped either way.
+      if (sm.preimageFields && sm.memberIndex < 0) {
+        console.warn(`[engine] dropped an identity preimage from an older checkpoint for ${sm.walletIdStr} (B2)`);
+      }
+      const fixture = sm.memberIndex >= 0 ? MEMBERS[sm.memberIndex] : undefined;
+      const preimageFields = fixture
+        ? memberWalletPreimage(fixture.localData, fixture.enrollmentKey, hashString('ACME-CORP'), fixtureIdentitySalt(fixture))
+        : undefined;
 
       // Rebuild MerkleForest from stored leaf data
       const forest = new MerkleForest();
@@ -6058,7 +6212,7 @@ export class AdjudicationService {
         walletIndex: sm.walletIndex,
         nonce: sm.nonce,
         credentialInventoryRoot: Field(BigInt(sm.credentialInventoryRoot)),
-        cachedProofGateProof: null,  // re-generated on demand
+        cachedProofGateProof: sm.ownershipProofJson ?? null,  // the device's proof (B2); a fixture's is made on demand
         l2Receipts: sm.l2Receipts,
         lastCredentialJson: sm.lastCredentialJson,
       };
@@ -6190,6 +6344,7 @@ export class AdjudicationService {
           },
         },
         pcpAssignment: pcpInfo,
+        pendingWalletUpdates: this.pendingUpdatesFor(m.walletId.toString()).length,
         inNetworkPrescribers: m.inNetworkPrescriberIndices,
         inNetworkPharmacies: m.inNetworkPharmacyIndices,
         lifecycle: m.lifecycle,

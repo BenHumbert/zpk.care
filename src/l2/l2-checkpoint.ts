@@ -113,6 +113,11 @@ export interface L2SequencerState {
 
   /** Stored benefit plan configs indexed by planId */
   planStore?: Record<string, import('./l2-types.js').BenefitPlanConfig>;
+  /**
+   * Claims the engine committed for a member's pending wallet update, keyed walletId:newInventoryRoot
+   * (B2). The sequencer attaches one when the member's proof for that root lands.
+   */
+  pendingClaims?: Record<string, import('./l2-types.js').ClaimSubmissionMetadata>;
 
   // ── Audit Merkle Index state (optional — present when audit events have been indexed) ──
 

@@ -223,6 +223,12 @@ export interface AdminKeyEntry {
 }
 
 /** Who a request is from, after the admin gate (A9). */
+/** Where a wallet-signed route names the wallet it acts for (B2). */
+export interface WalletRouteSpec {
+  from: 'query' | 'body';
+  param: string;
+}
+
 export type AuthDecision =
   | { ok: true; principal: { kind: 'operator' } | { kind: 'node'; nodeId: string; role: NodeRole } | { kind: 'wallet'; walletId: string } }
   | { ok: false; status: 401 | 403 | 413; message: string };
@@ -436,16 +442,22 @@ export class L2RpcServer {
     method: string,
     path: string,
     handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>,
-    options?: { adminOnly?: boolean },
+    options?: { adminOnly?: boolean; walletSigned?: WalletRouteSpec },
   ): void {
     this.additionalRoutes.set(`${method.toUpperCase()}:${path}`, handler);
     if (options?.adminOnly) {
       this.adminGatedRoutes.add(`${method.toUpperCase()}:${path}`);
     }
+    if (options?.walletSigned) {
+      this.walletSignedRoutes.set(`${method.toUpperCase()}:${path}`, options.walletSigned);
+    }
   }
 
   /** Routes registered via registerRoute that require admin auth */
   private adminGatedRoutes: Set<string> = new Set();
+
+  /** Routes that take only the signature of the wallet they name (B2): where the request names it. */
+  private walletSignedRoutes: Map<string, WalletRouteSpec> = new Map();
 
   /** Set the peer network for gossip relay and peer queries */
   setPeerNetwork(network: L2PeerNetwork): void {
@@ -550,6 +562,12 @@ export class L2RpcServer {
       // Admin gate for routes registered with adminOnly (the engine's privileged routes)
       if (this.adminGatedRoutes.has(routeKey)) {
         const decision = await this.authorizeRoute(req, pathname);
+        if (!decision.ok) return L2RpcServer.denyRoute(res, decision);
+      }
+      // Wallet gate (B2): a route that acts for a wallet takes only that wallet's own signature
+      const walletSpec = this.walletSignedRoutes.get(routeKey);
+      if (walletSpec) {
+        const decision = await this.authorizeWalletRoute(req, pathname, walletSpec);
         if (!decision.ok) return L2RpcServer.denyRoute(res, decision);
       }
       return customHandler(req, res);
@@ -828,7 +846,16 @@ export class L2RpcServer {
         const submitMeta = typeof newCred === 'string' && /^\d+$/.test(newCred)
           ? ({ newCredentialInventoryRoot: newCred } as unknown as ClaimSubmissionMetadata)
           : undefined;
-        const result = await this.node.submitProof(proof, submitMeta);
+        // B2: a claim the engine committed for this wallet's pending update rides on the member's own
+        // proof. Outside callers still send no claim metadata; the sequencer attaches what the engine
+        // committed for exactly this wallet and this root, and forgets it once the proof is accepted.
+        const walletOfProof = proof.publicOutput.walletId.toString();
+        const committed = typeof newCred === 'string' ? this.node.getSequencer().pendingClaimFor(walletOfProof, newCred) : undefined;
+        const finalMeta = committed
+          ? ({ ...committed, newCredentialInventoryRoot: newCred } as unknown as ClaimSubmissionMetadata)
+          : submitMeta;
+        const result = await this.node.submitProof(proof, finalMeta);
+        if (committed) this.node.getSequencer().clearPendingClaim(walletOfProof, newCred as string);
 
         // Auto-register entity metadata if provided alongside a registration proof.
         // The metadata is untrusted display data — the ZK proof guarantees the walletId.
@@ -2776,7 +2803,33 @@ export class L2RpcServer {
    * exact bytes sent, inside the window and not replayed. A bearer token, a node key, another wallet's
    * key or a wallet with no key registered are all refused, each with its reason.
    */
-  private authorizeWallet(req: IncomingMessage, method: string, walletId: string, body: string | undefined): AuthDecision {
+  /**
+   * The gate for a wallet-signed route (B2): the wallet the request names, in its query or its body,
+   * must be the one that signed it. The body is read here so the signature can cover it; the handler's
+   * own read returns the same bytes (`request-body.ts`).
+   */
+  private async authorizeWalletRoute(req: IncomingMessage, pathname: string, spec: WalletRouteSpec): Promise<AuthDecision> {
+    let body: string | undefined;
+    let walletId = '';
+    if (spec.from === 'query') {
+      walletId = new URL(req.url ?? '/', 'http://localhost').searchParams.get(spec.param) ?? '';
+    } else {
+      try {
+        body = await readRequestBody(req, this.options.maxBodyBytes);
+      } catch (err) {
+        return { ok: false, status: 413, message: err instanceof Error ? err.message : 'Request body too large' };
+      }
+      try {
+        const parsed = JSON.parse(body || '{}') as Record<string, unknown>;
+        walletId = typeof parsed?.[spec.param] === 'string' ? (parsed[spec.param] as string) : '';
+      } catch {
+        walletId = '';
+      }
+    }
+    return this.authorizeWallet(req, `${req.method ?? 'GET'} ${pathname}`, walletId, body, pathname);
+  }
+
+  private authorizeWallet(req: IncomingMessage, method: string, walletId: string, body: string | undefined, path = '/rpc'): AuthDecision {
     const short = (id: string) => (id.length > 12 ? `${id.slice(0, 12)}…` : id);
     if (!walletId) return { ok: false, status: 401, message: `Unauthorized — ${method} names no wallet to speak for` };
     if (typeof req.headers['authorization'] === 'string' && req.headers['authorization'].length > 0) {
@@ -2789,7 +2842,7 @@ export class L2RpcServer {
     if (!key) return { ok: false, status: 401, message: `Unauthorized — wallet ${short(walletId)} has no signing key registered` };
     const outcome = verifySignedRequest({
       method: req.method ?? 'POST',
-      path: '/rpc',
+      path,
       headers: req.headers,
       expectedSignerId: walletId,
       publicKeyHex: key,

@@ -38,7 +38,7 @@ function standInService() {
       return { approved: true as const, alreadyApproved: false };
     },
     approvalFor(walletId: string) { return approvals.get(walletId); },
-    async registerMemberFromEnrollment(opts: { walletId: string; preimageFields: string[]; displayName: string }) {
+    async registerMemberFromEnrollment(opts: { walletId: string; ownershipProofJson: string; displayName: string }) {
       // the same order the engine applies: approval, then the ledger, then the rest
       if (!approvals.has(opts.walletId)) throw new RegistrationRefused(403, 'This wallet has no insurer approval: complete enrollment with the insurer first');
       if (!registered.has(opts.walletId)) throw new RegistrationRefused(409, 'The wallet is not registered on the ledger yet: submit the registration proof first');
@@ -64,7 +64,8 @@ async function post(p: string, body: unknown, headers: Record<string, string> = 
   return { status: r.status, json };
 }
 const approval = { walletId: '123456789', groupIdHash: '777', planIdHash: '888', planId: 'PLAN-E2E-TEST', employerId: 'EMP-1' };
-const sixFields = ['1', '2', '3', '4', '5', '6'];
+// B2: the engine takes the device's ownership proof, never the preimage; the stand-in does not read it
+const PROOF = '{"stand-in":true}';
 
 beforeAll(async () => {
   const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-gate-test' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
@@ -101,17 +102,17 @@ describe('approve-member', () => {
 
 describe('register-member', () => {
   test('refuses a wallet nobody approved with 403, and says so', async () => {
-    const r = await post('/interactive/register-member', { walletId: '42', preimageFields: sixFields, displayName: 'Mallory' });
+    const r = await post('/interactive/register-member', { walletId: '42', ownershipProofJson: PROOF, displayName: 'Mallory' });
     expect(r.status).toBe(403);
     expect(r.json.error).toMatch(/no insurer approval/);
   });
 
   test('an approved wallet with no registration on the ledger is 409, and passes once registered', async () => {
-    const early = await post('/interactive/register-member', { walletId: approval.walletId, preimageFields: sixFields, displayName: 'Alice' });
+    const early = await post('/interactive/register-member', { walletId: approval.walletId, ownershipProofJson: PROOF, displayName: 'Alice' });
     expect(early.status).toBe(409);
     expect(early.json.error).toMatch(/not registered on the ledger/);
     service.__registered.add(approval.walletId);
-    const ok = await post('/interactive/register-member', { walletId: approval.walletId, preimageFields: sixFields, displayName: 'Alice', planId: 'IGNORED', groupId: 'IGNORED' });
+    const ok = await post('/interactive/register-member', { walletId: approval.walletId, ownershipProofJson: PROOF, displayName: 'Alice', planId: 'IGNORED', groupId: 'IGNORED' });
     expect(ok.status).toBe(200);
     expect(ok.json.planId).toBe('PLAN-E2E-TEST'); // from the approval, never from the body
   });

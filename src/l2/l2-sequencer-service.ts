@@ -1376,6 +1376,32 @@ export class L2SequencerService {
    * engine, EnrollmentService) read witnesses and wallet state from these objects.
    * Any change to them must happen inside adminMutate(), which re-derives the roots.
    */
+  // ─── Claims committed for a member's pending wallet update (B2) ──────
+
+  /**
+   * A fill's claim leaf used to ride on the wallet update the engine proved for the member. Now the
+   * member's device proves that update, and outside callers still send no claim metadata; so the
+   * engine commits the claim here, keyed by the wallet and the root the update will reach, and
+   * `l2_submitProof` attaches it when the member's proof for that root is accepted.
+   */
+  private pendingClaims: Map<string, ClaimSubmissionMetadata> = new Map();
+
+  commitPendingClaim(walletId: string, newInventoryRoot: string, claim: ClaimSubmissionMetadata): void {
+    this.pendingClaims.set(`${walletId}:${newInventoryRoot}`, claim);
+  }
+
+  pendingClaimFor(walletId: string, newInventoryRoot: string): ClaimSubmissionMetadata | undefined {
+    return this.pendingClaims.get(`${walletId}:${newInventoryRoot}`);
+  }
+
+  clearPendingClaim(walletId: string, newInventoryRoot: string): void {
+    this.pendingClaims.delete(`${walletId}:${newInventoryRoot}`);
+  }
+
+  pendingClaimCount(): number {
+    return this.pendingClaims.size;
+  }
+
   /**
    * What the ledger says about a wallet (A10b): its lifecycle leaf decoded, or null when the wallet
    * holds no registration here or the leaf matches no known state. The tree is the truth; the map
@@ -2887,6 +2913,11 @@ export class L2SequencerService {
       state.planStore = Object.fromEntries(this.planStore);
     }
 
+    // Claims committed for members' pending wallet updates (B2)
+    if (this.pendingClaims.size > 0) {
+      state.pendingClaims = Object.fromEntries(this.pendingClaims);
+    }
+
     // Include employer attestation store
     if (this.employerAttestationStore.size > 0) {
       (state as any).employerAttestations = Object.fromEntries(this.employerAttestationStore);
@@ -3072,6 +3103,9 @@ export class L2SequencerService {
         this.formularyStore.set(key, value);
       }
     }
+
+    // Claims committed for members' pending wallet updates (B2)
+    this.pendingClaims = new Map(Object.entries(state.pendingClaims ?? {}));
 
     // Restore formulary service overlay state (Option C)
     if (state.formularyServiceState) {

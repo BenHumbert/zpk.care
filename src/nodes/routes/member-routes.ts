@@ -45,6 +45,7 @@ import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY } from '../../credentials/c
 import { buildNfcIdentityRecord, fitsOnTag } from '../nfc-identity.js';
 import { deriveEncryptionKeyPair } from '../../messaging/encryption.js';
 import { deriveWalletSigningKey } from '../../security/wallet-key.js';
+import { rederiveInventoryRoot, type WalletUpdatePayload } from '../../credentials/wallet-update.js';
 import { MemberNode } from '../member-node.js';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
 import type { RouteRegistration } from '../nautilus-app-types.js';
@@ -58,6 +59,119 @@ const DOMAIN_TAG_MEMBER = 0;
  * Build all member routes. The server reference is captured in closures
  * so route handlers can access the entity node and local state.
  */
+/** What one pass over the wallet's queued updates did. */
+export interface WalletUpdateRun {
+  applied: number;
+  pending: number;
+  refused: string[];
+  errors: string[];
+}
+
+let walletUpdateRun: Promise<WalletUpdateRun> | null = null;
+
+/**
+ * The device proves every change to its wallet (B1 step two). The engine queues each update as the
+ * credential as it should now be and the root it yields; the device fetches them in order, rebuilds
+ * the root from exactly the parts it was given and refuses anything that does not add up, proves
+ * the update with the preimage only it holds against the sequencer's live tree, submits it, and
+ * reports the receipt. One pass at a time per process; a second caller joins the pass in flight.
+ */
+export function applyPendingWalletUpdates(server: NautilusAppServer): Promise<WalletUpdateRun> {
+  if (walletUpdateRun) return walletUpdateRun;
+  walletUpdateRun = runWalletUpdates(server).finally(() => { walletUpdateRun = null; });
+  return walletUpdateRun;
+}
+
+async function runWalletUpdates(server: NautilusAppServer): Promise<WalletUpdateRun> {
+  const run: WalletUpdateRun = { applied: 0, pending: 0, refused: [], errors: [] };
+  const node = server.getEntityNode() as MemberNode | null;
+  const data = server.getLocalState().getState();
+  if (!node || !data?.walletId || !data?.preimageFields) { run.errors.push('wallet not ready'); return run; }
+  if (!node.isCompiled()) { run.errors.push('programs not compiled'); return run; }
+  const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+  let listing: { pending?: WalletUpdatePayload[]; error?: string } = {};
+  try {
+    const r = await server.walletSignedFetch(`${seqUrl}/interactive/wallet-updates?walletId=${data.walletId}`, { method: 'GET' });
+    listing = await r.json() as typeof listing;
+    if (!r.ok) { run.errors.push(`the engine refused the listing: ${r.status} ${listing?.error ?? ''}`); return run; }
+  } catch (err) {
+    run.errors.push(`could not fetch the wallet updates: ${err instanceof Error ? err.message : String(err)}`);
+    return run;
+  }
+  const pending = Array.isArray(listing.pending) ? listing.pending : [];
+  run.pending = pending.length;
+  const walletFields = data.preimageFields.map((s: string) => Field(BigInt(s)));
+  const padded = [...walletFields];
+  while (padded.length < 6) padded.push(Field(0));
+  const preimage = [Field(data.domainTag ?? 0), ...padded];
+  const client = node.getClient();
+  for (const update of pending) {
+    // 1. What the engine asks us to commit to must add up from the parts it sent.
+    let derived: ReturnType<typeof rederiveInventoryRoot>;
+    try {
+      derived = rederiveInventoryRoot(update);
+    } catch (err) {
+      run.refused.push(`${update.updateId}: ${err instanceof Error ? err.message : String(err)}`);
+      break;
+    }
+    if (derived.inventoryRoot !== update.newInventoryRoot) {
+      run.refused.push(`${update.updateId}: the parts do not yield the root the engine named`);
+      break;
+    }
+    // 2. Prove it against the live tree, re-proving if another change lands first.
+    let receiptId: string | null = null;
+    for (let attempt = 1; attempt <= 4 && !receiptId; attempt++) {
+      const live = await client.getWalletState(data.walletId);
+      if (!live || typeof live.nonce !== 'string' || typeof live.credentialInventoryRoot !== 'string') {
+        run.errors.push('the sequencer returned no wallet state');
+        return run;
+      }
+      if (live.credentialInventoryRoot !== update.oldInventoryRoot) {
+        run.errors.push(`${update.updateId}: starts from root ${update.oldInventoryRoot.slice(0, 12)}… but the ledger holds ${live.credentialInventoryRoot.slice(0, 12)}…`);
+        return run;
+      }
+      const witnesses = await client.getWalletWitnesses(data.walletId);
+      const regWitnessData = typeof witnesses.registryWitnessJson === 'string' ? JSON.parse(witnesses.registryWitnessJson) : witnesses.registryWitnessJson;
+      const lcWitnessData = typeof witnesses.lifecycleWitnessJson === 'string' ? JSON.parse(witnesses.lifecycleWitnessJson) : witnesses.lifecycleWitnessJson;
+      const regWitness = WalletRegistryWitness.fromJSON(regWitnessData);
+      const lcWitness = LifecycleWitness.fromJSON(lcWitnessData);
+      const proof = await node.proveWalletUpdate(
+        preimage,
+        Field(BigInt(live.credentialInventoryRoot)),
+        Field(BigInt(live.nonce)),
+        Field(BigInt(update.newInventoryRoot)),
+        regWitness,
+        lcWitness,
+        Field(BigInt(witnesses.currentRegistryRoot)),
+        Field(BigInt(witnesses.currentLifecycleRoot)),
+        Field(BigInt(witnesses.currentLifecycleState)),
+      );
+      try {
+        const receipt = await node.submitProof(proof, { newCredentialInventoryRoot: update.newInventoryRoot });
+        receiptId = receipt.receiptId;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const contended = /root mismatch|does not match the sequencer tree|state changed while/i.test(msg);
+        if (!contended || attempt >= 4) { run.errors.push(`${update.updateId}: ${msg}`); return run; }
+        await new Promise((r) => setTimeout(r, 250 + Math.floor(Math.random() * 1500)));
+      }
+    }
+    // 3. Tell the engine, signed as the wallet.
+    const done = await server.walletSignedFetch(`${seqUrl}/interactive/wallet-update-applied`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ walletId: data.walletId, updateId: update.updateId, receiptId }),
+    });
+    if (!done.ok) {
+      run.errors.push(`${update.updateId}: proved and accepted (receipt ${receiptId}) but the engine did not record it: ${done.status} ${(await done.text().catch(() => '')).slice(0, 160)}`);
+      return run;
+    }
+    run.applied += 1;
+    run.pending -= 1;
+  }
+  return run;
+}
+
 export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[] {
   const routes: RouteRegistration[] = [];
 
@@ -843,12 +957,16 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
           }
 
           const seqUrlClean = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+          // B2: the engine never receives the identity preimage. The device proves the wallet is its
+          // own (ProofGate.verifyMember over the six salted fields) and sends that proof; the engine
+          // verifies it and keeps it for the portable credential.
+          const ownershipProofJson = await node.proveOwnership(Field(BigInt(data.walletId)), padded.slice(0, 6));
           const regResp = await fetch(`${seqUrlClean}/interactive/register-member`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               walletId: data.walletId,
-              preimageFields: data.preimageFields,
+              ownershipProofJson,
               displayName: server.getConfig().displayName || 'Member',
               // Step 2 commit two: the engine binds the plan and the group from the insurer's approval;
               // nothing the device says about either is read.
@@ -856,7 +974,20 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
             }),
           });
           adjudicationRegistered = regResp.ok;
+          if (!regResp.ok) {
+            console.warn(`[registration] the engine refused the registration: ${regResp.status} ${(await regResp.text().catch(() => '')).slice(0, 200)}`);
+          }
         } catch { /* non-critical — adjudication proofs won't be available */ }
+      }
+
+      // B1 step two: the credential mint is a wallet update the device proves; done here, right after.
+      let walletUpdates: WalletUpdateRun | undefined;
+      if (adjudicationRegistered) {
+        try {
+          walletUpdates = await applyPendingWalletUpdates(server);
+        } catch (err) {
+          console.warn('[registration] the credential mint could not be proved yet:', err instanceof Error ? err.message : String(err));
+        }
       }
 
       server.sendResponse(res, 200, true, {
@@ -865,6 +996,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         proofGenerated: true,
         submittedToSequencer: true,
         adjudicationRegistered,
+        walletUpdates,
       });
       } catch (err) {
         const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
@@ -1376,6 +1508,27 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
         console.error('[pcp-proof] Failed:', msg);
         return server.sendResponse(res, 500, false, undefined, msg);
+      }
+    },
+  });
+
+  // ── Wallet updates the device proves (B1 step two) ───────
+  // The app (or the sync loop) asks the device to fetch, check, prove and report every update the
+  // engine queued for its wallet: the credential mint, each fill, a prior authorization, a plan change.
+
+  routes.push({
+    method: 'POST',
+    path: '/proof/wallet-updates',
+    deviceOnly: true,
+    handler: async (_req, res) => {
+      if (server.getOnboardingPhase() !== 'ready') {
+        return server.sendResponse(res, 409, false, undefined, `Cannot prove in phase: ${server.getOnboardingPhase()}`);
+      }
+      try {
+        const run = await applyPendingWalletUpdates(server);
+        server.sendResponse(res, 200, true, run);
+      } catch (err) {
+        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Wallet updates failed');
       }
     },
   });

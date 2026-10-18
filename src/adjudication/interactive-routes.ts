@@ -128,9 +128,16 @@ export function registerInteractiveRoutes(
     '/interactive/simulate-batch-failure',
   ]);
 
-  // Helper: register route with automatic admin gating for Tier 3 routes
+  /** Routes that take only the signature of the wallet they name (B2), and where the request names it. */
+  const WALLET_ROUTES: Record<string, { from: 'query' | 'body'; param: string }> = {
+    'GET:/interactive/wallet-updates': { from: 'query', param: 'walletId' },
+    'POST:/interactive/wallet-update-applied': { from: 'body', param: 'walletId' },
+  };
+
+  // Helper: register route with automatic admin gating for Tier 3 routes, and the wallet gate for wallet routes
   function reg(method: string, path: string, handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>): void {
-    server.registerRoute(method, path, handler, ADMIN_ROUTES.has(path) ? { adminOnly: true } : undefined);
+    const walletSigned = WALLET_ROUTES[`${method.toUpperCase()}:${path}`];
+    server.registerRoute(method, path, handler, ADMIN_ROUTES.has(path) ? { adminOnly: true } : walletSigned ? { walletSigned } : undefined);
   }
 
   // Console SSE clients
@@ -199,15 +206,20 @@ export function registerInteractiveRoutes(
       const body = await readBody(req);
       const params = JSON.parse(body);
 
-      if (!params.walletId || !params.preimageFields || !Array.isArray(params.preimageFields)) {
-        sendError(res, 400, 'Missing required fields: walletId, preimageFields (array of 6 decimal strings)');
+      // B2: the identity preimage is never sent to the engine; the device sends its ownership proof.
+      if (params.preimageFields !== undefined) {
+        sendError(res, 400, 'The identity preimage is never sent to the engine: send the ownership proof made on the device as ownershipProofJson (B2)');
+        return;
+      }
+      if (!params.walletId || typeof params.ownershipProofJson !== 'string') {
+        sendError(res, 400, 'Missing required fields: walletId, ownershipProofJson (ProofGate.verifyMember proof made on the device)');
         return;
       }
 
       // Step 2 commit two: the group and plan come from the insurer's approval, never from this body.
       const result = await service.registerMemberFromEnrollment({
         walletId: String(params.walletId),
-        preimageFields: params.preimageFields.map(String),
+        ownershipProofJson: params.ownershipProofJson,
         displayName: params.displayName || 'Member',
         familyId: params.familyId,
         relationship: params.relationship,
@@ -217,6 +229,40 @@ export function registerInteractiveRoutes(
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(result));
+    } catch (err) {
+      if (err instanceof RegistrationRefused) return sendError(res, err.status, err.message);
+      sendError(res, 500, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  // B1 step two: the member's device proves every change to its wallet. The engine queues the
+  // update; the device fetches it, re-derives the root, proves and submits it, and reports the
+  // receipt. Both routes take only the signature of the wallet they name.
+  reg('GET', '/interactive/wallet-updates', async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      const walletId = new URL(req.url ?? '/', 'http://localhost').searchParams.get('walletId') ?? '';
+      if (!/^[0-9]+$/.test(walletId)) { sendError(res, 400, 'walletId (decimal) is required'); return; }
+      const updates = service.walletUpdatesFor(walletId);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        walletId,
+        pending: updates.filter((u) => u.status === 'pending'),
+        applied: updates.filter((u) => u.status === 'applied').slice(-20).map((u) => ({ updateId: u.updateId, reason: u.reason, receiptId: u.receiptId, appliedAt: u.appliedAt })),
+      }));
+    } catch (err) {
+      sendError(res, 500, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  reg('POST', '/interactive/wallet-update-applied', async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      const params = JSON.parse(await readBody(req) || '{}');
+      for (const field of ['walletId', 'updateId', 'receiptId']) {
+        if (typeof params[field] !== 'string' || params[field].length === 0) { sendError(res, 400, `Missing ${field}`); return; }
+      }
+      const update = service.markWalletUpdateApplied(params.walletId, params.updateId, params.receiptId);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ updateId: update.updateId, reason: update.reason, status: update.status, receiptId: update.receiptId }));
     } catch (err) {
       if (err instanceof RegistrationRefused) return sendError(res, err.status, err.message);
       sendError(res, 500, err instanceof Error ? err.message : String(err));

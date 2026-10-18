@@ -324,6 +324,20 @@ export class NautilusAppServer {
     return state.useEnrollmentKey((enrollmentKey) => walletSignerFor(enrollmentKey, walletId));
   }
 
+  /**
+   * `fetch` signed as this node's wallet (B2): the engine's wallet routes take only this signature.
+   * Rejects when the device cannot sign (no wallet yet, or the enrollment key is locked).
+   */
+  walletSignedFetch(url: string, init: SignedFetchInit): Promise<Response> {
+    const signer = this.walletSigner();
+    if (!signer) return Promise.reject(new Error('The device cannot sign as its wallet: no wallet, or the enrollment key is locked'));
+    return signedFetchWith(
+      (m, p, b) => signRequest({ signerId: signer.signerId, privateKey: signer.privateKey, method: m, path: p, body: b }),
+      url,
+      init,
+    );
+  }
+
   // ─── Route Registration ───────────────────────────────────
 
   /** Register entity-specific routes */
