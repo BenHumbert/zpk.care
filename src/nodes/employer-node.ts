@@ -36,6 +36,7 @@ import type { GroupEnrollmentToken } from '../onboarding/group-enrollment-token.
 import { EntityNodeBase } from './entity-node-base.js';
 import type { EmployerNodeConfig } from './entity-node-types.js';
 import type { L2ChainState } from '../l2/l2-types.js';
+import type { L2EventHandler } from '../l2/l2-node.js';
 import type { MessageStoreEntry } from '../l2/message-store-types.js';
 
 // ─── Internal Types ──────────────────────────────────────────
@@ -100,6 +101,14 @@ export class EmployerNode extends EntityNodeBase {
 
   /** Employer attestation (loaded from sequencer on startup if available) */
   private attestation: import('../l2/l2-types.js').EmployerAttestation | null = null;
+
+  /**
+   * D2, by I6: the sequencer's event stream names wallets as proofs land, and an employer never learns a
+   * wallet ID, so an employer node never subscribes. Its own SSE to the HR Tool carries local events only.
+   */
+  connectEvents(_handler: L2EventHandler): () => void {
+    return () => {};
+  }
 
   constructor(config: EmployerNodeConfig) {
     super({ ...config, role: 'employer' });

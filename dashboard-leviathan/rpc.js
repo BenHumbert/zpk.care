@@ -233,7 +233,7 @@ const RPC = (() => {
     disconnectSSE();
     lastOnEvent = onEvent;
     try {
-      sseConnection = new EventSource(baseUrl + '/events');
+      sseConnection = new EventSource(baseUrl + '/events' + (adminToken ? '?token=' + encodeURIComponent(adminToken) : ''));
       sseConnection.onopen = function () {
         sseReconnectDelay = 1000;
         sseListeners.forEach(function (fn) { fn('connected'); });
@@ -269,7 +269,7 @@ const RPC = (() => {
     disconnectVizSSE();
     lastVizOnEvent = onEvent;
     try {
-      vizSseConnection = new EventSource(baseUrl + '/viz/events');
+      vizSseConnection = new EventSource(baseUrl + '/viz/events' + (adminToken ? '?token=' + encodeURIComponent(adminToken) : ''));
       vizSseConnection.onopen = function () {
         vizReconnectDelay = 1000;
       };

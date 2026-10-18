@@ -22,6 +22,8 @@
  *   GET /events      — L2 chain events (proofs, batches)
  */
 
+import { withOperatorToken } from './interactive/operator-auth.js';
+
 const RECONNECT_DELAY_MS = 2000;
 const REPLAY_STAGGER_MS = 30;  // 30ms per replayed event (~33/sec visual catch-up)
 
@@ -75,7 +77,7 @@ export class EventBus {
   connectViz() {
     if (this.vizSource) this.vizSource.close();
 
-    const source = new EventSource(`${this.baseUrl}/viz/events`);
+    const source = new EventSource(withOperatorToken(`${this.baseUrl}/viz/events`));
     this.vizSource = source;
 
     // Listen for all viz event types
@@ -163,7 +165,7 @@ export class EventBus {
   connectChain() {
     if (this.chainSource) this.chainSource.close();
 
-    const source = new EventSource(`${this.baseUrl}/events`);
+    const source = new EventSource(withOperatorToken(`${this.baseUrl}/events`));
     this.chainSource = source;
 
     const chainTypes = [

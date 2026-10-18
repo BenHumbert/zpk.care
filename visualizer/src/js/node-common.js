@@ -17,6 +17,9 @@
 // node-common.js — Shared utilities for Adjuda-GATOR visualizer dashboard pages
 // ES module syntax (export/import)
 
+// D2: the pages that share this module read the engine's /node/* routes as the operator; the wrapper attaches the token.
+import './interactive/operator-auth.js';
+
 export const API_BASE = 'http://127.0.0.1:3030';
 
 // ============================================================================

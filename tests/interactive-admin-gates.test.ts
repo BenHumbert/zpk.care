@@ -121,7 +121,8 @@ describe('the routes A11 closes are admin-gated', () => {
 
   test('the gating helper applies the flag, so membership in the set is sufficient', () => {
     // If this helper stops consulting ADMIN_ROUTES, every assertion above becomes decorative.
-    expect(src).toContain("ADMIN_ROUTES.has(path) ? { adminOnly: true, timeoutMs } : walletSigned ? { walletSigned, timeoutMs } : timeoutMs ? { timeoutMs } : undefined");
+    expect(src).toContain("const adminOnly = ADMIN_ROUTES.has(path)");
+    expect(src).toContain("adminOnly ? { adminOnly: true, timeoutMs } : walletSigned ? { walletSigned, timeoutMs } : timeoutMs ? { timeoutMs } : undefined");
   });
 });
 

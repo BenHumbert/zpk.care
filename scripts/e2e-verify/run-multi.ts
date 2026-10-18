@@ -272,7 +272,7 @@ async function fileClaim(memberKey: string, walletId: string, ndcHash: string, c
   t.begin(`claim ${memberKey}`, label);
   const rxId = `RX-${RUN}-${memberKey}-${results.claims.length + 1}`;
   const tp = Date.now();
-  const sp = await http('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId });
+  const sp = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId });
   const isMine = (x: any) => x.id === rxId;
   let prescriptionId: string | undefined = sp.json?.prescriptionId;
   const stillRunning = sp.status === 504 || /timeout/i.test(String(sp.json?.error ?? ''));

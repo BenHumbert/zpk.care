@@ -157,7 +157,7 @@ const RPC = (() => {
   function connectSSE(onEvent) {
     disconnectSSE();
     try {
-      sseConn = new EventSource(baseUrl + '/events');
+      sseConn = new EventSource(baseUrl + '/events' + (adminToken ? '?token=' + encodeURIComponent(adminToken) : ''));
       sseConn.onopen = () => sseListeners.forEach(fn => fn('connected'));
       sseConn.onmessage = ev => {
         try { if (onEvent) onEvent(JSON.parse(ev.data)); }
@@ -171,7 +171,7 @@ const RPC = (() => {
   function connectVizSSE(onEvent) {
     disconnectVizSSE();
     try {
-      vizConn = new EventSource(baseUrl + '/viz/events');
+      vizConn = new EventSource(baseUrl + '/viz/events' + (adminToken ? '?token=' + encodeURIComponent(adminToken) : ''));
       vizConn.onmessage = ev => {
         try { if (onEvent) onEvent(JSON.parse(ev.data)); }
         catch { if (onEvent) onEvent({ raw: ev.data }); }

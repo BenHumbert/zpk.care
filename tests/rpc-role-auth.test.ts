@@ -84,9 +84,10 @@ describe('the operator\'s bearer', () => {
   test('no credential at all is 401 on an admin method and nothing on an open one', async () => {
     const r = await rpcWith({}, envelope('l2_requestSnapshot'));
     expect(r.error?.code).toBe(RPC_UNAUTHORIZED);
-    const open = await rpcWith({}, envelope('l2_getAdminKeys'));
+    // D2: the node-key register answers the operator only; the chain's status is the open method here.
+    const open = await rpcWith({}, envelope('l2_getStatus'));
     expect(passedTheGate(open)).toBe(true);
-    expect(Array.isArray(open.result)).toBe(true);
+    expect(open.result !== null && typeof open.result === 'object').toBe(true);
   });
 });
 

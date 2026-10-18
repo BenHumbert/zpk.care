@@ -157,7 +157,7 @@ Engine → L2Node / L2SequencerService is all in-process. No outbound HTTP exist
 | `seq.getCurrentWalletCount`, `getAllReceipts`, `getAllBatches`, `getAuditLog`; `l2Node.getStatus` | chainState / getState | S:5267-5273, 6142-6166 | SEQ:1878, 2038, 2058, 2414; N:765 |
 | `l2Node.withProvingLock(fn)` | routes serialize proving operations | R:202, 302, 390, 442, 591, 688, 717, 767, 865, 935, 979, 1049, 1073, 1097, 1120 | N:1531 |
 | `seq.retryBatch` / `markBatchFailed` / `getClaimsBy*` / `getReceiptsByWallet` / `getClaimWithProof` / `getFormulary` / chain getters | routes only | R:1234-1287, 1351-1555, 1618-1671, 1692-1721 | SEQ:1255, 1106, 2043-2127, 1676, 2063-2102 |
-| Not used by the engine | recordFill, storeMessage, registerPcpAssignment, message store, quorum, WAL — no references in S or R | — | — |
+| Not used by the engine | storeMessage, registerPcpAssignment, message store, quorum, WAL — no references in S or R | — | — |
 
 Inbound from other processes: the member node POSTs `/interactive/register-member` (src/nodes/routes/member-routes.ts:555-563); the other Nautilus nodes call `/interactive/*` and `/node/*` over HTTP (outside this scope).
 

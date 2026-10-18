@@ -76,8 +76,17 @@ function corsHeaders(req: IncomingMessage): Record<string, string> {
   return {
     ...(origin ? { 'Access-Control-Allow-Origin': origin } : {}),
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   };
+}
+
+/**
+ * D1/D2: the explorer page's operator token, when it holds one, rides through this proxy to the
+ * sequencer, which decides what it opens. Nothing else of the browser's headers is forwarded.
+ */
+function forwardedCredential(req: IncomingMessage): Record<string, string> {
+  const auth = req.headers['authorization'];
+  return typeof auth === 'string' && auth ? { Authorization: auth } : {};
 }
 
 const server = http.createServer(async (req, res) => {
@@ -122,7 +131,7 @@ const server = http.createServer(async (req, res) => {
 
       const upstream = await fetch(sequencerUrl + '/rpc', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...forwardedCredential(req) },
         body,
       });
       const text = await upstream.text();
@@ -152,9 +161,15 @@ const server = http.createServer(async (req, res) => {
   // Proxy /events SSE to sequencer
   if (pathname === '/events' && req.method === 'GET') {
     try {
-      const upstream = await fetch(sequencerUrl + '/events', {
-        headers: { Accept: 'text/event-stream' },
+      // D2: the stream answers a credential — the page's token in a header or in ?token= — and a refusal is relayed as itself.
+      const upstream = await fetch(sequencerUrl + '/events' + url.search, {
+        headers: { Accept: 'text/event-stream', ...forwardedCredential(req) },
       });
+      if (upstream.status !== 200) {
+        res.writeHead(upstream.status, { ...corsHeaders(req), 'Content-Type': 'application/json' });
+        res.end(await upstream.text());
+        return;
+      }
       res.writeHead(200, {
         ...corsHeaders(req),
         'Content-Type': 'text/event-stream',
@@ -188,9 +203,14 @@ const server = http.createServer(async (req, res) => {
     try {
       if (pathname === '/viz/events') {
         // SSE proxy
-        const upstream = await fetch(sequencerUrl + pathname, {
-          headers: { Accept: 'text/event-stream' },
+        const upstream = await fetch(sequencerUrl + pathname + url.search, {
+          headers: { Accept: 'text/event-stream', ...forwardedCredential(req) },
         });
+        if (upstream.status !== 200) {
+          res.writeHead(upstream.status, { ...corsHeaders(req), 'Content-Type': 'application/json' });
+          res.end(await upstream.text());
+          return;
+        }
         res.writeHead(200, {
           ...corsHeaders(req),
           'Content-Type': 'text/event-stream',
@@ -213,7 +233,7 @@ const server = http.createServer(async (req, res) => {
           res.end();
         }
       } else {
-        const upstream = await fetch(sequencerUrl + pathname + url.search);
+        const upstream = await fetch(sequencerUrl + pathname + url.search, { headers: forwardedCredential(req) });
         const text = await upstream.text();
         const ct = upstream.headers.get('content-type') || 'application/json';
         res.writeHead(upstream.status, { ...corsHeaders(req), 'Content-Type': ct });

@@ -595,7 +595,7 @@ export function buildPrescriberRoutes(
       (async () => {
         try {
           // Resolve prescriberIndex from wallet ID via sequencer seed data
-          const resolveResp = await fetch(`${seqUrl}/interactive/resolve-indices`, {
+          const resolveResp = await server.signedFetch(`${seqUrl}/interactive/resolve-indices`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -618,7 +618,7 @@ export function buildPrescriberRoutes(
             pharmacyIndex = 0;
           }
 
-          const proveResp = await fetch(`${seqUrl}/interactive/prescribe`, {
+          const proveResp = await server.signedFetch(`${seqUrl}/interactive/prescribe`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

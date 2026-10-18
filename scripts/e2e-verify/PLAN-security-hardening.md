@@ -1288,6 +1288,53 @@ Not here, by design: the preimage still reaches the engine and the engine still 
 on it; the insurer's approval and the real plan in the engine are commit two. State from before this
 commit is not readable by design (C4, genesis).
 
+**D2 — implementation record: every engine write needs a credential, the no-proof claim path is gone, the streams answer credentials.**
+Done 2026-10-18. Closes **A-27**; closes the auth inventory's open writes (AUTH-5's remainder) and the
+enumeration path D1 left (the event streams, the stream half of RPC-07 and AUTH-11).
+
+*What was wrong.* The engine's console routes that write — prescribe, fill, mark-filled,
+prescribe-and-fill, update-rx-status, reverse, enroll, enroll-family, assign-pcp, request-prior-auth,
+send-message, resolve-indices, the badge and NFC simulations, `/node/force-batch` and
+`/node/publish-formulary` — answered anyone. So did its member-data reads (member-history,
+family-history, threads, prescriptions-by-pharmacy, fill-status, step-therapy-check, enroll-status) and
+the `/node/*` mirror of the sequencer's reads, which D1 did not cover: `/node/claims-by-member`
+answered any wallet's claims, `/node/all-receipts` and `/node/audit-log` enumerated every wallet, and
+`/node/state` was the identity dump A11 had gated at `/interactive/state`. `l2_recordFill` appended a
+claim leaf with no proof and no audit entry on the operator's say-so. The sequencer's event streams
+named every wallet to any subscriber, and the admission registers listed every node key to anyone.
+The provider nodes called the engine with no credential at all.
+
+*Now.* Every POST route the engine registers needs a credential — the operator's token or a node key
+whose role may call it — except the two that need none: `register-member` (the device's ownership
+proof, checked by the handler) and `verify-credential` (changes nothing); the wallet-signed routes carry
+the wallet's signature instead. The member-data GET routes and the `/node/*` reads need the same; the
+chain's own state, proof, batches and formulary name no wallet and stay open. `ROUTES_BY_ROLE` names
+what each node may do: the prescriber prescribes, resolves indices, asks for prior authorization and
+checks step therapy; the pharmacy fills, marks filled, prescribes-and-fills, updates status, reverses,
+resolves indices, polls its fill jobs and reads its queue; the insurer reads member history, family
+history, threads and a pharmacy's queue, and subscribes to both streams; member, prescriber and
+pharmacy nodes subscribe to the event stream; the employer subscribes to nothing, because the stream
+names wallets (I6) — `EmployerNode.connectEvents` is a no-op by construction. `l2_recordFill` is gone
+from the RPC surface, the client, the node and the sequencer service: no no-proof claim path remains.
+`l2_getPendingAdmissions` and `l2_getAdminKeys` are operator methods. `/events` and `/viz/events`
+answer a node key, the operator's token in the header, or `?token=` for a browser; the client signs its
+subscription with the node's key or sends the admin token; the operator dashboard and the explorer page
+append their token, and the explorer server relays the page's credential and the upstream status
+instead of a bare 200. The provider nodes call the engine through `signedFetch`, so their fills and
+prescriptions carry their node keys. The visualizer's token wrapper covers `/node/` and `/viz/` paths
+and its event streams, and the scenario runner sends `ZKTRIDENT_ADMIN_TOKEN`.
+
+*Left as is, on purpose.* The stream still carries wallet IDs to every credentialed subscriber (a
+member node sees other wallets' proof events); filtering the payload per principal is a follow-up for
+this phase. The member dashboard's direct NFC write (`dashboard-member/app.js`, to
+`:3030/interactive/nfc/write`) and the flowchart console under `visualizer/dist` are visualizer-era
+paths that now need the operator's token; B4 and F replace them.
+
+*Verified.* `tests/engine-write-gates.test.ts` (8 tests). `node-roles`, `interactive-admin-gates`,
+`rpc-role-auth` and `l2-network` follow the new sets (`l2-network`, outside the regression batch, had
+been failing since D1 on its anonymous reads and streams; it now runs as the operator, 46 tests in
+11 s). Regression batch 47 suites, 739 tests, all passing. Typecheck src 20, scripts 2. Live: 189/194 checks across 32 steps on a clean secured genesis boot; the five failing checks identical by name to D1's (the D4/D5 money items); the four D2 probes pass (anonymous prescribing refused, the engine's claims-by-member read refused, the event stream refused, l2_recordFill gone).
+
 **D1 — implementation record: a member's data answers no bare wallet ID.**
 Done 2026-10-18. Closes **A-2**, the last critical finding. The seventh of seven criticals.
 
@@ -2581,3 +2628,13 @@ pushed, `origin/main` untouched. **Next:** D2 (the remaining open write routes a
 no-proof path, A-27), then D4 and D5 (the money: duplicate fill, ledger reconciliation, amounts in
 the audit chain), B8, then B4; B3/B7 wait on the §7 decisions. Remaining enumeration path to close
 with D2: the SSE event streams still carry wallet IDs to any subscriber.
+
+**Addendum, 2026-10-18: D2 done, Session 7.** Every engine write and member-data read needs a
+credential, including the `/node/*` mirror of the sequencer's reads that D1 had not covered; the
+no-proof claim path is gone at every layer; the event streams answer credentials; the employer node
+never subscribes to them. A-27 closed. Scoreboard: 32 findings; 26 fixed; 6 open (A-10, A-11, A-22,
+A-23, A-25, A-26), none critical. Acceptance suites added this program: 39, 428 tests, all
+passing. Typecheck src 20, scripts 2. Pipeline 189/194 checks across 32 steps on a clean secured genesis boot; the five failing checks identical by name to D1's (the D4/D5 money items); the four D2 probes pass (anonymous prescribing refused, the engine's claims-by-member read refused, the event stream refused, l2_recordFill gone) on a clean secured genesis boot. Git: with
+this commit, 48 commits on local `dev`, nothing pushed, `origin/main` untouched. **Next:** D4 and D5
+(the money: duplicate fill, ledger reconciliation, amounts in the audit chain), B8, then B4; B3/B7
+wait on the §7 decisions. Follow-up from D2: filter the event stream's payload per principal.

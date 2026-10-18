@@ -263,6 +263,8 @@ export class L2RpcServer {
   /** Admin-only RPC methods that require authentication (Ed25519 signature or Bearer token) */
   private static readonly ADMIN_METHODS = new Set([
     'l2_forceBatch',
+    'l2_getPendingAdmissions',
+    'l2_getAdminKeys',
     'l2_storeFormulary',
     'l2_storePlan',
     'l2_deletePlan',
@@ -271,7 +273,6 @@ export class L2RpcServer {
     'l2_updateProviderStatus',
     'l2_requestSnapshot',
     'l2_gossipRelay',
-    'l2_recordFill',
     'l2_publishPlanOverlay',
     'l2_revokeAdminKey',
     'l2_approveAdmission',
@@ -534,6 +535,9 @@ export class L2RpcServer {
     }
 
     if (pathname === '/events' && req.method === 'GET') {
+      // D2: the stream names wallets; a node key, or the operator's token (a header, or ?token= for a browser), opens it.
+      const decision = this.authorizeStream(req, url, pathname);
+      if (!decision.ok) return L2RpcServer.denyRoute(res, decision);
       return this.handleSSE(req, res);
     }
 
@@ -542,7 +546,8 @@ export class L2RpcServer {
     }
 
     // ── Viz Endpoints ──
-    // Write endpoints need an admin credential (A9: operator bearer or a role that covers them); read endpoints are open
+    // The writes need an admin credential (A9: operator bearer or a role that covers them); so do the entity list, the
+    // state and the event stream, which name wallets (D1, D2). The history stays open.
     if (pathname === '/viz/emit' && req.method === 'POST') {
       const decision = await this.authorizeRoute(req, pathname);
       if (!decision.ok) return L2RpcServer.denyRoute(res, decision);
@@ -550,6 +555,8 @@ export class L2RpcServer {
     }
 
     if (pathname === '/viz/events' && req.method === 'GET') {
+      const decision = this.authorizeStream(req, url, pathname);
+      if (!decision.ok) return L2RpcServer.denyRoute(res, decision);
       return this.handleVizSSE(req, res);
     }
 
@@ -1835,51 +1842,6 @@ export class L2RpcServer {
         };
       }
 
-      case 'l2_recordFill': {
-        const fillMember = params.memberWalletId as string;
-        const fillNdc = params.ndcHash as string;
-        const fillPharmacy = params.pharmacyWalletId as string;
-        const fillPrescriber = (params.prescriberWalletId as string) ?? '0';
-        if (!fillMember || !fillNdc || !fillPharmacy) {
-          throw new Error('Missing required fields: memberWalletId, ndcHash, pharmacyWalletId');
-        }
-        const fillDate = (params.dateOfService as string) ?? new Date().toISOString().replace(/[-:T]/g, '').slice(0, 8);
-        const fillPatientPay = (params.patientPayCents as string) ?? '0';
-        const fillPlanPay = (params.planPayCents as string) ?? '0';
-        const fillOpType = (params.operationType as string) ?? '1';
-        const fillDeductible = (params.deductibleCreditCents as string) ?? '0';
-        const fillSeq = this.node.getSequencer();
-        const fillIngredient = params.ingredientCostCents != null ? Number(params.ingredientCostCents) : undefined;
-        const fillDispFee = params.dispensingFeeCents != null ? Number(params.dispensingFeeCents) : undefined;
-        const fillQty = params.quantityDispensed != null ? Number(params.quantityDispensed) : undefined;
-        const fillTotalDrug = (fillIngredient != null && fillDispFee != null) ? fillIngredient + fillDispFee : undefined;
-
-        // Check for duplicate fill before recording (pre-check for response flag)
-        const fillLeaf = { memberWalletId: fillMember, ndcHash: fillNdc, pharmacyWalletId: fillPharmacy, prescriberWalletId: fillPrescriber, dateOfService: fillDate, patientPayCents: fillPatientPay, planPayCents: fillPlanPay, operationType: fillOpType, deductibleCreditCents: fillDeductible };
-        const priorLeafCount = fillSeq.getClaimAccumulator().getLeafCount();
-
-        const fillEntry = fillSeq.recordFill(
-          fillLeaf,
-          { receiptId: `FILL-${Date.now()}`, timestamp: Date.now(), dateOfService: fillDate, ndc: params.ndc as string, brandName: params.brandName as string, daysSupply: params.daysSupply as number, fillNumber: params.fillNumber as number, ingredientCostCents: fillIngredient, dispensingFeeCents: fillDispFee, totalDrugCostCents: fillTotalDrug, quantityDispensed: fillQty, planIdHash: params.planIdHash as string | undefined },
-        );
-
-        // Detect if this was a duplicate (leaf count didn't change)
-        const isDuplicate = fillSeq.getClaimAccumulator().getLeafCount() === priorLeafCount;
-
-        // Only emit viz event for new fills (not duplicates)
-        if (!isDuplicate) {
-          const fillPharmacyEntity = this.entityRegistry.get(fillPharmacy);
-          const fillMemberEntity = this.entityRegistry.get(fillMember);
-          this.emitVizEvent('viz:pharmacy:dispensed', 'fulfillment',
-            fillPharmacyEntity?.displayName ?? fillPharmacy.slice(0, 12) + '…',
-            'pharmacy',
-            { memberWalletId: fillMember, ndcHash: fillNdc, leafIndex: fillEntry.leafIndex.toString(), brandName: params.brandName, daysSupply: params.daysSupply },
-            { target: fillMemberEntity?.displayName ?? fillMember.slice(0, 12) + '…', targetType: 'member' },
-          );
-        }
-        return { ok: true, leafIndex: fillEntry.leafIndex.toString(), leafHash: fillEntry.leafHash, duplicate: isDuplicate };
-      }
-
       case 'l2_getRegistrationWitnesses': {
         return this.node.getSequencer().getRegistrationWitnesses();
       }
@@ -3070,6 +3032,20 @@ export class L2RpcServer {
     if (!publicKeyHex) return false;
     const verdict = SequencerAttestationAuthority.verifyAttestation(att as NfcCredentialAttestation, publicKeyHex);
     return verdict.valid && !verdict.expired && (att as NfcCredentialAttestation).w === walletId;
+  }
+
+  /**
+   * The gate for an event stream (D2). A browser's EventSource cannot set a header, so the operator's
+   * token may ride in ?token=; anything else is the ordinary route gate: the operator's bearer or a
+   * node key whose role may subscribe.
+   */
+  private authorizeStream(req: IncomingMessage, url: URL, pathname: string): AuthDecision {
+    const token = url.searchParams.get('token');
+    if (token !== null) {
+      if (this.options.adminToken && L2RpcServer.safeEquals(token, this.options.adminToken)) return { ok: true, principal: { kind: 'operator' } };
+      return { ok: false, status: 401, message: 'Unauthorized' };
+    }
+    return this.authorize(req, { kind: 'route', method: 'GET', path: pathname }, undefined);
   }
 
   private authorize(req: IncomingMessage, scope: AuthScope, body: string | undefined): AuthDecision {

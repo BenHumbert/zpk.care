@@ -898,14 +898,6 @@ export class L2Node {
     return this.sequencer.getClaimWithProof(leafIndex);
   }
 
-  /** Record a fill directly on the claim accumulator (admin path) */
-  recordFill(
-    leaf: import('./claim-accumulator-types.js').ClaimLeaf,
-    metadata: import('./claim-accumulator-types.js').ClaimMetadata,
-  ): ClaimAccumulatorEntry {
-    return this.sequencer.recordFill(leaf, metadata);
-  }
-
   /**
    * H4 fix: Sync L2 state from L1 after a direct L1 settlement
    * (settleTransition fallback or admin op that changed on-chain roots).

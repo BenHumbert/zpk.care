@@ -304,7 +304,7 @@ export class NautilusAppServer {
   }
 
   /** `fetch` with this node's signature over the exact request (A9). */
-  signedFetch(url: string, init: SignedFetchInit): Promise<Response> {
+  signedFetch(url: string, init: SignedFetchInit = {}): Promise<Response> {
     return signedFetchWith((m, p, b) => this.sequencerAuthHeaders(m, p, b), url, init);
   }
 

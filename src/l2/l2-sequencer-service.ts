@@ -39,7 +39,7 @@ import type { ClaimContext } from '../reporting/report-types.js';
 import type { L2SequencerState } from './l2-checkpoint.js';
 import type { ClaimSubmissionMetadata } from './l2-types.js';
 import { ClaimAccumulatorService } from './claim-accumulator-service.js';
-import type { ClaimAccumulatorEntry, ClaimLeaf, ClaimMetadata } from './claim-accumulator-types.js';
+import type { ClaimAccumulatorEntry } from './claim-accumulator-types.js';
 import { MessageStoreService } from './message-store-service.js';
 import type { StoredMessage, MessagePayload, MessageStoreEntry } from './message-store-types.js';
 import { ProviderRegistryService } from './provider-registry-service.js';
@@ -2244,19 +2244,7 @@ export class L2SequencerService {
     return this.claimAccumulator.getClaimWithProof(leafIndex);
   }
 
-  /**
-   * Record a fill directly on the claim accumulator (admin path).
-   * Used by pharmacy Nautilus nodes to record dispensing without full ZK proof.
-   * In production, fills go through AccumulatorFulfillmentProgram + proof submission.
-   */
-  recordFill(
-    leaf: ClaimLeaf,
-    metadata: ClaimMetadata,
-  ): ClaimAccumulatorEntry {
-    return this.claimAccumulator.appendClaim(leaf, metadata);
-  }
-
-  /** Direct access to the claim accumulator (for dedup checks in RPC layer) */
+  /** Direct access to the claim accumulator */
   getClaimAccumulator(): ClaimAccumulatorService {
     return this.claimAccumulator;
   }

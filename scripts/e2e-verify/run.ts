@@ -216,7 +216,7 @@ async function main() {
   const noAuthPlan = await http('POST', `${INS}/plans`, { planId: 'EVIL', name: 'x', coverageType: 1, copayAmountCents: 0, deductibleAmountCents: 0, oopMaxCents: 0, annualBenefitMaxCents: 0 });
   trace.check('Insurer refuses plan creation without a token', noAuthPlan.status === 401 || noAuthPlan.status === 403, '401/403', noAuthPlan.status);
   const noAuthRecord = await rpc('l2_recordFill', { memberWalletId: '1', ndcHash: '1', pharmacyWalletId: '1', patientPayCents: '0', planPayCents: '999999' }, false);
-  trace.check('Sequencer refuses l2_recordFill (write a claim directly) without a token', !!noAuthRecord.error, 'error', noAuthRecord.error?.message ?? noAuthRecord.result);
+  trace.check('The no-proof claim path l2_recordFill is gone from the sequencer', !!noAuthRecord.error, 'error', noAuthRecord.error?.message ?? noAuthRecord.result);
   const badAuthBatch = await http('POST', `${SEQ}/rpc`, { jsonrpc: '2.0', id: 1, method: 'l2_forceBatch', params: {} }, { Authorization: 'Bearer admin123' });
   trace.check('Sequencer refuses the old demo token "admin123"', !!(badAuthBatch.json?.error), 'error', badAuthBatch.json?.error?.message ?? badAuthBatch.json);
   // A9: one credential per principal. The operator's token opens nothing on the insurer node, and
@@ -564,7 +564,7 @@ async function main() {
   trace.begin('prescriber', 'An in-network doctor who is not the PCP and holds no authorization cannot prescribe for this member');
   const strangerIdx = networkPrescriberIdx.find((i) => i !== 0)!;
   const strangerRxId = `RX-${RUN}-STRANGER`;
-  const strangerRx = await http('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: strangerIdx, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId: strangerRxId });
+  const strangerRx = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: strangerIdx, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId: strangerRxId });
   trace.check('The engine refuses: not the primary-care prescriber, no authorization from the device', strangerRx.status === 403 && /primary-care prescriber/.test(String(strangerRx.json?.error ?? '')), '403 primary-care prescriber', `${strangerRx.status} ${strangerRx.json?.error ?? ''}`.trim());
   const strangerState = unwrap((await httpAdmin('GET', `${SEQ}/interactive/state`)).json) ?? {};
   trace.check('No prescription record was created for the refused request', !((strangerState.prescriptions ?? []) as any[]).some((x: any) => x.id === strangerRxId || x.rxId === strangerRxId), 'none', ((strangerState.prescriptions ?? []) as any[]).filter((x: any) => x.id === strangerRxId).length);
@@ -588,9 +588,9 @@ async function main() {
       }
     }
     if (!prescriptionId) {
-      // Same call the prescriber node makes, sent straight to the sequencer — note: this route needs no credentials.
+      // Same call the prescriber node makes, sent straight to the sequencer as the operator (D2: the route takes a credential).
       const tp = Date.now();
-      const sp = await http('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: sc.qty, refills: 0, rxId });
+      const sp = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: sc.qty, refills: 0, rxId });
       if (sp.status === 504) trace.note('prescribe outlasted the 30 s HTTP timeout; polling the adjudication state');
       prescriptionId = sp.json?.prescriptionId;
       if (!prescriptionId) {
@@ -601,9 +601,6 @@ async function main() {
       }
       trace.note(`prescription took ${Date.now() - tp} ms (4 proofs on the sequencer)`);
       trace.check('Prescription created and adjudicated', !!prescriptionId, 'prescriptionId', prescriptionId ?? sp.json);
-      if (prescriptionId && !results.findings.some((f: any) => f.id === 'open-prescribe')) {
-        results.findings.push({ id: 'open-prescribe', severity: 'high', title: 'Anyone can create a prescription for any member wallet', evidence: `POST ${SEQ}/interactive/prescribe with no credentials returned prescription ${prescriptionId} (secured mode).` });
-      }
     }
 
     trace.begin('pharmacy', `${sc.label}: dispense and adjudicate (real AccumulatorFulfillment proof)`);
@@ -683,7 +680,7 @@ async function main() {
   const oonDoctor = (Array.isArray(oonProviders.result) ? oonProviders.result : []).find((p: any) => typeof p.displayName === 'string' && (p.displayName === oonFixture.name || (p.displayName.includes(String(oonFixture.firstName ?? '\u0000')) && p.displayName.includes(String(oonFixture.lastName ?? '\u0000')))));
   const oonAuth = oonDoctor ? await mem('POST', '/authorizations/prescriber', { prescriberWalletId: String(oonDoctor.walletId), hours: 2 }) : { status: 0, json: { error: 'the out-of-network doctor is not in the provider registry' } };
   trace.check('The device authorizes the out-of-network doctor for this visit, so consent is not what is tested next', oonAuth.status === 200, 200, oonAuth.status === 200 ? 'authorized' : (unwrap(oonAuth.json) ?? oonAuth.json));
-  const oon = await http('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: outIdx, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId: oonRx });
+  const oon = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: outIdx, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId: oonRx });
   let oonStatus: string | undefined = oon.json?.status;
   if (oon.status === 504 || (!oon.json?.error && !oonStatus)) {
     const f = await poll(quietAdmin, `${SEQ}/interactive/state`, j => (j?.prescriptions ?? []).some((x: any) => x.id === oonRx && x.status), 600_000, 5000);
@@ -825,6 +822,13 @@ async function main() {
   trace.check('The plan, with its credential, still reads the member\'s claims for audit', Array.isArray(planClaims.result), 'array', planClaims.error?.message ?? `${planClaims.result?.length} claims`);
   const ownReceipts = await mem('GET', '/receipts');
   trace.check('The member\'s own node reads its receipts, signed as the wallet', ownReceipts.status === 200, 200, ownReceipts.status === 200 ? 200 : (unwrap(ownReceipts.json) ?? ownReceipts.status));
+  // D2: the engine's write routes, its mirror of the member-data reads and the sequencer's event stream answer credentials only.
+  const barePrescribe = await http('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 1, refills: 0 });
+  trace.check('Anonymous prescribing on the engine is refused', barePrescribe.status === 401 || barePrescribe.status === 403, '401/403', barePrescribe.status);
+  const bareNodeClaims = await http('GET', `${SEQ}/node/claims-by-member?walletId=${walletId}`);
+  trace.check('The engine\'s own claims-by-member read is refused without a credential', bareNodeClaims.status === 401 || bareNodeClaims.status === 403, '401/403', bareNodeClaims.status);
+  const bareEvents = await http('GET', `${SEQ}/events`);
+  trace.check('The sequencer\'s event stream is refused without a credential', bareEvents.status === 401 || bareEvents.status === 403, '401/403', bareEvents.status);
   const att = await rpc('l2_requestAttestation', { walletId }, false);
   trace.check('Signed NFC attestation for this member is refused without proof of ownership', !!att.error, 'error', att.error ? att.error.message : 'issued');
   // A10b: the three writes that speak for a wallet take only that wallet's own signature.
@@ -890,7 +894,7 @@ async function main() {
   // ── 13b. Termination (B5, A-18): a terminated member is not billable ──
   trace.begin('insurer', 'Terminate the member; the engine refuses to prescribe for or dispense to them afterwards');
   const lastRxId = `RX-${RUN}-LAST`;
-  const lastRx = await http('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId: lastRxId });
+  const lastRx = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId: lastRxId });
   let lastRxOk = lastRx.status < 300 && !!lastRx.json?.prescriptionId;
   if (!lastRxOk && (lastRx.status === 504 || !lastRx.json?.error)) {
     const found = await poll(quietAdmin, `${SEQ}/interactive/state`, j => (j?.prescriptions ?? []).some((x: any) => (x.id === lastRxId || x.rxId === lastRxId) && x.status === 'ADJUDICATED'), 600_000, 5000);
@@ -901,7 +905,7 @@ async function main() {
   await http('POST', `${PHA}/dispensing/mark-filled`, { prescriptionId: lastPrescriptionId });
   const term = await httpAdmin('POST', `${SEQ}/interactive/terminate-member`, { memberWalletId: walletId, terminationDate: '20261018' });
   trace.check('The operator terminates the member', term.status < 300, '2xx', term.status);
-  const afterTerm = await http('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId: `RX-${RUN}-AFTER` });
+  const afterTerm = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId: `RX-${RUN}-AFTER` });
   trace.check('No prescription can be written for a terminated member', afterTerm.status === 409 && /terminated/.test(String(afterTerm.json?.error ?? '')), '409 terminated', `${afterTerm.status} ${afterTerm.json?.error ?? ''}`.trim());
   const lateDisp = await http('POST', `${PHA}/dispensing/dispense`, { prescriptionId: lastPrescriptionId, quantityDispensed: 30, ingredientCostCents: 4500, dispensingFeeCents: 200 });
   let lateFill: any = unwrap(lateDisp.json);

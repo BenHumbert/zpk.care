@@ -32,7 +32,7 @@ export interface SignedFetchInit {
   signal?: AbortSignal;
 }
 
-export function signedFetch(sign: SequencerSigner, url: string, init: SignedFetchInit): Promise<Response> {
+export function signedFetch(sign: SequencerSigner, url: string, init: SignedFetchInit = {}): Promise<Response> {
   const method = (init.method ?? 'GET').toUpperCase();
   const path = new URL(url).pathname;
   const headers = { ...(init.headers ?? {}), ...sign(method, path, init.body) };

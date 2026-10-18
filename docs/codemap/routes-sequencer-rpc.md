@@ -36,8 +36,8 @@ Abbreviations: RPC = `src/l2/l2-rpc-server.ts`; CLI = `src/l2/l2-client.ts`; SEQ
 | Sweep | every 300 s drops IPs with no hits in the last 60 s; map cleared on `stop()` | RPC:305-316,341-345 |
 | Rejection | JSON-RPC error `-32602 'Rate limit exceeded'` (HTTP 200) | RPC:721 |
 
-### 1.4 ADMIN_METHODS (17)
-`l2_forceBatch, l2_storeFormulary, l2_storePlan, l2_deletePlan, l2_registerEntity, l2_credentialProvider, l2_updateProviderStatus, l2_requestSnapshot, l2_gossipRelay, l2_recordFill, l2_publishPlanOverlay, l2_revokeAdminKey, l2_approveAdmission, l2_registerEmployer, l2_revokeEmployerAttestation, l2_registerEmployerNode, l2_deregisterEmployerNode` — RPC:207-225. Plus conditional: `l2_registerAdminKey` needs auth only once `adminKeyRegistry.size > 0` (RPC:691-692).
+### 1.4 ADMIN_METHODS (18)
+`l2_forceBatch, l2_storeFormulary, l2_storePlan, l2_deletePlan, l2_registerEntity, l2_credentialProvider, l2_updateProviderStatus, l2_requestSnapshot, l2_gossipRelay, l2_getPendingAdmissions, l2_getAdminKeys, l2_publishPlanOverlay, l2_revokeAdminKey, l2_approveAdmission, l2_registerEmployer, l2_revokeEmployerAttestation, l2_registerEmployerNode, l2_deregisterEmployerNode` — RPC:207-225. Plus conditional: `l2_registerAdminKey` needs auth only once `adminKeyRegistry.size > 0` (RPC:691-692).
 
 ### 1.5 Admin auth gate (`handleRpc`)
 | Step | Fact | Source |
@@ -64,9 +64,9 @@ Abbreviations: RPC = `src/l2/l2-rpc-server.ts`; CLI = `src/l2/l2-client.ts`; SEQ
 ### 1.7 SSE streams
 | Stream | Auth | Behaviour | Payload | Source |
 |---|---|---|---|---|
-| `GET /events` | OPEN (GAP I7: carries wallet IDs) | 404 if `enableSSE` false; 503 at `maxSseConnections` (100); sends `{type:'connected',timestamp}`; `?lastEventId=N` replays ring buffer (256) entries with id>N; frames `id: N\ndata: <L2ChainEvent>` | `L2ChainEvent {type, timestamp, data}`; types: node:started/stopped/tick, proof:accepted, proof:rejected, batch:building/built/empty/settling/settled/failed/rejected, audit:event, formulary:updated, plan:updated/deleted, network:updated, pool:worker:* (8), leader:promoted/demoted, employer:registered/revoked/node-registered/node-deregistered, node:error. `proof:accepted.data` = {receiptId, walletId,…}; messaging `audit:event.data` = {type:'messaging', senderWalletId, messagingRootBefore/After, chainHash, sequenceNumber} | RPC:230,595-660; NODE:143-182,500-504,629-640 |
-| `GET /viz/events` | OPEN (GAP I7: VizEvent carries actorWalletId/targetWalletId and data such as memberWalletId) | 503 at 100 clients; sends only the connected ack (no replay); frames `data: <VizEvent>` | `VizEvent {type, timestamp, id, actor, actorType, actorWalletId?, target?, targetType?, targetWalletId?, data, lane, stage, totalStages}` | RPC:87-101,2426-2451,2525-2535 |
-| Viz buffer | 10 000 events, FIFO; written by `POST /viz/emit` and by `emitVizEvent` from `l2_recordFill`, `l2_storeMessage`, `l2_registerEntity`, `l2_credentialProvider`, `l2_updateProviderStatus` | — | RPC:2405-2418,2541-2567 |
+| `GET /events` | D2: a node key (member, prescriber, pharmacy, insurer; not the employer, I6), the operator's bearer, or `?token=` for a browser; 401 otherwise | 404 if `enableSSE` false; 503 at `maxSseConnections` (100); sends `{type:'connected',timestamp}`; `?lastEventId=N` replays ring buffer (256) entries with id>N; frames `id: N\ndata: <L2ChainEvent>` | `L2ChainEvent {type, timestamp, data}`; types: node:started/stopped/tick, proof:accepted, proof:rejected, batch:building/built/empty/settling/settled/failed/rejected, audit:event, formulary:updated, plan:updated/deleted, network:updated, pool:worker:* (8), leader:promoted/demoted, employer:registered/revoked/node-registered/node-deregistered, node:error. `proof:accepted.data` = {receiptId, walletId,…}; messaging `audit:event.data` = {type:'messaging', senderWalletId, messagingRootBefore/After, chainHash, sequenceNumber} | RPC:230,595-660; NODE:143-182,500-504,629-640 |
+| `GET /viz/events` | D2: the operator (bearer or `?token=`) or the plan's node key; 401/403 otherwise | 503 at 100 clients; sends only the connected ack (no replay); frames `data: <VizEvent>` | `VizEvent {type, timestamp, id, actor, actorType, actorWalletId?, target?, targetType?, targetWalletId?, data, lane, stage, totalStages}` | RPC:87-101,2426-2451,2525-2535 |
+| Viz buffer | 10 000 events, FIFO; written by `POST /viz/emit` and by `emitVizEvent` from `l2_storeMessage`, `l2_registerEntity`, `l2_credentialProvider`, `l2_updateProviderStatus` | — | RPC:2405-2418,2541-2567 |
 
 ### 1.8 Auth-class counts
 94 `case 'l2_…'` handlers (grep -c; no non-`l2_` cases). ADMIN 17 · RATE-only 1 (`l2_submitProof`) · conditional 1 (`l2_registerAdminKey`) · OPEN 75 (74 functional; `l2_syncFromL1` always throws). Dispatch switch RPC:750-2357.
@@ -87,8 +87,8 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 | l2_registerAdminKey | COND (OPEN at genesis; GAP I7 in unsecure mode) | nodeId, publicKeyHex(64 hex), reason, admittedBy? | writes `adminKeyRegistry` (genesis or unsecure direct); secure post-genesis throws | no | 820-866 |
 | l2_requestAdmission | OPEN (GAP I7: unauthenticated write) | nodeId, publicKeyHex | writes `pendingAdmissions` (cap 100, 24 h TTL); blacklist check | no | 868-916 |
 | l2_approveAdmission | ADMIN | nodeId, reason | records approval by `_verifiedNodeId ?? 'admin'`; admits at BFT threshold → `adminKeyRegistry` | no | 918-992 |
-| l2_getPendingAdmissions | OPEN | — | reads `pendingAdmissions` (incl. publicKeyHex, approvals) | no | 994-1008 |
-| l2_getAdminKeys | OPEN | — | reads `adminKeyRegistry` (publicKeyHex, admittedBy, reason, timestamp) | no | 1010-1016 |
+| l2_getPendingAdmissions | ADMIN (D2) | — | reads `pendingAdmissions` (incl. publicKeyHex, approvals) | no | 994-1008 |
+| l2_getAdminKeys | ADMIN (D2) | — | reads `adminKeyRegistry` (publicKeyHex, admittedBy, reason, timestamp) | no | 1010-1016 |
 | l2_revokeAdminKey | ADMIN | nodeId, reason, blacklist? | deletes key + pending; optional blacklist of nodeId and pubkey | no | 1018-1038 |
 
 ### Status / health / chain
@@ -230,10 +230,10 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 |---|---|---|---|---|---|
 | OPTIONS | * | OPEN | — | 204 + CORS headers | RPC:432-436 |
 | GET | /health | OPEN | — | ok, running, sseClients, memory MB, chain counters, provingPool/workers, entityProofPool/entityWorkers | RPC:441,548-592 |
-| GET | /events | OPEN (GAP I7) | enableSSE; ≤100 clients | L2ChainEvent stream with 256-event replay via `?lastEventId` | RPC:445,595-642 |
+| GET | /events | D2: credential (node key, bearer, or `?token=`) | enableSSE; ≤100 clients | L2ChainEvent stream with 256-event replay via `?lastEventId` | RPC:445,595-642 |
 | POST | /rpc | per-method (see 1.5) | body ≤20 MB; JSON-RPC 2.0 shape | JSON-RPC result/error (always HTTP 200) | RPC:449,665-747 |
 | POST | /viz/emit | ADMIN (`checkAdminAuth`) | body ≤20 MB; any JSON accepted as VizEvent; id/timestamp filled | pushes to viz buffer (10k) + broadcast | RPC:455-462,2387-2423 |
-| GET | /viz/events | OPEN (GAP I7) | ≤100 clients | VizEvent stream (no replay) | RPC:464,2426-2451 |
+| GET | /viz/events | D2: operator or plan (bearer, `?token=`, or insurer node key) | ≤100 clients | VizEvent stream (no replay) | RPC:464,2426-2451 |
 | POST | /viz/entities | ADMIN | JSON array; registry cap 1000 (429) | writes `entityRegistry` | RPC:468-475,2473-2500 |
 | GET | /viz/entities | OPEN (GAP I7) | — | full `VizEntity[]` incl. walletId, displayName, type, group, encryptionPublicKeyHex | RPC:477,2502-2509 |
 | GET | /viz/state | OPEN (GAP I7) | — | {events (whole buffer), entities, nodeRunning, client counts} | RPC:481,2512-2522 |
@@ -275,7 +275,7 @@ Callers = files in `src/nodes` matching `client.<method>(` (grep); "—" = none 
 | reconstructAccumulator (318) | l2_reconstructAccumulator | " | — |
 | registerPcpAssignment (333) | l2_registerPcpAssignment | " | routes/member-routes |
 | getPcpAssignments (338) | l2_getPcpAssignments | " | — (prescriber-routes calls RPC directly) |
-| recordFill (345) | l2_recordFill (ADMIN) | " | — (only scripts/e2e-verify/run.ts via raw RPC) |
+| ~~recordFill~~ | ~~l2_recordFill~~ removed in D2 (A-27): no no-proof claim path remains in the client, the node, the service or the server | — | — |
 | getMessagesByWallet (372) | l2_getMessagesByWallet | " | entity-node-base, insurer-node |
 | getMessagesBySender (377) / ByRecipient (382) / ByThread (387) | matching l2_* | " | employer-node, entity-node-base |
 | getMessageStoreRoot (392) | l2_getMessageStoreRoot | " | entity-node-base |
@@ -299,8 +299,8 @@ Raw (non-L2Client) RPC callers worth knowing (grep of `l2_*` literals): `routes/
 | OPTIONS | * | OPEN | 204 + CORS (`ZKTRIDENT_CORS_ORIGINS`, default `*`) — **A2: default is now the local dashboard origins, and an off-list origin gets no header** | EXP:41,56-62,69-73 |
 | POST | /rpc | OPEN (strips caller headers) | forwards raw body to `<sequencer>/rpc` with only `Content-Type` → Authorization/X-Admin-Signature never reach the sequencer; no body cap on the proxy; all proxied `l2_submitProof` share the explorer's IP for the rate limiter; 502 on failure | EXP:76-95 |
 | GET | /health | OPEN | proxied | EXP:98-109 |
-| GET | /events | OPEN | SSE pump from sequencer `/events` | EXP:112-143 |
-| GET | /viz/* | OPEN | `/viz/events` pumped as SSE; any other `/viz/<x>?q` fetched and relayed with upstream status/content-type | EXP:146-186 |
+| GET | /events | relays the page's token (header or `?token=`) and the upstream status (D2) | SSE pump from sequencer `/events` | EXP:112-143 |
+| GET | /viz/* | relays the page's token (D1/D2) | `/viz/events` pumped as SSE with the upstream status relayed; any other `/viz/<x>?q` fetched and relayed with upstream status/content-type | EXP:146-186 |
 | GET | /<static> | OPEN | files from `explorer/` (app.js, index.html, logo.png, rpc.js, style.css); regex + `..` guard; `path.join` without canonical-prefix check | EXP:43-44,188-201 |
 | * | other | — | 404 text | EXP:203-204 |
 
@@ -326,6 +326,6 @@ Server: only `StateTransitionProgram` compiled (PD:249-252); binds `127.0.0.1` s
 5. `l2_approveAdmission` records every Bearer-mode approval as `'admin'` (RPC:945), so a threshold >1 cannot be met without Ed25519 identities — intended bootstrap limitation?
 6. `pcpAssignments` (RPC:239) and `entityRegistry` (RPC:236) live only in the RPC server process and are not part of `getAdminRegistryState` (RPC:2688-2699); is any checkpoint path persisting them, or are PCP links and wallet display names lost on restart?
 7. `l2_revokeEmployerAttestation` deletes through the private `employerAttestationStore` (RPC:1367) — is a sequencer method intended?
-8. `l2_recordFill` appends claim leaves with no proof (RPC:1684-1727); only `scripts/e2e-verify/run.ts` references it — fixture-only, or a production path?
+8. `l2_recordFill` appends claim leaves with no proof (RPC:1684-1727); only `scripts/e2e-verify/run.ts` references it — fixture-only, or a production path? **Answered by D2 (2026-10-18): neither — removed.**
 9. Who is meant to call `POST /prove`? No node uses `ProofDelegateClient`; the browser path has no API key and the server emits no CORS headers (PD:260-302; `dashboard-member/rpc.js:179-191`).
 10. `l2_submitProof` accepts unverified `entityMetadata` and writes it to `entityRegistry` for registrations (RPC:774-787) — is the display-name binding to a wallet meant to be attacker-controllable at registration time?

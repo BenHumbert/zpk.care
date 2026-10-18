@@ -149,7 +149,7 @@ Message "encryption": base64 only (`btoa`) — GAP: messaging not E2E encrypted.
 | Setup wizard: token | POST `<employerUrl>/tokens/generate` | groupId, employeeId, validUntil:'20271231' | 1939-1941 |
 | Setup wizard: wait for phone | l2_getStatus poll (wallet count / proofs) | — | 1962-2005 |
 | Setup wizard: force batch | `RPC.call('l2_forceBatch', {})` **without** admin flag ("bypass admin token requirement") | — | 2025-2028 — GAP I7 if the sequencer accepts it |
-| Viz | GET /viz/entities, /viz/state, SSE /viz/events | — | 843, 1925; rpc.js:220-226, 272 |
+| Viz | GET /viz/entities, /viz/state (token, D1), SSE /viz/events with `?token=` (D2) | — | 843, 1925; rpc.js:220-226, 272 |
 
 `memReq` (member-node request helper) defined (1862) but never called.
 
@@ -166,13 +166,13 @@ run.ts steps (one member, fictional "Avery Quillfeather" 64-68):
 | # | Step (trace.begin) | Calls | Asserts | Lines |
 |---|---|---|---|---|
 | 1 | harness readiness | GET :3030/interactive/state until compiled; l2_getStatus; /health ×4 | compiled, phase present; records prescriber/pharmacy walletIds | 119-132 |
-| 2 | attacker probes | POST :4004/plans no token; l2_recordFill no token; l2_forceBatch Bearer admin123 | 401/403; error; error | 135-141 |
+| 2 | attacker probes | POST :4004/plans no token; l2_recordFill (removed in D2: method not found); l2_forceBatch Bearer admin123 | 401/403; error; error | 135-141 |
 | 3 | insurer plan | insAdmin POST /plans; GET /marketplace/api/plans | 201; listed | 144-151 |
 | 4 | employer apply→approve→sign→activate→group | Ed25519 keygen (Node crypto); /marketplace/api/apply, upload-document, approve (insAdmin), agreement, sign, activate(+poll); POST `<employerNode>/groups` Bearer empAdmin | applicationId; 2xx; complete; 2xx | 154-196 |
 | 5 | HR Tool codes | /api/unlock, /api/group/select, /api/import (2-row CSV), /api/export/tokens | success===2; 2 tokens; tokens contain no last name | 199-218 |
 | 6 | member enrol | eject if needed; unlock{pin}; accept-token{tokenId}; generate-key; derive-wallet{PHI+consent}; enroll{tokenPIN}; compile; /proof/registration; poll l2_getReceiptsByWallet; /proof-timings | 2xx each; key not in response (regex 233); walletId; insurerNotified; ≥1 receipt | 221-267 |
 | 7 | verifier wallet recompute | NautilusLocalState.unlock(PIN).load() | device walletId matches; 6 preimage fields recompute (hash cardholder/dob/first/last/enrollmentKey/group); Poseidon(0,…)==walletId; group-bound variant (fails if pre[5]=0 → finding `group-binding` 295); different key ⇒ different wallet | 270-298 |
-| 8 | 3 claims | /interactive/state med pick; prescriber dashboard path POST :4002/prescriptions/prescribe (+status poll) else POST :3030/interactive/prescribe unauthenticated (finding `open-prescribe` 353); :4003/dispensing/mark-filled, dispense over-quantity (ci 0), dispense | split re-derived via `expectedAdjudication`; total; patient/plan; deductible credit; OOP delta; fulfillment & settlement Poseidon recompute; ndc/pharmacy match | 301-410 |
+| 8 | 3 claims | /interactive/state med pick; prescriber dashboard path POST :4002/prescriptions/prescribe (+status poll) else POST :3030/interactive/prescribe as the operator (D2; the `open-prescribe` finding is retired); :4003/dispensing/mark-filled, dispense over-quantity (ci 0), dispense | split re-derived via `expectedAdjudication`; total; patient/plan; deductible credit; OOP delta; fulfillment & settlement Poseidon recompute; ndc/pharmacy match | 301-410 |
 | 8b | out-of-network prescriber | POST /interactive/prescribe with non-network index | refused (finding `network-not-enforced` 427 if not) | 413-428 |
 | 9 | claim inclusion | /interactive/force-batch; l2_getClaimsByMember; l2_getClaimAccumulatorRoot; l2_getClaimWithProof per leaf | leaf hash + witness path == root; member matches; amounts match | 431-456 |
 | 10 | audits | l2_verifyChainIntegrity/FinancialBalance/detectDuplicateClaims; l2_reconstructAccumulator | pass; sums equal claims | 459-472 |

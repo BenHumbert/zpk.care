@@ -152,7 +152,7 @@ Consequence: the first cryptographic check of a submitted StateTransitionProof i
 | `storeEmployerAttestation(att)`, `getEmployerAttestation(s)` | seq:1779-1792 | none here (signature checks live in rpc, not mapped) | `employerAttestationStore` | rpc:1346 |
 | `registerEmployerNode`, `getEmployerNode`, `listEmployerNodes`, `deregisterEmployerNode` | seq:1810-1865 | none; TTL prune (1797-1807) | `employerNodeRegistry` | rpc:1401 |
 | `reconstructAccumulator(walletId, planIdHash?)` | seq:2167-2220 | none | none; sums leaves (op `1` add, op `2` clamped subtract, 2193-2210) | rpc:1515, 2150 |
-| `recordFill(leaf, metadata)` | seq:2140-2145 | none (dedup inside `appendClaim`) | claim accumulator (no proof, no audit event) | rpc:1707 via node:861 |
+| ~~`recordFill(leaf, metadata)`~~ | removed in D2 (A-27) | — | — | — |
 | `getClaimAccumulator().hasActiveFill` | seq:2148-2150; claim:86-91 | — | — | rpc dedup check |
 | `storeMessage(message, payload)` | seq:2229-2231 -> msg:75-108 | none (no encryption check, no sender auth here) | message tree + indexes | node:653-679 (+gossip) <- rpc:1828 |
 | `emitMessagingAuditEvent(sender, rootBefore, rootAfter)` | seq:2357-2396 | none | `nextSequenceNumber++`, audit event `msg-%08d` with unchanged roots (messaging roots not hashed), chain hash, Merkle index | node:618-646 <- engine:2409, 3596, 3778 |

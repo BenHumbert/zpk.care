@@ -485,7 +485,7 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
         const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
         const pharmacyIndex = parseInt(query?.get('pharmacyIndex') ?? '0', 10) || 0;
 
-        const resp = await fetch(`${seqUrl}/interactive/prescriptions-by-pharmacy?pharmacyIndex=${pharmacyIndex}`);
+        const resp = await server.signedFetch(`${seqUrl}/interactive/prescriptions-by-pharmacy?pharmacyIndex=${pharmacyIndex}`);
         const result = await resp.json();
         server.sendResponse(res, 200, true, result);
       } catch (err: any) {
@@ -509,7 +509,7 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
 
       try {
         const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
-        const resp = await fetch(`${seqUrl}/interactive/mark-filled`, {
+        const resp = await server.signedFetch(`${seqUrl}/interactive/mark-filled`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ prescriptionId: b.prescriptionId }),
@@ -549,7 +549,7 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       // Fire-and-forget: call sequencer's /interactive/fill (which calls dispensePrescription)
       (async () => {
         try {
-          const resp = await fetch(`${seqUrl}/interactive/fill`, {
+          const resp = await server.signedFetch(`${seqUrl}/interactive/fill`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -580,7 +580,7 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
           const maxAttempts = 120;
           for (let i = 0; i < maxAttempts; i++) {
             await new Promise(r => setTimeout(r, 5000));
-            const statusResp = await fetch(`${seqUrl}/interactive/fill-status?prescriptionId=${encodeURIComponent(seqJobKey)}`);
+            const statusResp = await server.signedFetch(`${seqUrl}/interactive/fill-status?prescriptionId=${encodeURIComponent(seqJobKey)}`);
             const statusResult = await statusResp.json() as Record<string, unknown>;
             if (statusResult.status === 'complete') {
               const job = dispensingJobs.get(jobKey);
@@ -644,7 +644,7 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       (async () => {
         try {
           // Resolve wallet IDs to seed data indices
-          const resolveResp = await fetch(`${seqUrl}/interactive/resolve-indices`, {
+          const resolveResp = await server.signedFetch(`${seqUrl}/interactive/resolve-indices`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -661,7 +661,7 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
           }
 
           // Call prescribe-and-fill on sequencer (creates prescription + fills with 5+ ZK proofs)
-          const proveResp = await fetch(`${seqUrl}/interactive/prescribe-and-fill`, {
+          const proveResp = await server.signedFetch(`${seqUrl}/interactive/prescribe-and-fill`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -691,7 +691,7 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
 
           while (Date.now() - pollStart < POLL_TIMEOUT) {
             await new Promise(r => setTimeout(r, POLL_INTERVAL));
-            const statusResp = await fetch(`${seqUrl}/interactive/fill-status?prescriptionId=${encodeURIComponent(prescriptionId)}`);
+            const statusResp = await server.signedFetch(`${seqUrl}/interactive/fill-status?prescriptionId=${encodeURIComponent(prescriptionId)}`);
             const statusResult = await statusResp.json() as Record<string, unknown>;
 
             if (statusResult.status === 'complete') {
@@ -767,7 +767,7 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       // Fire-and-forget: call sequencer reversal proof
       (async () => {
         try {
-          const reverseResp = await fetch(`${seqUrl}/interactive/reverse`, {
+          const reverseResp = await server.signedFetch(`${seqUrl}/interactive/reverse`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

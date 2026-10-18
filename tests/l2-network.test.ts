@@ -404,10 +404,10 @@ describe('L2Client', () => {
     );
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-network.test.ts'));
     node.start();
-    server = new L2RpcServer(node, { port: 0 });
+    server = new L2RpcServer(node, { port: 0, adminToken: NET_ADMIN });
     await server.start();
     const port = server.getPort();
-    client = new L2Client({ sequencerUrl: `http://127.0.0.1:${port}` });
+    client = new L2Client({ sequencerUrl: `http://127.0.0.1:${port}`, adminToken: NET_ADMIN });
   });
 
   afterEach(async () => {
@@ -508,7 +508,7 @@ describe('SSE Event Streaming', () => {
       Field(0),
     );
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-network.test.ts'));
-    server = new L2RpcServer(node, { port: 0 });
+    server = new L2RpcServer(node, { port: 0, adminToken: NET_ADMIN });
     await server.start();
     port = server.getPort();
   });
@@ -521,7 +521,7 @@ describe('SSE Event Streaming', () => {
   test('SSE endpoint returns event-stream content type', async () => {
     // Manual SSE connection to verify headers
     const res = await new Promise<http.IncomingMessage>((resolve) => {
-      http.get({ hostname: '127.0.0.1', port, path: '/events' }, resolve);
+      http.get({ hostname: '127.0.0.1', port, path: '/events', headers: asOperator }, resolve);
     });
 
     expect(res.headers['content-type']).toBe('text/event-stream');
@@ -536,7 +536,7 @@ describe('SSE Event Streaming', () => {
     const events: unknown[] = [];
 
     const res = await new Promise<http.IncomingMessage>((resolve) => {
-      http.get({ hostname: '127.0.0.1', port, path: '/events' }, resolve);
+      http.get({ hostname: '127.0.0.1', port, path: '/events', headers: asOperator }, resolve);
     });
 
     await new Promise<void>((resolve) => {
@@ -565,7 +565,7 @@ describe('SSE Event Streaming', () => {
   test('SSE receives node events after start', async () => {
     const events: L2ChainEvent[] = [];
 
-    const client = new L2Client({ sequencerUrl: `http://127.0.0.1:${port}` });
+    const client = new L2Client({ sequencerUrl: `http://127.0.0.1:${port}`, adminToken: NET_ADMIN });
     const disconnect = client.connectEvents((event) => {
       events.push(event);
     });
@@ -592,7 +592,7 @@ describe('SSE Event Streaming', () => {
     expect(server.getSSEClientCount()).toBe(0);
 
     const res = await new Promise<http.IncomingMessage>((resolve) => {
-      http.get({ hostname: '127.0.0.1', port, path: '/events' }, resolve);
+      http.get({ hostname: '127.0.0.1', port, path: '/events', headers: asOperator }, resolve);
     });
 
     // Wait for connection to register
@@ -607,7 +607,7 @@ describe('SSE Event Streaming', () => {
   test('disconnect function stops receiving events', async () => {
     const events: L2ChainEvent[] = [];
 
-    const client = new L2Client({ sequencerUrl: `http://127.0.0.1:${port}` });
+    const client = new L2Client({ sequencerUrl: `http://127.0.0.1:${port}`, adminToken: NET_ADMIN });
     const disconnect = client.connectEvents((event) => {
       events.push(event);
     });
@@ -651,10 +651,10 @@ describe('L2 Client-Server Integration', () => {
     );
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-network.test.ts'));
     node.start();
-    server = new L2RpcServer(node, { port: 0 });
+    server = new L2RpcServer(node, { port: 0, adminToken: NET_ADMIN });
     await server.start();
     const port = server.getPort();
-    client = new L2Client({ sequencerUrl: `http://127.0.0.1:${port}` });
+    client = new L2Client({ sequencerUrl: `http://127.0.0.1:${port}`, adminToken: NET_ADMIN });
   });
 
   afterEach(async () => {

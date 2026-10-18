@@ -143,12 +143,34 @@ export function registerInteractiveRoutes(
    */
   const ENGINE_ROUTE_BUDGET_MS = 180_000;
 
-  // Helper: register route with automatic admin gating for Tier 3 routes, the wallet gate for wallet
-  // routes, and the proving budget for every write route
+  /**
+   * D2: every write route needs a credential — the operator's token or a node key whose role may call
+   * it (ROUTES_BY_ROLE) — except the two that need none: register-member carries the device's
+   * ownership proof, which the handler checks, and verify-credential changes nothing. The wallet-signed
+   * routes carry the wallet's own signature instead. The member-data reads among the GET routes need a
+   * credential too, as does the `/node/*` mirror of the sequencer's reads, which until D2 answered any
+   * wallet's claims and the identity dump to anyone; the chain's own state, proof, batches and
+   * formulary name no wallet and stay open.
+   */
+  const OPEN_POSTS = new Set(['/interactive/register-member', '/interactive/verify-credential']);
+  const GATED_READS = new Set([
+    '/interactive/member-history', '/interactive/family-history', '/interactive/threads',
+    '/interactive/prescriptions-by-pharmacy', '/interactive/fill-status', '/interactive/step-therapy-check',
+    '/interactive/enroll-status',
+  ]);
+  const OPEN_NODE_READS = new Set(['/node/chain-state', '/node/chain-proof', '/node/all-batches', '/node/formulary']);
+
+  // Helper: register route with the admin gate (A11, D2), the wallet gate for wallet routes, and the
+  // proving budget for every write route
   function reg(method: string, path: string, handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>): void {
-    const walletSigned = WALLET_ROUTES[`${method.toUpperCase()}:${path}`];
-    const timeoutMs = method.toUpperCase() === 'POST' ? ENGINE_ROUTE_BUDGET_MS : undefined;
-    server.registerRoute(method, path, handler, ADMIN_ROUTES.has(path) ? { adminOnly: true, timeoutMs } : walletSigned ? { walletSigned, timeoutMs } : timeoutMs ? { timeoutMs } : undefined);
+    const upper = method.toUpperCase();
+    const walletSigned = WALLET_ROUTES[`${upper}:${path}`];
+    const timeoutMs = upper === 'POST' ? ENGINE_ROUTE_BUDGET_MS : undefined;
+    const adminOnly = ADMIN_ROUTES.has(path)
+      || (upper === 'POST' && !walletSigned && !OPEN_POSTS.has(path))
+      || (upper === 'GET' && GATED_READS.has(path))
+      || (path.startsWith('/node/') && !OPEN_NODE_READS.has(path));
+    server.registerRoute(method, path, handler, adminOnly ? { adminOnly: true, timeoutMs } : walletSigned ? { walletSigned, timeoutMs } : timeoutMs ? { timeoutMs } : undefined);
   }
 
   // Console SSE clients

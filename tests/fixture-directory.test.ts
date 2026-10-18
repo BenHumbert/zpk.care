@@ -63,7 +63,7 @@ describe('the fixture directory', () => {
     const client = fs.readFileSync(path.join(js, 'interactive/state-client.js'), 'utf8');
     expect(client).toContain("fetch('/fixtures.json')");
     const auth = fs.readFileSync(path.join(js, 'interactive/operator-auth.js'), 'utf8');
-    expect(auth).toContain("pathname.startsWith('/interactive/')");
+    expect(auth).toContain("p.startsWith('/interactive/') || p.startsWith('/node/') || p.startsWith('/viz/')"); // D2 widened the wrapper to the engine's /node/* reads and the viz entity list
     expect(auth).toContain("'Bearer ' + token");
     const app = fs.readFileSync(path.join(js, 'interactive-app.js'), 'utf8');
     expect(app).toContain("import './interactive/operator-auth.js';");

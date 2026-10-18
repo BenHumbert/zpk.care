@@ -82,10 +82,13 @@ function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
 // ─── HTTP Helpers ───────────────────────────────────────────
 
+// D2: the engine's writes and member-data reads answer the operator's token.
+const OPERATOR_HEADERS = process.env.ZKTRIDENT_ADMIN_TOKEN ? { Authorization: `Bearer ${process.env.ZKTRIDENT_ADMIN_TOKEN}` } : {};
+
 async function post(path, body = {}) {
   const res = await fetch(`${BASE_URL}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...OPERATOR_HEADERS },
     body: JSON.stringify(body),
   });
   const text = await res.text();
@@ -97,7 +100,7 @@ async function post(path, body = {}) {
 }
 
 async function get(path) {
-  const res = await fetch(`${BASE_URL}${path}`);
+  const res = await fetch(`${BASE_URL}${path}`, { headers: OPERATOR_HEADERS });
   const text = await res.text();
   try {
     return { status: res.status, data: JSON.parse(text) };

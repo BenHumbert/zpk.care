@@ -32,7 +32,7 @@ describe('role tables', () => {
     for (const m of ['l2_credentialProvider', 'l2_updateProviderStatus', 'l2_publishPlanOverlay', 'l2_storePlan', 'l2_deletePlan', 'l2_storeFormulary', 'l2_registerEmployer', 'l2_revokeEmployerAttestation', 'l2_registerEmployerNode', 'l2_deregisterEmployerNode']) {
       expect(roleMayCall('insurer', { kind: 'rpc', method: m })).toBe(true);
     }
-    for (const m of ['l2_gossipRelay', 'l2_recordFill', 'l2_approveAdmission', 'l2_registerEntity']) {
+    for (const m of ['l2_gossipRelay', 'l2_forceBatch', 'l2_approveAdmission', 'l2_registerEntity']) {
       expect(roleMayCall('insurer', { kind: 'rpc', method: m })).toBe(false);
     }
     for (const p of ['approve-prior-auth', 'deny-prior-auth', 'terminate-member', 'terminate-group', 'update-formulary', 'plan-year-rollover', 'approve-member']) {
@@ -44,12 +44,21 @@ describe('role tables', () => {
     }
   });
 
-  test('member, prescriber and pharmacy may register their keys and nothing else; the replica relays gossip and pulls a snapshot; the sequencer relays gossip only; the employer nothing', () => {
+  test('member, prescriber and pharmacy register their keys and subscribe to the event stream, the providers call the engine routes their work needs; the replica relays gossip and pulls a snapshot; the sequencer relays gossip only; the employer nothing', () => {
     for (const role of ['member', 'prescriber', 'pharmacy'] as const) {
       expect(roleMayCall(role, { kind: 'rpc', method: 'l2_registerEntity' })).toBe(true);
       expect(RPC_METHODS_BY_ROLE[role].size).toBe(1);
-      expect(ROUTES_BY_ROLE[role].size).toBe(0);
+      // D2: a node subscribes to the event stream; a provider calls the engine routes its work needs
+      expect(roleMayCall(role, { kind: 'route', method: 'GET', path: '/events' })).toBe(true);
     }
+    expect(ROUTES_BY_ROLE.member.size).toBe(1);
+    expect(roleMayCall('prescriber', { kind: 'route', method: 'POST', path: '/interactive/prescribe' })).toBe(true);
+    expect(roleMayCall('prescriber', { kind: 'route', method: 'POST', path: '/interactive/fill' })).toBe(false);
+    expect(roleMayCall('pharmacy', { kind: 'route', method: 'POST', path: '/interactive/fill' })).toBe(true);
+    expect(roleMayCall('pharmacy', { kind: 'route', method: 'POST', path: '/interactive/prescribe' })).toBe(false);
+    expect(roleMayCall('member', { kind: 'route', method: 'POST', path: '/interactive/prescribe' })).toBe(false);
+    // I6: the stream names wallets, so the employer may not subscribe
+    expect(roleMayCall('employer', { kind: 'route', method: 'GET', path: '/events' })).toBe(false);
     expect(roleMayCall('replica', { kind: 'rpc', method: 'l2_gossipRelay' })).toBe(true);
     expect(roleMayCall('replica', { kind: 'rpc', method: 'l2_requestSnapshot' })).toBe(true);
     expect(RPC_METHODS_BY_ROLE.replica.size).toBe(2);

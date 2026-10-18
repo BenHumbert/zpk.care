@@ -26,7 +26,9 @@
  * This is installed as a scoped wrapper around `fetch`, in one place, rather than edited into the
  * sixty-odd call sites across the console: an interceptor is the ordinary way an app attaches a
  * credential, and one implementation is one thing to review. It touches only requests whose path
- * starts with `/interactive/`.
+ * starts with `/interactive/`, `/node/` or `/viz/` — the engine's console, its mirror of the
+ * sequencer's reads, and the entity list behind the pictures, all of which answer a credential since
+ * D1 and D2.
  */
 
 const STORAGE_KEY = 'zkt_operator_token';
@@ -67,7 +69,8 @@ function askForToken() {
 function isInteractiveRequest(input) {
   try {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    return new URL(url, location.href).pathname.startsWith('/interactive/');
+    const p = new URL(url, location.href).pathname;
+    return p.startsWith('/interactive/') || p.startsWith('/node/') || p.startsWith('/viz/');
   } catch {
     return false;
   }
@@ -77,6 +80,13 @@ function withAuth(init, token) {
   const headers = new Headers((init && init.headers) || {});
   if (token && !headers.has('Authorization')) headers.set('Authorization', 'Bearer ' + token);
   return { ...(init || {}), headers };
+}
+
+/** D2: an EventSource cannot carry a header, so a stream URL carries the token as ?token=. */
+export function withOperatorToken(url) {
+  const token = memoryToken || getOperatorToken();
+  if (!token) return url;
+  return url + (url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
 }
 
 /** Install the wrapper. Idempotent. */

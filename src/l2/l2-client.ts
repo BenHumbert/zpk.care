@@ -354,33 +354,6 @@ export class L2Client {
     return this.rpcCall('l2_getEncryptionKey', { walletId }, signer);
   }
 
-  // ─── Claim Recording (Admin) ──────────────────────
-
-  /** Record a fill directly on the claim accumulator (admin-gated) */
-  async recordFill(params: {
-    memberWalletId: string;
-    ndcHash: string;
-    pharmacyWalletId: string;
-    prescriberWalletId?: string;
-    dateOfService?: string;
-    patientPayCents?: string;
-    planPayCents?: string;
-    operationType?: string;
-    deductibleCreditCents?: string;
-    ndc?: string;
-    brandName?: string;
-    daysSupply?: number;
-    fillNumber?: number;
-    /** NADAC ingredient cost in cents */
-    ingredientCostCents?: number;
-    /** Pharmacy dispensing fee in cents */
-    dispensingFeeCents?: number;
-    /** Quantity dispensed */
-    quantityDispensed?: number;
-  }): Promise<{ ok: boolean; leafIndex: string; leafHash: string }> {
-    return this.rpcCall('l2_recordFill', params);
-  }
-
   // ─── Message Store Queries ──────────────────────────────
 
   /** Get all messages involving a wallet (sent or received) */
@@ -570,7 +543,14 @@ export class L2Client {
       const url = new URL('/events', this.options.sequencerUrl);
       const transport = url.protocol === 'https:' ? https : http;
 
-      currentReq = transport.get(url, (res) => {
+      // D2: the stream needs a credential — this node's key when it has one, else the admin token.
+      const streamHeaders: Record<string, string> = {};
+      if (this.options.adminPrivateKeyHex && this.options.adminNodeId) {
+        Object.assign(streamHeaders, signRequest({ signerId: this.options.adminNodeId, privateKey: privateKeyFromSeedHex(this.options.adminPrivateKeyHex), method: 'GET', path: '/events' }));
+      } else if (this.options.adminToken) {
+        streamHeaders['Authorization'] = `Bearer ${this.options.adminToken}`;
+      }
+      currentReq = transport.get(url, { headers: streamHeaders }, (res) => {
         if (res.statusCode !== 200) {
           scheduleReconnect();
           return;
