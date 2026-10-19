@@ -49,3 +49,8 @@ tests/money-agrees.test.ts
 tests/proving-lease.test.ts
 tests/proof-pool-table.test.ts
 tests/family-binding.test.ts
+tests/prescription-id-reuse.test.ts
+tests/messaging-key-slots.test.ts
+tests/reversal-ledger.test.ts
+tests/ledger-lifecycle-gate.test.ts
+tests/provider-index-refusal.test.ts

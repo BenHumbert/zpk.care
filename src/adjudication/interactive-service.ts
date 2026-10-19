@@ -509,6 +509,24 @@ export class RegistrationRefused extends Error {
 }
 
 /**
+ * Whether a member may be billed, asked of the ledger (the sequencer's lifecycle tree) and not only of the engine's
+ * copy: the two can disagree after a restore or a termination that stopped half-way. The ledger must show the wallet
+ * ELIGIBLE or ACTIVE. A ledger that shows it revoked brings the engine's copy into step; an engine copy that shows it
+ * terminated still refuses, whatever the ledger says.
+ */
+export function refuseUnlessLedgerBillable(
+  ledger: { name: 'registered' | 'eligible' | 'active' | 'revoked' } | null,
+  enrolled: { lifecycle: 'ELIGIBLE' | 'ACTIVE' | 'REVOKED' },
+  refusal: string,
+): void {
+  if (ledger?.name === 'revoked') enrolled.lifecycle = 'REVOKED';
+  if (enrolled.lifecycle === 'REVOKED') throw new RegistrationRefused(409, `This member is terminated; ${refusal}`);
+  if (ledger?.name !== 'eligible' && ledger?.name !== 'active') {
+    throw new RegistrationRefused(409, `The ledger does not show this member eligible (${ledger ? ledger.name : 'not on the ledger'}); ${refusal}`);
+  }
+}
+
+/**
  * B8, A-34: whose accumulators pool with this member's. A family is the one the insurer's approval bound
  * from the employer's enrollment code, never one a request names, and it pools only inside one group and
  * one plan. A member with no bound family pools with no one: an empty family ID is not a family.
@@ -595,6 +613,10 @@ export class AdjudicationService {
   private keyRegistry!: KeyRegistry;
   private msgNonce = 0;
   private encryptionKeys: Map<number, { publicKey: Buffer; privateKey: Buffer }> = new Map();
+  /** The insurer's slot in encryptionKeys: outside the wallet registry (members and providers use
+   *  their registry index, 0..1023), so the wallet enrolled at index 999 cannot overwrite it. -1 is
+   *  the payloads' "no key" marker, so this is -2. Never written to the key tree. */
+  private static readonly ADMIN_KEY_INDEX = -2;
   private encryptedPayloads: Map<string, {
     ciphertext: string;       // hex-encoded encrypted bytes
     iv: string;               // hex-encoded IV
@@ -902,26 +924,28 @@ export class AdjudicationService {
     this.delegationRegistry = new DelegationRegistry();
     this.keyRegistry = new KeyRegistry();
 
-    // Register encryption keys for prescribers (wallet indices 0-9).
+    // Register encryption keys for prescribers and pharmacies, each at its own wallet-registry
+    // index (provisioned above), the slot a member's key uses too, so no two parties share one.
     // NOTE: Seed entities store full keypairs (public + private) because the sequencer
     // generates eScript messages on their behalf. When prescriber/pharmacy Nautilus apps
     // register independently, they should use the publicKeyHex pattern (device-only private key).
     for (let i = 0; i < PRESCRIBERS.length; i++) {
       const kp = deriveEncryptionKeyPair(PRESCRIBERS[i].enrollmentKey);
-      this.encryptionKeys.set(i, kp);
+      const slot = this.providerKeyIndex(this.prescriberWalletIds.get(i)!);
+      this.encryptionKeys.set(slot, kp);
       const { pubKeyX, pubKeyY } = publicKeyToFields(kp.publicKey);
-      this.keyRegistry.registerKey(BigInt(i), this.prescriberWalletIds.get(i)!, pubKeyX, pubKeyY);
+      this.keyRegistry.registerKey(BigInt(slot), this.prescriberWalletIds.get(i)!, pubKeyX, pubKeyY);
     }
-    // Register encryption keys for pharmacies (wallet indices 10-17)
     for (let i = 0; i < PHARMACIES.length; i++) {
       const kp = deriveEncryptionKeyPair(PHARMACIES[i].enrollmentKey);
-      this.encryptionKeys.set(10 + i, kp);
+      const slot = this.providerKeyIndex(this.pharmacyWalletIds.get(i)!);
+      this.encryptionKeys.set(slot, kp);
       const { pubKeyX, pubKeyY } = publicKeyToFields(kp.publicKey);
-      this.keyRegistry.registerKey(BigInt(10 + i), this.pharmacyWalletIds.get(i)!, pubKeyX, pubKeyY);
+      this.keyRegistry.registerKey(BigInt(slot), this.pharmacyWalletIds.get(i)!, pubKeyX, pubKeyY);
     }
-    // Admin/Insurer encryption key (index 999)
+    // Admin/Insurer encryption key (ADMIN_KEY_INDEX, outside the registry range 0..1023)
     const adminKp = deriveEncryptionKeyPair('ADMIN-INSURER-ENCRYPTION-KEY-2026');
-    this.encryptionKeys.set(999, adminKp);
+    this.encryptionKeys.set(AdjudicationService.ADMIN_KEY_INDEX, adminKp);
 
     // Seed providers were provisioned into the sequencer's trees above (adminMutate),
     // so there is no separate copy to sync.
@@ -2445,6 +2469,11 @@ export class AdjudicationService {
 
   // ─── Create Prescription ───────────────────────────────
 
+  /** True when an ID names a prescription already written, or one still being proved. */
+  private rxIdTaken(id: string): boolean {
+    return this.prescriptions.has(id) || this.pendingPrescriptions.has(id);
+  }
+
   async createPrescription(opts: {
     prescriberIndex: number;
     memberWalletId: string;
@@ -2455,6 +2484,18 @@ export class AdjudicationService {
     rxId?: string;  // optional: prescriber-supplied ID for cross-node consistency
   }): Promise<Record<string, unknown>> {
     if (!this.compiled) throw new Error('Programs not compiled yet');
+    // A prescription ID names one prescription for good. A caller's ID that is malformed or already in use
+    // (written, or still being proved) is refused here, before any proof: storing it again would replace
+    // that prescription and reset its quantity dispensed and refills used while its fills stay under the
+    // same key. No await runs between this check and the pending entry below, so two requests cannot both pass.
+    if (opts.rxId) {
+      if (typeof opts.rxId !== 'string' || !/^[A-Za-z0-9._-]{1,64}$/.test(opts.rxId)) {
+        throw new RegistrationRefused(400, 'rxId must be 1 to 64 letters, digits, dots, underscores or hyphens');
+      }
+      if (this.rxIdTaken(opts.rxId)) {
+        throw new RegistrationRefused(409, `Prescription ${opts.rxId} already exists; a prescription ID cannot be reused`);
+      }
+    }
 
     const prescriber = PRESCRIBERS[opts.prescriberIndex];
     if (!prescriber) throw new Error(`Invalid prescriber index: ${opts.prescriberIndex}`);
@@ -2473,8 +2514,8 @@ export class AdjudicationService {
     const prescriberName = `Dr. ${prescriber.firstName} ${prescriber.lastName}`;
     const pharmacyName = pharmacy.storeName;
 
-    // A-18: a terminated member is not billable.
-    if (enrolled.lifecycle === 'REVOKED') throw new RegistrationRefused(409, 'This member is terminated; no prescription can be written');
+    // A-18: a terminated member is not billable. The ledger decides, and the engine's copy follows it.
+    refuseUnlessLedgerBillable(this.l2Node.getSequencer().lifecycleStateOf(enrolled.walletId.toString()), enrolled, 'no prescription can be written');
     // B5: a member with a device is prescribed for by the primary-care prescriber it consented to, or by a
     // prescriber its device authorized for this visit. The console's fixture members have no device.
     if (enrolled.memberIndex < 0) {
@@ -2555,7 +2596,12 @@ export class AdjudicationService {
 
     // Register as pending so the pharmacy Dispensing Queue shows it immediately
     this.rxCounter++;
-    const pendingRxId = opts.rxId || `RX-${String(this.rxCounter).padStart(4, '0')}`;
+    let pendingRxId = opts.rxId || `RX-${String(this.rxCounter).padStart(4, '0')}`;
+    // An engine-made ID skips any ID a caller chose earlier (for example "RX-0007"), so it never lands on a live prescription.
+    while (!opts.rxId && this.rxIdTaken(pendingRxId)) {
+      this.rxCounter++;
+      pendingRxId = `RX-${String(this.rxCounter).padStart(4, '0')}`;
+    }
     this.pendingPrescriptions.set(pendingRxId, {
       id: pendingRxId,
       prescriberIndex: opts.prescriberIndex,
@@ -2750,9 +2796,11 @@ export class AdjudicationService {
     const eScriptThreadId = `THREAD-RX-${this.rxCounter}`;
     const eScriptPlaintext = `Subject: eScript\n\nRx for ${medication.genericName} ${medication.strength} #${opts.quantity}`;
 
-    // Encrypt eScript with prescriber→pharmacy keys
-    const prescriberKeys = this.encryptionKeys.get(opts.prescriberIndex);
-    const pharmacyKeys = this.encryptionKeys.get(10 + opts.pharmacyIndex);
+    // Encrypt eScript with prescriber→pharmacy keys (each at its own wallet-registry slot)
+    const prescriberKeyIndex = this.providerKeyIndex(prescriberWalletId);
+    const pharmacyKeyIndex = this.providerKeyIndex(pharmacyWalletId);
+    const prescriberKeys = this.encryptionKeys.get(prescriberKeyIndex);
+    const pharmacyKeys = this.encryptionKeys.get(pharmacyKeyIndex);
     let eScriptContentHash: Field;
     let eScriptEncrypted: { ciphertext: Buffer; iv: Buffer; tag: Buffer } | null = null;
     if (prescriberKeys && pharmacyKeys && prescriberKeys.privateKey.length > 0) {
@@ -2799,8 +2847,8 @@ export class AdjudicationService {
       ciphertext: eScriptEncrypted ? eScriptEncrypted.ciphertext.toString('hex') : '',
       iv: eScriptEncrypted ? eScriptEncrypted.iv.toString('hex') : '',
       tag: eScriptEncrypted ? eScriptEncrypted.tag.toString('hex') : '',
-      senderKeyIndex: opts.prescriberIndex,
-      recipientKeyIndex: 10 + opts.pharmacyIndex,
+      senderKeyIndex: prescriberKeyIndex,
+      recipientKeyIndex: pharmacyKeyIndex,
       threadId: eScriptThreadId,
       timestamp: Date.now(),
     });
@@ -3052,8 +3100,8 @@ export class AdjudicationService {
     const prescriberWalletId = this.prescriberWalletIds.get(rxState.prescriberIndex)!;
     const prescriberPreimage = this.prescriberPreimages.get(rxState.prescriberIndex)!;
     const enrolled = this.enrolledMembers.get(rxState.memberWalletId)!;
-    // A-18: a terminated member is not billable; a reversal (which undoes a claim) stays open by design.
-    if (enrolled.lifecycle === 'REVOKED') throw new RegistrationRefused(409, 'This member is terminated; the prescription cannot be dispensed');
+    // A-18: a terminated member is not billable; a reversal (which undoes a claim) stays open by design. The ledger decides.
+    refuseUnlessLedgerBillable(this.l2Node.getSequencer().lifecycleStateOf(enrolled.walletId.toString()), enrolled, 'the prescription cannot be dispensed');
 
     const qtyDispensed = opts.quantityDispensed ?? rxState.quantity;
 
@@ -3784,10 +3832,8 @@ export class AdjudicationService {
       throw new Error('The reversal proof\'s eligibility root does not match the engine\'s accumulator update; nothing was reversed');
     }
 
-    // 3. Update TRANSACTION tree: store reversal commitment at the reversal slot
-    rxForest.setLeaf(ForestDomain.TRANSACTION, reversalSlotIndex, reversalData.commitment());
-
-    // 4. Update eligibility forest: reverse accumulator
+    // 3. Update eligibility forest: reverse accumulator. The member's record is what the ledger step proves, so it
+    //    changes first and is put back exactly if that step fails; the prescription and the fill change only after.
     const origPatientPay = fillToReverse.patientPayCents;
     const origPlanPay = fillToReverse.planPayCents;
     const origDeductibleCredit = Number(fillToReverse.deductibleCreditField.toBigInt());
@@ -3797,6 +3843,11 @@ export class AdjudicationService {
     const newDeductiblePaid = Math.max(0, oldDeductiblePaid - origDeductibleCredit);
     const newOopPaid = Math.max(0, oldOopPaid - origPatientPay);
     const newBenefitUsed = Math.max(0, oldBenefitUsed - origPlanPay);
+
+    const savedAccumulator = enrolled.accumulatorData;
+    const savedAccumulatorLeaf = eligForest.getLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX);
+    const savedCredential = enrolled.credentialData;
+    const savedInventorySlot = enrolled.credentialInventory.getCredential(0n);
 
     enrolled.accumulatorData = revAccumulator; // A-35: checked against the proof above
 
@@ -3812,37 +3863,9 @@ export class AdjudicationService {
     });
     enrolled.credentialData = updatedEligCredentialData;
 
-    // 5. Update Rx credential with final forest root (after reversal slot write)
-    const updatedRxCredentialData = new CredentialData({
-      credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
-      forestRoot: rxForest.getForestRoot(),
-      issuerWalletId: rxState.rxCredentialData.issuerWalletId,
-      subjectWalletId: rxState.rxCredentialData.subjectWalletId,
-      issuedAt: rxState.rxCredentialData.issuedAt,
-      expiresAt: Field(0),
-      revoked: Field(0),
-    });
-
-    // 6. Update prescription state
-    const previousStatus = rxState.status;
-    rxState.status = 'REVERSED';
-    rxState.quantityDispensed -= fillToReverse.quantityDispensed;
-    rxState.rxCredentialData = updatedRxCredentialData;
-    // Note: nextTxLeafIndex unchanged — reversal slot is at settlementLeafIndex+1, not at nextTxLeafIndex
-    rxState.statusHistory.push({
-      from: previousStatus,
-      to: 'REVERSED',
-      updatedBy: pharmacy.storeName,
-      updatedByRole: 'pharmacy',
-      timestamp: Date.now(),
-      fillQuantity: fillToReverse.quantityDispensed,
-      note: opts.reason,
-    });
-
-    // Mark the fill as reversed
-    fillToReverse.reversed = true;
-
-    // Submit reversal to L2 so the claim accumulator tracks it
+    // 4. Record on the ledger. A fixture member's update is proved and submitted here; a member with a device has it
+    //    queued for the device to prove, its claim committed on the sequencer. If this step fails, the member's record
+    //    is put back exactly and the error surfaces, as for a fill whose ledger step fails: nothing was reversed.
     const reversalClaimMeta: import('../l2/l2-types.js').ClaimSubmissionMetadata = {
       ndcHash: hashString(medication.ndc).toString(),
       memberWalletId: enrolled.walletId.toBigInt().toString(),
@@ -3861,11 +3884,50 @@ export class AdjudicationService {
       quantityDispensed: fillToReverse.quantityDispensed,
       planIdHash: hashString(enrolled.planId).toString(),
     };
+    let revOutcome: WalletUpdateOutcome;
     try {
-      await this.updateCredentialAndSubmitToL2(enrolled, 'reversal', reversalClaimMeta);
+      revOutcome = await this.updateCredentialAndSubmitToL2(enrolled, 'reversal', reversalClaimMeta);
     } catch (revSubmitErr: unknown) {
-      this.emit('warn', 'reversal', `L2 submission failed (local state updated): ${revSubmitErr instanceof Error ? revSubmitErr.message : String(revSubmitErr)}`);
+      enrolled.accumulatorData = savedAccumulator;
+      eligForest.setLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX, savedAccumulatorLeaf);
+      enrolled.credentialData = savedCredential;
+      if (savedInventorySlot) enrolled.credentialInventory.updateCredential(0n, savedInventorySlot);
+      this.emit('error', 'reversal', `The ledger did not take the reversal; nothing was reversed: ${revSubmitErr instanceof Error ? revSubmitErr.message : String(revSubmitErr)}`);
+      throw revSubmitErr;
     }
+
+    // 5. Update TRANSACTION tree: store reversal commitment at the reversal slot
+    rxForest.setLeaf(ForestDomain.TRANSACTION, reversalSlotIndex, reversalData.commitment());
+
+    // 6. Update Rx credential with final forest root (after reversal slot write)
+    const updatedRxCredentialData = new CredentialData({
+      credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
+      forestRoot: rxForest.getForestRoot(),
+      issuerWalletId: rxState.rxCredentialData.issuerWalletId,
+      subjectWalletId: rxState.rxCredentialData.subjectWalletId,
+      issuedAt: rxState.rxCredentialData.issuedAt,
+      expiresAt: Field(0),
+      revoked: Field(0),
+    });
+
+    // 7. Update prescription state
+    const previousStatus = rxState.status;
+    rxState.status = 'REVERSED';
+    rxState.quantityDispensed -= fillToReverse.quantityDispensed;
+    rxState.rxCredentialData = updatedRxCredentialData;
+    // Note: nextTxLeafIndex unchanged — reversal slot is at settlementLeafIndex+1, not at nextTxLeafIndex
+    rxState.statusHistory.push({
+      from: previousStatus,
+      to: 'REVERSED',
+      updatedBy: pharmacy.storeName,
+      updatedByRole: 'pharmacy',
+      timestamp: Date.now(),
+      fillQuantity: fillToReverse.quantityDispensed,
+      note: opts.reason,
+    });
+
+    // Mark the fill as reversed
+    fillToReverse.reversed = true;
 
     this.emit('memory', 'reversal', `Memory: ${Math.round(process.memoryUsage().rss / 1024 / 1024)} MB RSS`);
 
@@ -3899,6 +3961,10 @@ export class AdjudicationService {
     return {
       prescriptionId: opts.prescriptionId,
       fillIndex: fillIdx,
+      // B1 step two: a member with a device proves the reversal's wallet update; the claim lands with it
+      walletUpdate: revOutcome.pending
+        ? { status: 'pending', updateId: revOutcome.pending.updateId, newInventoryRoot: revOutcome.pending.newInventoryRoot }
+        : { status: 'applied', receiptId: revOutcome.receipt?.receiptId },
       previousStatus,
       newStatus: 'REVERSED',
       medication: {
@@ -4018,25 +4084,31 @@ export class AdjudicationService {
   }
 
   /**
+   * A seed provider's messaging-key slot: its wallet-registry index, the slot a member's key uses
+   * too, so the key tree stays 1:1 with the wallet registry and no two parties share a slot.
+   * Seed providers are provisioned into the registry in initInfrastructure, before any key lookup.
+   */
+  private providerKeyIndex(walletId: Field): number {
+    return Number(this.walletRegistry.getIndex(walletId));
+  }
+
+  /**
    * Find the encryption key index for a given wallet Field.
    * Returns null if no key is registered for this wallet.
    */
   private findKeyIndexForWallet(wallet: Field): number | null {
     const walletStr = wallet.toString();
-    // Check prescribers (index 0-9)
-    for (const [idx, wid] of this.prescriberWalletIds) {
-      if (wid.toString() === walletStr) return idx;
-    }
-    // Check pharmacies (index 10+)
-    for (const [idx, wid] of this.pharmacyWalletIds) {
-      if (wid.toString() === walletStr) return 10 + idx;
+    // Check seed prescribers and pharmacies (their wallet-registry slot)
+    for (const wid of [...this.prescriberWalletIds.values(), ...this.pharmacyWalletIds.values()]) {
+      if (wid.toString() === walletStr) return this.providerKeyIndex(wid);
     }
     // Check enrolled members
     for (const enrolled of this.enrolledMembers.values()) {
-      if (enrolled.walletId.toString() === walletStr) return enrolled.walletIndex;
+      // members key by their live registry slot: a restore can move them, and a stale saved index may name a provider
+      if (enrolled.walletId.toString() === walletStr) return this.walletRegistry.isRegistered(enrolled.walletId) ? Number(this.walletRegistry.getIndex(enrolled.walletId)) : null;
     }
     // Check admin/insurer
-    if (this.adminWalletId && this.adminWalletId.toString() === walletStr) return 999;
+    if (this.adminWalletId && this.adminWalletId.toString() === walletStr) return AdjudicationService.ADMIN_KEY_INDEX;
     return null;
   }
 
@@ -4052,7 +4124,7 @@ export class AdjudicationService {
       if (!p) throw new Error(`Invalid prescriber index: ${index}`);
       return {
         walletId: this.prescriberWalletIds.get(index)!,
-        keyIndex: index,
+        keyIndex: this.providerKeyIndex(this.prescriberWalletIds.get(index)!),
         displayName: `Dr. ${p.firstName} ${p.lastName}`,
       };
     }
@@ -4062,14 +4134,14 @@ export class AdjudicationService {
       if (!p) throw new Error(`Invalid pharmacy index: ${index}`);
       return {
         walletId: this.pharmacyWalletIds.get(index)!,
-        keyIndex: 10 + index,
+        keyIndex: this.providerKeyIndex(this.pharmacyWalletIds.get(index)!),
         displayName: p.storeName,
       };
     }
     if (type === 'insurer') {
       return {
         walletId: this.adminWalletId,
-        keyIndex: 999,
+        keyIndex: AdjudicationService.ADMIN_KEY_INDEX,
         displayName: 'Insurer',
       };
     }
@@ -4080,7 +4152,7 @@ export class AdjudicationService {
       if (enrolled.lifecycle === 'REVOKED') throw new Error(`Member ${enrolled.displayName} is terminated`);
       return {
         walletId: enrolled.walletId,
-        keyIndex: enrolled.walletIndex,
+        keyIndex: Number(this.walletRegistry.getIndex(enrolled.walletId)),
         displayName: enrolled.displayName,
       };
     }
@@ -4472,7 +4544,9 @@ export class AdjudicationService {
   }): Record<string, unknown> {
     const enrolled = this.enrolledMembers.get(opts.memberWalletId);
     if (!enrolled) throw new Error(`Member not found: ${opts.memberWalletId}`);
-    if (enrolled.lifecycle === 'REVOKED') throw new Error(`Member ${enrolled.displayName} is already terminated`);
+    // A copy brought into step from the ledger has no termination date: the termination's own steps (cancel the
+    // prescriptions, revoke the attestation nonce, notify) never ran, so they may run now.
+    if (enrolled.lifecycle === 'REVOKED' && enrolled.terminationDate !== undefined) throw new Error(`Member ${enrolled.displayName} is already terminated`);
 
     const termDate = opts.terminationDate || '20260214';
 

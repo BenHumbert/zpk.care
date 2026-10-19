@@ -548,6 +548,34 @@ export function buildPrescriberRoutes(
       if (!b?.pharmacyWalletId) return server.sendResponse(res, 400, false, undefined, 'Missing pharmacyWalletId');
       if (!b?.ndcHash) return server.sendResponse(res, 400, false, undefined, 'Missing ndcHash');
 
+      // The engine names a provider by its seed index. Resolve this prescriber's index and the pharmacy's before the
+      // eScript goes out, and refuse when the engine has none: the old fallback to index 0 wrote the prescription as
+      // another prescriber at another pharmacy.
+      const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+      let prescriberIndex = -1;
+      let pharmacyIndex = -1;
+      try {
+        const resolveResp = await server.signedFetch(`${seqUrl}/interactive/resolve-indices`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prescriberWalletId: walletId, pharmacyWalletId: b.pharmacyWalletId }),
+        });
+        if (!resolveResp.ok) {
+          return server.sendResponse(res, 502, false, undefined, `The engine could not resolve the providers (HTTP ${resolveResp.status}); nothing was sent`);
+        }
+        const indices = await resolveResp.json() as { prescriberIndex?: number; pharmacyIndex?: number };
+        if (typeof indices.prescriberIndex !== 'number' || indices.prescriberIndex < 0) {
+          return server.sendResponse(res, 409, false, undefined, `This prescriber (wallet ${walletId}) is not a provider the engine can adjudicate for; nothing was sent`);
+        }
+        if (typeof indices.pharmacyIndex !== 'number' || indices.pharmacyIndex < 0) {
+          return server.sendResponse(res, 409, false, undefined, `Pharmacy ${b.pharmacyWalletId} is not a provider the engine can adjudicate for; nothing was sent`);
+        }
+        prescriberIndex = indices.prescriberIndex;
+        pharmacyIndex = indices.pharmacyIndex;
+      } catch (err) {
+        return server.sendResponse(res, 502, false, undefined, 'The engine could not be reached to resolve the providers: ' + (err instanceof Error ? err.message : String(err)));
+      }
+
       const rxId = `RX-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       const jobKey = `prescribe-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -591,33 +619,8 @@ export function buildPrescriberRoutes(
       // 2. Fire-and-forget: call sequencer /interactive/prescribe for ZK proofs
       prescribeJobs.set(jobKey, { status: 'pending', rxId, createdAt: Date.now() });
 
-      const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
       (async () => {
         try {
-          // Resolve prescriberIndex from wallet ID via sequencer seed data
-          const resolveResp = await server.signedFetch(`${seqUrl}/interactive/resolve-indices`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              prescriberWalletId: walletId,
-              pharmacyWalletId: b!.pharmacyWalletId,
-              ndcHash: b!.ndcHash,
-            }),
-          });
-
-          let prescriberIndex: number;
-          let pharmacyIndex: number;
-
-          if (resolveResp.ok) {
-            const indices = await resolveResp.json() as { prescriberIndex: number; pharmacyIndex: number };
-            prescriberIndex = indices.prescriberIndex;
-            pharmacyIndex = indices.pharmacyIndex;
-          } else {
-            // Fallback: use index 0 for all (first seed entity)
-            prescriberIndex = 0;
-            pharmacyIndex = 0;
-          }
-
           const proveResp = await server.signedFetch(`${seqUrl}/interactive/prescribe`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

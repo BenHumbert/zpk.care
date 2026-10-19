@@ -717,7 +717,11 @@ export function registerInteractiveRoutes(
   reg('GET', '/interactive/prescriptions-by-pharmacy', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const url = new URL(req.url ?? '', `http://${req.headers.host}`);
-      const pharmacyIndex = parseInt(url.searchParams.get('pharmacyIndex') ?? '0', 10);
+      const pharmacyIndex = parseInt(url.searchParams.get('pharmacyIndex') ?? '', 10);
+      if (isNaN(pharmacyIndex) || service.getPharmacyWalletId(pharmacyIndex) === undefined) {
+        sendError(res, 400, 'Missing or unknown pharmacyIndex');
+        return;
+      }
       const prescriptions = service.getPrescriptionsByPharmacy(pharmacyIndex);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(safeJsonStringify({ prescriptions }, 'prescriptions-by-pharmacy'));
@@ -758,21 +762,31 @@ export function registerInteractiveRoutes(
 
       const ndcHashStr = String(params.ndcHash);
 
-      // Map prescriberWalletId → prescriberIndex (default to 0 if not found)
-      let prescriberIndex = params.prescriberIndex ?? 0;
-      if (params.prescriberWalletId && prescriberIndex === 0) {
+      // A provider is named by its seed index, or the prescriber by a wallet the engine has a seed for. One the
+      // engine does not know is refused: the old default to index 0 put another provider's name on the claim.
+      let prescriberIndex = typeof params.prescriberIndex === 'number' ? params.prescriberIndex : -1;
+      if (prescriberIndex < 0 && params.prescriberWalletId != null) {
         const pwid = String(params.prescriberWalletId);
         for (let i = 0; i < PRESCRIBERS.length; i++) {
-          // Check if this prescriber's wallet matches (approximate match on string)
-          // Prescriber wallets are derived, so we compare string representations
           if (service.getPrescriberWalletId(i)?.toString() === pwid) {
             prescriberIndex = i;
             break;
           }
         }
+        if (prescriberIndex < 0) {
+          sendError(res, 409, `Prescriber ${pwid} is not a provider this engine can adjudicate for`);
+          return;
+        }
       }
-
-      const pharmacyIndex = params.pharmacyIndex ?? 0;
+      if (service.getPrescriberWalletId(prescriberIndex) === undefined) {
+        sendError(res, 400, 'Missing or unknown prescriber: send prescriberIndex or a known prescriberWalletId');
+        return;
+      }
+      const pharmacyIndex = params.pharmacyIndex;
+      if (typeof pharmacyIndex !== 'number' || service.getPharmacyWalletId(pharmacyIndex) === undefined) {
+        sendError(res, 400, 'Missing or unknown pharmacyIndex');
+        return;
+      }
       const quantity = params.quantity ?? 30;
       const refills = params.refills ?? 3;
 

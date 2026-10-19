@@ -1288,6 +1288,30 @@ Not here, by design: the preimage still reaches the engine and the engine still 
 on it; the insurer's approval and the real plan in the engine are commit two. State from before this
 commit is not readable by design (C4, genesis).
 
+**A-36 to A-40 — implementation record: five engine integrity defects the engine review found.**
+Done 2026-10-19. Closes **A-36**, **A-37**, **A-38**, **A-39** and **A-40**.
+
+*What was wrong, and now.* (1) A caller could overwrite a prescription by reusing its ID; the engine now refuses a
+malformed ID (400) or a taken one (409) before any proof, and its own counter skips taken IDs. (2) Messaging keys
+sat at a hand-made index that let pharmacies 0 to 5 overwrite prescribers 10 to 15, so those prescribers' eScripts
+were sealed to a pharmacy; every provider and member now keys at its live wallet-registry slot and the insurer at a
+reserved slot outside the range. (3) A reversal whose ledger step failed kept its local changes and answered 200; it
+now restores what it changed and surfaces the error. (4) Prescribe and dispense read the engine's copy of a member's
+status; they now read the ledger's lifecycle tree (`refuseUnlessLedgerBillable`), and reversal stays open. (5) An
+unknown provider wallet resolved to seed provider 0 in the nodes and in `prescribe-and-fill`; it is now refused.
+
+*How it was done.* A workflow confirmed each defect in the code and specified the fix and its test, a reviewer
+checked the five together (it caught that the key fix needed members keyed by their live slot too, and that the
+ledger gate broke the consent source test), and the tests were checked against the pre-fix tree, where 25 of them
+fail and the 6 guards pass.
+
+*Left open.* The fill path's own restore-on-failure; other engine-copy lifecycle reads (messaging, the state dump);
+the engine still trusts the provider index a signed node names, until provider keys move to providers; a pending
+prescription restored from a checkpoint now holds its ID until cleared.
+
+*Verified.* The five new suites and the consent suite 39 tests in six suites, all passing. Regression batch 56 suites, 804 tests, all passing. Typecheck src 20,
+scripts 2. Live: single-member pipeline 222 of 222; multi-member, concurrent, 201 of 201.
+
 **A-35 — implementation record: the engine keeps each member's plan limits after a fill, a reversal and a new plan year.**
 Done 2026-10-19. Closes **A-35**.
 
@@ -2873,3 +2897,12 @@ including ones waiting for pickup, and a later reversal does not re-price the ot
 regression batch 51 suites, 772 tests, all passing; typecheck src 20, scripts 2; single-member pipeline 222 of 222; multi-member, concurrent,
 201 of 201. Git: with this commit, 59 commits on local `dev`, nothing pushed. **Next:** the engine-review
 defects (plan binding of the credential and copay first), then D8, then B3 on the decisions above.
+
+**Addendum, 2026-10-19: A-36 to A-40 fixed.** Five engine integrity defects from the engine review: prescription IDs
+cannot be reused, messaging keys sit at each wallet's own registry slot, a failed reversal restores what it changed,
+prescribe and dispense read the member's status from the ledger, and an unknown provider is refused. Scoreboard: 40
+findings; 37 fixed; 3 open (A-22, A-25, A-33 under the interim lease with D8 pending), none critical. Verified:
+39 tests in six suites, all passing; regression batch 56 suites, 804 tests, all passing; typecheck src 20, scripts 2; single-member pipeline 222 of 222; multi-member,
+concurrent, 201 of 201. Git: with this commit, 60 commits on local `dev`, nothing pushed. **Next:** the owner's
+first video (one claim through every real screen, narrated, with a whiteboard), which needs fictional providers and
+the screen fixes the demo-prep audit lists; then D8 and B3.

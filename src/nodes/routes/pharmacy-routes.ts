@@ -483,7 +483,19 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
 
       try {
         const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
-        const pharmacyIndex = parseInt(query?.get('pharmacyIndex') ?? '0', 10) || 0;
+        // This pharmacy's own queue: the index comes from its wallet, never from the caller or a default of 0.
+        const pharmacyWalletId = node.getWalletId();
+        if (!pharmacyWalletId) return server.sendResponse(res, 409, false, undefined, 'Pharmacy wallet not set');
+        const resolveResp = await server.signedFetch(`${seqUrl}/interactive/resolve-indices`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pharmacyWalletId }),
+        });
+        if (!resolveResp.ok) return server.sendResponse(res, 502, false, undefined, `The engine could not resolve this pharmacy (HTTP ${resolveResp.status})`);
+        const { pharmacyIndex } = await resolveResp.json() as { pharmacyIndex?: number };
+        if (typeof pharmacyIndex !== 'number' || pharmacyIndex < 0) {
+          return server.sendResponse(res, 409, false, undefined, `This pharmacy (wallet ${pharmacyWalletId}) is not a provider the engine can adjudicate for`);
+        }
 
         const resp = await server.signedFetch(`${seqUrl}/interactive/prescriptions-by-pharmacy?pharmacyIndex=${pharmacyIndex}`);
         const result = await resp.json();
@@ -637,35 +649,43 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
         quantityDispensed?: number;
       } | undefined;
 
-      if (!b?.memberWalletId || !b?.ndcHash) {
-        return server.sendResponse(res, 400, false, undefined, 'Missing memberWalletId or ndcHash');
+      if (!b?.memberWalletId || !b?.ndcHash || !b?.prescriberWalletId) {
+        return server.sendResponse(res, 400, false, undefined, 'Missing memberWalletId, ndcHash or prescriberWalletId');
+      }
+
+      const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+
+      // The engine names a provider by its seed index. Resolve this pharmacy's index and the prescriber's before
+      // accepting the fill, and refuse when the engine has none: the old fallback to index 0 filled the claim as
+      // another pharmacy.
+      let pharmacyIndex = -1;
+      try {
+        const resolveResp = await server.signedFetch(`${seqUrl}/interactive/resolve-indices`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prescriberWalletId: b!.prescriberWalletId, pharmacyWalletId }),
+        });
+        if (!resolveResp.ok) {
+          return server.sendResponse(res, 502, false, undefined, `The engine could not resolve the providers (HTTP ${resolveResp.status}); the fill was not sent`);
+        }
+        const indices = await resolveResp.json() as { prescriberIndex?: number; pharmacyIndex?: number };
+        if (typeof indices.pharmacyIndex !== 'number' || indices.pharmacyIndex < 0) {
+          return server.sendResponse(res, 409, false, undefined, `This pharmacy (wallet ${pharmacyWalletId}) is not a provider the engine can adjudicate for; the fill was not sent`);
+        }
+        if (typeof indices.prescriberIndex !== 'number' || indices.prescriberIndex < 0) {
+          return server.sendResponse(res, 409, false, undefined, `Prescriber ${b!.prescriberWalletId} is not a provider the engine can adjudicate for; the fill was not sent`);
+        }
+        pharmacyIndex = indices.pharmacyIndex;
+      } catch (err) {
+        return server.sendResponse(res, 502, false, undefined, 'The engine could not be reached to resolve the providers: ' + (err instanceof Error ? err.message : String(err)));
       }
 
       const jobKey = `fill-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       dispensingJobs.set(jobKey, { status: 'pending', createdAt: Date.now() });
 
-      const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
-
-      // Fire-and-forget: resolve indices then call sequencer proof pipeline
+      // Fire-and-forget: call the sequencer proof pipeline
       (async () => {
         try {
-          // Resolve wallet IDs to seed data indices
-          const resolveResp = await server.signedFetch(`${seqUrl}/interactive/resolve-indices`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              prescriberWalletId: b!.prescriberWalletId ?? '0',
-              pharmacyWalletId: pharmacyWalletId,
-              ndcHash: b!.ndcHash,
-            }),
-          });
-
-          let pharmacyIndex = 0;
-          if (resolveResp.ok) {
-            const indices = await resolveResp.json() as { prescriberIndex: number; pharmacyIndex: number };
-            pharmacyIndex = indices.pharmacyIndex >= 0 ? indices.pharmacyIndex : 0;
-          }
-
           // Call prescribe-and-fill on sequencer (creates prescription + fills with 5+ ZK proofs)
           const proveResp = await server.signedFetch(`${seqUrl}/interactive/prescribe-and-fill`, {
             method: 'POST',
@@ -673,7 +693,7 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
             body: JSON.stringify({
               memberWalletId: b!.memberWalletId,
               ndcHash: b!.ndcHash,
-              prescriberWalletId: b!.prescriberWalletId ?? '0',
+              prescriberWalletId: b!.prescriberWalletId,
               pharmacyIndex,
               quantity: b!.quantity ?? b!.quantityDispensed ?? 30,
               ingredientCostCents: b!.ingredientCostCents,

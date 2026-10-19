@@ -130,7 +130,7 @@ describe('the engine\'s prescribing and dispensing paths', () => {
 
   test('createPrescription refuses a terminated member, then requires the PCP or a device authorization, before any record is made', () => {
     const fn = src.slice(src.indexOf('  async createPrescription('), src.indexOf('this.pendingPrescriptions.set(pendingRxId', src.indexOf('  async createPrescription(')));
-    const lifecycle = fn.indexOf("enrolled.lifecycle === 'REVOKED'");
+    const lifecycle = fn.indexOf('refuseUnlessLedgerBillable(');
     const consent = fn.indexOf("is not this member's primary-care prescriber and holds no authorization");
     expect(lifecycle).toBeGreaterThan(0);
     expect(consent).toBeGreaterThan(lifecycle);
@@ -151,9 +151,10 @@ describe('the engine\'s prescribing and dispensing paths', () => {
 
   test('dispensePrescription refuses a terminated member; reversal stays open', () => {
     const dispense = src.slice(src.indexOf('  async dispensePrescription('), src.indexOf('  async reversePrescription('));
-    expect(dispense).toMatch(/enrolled\.lifecycle === 'REVOKED'/);
+    expect(dispense).toMatch(/refuseUnlessLedgerBillable\(/);
     const reverse = src.slice(src.indexOf('  async reversePrescription('), src.indexOf('  async reversePrescription(') + 4000);
     expect(reverse).not.toMatch(/enrolled\.lifecycle === 'REVOKED'/);
+    expect(reverse).not.toMatch(/refuseUnlessLedgerBillable/);
   });
 
   test('an authorization is bound to a prescriber, optionally one medication, and expires', () => {
