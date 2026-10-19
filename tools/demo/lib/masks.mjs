@@ -20,7 +20,9 @@ export const MASKS = Object.freeze({
   marketplace: `#activate-content code{${REDACT}} #activation-code{${REDACT}} #sign-appid{${MASK}}`,
   employer: `#admin-token-input{${MASK}}`,
   hrtool: `#setup-token,#setup-passphrase,#setup-confirm,#unlock-passphrase,#reveal-passphrase{${MASK}}`
-    + ` #csv-results-panel .table-wrap td,#codes-table td,#pins-table td{${REDACT}}`,
+    + ` #csv-results-panel .table-wrap td,#codes-table td,#pins-table td{${REDACT}}`
+    // the birth date column of the roster preview and the employee list (fictional people; blurred on principle)
+    + ` #csv-preview-panel td:nth-child(5),.emp-row td:nth-child(4){${BLUR}}`,
   member: `#ob-pin,#ob-pin-confirm,#ob-token,#ob-enroll-pin,#ob-recovery-pin,#restore-pin,#backup-pin,#backup-pin-confirm{${MASK}}`
     + ` #ob-cid,#ob-fn,#ob-ln,#ob-dob{${BLUR}}`
     // renderRecoveryCards: the yellow box; each card is a 'margin:6px 0' block holding its id line and its JSON

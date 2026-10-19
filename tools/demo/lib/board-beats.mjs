@@ -6,6 +6,9 @@
  * Cues ("when"): 'start' (default), a fraction of the clip (0.45), { word: 'group' } (the word's start, from the
  * word times py/check_asr.py saved next to the clip; a rehearsal without them falls back to { at } or 0), or 'end'.
  * A write without ms gets 80% of the clip from its cue (62% when more strokes follow it in the same line).
+ * Targets: { card, find } (the glyph text, spaces ignored), { card, findRe } (a regular expression over it, for glyphs
+ * a plain search cannot spell, such as a prime or a \neq), { card, line } (a row of a multi-line card), { card }
+ * (the whole card), a board id, or a box.
  */
 import { eq } from './equations.mjs';
 
@@ -23,12 +26,32 @@ export function boardTarget(t) {
   return t;
 }
 
-/** Throws on a board action the board cannot run (unknown verb or card); the director checks the script before T0. */
+/**
+ * Throws on a board action the board cannot run: an unknown verb or card, a cue it cannot place, a verb without the
+ * target or text it needs, a findRe that is not a regular expression. The director checks the script before T0
+ * (and in --plan). Whether a { find } text is in its card shows only on the board itself (whiteboard-preview.mjs
+ * --texts); a miss there is logged and the take goes on.
+ */
 export function checkBoardAction(a) {
   const verbs = ['clear', 'title', 'write', 'annotate', 'value', 'circle', 'underline', 'box', 'arrow', 'check', 'erase', 'pen'];
   if (!verbs.includes(a.do)) throw new Error(`unknown board action "${a.do}"`);
+  const w = a.when;
+  const cueOk = w == null || w === 'start' || w === 'end' || (typeof w === 'number' && w >= 0 && w <= 1)
+    || (typeof w === 'object' && typeof w.word === 'string' && w.word && (w.at == null || (typeof w.at === 'number' && w.at >= 0 && w.at <= 1)));
+  if (!cueOk) throw new Error(`board action "${a.do}": when ${JSON.stringify(w)} is not 'start', 'end', a fraction 0..1 or { word, at }`);
   if (a.do === 'write') eq(a.card);
-  for (const k of ['target', 'near', 'from', 'to']) if (a[k] && typeof a[k] === 'object' && a[k].card != null) eq(a[k].card);
+  if (a.do === 'title' && !a.text) throw new Error('board action "title" has no text');
+  if ((a.do === 'value' || a.do === 'annotate') && (a.text == null || a.text === '')) throw new Error(`board action "${a.do}" has no text`);
+  if (['value', 'circle', 'underline', 'box', 'check'].includes(a.do) && a.target == null) throw new Error(`board action "${a.do}" has no target`);
+  if (a.do === 'arrow' && (a.from == null || a.to == null)) throw new Error('board action "arrow" needs from and to');
+  for (const k of ['target', 'near', 'from', 'to']) {
+    const t = a[k];
+    if (!t || typeof t !== 'object') continue;
+    if (t.card != null) eq(t.card);
+    if (t.findRe != null) {
+      try { new RegExp(t.findRe); } catch (e) { throw new Error(`board action "${a.do}": findRe ${t.findRe} is not a regular expression (${e.message})`); }
+    }
+  }
 }
 
 export function makeBoardRunner({ board, log = () => {} }) {
@@ -46,7 +69,7 @@ export function makeBoardRunner({ board, log = () => {} }) {
 
   async function act(a, ms) {
     switch (a.do) {
-      case 'clear': return board.start('clear', { ghost: a.ghost ?? 0.06, ms: a.ms });
+      case 'clear': return board.start('clear', { ghost: a.ghost ?? 0.06, ms: a.ms, keepTitle: a.keepTitle });
       case 'title': return board.start('setTitle', a.text, { ms: a.ms, color: a.color });
       case 'write': {
         const card = eq(a.card);
