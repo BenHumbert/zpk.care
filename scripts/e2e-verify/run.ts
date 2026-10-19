@@ -534,8 +534,9 @@ async function main() {
   trace.check('The explorer serves the fixture directory', prescribers.length > 0 && pharmacies.length > 0, 'prescribers and pharmacies', `${prescribers.length} / ${pharmacies.length}`);
   trace.note(`drug: ${med.brandName} ${med.strength} (NDC ${med.ndc}, tier ${med.tier}, copay ${copay}¢); ${prescribers.length} prescribers, ${pharmacies.length} pharmacies`);
 
-  // Accumulator before any claim (limits are fixed in the adjudication service).
-  let acc0 = { deductibleAmountCents: 50000n, deductiblePaidCents: 0n, oopMaxCents: 800000n, oopPaidCents: 0n, annualBenefitMaxCents: 0n, annualBenefitUsedCents: 0n };
+  // Accumulator before any claim: the limits of the plan this run registered (A-35; the engine used to reset them to
+  // fixed values after the first fill, and this expectation used those values, which hid it).
+  let acc0 = { deductibleAmountCents: BigInt(plan.deductibleAmountCents), deductiblePaidCents: 0n, oopMaxCents: BigInt(plan.oopMaxCents), oopPaidCents: 0n, annualBenefitMaxCents: BigInt(plan.annualBenefitMaxCents), annualBenefitUsedCents: 0n };
 
   const scenarios = [
     { label: 'Claim 1 — inside the deductible', ingredient: 1200n, fee: 200n, qty: 30 },

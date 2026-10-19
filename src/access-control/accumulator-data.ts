@@ -92,6 +92,39 @@ export interface AccumulatorLocalData {
 /**
  * Build an AccumulatorData from raw local data.
  */
+/**
+ * A-35: a new accumulator with the same plan year and limits and new amounts paid. The fill and reversal circuits
+ * keep the plan year and limits of the accumulator they are given and change only the three paid totals, so the
+ * engine's copy must do the same, or its record stops matching the root the proof committed to.
+ */
+export function withAmountsPaid(
+  acc: AccumulatorData,
+  paid: { deductiblePaidCents: number; oopPaidCents: number; annualBenefitUsedCents: number },
+): AccumulatorData {
+  return new AccumulatorData({
+    planYear: acc.planYear,
+    deductibleAmountCents: acc.deductibleAmountCents,
+    deductiblePaidCents: centsToField(paid.deductiblePaidCents),
+    oopMaxCents: acc.oopMaxCents,
+    oopPaidCents: centsToField(paid.oopPaidCents),
+    annualBenefitMaxCents: acc.annualBenefitMaxCents,
+    annualBenefitUsedCents: centsToField(paid.annualBenefitUsedCents),
+  });
+}
+
+/** A-35: the start of a new plan year: the same limits, nothing paid. */
+export function forNewPlanYear(acc: AccumulatorData, planYear: string): AccumulatorData {
+  return new AccumulatorData({
+    planYear: dateToField(planYear),
+    deductibleAmountCents: acc.deductibleAmountCents,
+    deductiblePaidCents: Field(0),
+    oopMaxCents: acc.oopMaxCents,
+    oopPaidCents: Field(0),
+    annualBenefitMaxCents: acc.annualBenefitMaxCents,
+    annualBenefitUsedCents: Field(0),
+  });
+}
+
 export function buildAccumulatorData(local: AccumulatorLocalData): AccumulatorData {
   return new AccumulatorData({
     planYear: dateToField(local.planYear),

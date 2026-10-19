@@ -15,9 +15,12 @@
  */
 
 import { Field, Poseidon } from 'o1js';
+import fs from 'fs';
 import {
   AccumulatorData,
   buildAccumulatorData,
+  withAmountsPaid,
+  forNewPlanYear,
   ACCUMULATOR_LEAF_INDEX,
 } from '../src/access-control/accumulator-data.js';
 import { AccumulatorQueryService } from '../src/access-control/accumulator-query-service.js';
@@ -44,7 +47,7 @@ import {
 import { CredentialData, CREDENTIAL_TYPE_PRESCRIPTION, CREDENTIAL_TYPE_ELIGIBILITY } from '../src/credentials/credential-data.js';
 import { CredentialInventory } from '../src/credentials/credential-inventory.js';
 import { MerkleForest, ForestDomain } from '../src/zkp/merkle-forest.js';
-import { ForestRoots } from '../src/eligibility/forest-roots.js';
+import { ForestRoots, forestRootWithAccessControl } from '../src/eligibility/forest-roots.js';
 import { FormularyEntry } from '../src/access-control/formulary-entry.js';
 import { FormularyRegistry } from '../src/access-control/formulary-registry.js';
 import {
@@ -719,6 +722,70 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
     // B8 (A-23): family pooling inside the circuit. The amounts the proof commits to are the amounts billed: the
     // new eligibility forest root the proof outputs is the one the engine reaches by adding the proof's own
     // amounts to the accumulator, with no rewrite after the proof.
+    // A-35: the engine's copy of the accumulator keeps the member's plan year and limits after a fill, as the circuit
+    // does. It used to be rebuilt with fixed limits ($500, $8,000, no benefit cap, plan year 2026), so for any plan
+    // whose limits differed the engine's record stopped matching the root the proof committed to.
+    describe('the engine keeps the member\'s plan limits (A-35)', () => {
+      const planAccumulator = (paid: [number, number, number] = [25000, 0, 0]) => new AccumulatorData({
+        planYear: dateToField('20270101'),
+        deductibleAmountCents: Field(25000), deductiblePaidCents: Field(paid[0]),
+        oopMaxCents: Field(780000), oopPaidCents: Field(paid[1]),
+        annualBenefitMaxCents: Field(2500000), annualBenefitUsedCents: Field(paid[2]),
+      });
+
+      it('after a fill the engine\'s accumulator reaches the proof\'s root for a plan with its own limits; the old fixed rebuild did not', async () => {
+        const accumulator = planAccumulator();
+        const scenario = setupDualCredentialScenario(accumulator);
+        const fulfillment = createTestFulfillmentData(scenario.rxData.commitment());
+        const formularyRegistry = createTestFormularyRegistry();
+        const eligForestRoots = ForestRoots.fromForest(scenario.eligibilityForest);
+        const accumulatorWitness = scenario.eligibilityForest.getWitness(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX);
+        const result = await AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(
+          scenario.prescriptionCredential, scenario.rxData, scenario.filledStatus, fulfillment, formularyRegistry.getEntry(0n)!,
+          ForestRoots.fromForest(scenario.prescriptionForest), scenario.prescriptionForest.getWitness(ForestDomain.MEDICATION, 0n),
+          scenario.prescriptionForest.getWitness(ForestDomain.TRANSACTION, 1n), scenario.prescriptionForest.getWitness(ForestDomain.TRANSACTION, 2n),
+          formularyRegistry.getEntryWitness(0n), formularyRegistry.getRoot(), scenario.eligibilityCredential,
+          eligForestRoots, accumulator, accumulatorWitness, PHARM_QUAL, PHARM_ID_HASH, PHARM_EK_HASH,
+          Field(0), Field(0), Field(0), Field(0), Field(0), Field(0),
+        );
+        const output = result.proof.publicOutput;
+        const after = withAmountsPaid(accumulator, {
+          deductiblePaidCents: Number(accumulator.deductiblePaidCents.add(output.deductibleCreditCents).toBigInt()),
+          oopPaidCents: Number(output.patientPayCents.toBigInt()),
+          annualBenefitUsedCents: Number(output.planPayCents.toBigInt()),
+        });
+        expect([after.planYear, after.deductibleAmountCents, after.oopMaxCents, after.annualBenefitMaxCents].map(String))
+          .toEqual([accumulator.planYear, accumulator.deductibleAmountCents, accumulator.oopMaxCents, accumulator.annualBenefitMaxCents].map(String));
+        const engineRoot = forestRootWithAccessControl(eligForestRoots, accumulatorWitness.calculateRoot(after.commitment()));
+        expect(engineRoot.toString()).toBe(output.newEligibilityForestRoot.toString());
+        const oldFixed = buildAccumulatorData({
+          planYear: '20260101', deductibleAmountCents: 50000, deductiblePaidCents: Number(after.deductiblePaidCents.toBigInt()),
+          oopMaxCents: 800000, oopPaidCents: Number(after.oopPaidCents.toBigInt()), annualBenefitMaxCents: 0, annualBenefitUsedCents: Number(after.annualBenefitUsedCents.toBigInt()),
+        });
+        expect(forestRootWithAccessControl(eligForestRoots, accumulatorWitness.calculateRoot(oldFixed.commitment())).toString()).not.toBe(output.newEligibilityForestRoot.toString());
+      }, 120_000);
+
+      it('a reversal and a new plan year keep the limits too', () => {
+        const acc = planAccumulator([25000, 41000, 160000]);
+        const reversed = withAmountsPaid(acc, { deductiblePaidCents: 20000, oopPaidCents: 36000, annualBenefitUsedCents: 155500 });
+        expect([reversed.planYear, reversed.deductibleAmountCents, reversed.oopMaxCents, reversed.annualBenefitMaxCents].map(String))
+          .toEqual([acc.planYear, acc.deductibleAmountCents, acc.oopMaxCents, acc.annualBenefitMaxCents].map(String));
+        expect([reversed.deductiblePaidCents, reversed.oopPaidCents, reversed.annualBenefitUsedCents].map(String)).toEqual(['20000', '36000', '155500']);
+        const next = forNewPlanYear(acc, '20280101');
+        expect(next.planYear.toString()).toBe(dateToField('20280101').toString());
+        expect([next.deductiblePaidCents, next.oopPaidCents, next.annualBenefitUsedCents].map(String)).toEqual(['0', '0', '0']);
+        expect([next.deductibleAmountCents, next.oopMaxCents, next.annualBenefitMaxCents].map(String)).toEqual(['25000', '780000', '2500000']);
+      });
+
+      it('the engine rebuilds through these helpers and checks the proof\'s root before it records anything (source)', () => {
+        const src = fs.readFileSync('src/adjudication/interactive-service.ts', 'utf8');
+        expect(src).not.toContain('const deductibleAmt = 50000');
+        expect((src.match(/withAmountsPaid\(enrolled\.accumulatorData/g) ?? []).length).toBe(2);
+        expect(src).toContain('forNewPlanYear(enrolled.accumulatorData, opts.newPlanYear)');
+        expect((src.match(/forestRootWithAccessControl\(eligForestRoots, accumWitness\.calculateRoot\(/g) ?? []).length).toBe(2);
+      });
+    });
+
     describe('family pooling inside the circuit (B8, A-23)', () => {
       type Family = { paid: [number, number, number]; limits: [number, number, number] };
       async function proveWithFamily(family: Family) {

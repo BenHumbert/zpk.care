@@ -79,7 +79,7 @@ import type { ProviderBadge, BadgeTapEvent } from '../credentials/provider-badge
 
 // Eligibility
 import { EligibilityData, buildEligibilityData } from '../eligibility/eligibility-data.js';
-import { ForestRoots } from '../eligibility/forest-roots.js';
+import { ForestRoots, forestRootWithAccessControl } from '../eligibility/forest-roots.js';
 import { BenefitPlanRegistry } from '../eligibility/benefit-plan-registry.js';
 import { EligibilityProgram } from '../eligibility/eligibility-program.js';
 import { ProviderNetworkRegistry } from '../eligibility/provider-network-registry.js';
@@ -93,7 +93,7 @@ import { PcpVerificationProgram } from '../eligibility/pcp-verification-program.
 import { buildFormularyEntry, FormularyEntry, type FormularyEntryLocalData } from '../access-control/formulary-entry.js';
 import { FormularyRegistry } from '../access-control/formulary-registry.js';
 import { AccessControlProgram } from '../access-control/access-control-program.js';
-import { AccumulatorData, buildAccumulatorData, ACCUMULATOR_LEAF_INDEX } from '../access-control/accumulator-data.js';
+import { AccumulatorData, buildAccumulatorData, withAmountsPaid, forNewPlanYear, ACCUMULATOR_LEAF_INDEX } from '../access-control/accumulator-data.js';
 import { PriorAuthData, buildPriorAuthData } from '../access-control/prior-auth-data.js';
 
 // Messaging
@@ -3290,9 +3290,9 @@ export class AdjudicationService {
     this.emit('info', 'fill', `  │  No adjudication authority — Provable.if() constraints ARE the rules`);
     this.emit('info', 'fill', `  └─ Proof time: ${elapsedFulf.toFixed(0)}ms`);
 
-    // Determine adjudication phase
-    const deductibleAmt = 50000;
-    const oopMax = 800000;
+    // Determine adjudication phase. A-35: the member's own limits, the ones the proof used; never constants.
+    const deductibleAmt = Number(enrolled.accumulatorData.deductibleAmountCents.toBigInt());
+    const oopMax = Number(enrolled.accumulatorData.oopMaxCents.toBigInt());
     const oldDeductiblePaid = Number(enrolled.accumulatorData.deductiblePaidCents.toBigInt());
     const oldOopPaid = Number(enrolled.accumulatorData.oopPaidCents.toBigInt());
     const oldBenefitUsed = Number(enrolled.accumulatorData.annualBenefitUsedCents.toBigInt());
@@ -3301,6 +3301,13 @@ export class AdjudicationService {
     let newDeductiblePaid = oldDeductiblePaid + deductibleCreditCents;
     let newOopPaid = oldOopPaid + patientPayCents;
     let newBenefitUsed = oldBenefitUsed + planPayCents;
+
+    // A-35: the engine's new accumulator keeps the member's plan year and limits, as the circuit does, and must reach
+    // the eligibility root the proof committed to. Checked here, before the claim or the member's record changes.
+    const newAccumulator = withAmountsPaid(enrolled.accumulatorData, { deductiblePaidCents: newDeductiblePaid, oopPaidCents: newOopPaid, annualBenefitUsedCents: newBenefitUsed });
+    if (!forestRootWithAccessControl(eligForestRoots, accumWitness.calculateRoot(newAccumulator.commitment())).equals(newEligForestRoot).toBoolean()) {
+      throw new Error('The fill proof\'s eligibility root does not match the engine\'s accumulator update; the claim was not recorded');
+    }
 
     let phase = patientPayCents === totalCostCents ? 'DEDUCTIBLE (not yet met)' : 'NORMAL COPAY';
 
@@ -3343,8 +3350,8 @@ export class AdjudicationService {
     }
     this.emit('info', 'fill', '');
     this.emit('info', 'fill', `  ACCUMULATOR (BEFORE → AFTER):`);
-    this.emit('info', 'fill', `    Deductible:  $${(oldDeductiblePaid / 100).toFixed(2)} → $${(newDeductiblePaid / 100).toFixed(2)} / $${(deductibleAmt / 100).toFixed(2)}  ${(newDeductiblePaid / deductibleAmt * 100).toFixed(1)}%`);
-    this.emit('info', 'fill', `    OOPM:        $${(oldOopPaid / 100).toFixed(2)} → $${(newOopPaid / 100).toFixed(2)} / $${(oopMax / 100).toFixed(2)}  ${(newOopPaid / oopMax * 100).toFixed(1)}%`);
+    this.emit('info', 'fill', `    Deductible:  $${(oldDeductiblePaid / 100).toFixed(2)} → $${(newDeductiblePaid / 100).toFixed(2)} / $${(deductibleAmt / 100).toFixed(2)}  ${deductibleAmt > 0 ? (newDeductiblePaid / deductibleAmt * 100).toFixed(1) + '%' : 'no deductible'}`);
+    this.emit('info', 'fill', `    OOPM:        $${(oldOopPaid / 100).toFixed(2)} → $${(newOopPaid / 100).toFixed(2)} / $${(oopMax / 100).toFixed(2)}  ${oopMax > 0 ? (newOopPaid / oopMax * 100).toFixed(1) + '%' : 'no maximum'}`);
     this.emit('info', 'fill', '');
     this.emit('info', 'fill', `  ELIGIBILITY CREDENTIAL:`);
     this.emit('info', 'fill', `    Forest root BEFORE: ${truncField(oldEligForestRoot)}`);
@@ -3356,16 +3363,8 @@ export class AdjudicationService {
     this.emit('info', 'fill', `    Elig ACCESS_CONTROL tree:  leaf 127 = new accumulator commitment`);
     this.emit('info', 'fill', `    ForestRoot = Poseidon.hash(6 domain tree roots)`);
 
-    // Update enrolled member's accumulator data
-    enrolled.accumulatorData = buildAccumulatorData({
-      planYear: '20260101',
-      deductibleAmountCents: deductibleAmt,
-      deductiblePaidCents: newDeductiblePaid,
-      oopMaxCents: oopMax,
-      oopPaidCents: newOopPaid,
-      annualBenefitMaxCents: 0,
-      annualBenefitUsedCents: newBenefitUsed,
-    });
+    // Update enrolled member's accumulator data: the one checked against the proof above (A-35)
+    enrolled.accumulatorData = newAccumulator;
 
     // Update local forests to match circuit output
     const patientPayField = Field(BigInt(proofOutput.patientPayCents));
@@ -3774,6 +3773,17 @@ export class AdjudicationService {
     const revOutput = reversalDispatch.publicOutput!;
     const newEligForestRoot = Field(BigInt(revOutput.newEligibilityForestRoot));
 
+    // A-35: the reversed accumulator keeps the member's plan year and limits and must reach the proof's root,
+    // checked before the transaction tree or the member's record changes.
+    const revAccumulator = withAmountsPaid(enrolled.accumulatorData, {
+      deductiblePaidCents: Math.max(0, Number(enrolled.accumulatorData.deductiblePaidCents.toBigInt()) - Number(fillToReverse.deductibleCreditField.toBigInt())),
+      oopPaidCents: Math.max(0, Number(enrolled.accumulatorData.oopPaidCents.toBigInt()) - fillToReverse.patientPayCents),
+      annualBenefitUsedCents: Math.max(0, Number(enrolled.accumulatorData.annualBenefitUsedCents.toBigInt()) - fillToReverse.planPayCents),
+    });
+    if (!forestRootWithAccessControl(eligForestRoots, accumWitness.calculateRoot(revAccumulator.commitment())).equals(newEligForestRoot).toBoolean()) {
+      throw new Error('The reversal proof\'s eligibility root does not match the engine\'s accumulator update; nothing was reversed');
+    }
+
     // 3. Update TRANSACTION tree: store reversal commitment at the reversal slot
     rxForest.setLeaf(ForestDomain.TRANSACTION, reversalSlotIndex, reversalData.commitment());
 
@@ -3788,15 +3798,7 @@ export class AdjudicationService {
     const newOopPaid = Math.max(0, oldOopPaid - origPatientPay);
     const newBenefitUsed = Math.max(0, oldBenefitUsed - origPlanPay);
 
-    enrolled.accumulatorData = buildAccumulatorData({
-      planYear: '20260101',
-      deductibleAmountCents: 50000,
-      deductiblePaidCents: newDeductiblePaid,
-      oopMaxCents: 800000,
-      oopPaidCents: newOopPaid,
-      annualBenefitMaxCents: 0,
-      annualBenefitUsedCents: newBenefitUsed,
-    });
+    enrolled.accumulatorData = revAccumulator; // A-35: checked against the proof above
 
     eligForest.setLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX, enrolled.accumulatorData.commitment());
     const updatedEligCredentialData = new CredentialData({
@@ -5061,15 +5063,8 @@ export class AdjudicationService {
       const oldBenefitUsed = Number(enrolled.accumulatorData.annualBenefitUsedCents.toBigInt());
 
       // Build fresh accumulator (zero running totals, same limits)
-      enrolled.accumulatorData = buildAccumulatorData({
-        planYear: opts.newPlanYear,
-        deductibleAmountCents: 50000,
-        deductiblePaidCents: 0,
-        oopMaxCents: 800000,
-        oopPaidCents: 0,
-        annualBenefitMaxCents: 5000000,
-        annualBenefitUsedCents: 0,
-      });
+      // A-35: the member's own limits carry into the new year; they were fixed constants here before
+      enrolled.accumulatorData = forNewPlanYear(enrolled.accumulatorData, opts.newPlanYear);
 
       // Update ACCESS_CONTROL leaf 127 with new accumulator commitment
       enrolled.forest.setLeaf(

@@ -1288,6 +1288,33 @@ Not here, by design: the preimage still reaches the engine and the engine still 
 on it; the insurer's approval and the real plan in the engine are commit two. State from before this
 commit is not readable by design (C4, genesis).
 
+**A-35 — implementation record: the engine keeps each member's plan limits after a fill, a reversal and a new plan year.**
+Done 2026-10-19. Closes **A-35**.
+
+*What was wrong.* After a fill the engine rebuilt the member's accumulator from constants: a $500 deductible, an
+$8,000 out-of-pocket maximum, no benefit maximum, plan year 2026. Reversal did the same, and the plan-year rollover
+reset everyone to $500, $8,000 and a $50,000 benefit cap. Registration binds the plan's limits, so a member's first
+fill was priced right and every later one against the constants. The fill circuit keeps the limits it is given, so
+the engine's record also stopped matching the root the proof committed to, and no check compared them. The
+single-member harness registered a $7,800 maximum and expected $8,000.
+
+*Now.* `withAmountsPaid(acc, paid)` (src/access-control/accumulator-data.ts) returns the same plan year and limits
+with new paid totals, the way the circuits compute their new accumulator; `forNewPlanYear(acc, year)` keeps the limits
+and zeros the totals. The fill and reversal paths build the new accumulator first and check, with
+`forestRootWithAccessControl` (src/eligibility/forest-roots.ts), that it reaches the eligibility root the proof
+committed to; on a mismatch nothing is recorded. The console shows the member's own limits. The harness expects
+the limits of the plan it registered.
+
+*Left as is.* The plan year the engine writes at registration is still 2026; the dates inside the proofs are still
+constants; the eligibility credential and the copay still come from the engine's fixture plan rather than the
+approved plan. Each is listed in `docs/research/engine-review.md` and comes next.
+
+*Verified.* `tests/accumulator.test.ts` 59 tests, all passing, three of them new: a proof under a plan with its own limits ($250
+deductible, $7,800 maximum, $25,000 benefit cap, plan year 2027) whose root the engine's update reaches and the old
+fixed rebuild misses; a reversal and a new plan year keeping the limits; the engine using the helpers and the check
+(source). Regression batch 51 suites, 772 tests, all passing. Typecheck src 20, scripts 2. Live: single-member pipeline 222 of 222; multi-member,
+concurrent, 201 of 201.
+
 **B8 — implementation record: family pooling is proven inside the circuit, over a family the insurer's approval binds; nothing is rewritten after the proof.**
 Done 2026-10-18. Closes **A-23**, and **A-34**, found in this item's review.
 
@@ -2822,3 +2849,27 @@ the HR Tool refuses an empty family_id and the approval binds the code's family 
 family members to the enrollment hash, re-enrolling on a life event. To weigh first: a wallet that covers several
 people changes on every life event, and per-person accumulators and clinical checks need one identity per person;
 one wallet per person, linked by the bound family hash and held on the parent's phone, is the alternative.
+
+**Addendum, 2026-10-19: A-35 fixed, and the owner's decisions for B3 and production.** The engine keeps each
+member's plan limits after a fill, a reversal and a new plan year, and refuses to record a fill or reversal whose
+accumulator update misses the proof's root. Scoreboard: 35 findings; 32 fixed; 3 open (A-22, A-25, and A-33 under
+the interim lease with D8 pending), none critical. The engine review (`docs/research/engine-review.md`) lists more
+defects to enter as findings as they are fixed: the fixture plan in phone members' credentials and copays, the
+pharmacy-set cost, the prescription overwrite, constant proof dates, the eScript key collision, the swallowed
+reversal error, pending claims that never expire, the lifecycle read from the engine's copy, register-member's
+missing body cap, and two attestation keys.
+
+*Owner decisions, 2026-10-18 and 19* (options and reasoning in `docs/research/owner-decisions-review.md`): the
+engine makes the claim proof, which is kept and verified and checked by the member's phone; a live production
+release, no shadow period; pricing and adjudication happen before the script is written, and the price is locked
+at ordering (the member pays what was ordered that day; a quote shown before the script can change if the script is
+written on a later day); a fill not picked up within 14 days is reversed, its status changes and the member gets a
+notice; NADAC plus a dispensing fee is the price list; pickup is the phone signing a fresh challenge from the
+pharmacy, with a labelled pharmacist-confirmed fallback; offline pickup is shelved, both sides online; mail order
+finalizes at shipping; the engine moves into its own process before the pilot; no hardware keys are bought now
+(passkeys with PRF proposed, `docs/research/engine-review.md`); family deductibles and disputes later; a native phone
+app. Stated to the owner as an assumption: a price computed on the order day counts every script already ordered,
+including ones waiting for pickup, and a later reversal does not re-price the others. Verified: accumulator 59 tests, all passing;
+regression batch 51 suites, 772 tests, all passing; typecheck src 20, scripts 2; single-member pipeline 222 of 222; multi-member, concurrent,
+201 of 201. Git: with this commit, 59 commits on local `dev`, nothing pushed. **Next:** the engine-review
+defects (plan binding of the credential and copay first), then D8, then B3 on the decisions above.

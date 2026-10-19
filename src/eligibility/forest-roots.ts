@@ -72,3 +72,19 @@ export class ForestRoots extends Struct({
     });
   }
 }
+
+/**
+ * A-35: the forest root after the ACCESS_CONTROL tree's root changes to `accessControlRoot`, with the other five
+ * domain roots as given. The fill and reversal circuits compute their new eligibility root this way; the engine
+ * uses it to check, before it changes anything, that its accumulator update reaches the root the proof committed to.
+ */
+export function forestRootWithAccessControl(roots: ForestRoots, accessControlRoot: Field): Field {
+  return new ForestRoots({
+    memberRoot: roots.memberRoot,
+    prescriberRoot: roots.prescriberRoot,
+    pharmacyRoot: roots.pharmacyRoot,
+    medicationRoot: roots.medicationRoot,
+    accessControlRoot,
+    transactionRoot: roots.transactionRoot,
+  }).computeForestRoot();
+}
