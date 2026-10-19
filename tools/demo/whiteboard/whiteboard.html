@@ -1,0 +1,940 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, initial-scale=1">
+<title>Whiteboard</title>
+<!--
+  The walkthrough's whiteboard: an offline page the director feeds with page.evaluate (lib/whiteboard.mjs).
+  Nothing here reaches the network. MathJax 3.2.2 (es5/tex-svg-full.js, fontCache 'none') is injected from the
+  local node_modules by the director; the handwriting font, Comic Neue 2.003 (SIL OFL 1.1, see
+  fonts/ComicNeue-OFL.txt), arrives as a data: URL in place of the placeholder in the @font-face rule below.
+
+  Every glyph outline is traced with stroke-dasharray / stroke-dashoffset and then filled (the "write" effect),
+  fraction bars grow from the left, and a marker tip follows the stroke. Each window.wb call is queued on one pen
+  and resolves when its stroke ends.
+
+    wb.prepare([{ id, latex }])                         typeset ahead of time; { count, errors }
+    wb.writeEquation(latex, { id, durationMs, color, at, size, align })   or writeEquation({ id, latex, ms, ... })
+    wb.annotate({ id, text, near, side, at, color, size, rotate, ms })   handwritten note, wiped in
+    wb.circle({ target, ms, color, pad })   wb.underline({ target })   wb.box({ target })
+    wb.arrow({ from, to, bend, ms, color })   wb.check({ target, label })   wb.value({ target, text })
+    wb.erase({ ids })   wb.clear({ ms, ghost })   wb.setTitle(text)   wb.pen(visible)   wb.idle()
+  A target is an item id ('eq1'), { eq, find: 'f5', nth }, { eq, line: 2 }, { eq, cssId }, or a box { x, y, w, h }.
+  Colours: 'ink' #1d1d1f, 'blue' #1f4fbf, 'red' #c62828, 'green' #2e7d32, or any CSS colour.
+-->
+<style>
+@font-face {
+  font-family: 'Comic Neue Board';
+  src: url(__COMIC_NEUE_DATA_URL__) format('truetype'), url('fonts/ComicNeue-Regular.ttf') format('truetype');
+  font-display: block;
+}
+:root {
+  --ink: #1d1d1f; --blue: #1f4fbf; --red: #c62828; --green: #2e7d32;
+  --hand: 'Comic Neue Board', 'Comic Neue', 'Ink Free', 'Segoe Print', 'Comic Sans MS', cursive;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; width: 100%; height: 100%; overflow: hidden;
+  background: radial-gradient(ellipse at 50% 28%, #e9e6df 0%, #d6d2c9 62%, #c8c3b8 100%);
+  font-family: var(--hand);
+}
+#frame {
+  position: absolute; left: 20px; top: 14px; right: 20px; bottom: 76px; padding: 11px; border-radius: 7px;
+  background: linear-gradient(160deg, #f4f5f6 0%, #c3c8ce 22%, #eceef0 48%, #a9afb6 76%, #dfe2e5 100%);
+  box-shadow: 0 14px 34px rgba(40, 36, 30, .28), 0 2px 4px rgba(40, 36, 30, .2), inset 0 1px 0 rgba(255, 255, 255, .8), inset 0 -1px 0 rgba(0, 0, 0, .18);
+}
+#surface {
+  position: relative; width: 100%; height: 100%; overflow: hidden; border-radius: 2px;
+  background-color: #f9f8f3;
+  background-image:
+    linear-gradient(115deg, rgba(255, 255, 255, 0) 38%, rgba(255, 255, 255, .45) 50%, rgba(255, 255, 255, 0) 62%),
+    linear-gradient(rgba(70, 90, 130, .035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(70, 90, 130, .035) 1px, transparent 1px);
+  background-size: 100% 100%, 32px 32px, 32px 32px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .09), inset 0 3px 8px rgba(0, 0, 0, .07);
+}
+#smudges {
+  position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse 360px 110px at 24% 34%, rgba(110, 112, 125, .055), transparent 72%),
+    radial-gradient(ellipse 280px 80px at 71% 61%, rgba(70, 95, 165, .045), transparent 70%),
+    radial-gradient(ellipse 210px 70px at 58% 18%, rgba(160, 60, 60, .03), transparent 70%),
+    radial-gradient(ellipse 420px 140px at 40% 82%, rgba(110, 112, 125, .04), transparent 74%);
+}
+#ghost { position: absolute; inset: 0; pointer-events: none; }
+#ghost > * { filter: blur(.6px); }
+#title {
+  position: absolute; left: 44px; top: 18px; right: 44px; height: 48px; white-space: nowrap;
+  font: 400 34px/48px var(--hand); color: var(--ink); -webkit-text-stroke: .7px currentColor; letter-spacing: .2px;
+}
+.layer { position: absolute; inset: 0; }
+.eq { position: absolute; white-space: nowrap; line-height: 0; }
+.eq mjx-container { display: inline-block !important; margin: 0 !important; text-align: left !important; line-height: 0; }
+.eq svg { overflow: visible; }
+.note { position: absolute; white-space: nowrap; font-family: var(--hand); line-height: 1.15; -webkit-text-stroke: .35px currentColor; }
+.ink { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+#tray { position: absolute; left: 72px; width: 330px; top: 644px; height: 13px; border-radius: 0 0 5px 5px;
+  background: linear-gradient(#c9cdd2, #9ea4ab); box-shadow: 0 4px 6px rgba(40, 36, 30, .25); }
+#tray i { position: absolute; top: -9px; width: 52px; height: 10px; border-radius: 3px 5px 5px 3px; background: #f0f0ee; box-shadow: inset 0 -1px 0 rgba(0, 0, 0, .15); }
+#tray i::after { content: ''; position: absolute; right: -4px; top: -1px; width: 15px; height: 12px; border-radius: 3px; background: var(--c); }
+#tray i.ink { left: 18px; --c: var(--ink); } #tray i.blue { left: 84px; --c: var(--blue); }
+#tray i.red { left: 150px; --c: var(--red); } #tray i.green { left: 216px; --c: var(--green); }
+#tray b { position: absolute; left: 270px; top: -15px; width: 48px; height: 16px; border-radius: 4px;
+  background: linear-gradient(#59616c 0 58%, #2c2c2c 58%); }
+#tip { position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 50; pointer-events: none; display: none; will-change: transform; }
+#tip svg { position: absolute; left: -2px; top: -14px; transform: rotate(-38deg); transform-origin: 2px 14px; filter: drop-shadow(3px 7px 4px rgba(0, 0, 0, .22)); }
+#eraserTool { position: fixed; left: 0; top: 0; width: 124px; height: 46px; margin: -23px 0 0 -62px; z-index: 49; pointer-events: none; display: none;
+  border-radius: 7px; background: linear-gradient(#636c77 0 56%, #2a2a2a 56%); box-shadow: 0 6px 10px rgba(0, 0, 0, .25); will-change: transform; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="rough" x="-5%" y="-20%" width="110%" height="140%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="1" seed="3" result="noise"/>
+    <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.2" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+</svg>
+<div id="frame"><div id="surface"><div id="smudges"></div><div id="ghost"></div><div id="title"></div><div class="layer" id="layer"><svg class="ink"></svg></div></div></div>
+<div id="tray"><i class="ink"></i><i class="blue"></i><i class="red"></i><i class="green"></i><b></b></div>
+<div id="tip"><svg width="98" height="28" viewBox="0 0 98 28">
+  <path d="M2 14 L13 9.5 L13 18.5 Z" fill="#2a2a2a"/>
+  <rect class="tipColor" x="13" y="7.5" width="11" height="13" rx="2" fill="#1d1d1f"/>
+  <rect x="24" y="5" width="56" height="18" rx="5" fill="#f2f2f0" stroke="#c4c4c0" stroke-width="1"/>
+  <rect x="30" y="9" width="40" height="3" rx="1.5" fill="#ffffff" opacity=".8"/>
+  <rect class="tipColor" x="78" y="4" width="18" height="20" rx="4" fill="#1d1d1f"/>
+</svg></div>
+<div id="eraserTool"></div>
+<script>
+(function () {
+  'use strict';
+  var COLORS = { ink: '#1d1d1f', blue: '#1f4fbf', red: '#c62828', green: '#2e7d32' };
+  var colorOf = function (c) { return COLORS[c] || c || COLORS.ink; };
+  var SVGNS = 'http://www.w3.org/2000/svg';
+  var $ = function (id) { return document.getElementById(id); };
+  var surface = $('surface');
+  var ghostEl = $('ghost');
+  var titleEl = $('title');
+  var tip = $('tip');
+  var eraserTool = $('eraserTool');
+  var layer = $('layer');
+  var ink = layer.querySelector('svg.ink');
+
+  // strokeEm: the outline pen's width as a share of the equation's font size (clamped to strokeMin..strokeMax px)
+  var cfg = { strokeEm: 0.028, strokeMin: 0.6, strokeMax: 1.6, liftMin: 40, liftMax: 70, rough: true, order: 'reading', margin: 44, gap: 26, top: 84, bottomPad: 22, fill: 0.92, inkWidth: 3.2 };
+  var items = new Map();      // id -> { id, kind, el, glyphs?, color }
+  var prepared = new Map();   // id -> { latex, html }
+  var cursorY = null;
+  var seq = 0;
+  var queue = Promise.resolve();
+  var pending = 0;
+  var lastError = null;
+  var penShown = true;
+  var tipPos = { x: 640, y: 360 };
+  var tipHideTimer = null;
+  var rnd = (function (a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; var t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; })(7);
+
+  var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+  // a hidden page gets no animation frames; fall back to timers so a write never stalls
+  var frame = function () { return new Promise(function (r) { if (document.hidden) setTimeout(r, 16); else requestAnimationFrame(r); }); };
+  var easeSine = function (p) { return 0.5 - 0.5 * Math.cos(Math.PI * p); };
+  /*
+   * Units. The take shows this page at 1920x1080 with html { zoom: 1.5 }: the board is laid out in 1280x720 CSS
+   * pixels and drawn crisp. getBoundingClientRect, getScreenCTM and the pen work in screen pixels; positions inside
+   * the board (equations, notes, marks) are CSS pixels. Z() converts; zr() turns a screen rect into CSS pixels.
+   */
+  var Z = function () { return parseFloat(getComputedStyle(document.documentElement).zoom) || 1; };
+  function zr(r) { var z = Z(); return { left: r.left / z, top: r.top / z, right: r.right / z, bottom: r.bottom / z, width: r.width / z, height: r.height / z }; }
+
+  // ------------------------------------------------------------------ the pen
+  function tipColor(color) {
+    if (tip.__color === color) return;
+    tip.__color = color;
+    var parts = tip.querySelectorAll('.tipColor');
+    for (var i = 0; i < parts.length; i++) parts[i].setAttribute('fill', color);
+  }
+  function tipAt(x, y, color) {
+    tipPos = { x: x, y: y };
+    if (color) tipColor(color);
+    if (!penShown) return;
+    if (tipHideTimer) { clearTimeout(tipHideTimer); tipHideTimer = null; }
+    tip.style.display = 'block';
+    var z = Z();
+    tip.style.transform = 'translate(' + (x / z).toFixed(1) + 'px,' + (y / z).toFixed(1) + 'px)';
+  }
+  function scheduleTipHide(ms) {
+    if (tipHideTimer) clearTimeout(tipHideTimer);
+    tipHideTimer = setTimeout(function () { tip.style.display = 'none'; }, ms == null ? 1400 : ms);
+  }
+  async function travel(to, ms, color) {
+    var from = tipPos;
+    if (!ms || ms < 16) { tipAt(to.x, to.y, color); return; }
+    var t0 = performance.now();
+    for (;;) {
+      await frame();
+      var p = Math.min(1, (performance.now() - t0) / ms);
+      var e = easeSine(p);
+      // the pen lifts on its way: a slight arc
+      var lift = Math.sin(Math.PI * p) * Math.min(18, Math.hypot(to.x - from.x, to.y - from.y) * 0.08);
+      tipAt(from.x + (to.x - from.x) * e, from.y + (to.y - from.y) * e - lift, color);
+      if (p >= 1) break;
+    }
+  }
+  function pointOn(el, l) {
+    var p = el.getPointAtLength(l);
+    var m = el.getScreenCTM();
+    return { x: m.a * p.x + m.c * p.y + m.e, y: m.b * p.x + m.d * p.y + m.f };
+  }
+
+  // ------------------------------------------------------------------ geometry
+  function surfaceRect() { return surface.getBoundingClientRect(); }
+  function surfaceCss() { return zr(surface.getBoundingClientRect()); }
+  /** A screen rect -> a box in the board's CSS pixels, relative to the board surface. */
+  function toBox(r) {
+    var s = surfaceRect();
+    var z = Z();
+    return { x: (r.left - s.left) / z, y: (r.top - s.top) / z, w: r.width / z, h: r.height / z };
+  }
+  function union(rects) {
+    var l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+    for (var i = 0; i < rects.length; i++) {
+      var q = rects[i];
+      if (!q || (q.width === 0 && q.height === 0)) continue;
+      l = Math.min(l, q.left); t = Math.min(t, q.top); r = Math.max(r, q.right); b = Math.max(b, q.bottom);
+    }
+    if (l === Infinity) return null;
+    return { left: l, top: t, right: r, bottom: b, width: r - l, height: b - t };
+  }
+  function glyphRect(g) {
+    var r = g.getBoundingClientRect();
+    if (g.tagName.toLowerCase() === 'rect' && g.__w0 != null && r.width < 0.5) {
+      return { left: r.left, top: r.top, right: r.left + (g.__screenLen || 0), bottom: r.bottom, width: g.__screenLen || 0, height: r.height };
+    }
+    return r;
+  }
+  function boxOf(item) {
+    if (item.kind === 'eq' && item.glyphs && item.glyphs.length) {
+      var u = union(item.glyphs.map(glyphRect));
+      if (u) return toBox(u);
+    }
+    if (item.kind === 'ink' && item.el.getBBox) {
+      var r = item.el.getBoundingClientRect();
+      return toBox(r);
+    }
+    return toBox(item.el.getBoundingClientRect());
+  }
+
+  // ------------------------------------------------------------------ MathJax
+  var styleAdded = false;
+  async function mathReady() {
+    for (var i = 0; i < 600 && !(window.MathJax && window.MathJax.startup && window.MathJax.startup.promise); i++) await sleep(50);
+    if (!(window.MathJax && window.MathJax.startup && window.MathJax.startup.promise)) throw new Error('MathJax is not loaded on the whiteboard page');
+    await window.MathJax.startup.promise;
+    if (!styleAdded && window.MathJax.svgStylesheet) {
+      try { document.head.appendChild(window.MathJax.svgStylesheet()); } catch (e) { /* the inline sizes are enough */ }
+      styleAdded = true;
+    }
+  }
+  async function typeset(latex) {
+    await mathReady();
+    var MJ = window.MathJax;
+    var node = MJ.tex2svgPromise ? await MJ.tex2svgPromise(String(latex), { display: true }) : MJ.tex2svg(String(latex), { display: true });
+    var err = node.querySelector('[data-mjx-error]') || node.querySelector('[data-mml-node="merror"]');
+    if (err) throw new Error('TeX: ' + (err.getAttribute('data-mjx-error') || err.getAttribute('title') || err.textContent || 'error'));
+    return node;
+  }
+
+  // ------------------------------------------------------------------ glyph order and text
+  var DRAWABLE = { path: 1, rect: 1, text: 1, line: 1, polyline: 1, polygon: 1, ellipse: 1, circle: 1 };
+  function drawablesOf(root, mode) {
+    var out = [];
+    (function walk(node) {
+      if (!node || node.nodeType !== 1) return;
+      var tag = node.tagName.toLowerCase();
+      if (tag === 'defs' || tag === 'title' || tag === 'desc' || tag === 'style') return;
+      if (DRAWABLE[tag]) { out.push(node); return; }
+      var kids = Array.prototype.slice.call(node.children);
+      if (node.getAttribute && node.getAttribute('data-mml-node') === 'mfrac') {
+        // numerator, then the bar, then the denominator: a fraction reads top to bottom
+        var bars = kids.filter(function (k) { return k.tagName.toLowerCase() === 'rect'; });
+        var rest = kids.filter(function (k) { return k.tagName.toLowerCase() !== 'rect'; });
+        if (rest.length >= 2 && bars.length) {
+          walk(rest[0]);
+          bars.forEach(function (b) { out.push(b); });
+          rest.slice(1).forEach(walk);
+          return;
+        }
+      }
+      kids.forEach(walk);
+    })(root);
+    if (mode === 'x') return byColumns(out, root);
+    return out;
+  }
+  function outerRows(svg) {
+    var table = svg.querySelector('g[data-mml-node="mtable"]');
+    if (!table) return [];
+    return Array.prototype.slice.call(table.children).filter(function (k) {
+      var n = k.getAttribute && k.getAttribute('data-mml-node');
+      return n === 'mtr' || n === 'mlabeledtr';
+    });
+  }
+  /** The spec's alternative: within each row, left to right, and top to bottom inside overlapping columns. */
+  function byColumns(list, svg) {
+    var rows = outerRows(svg);
+    var rowOf = function (el) { for (var i = 0; i < rows.length; i++) if (rows[i].contains(el)) return i; return 0; };
+    var groups = new Map();
+    list.forEach(function (el) { var k = rowOf(el); if (!groups.has(k)) groups.set(k, []); groups.get(k).push({ el: el, r: el.getBoundingClientRect() }); });
+    var out = [];
+    Array.from(groups.keys()).sort(function (a, b) { return a - b; }).forEach(function (k) {
+      var g = groups.get(k).sort(function (a, b) { return a.r.left - b.r.left; });
+      var cols = [];
+      g.forEach(function (it) {
+        var last = cols[cols.length - 1];
+        if (last && it.r.left < last.right - Math.min(it.r.width, last.minW) * 0.4) {
+          last.items.push(it); last.right = Math.max(last.right, it.r.right); last.minW = Math.min(last.minW, it.r.width);
+        } else cols.push({ items: [it], right: it.r.right, minW: Math.max(1, it.r.width) });
+      });
+      cols.forEach(function (c) { c.items.sort(function (a, b) { return a.r.top - b.r.top; }).forEach(function (it) { out.push(it.el); }); });
+    });
+    return out;
+  }
+  function charOf(el) {
+    var tag = el.tagName.toLowerCase();
+    if (tag === 'path') {
+      var c = el.getAttribute('data-c');
+      if (!c) return '';
+      try { return String.fromCodePoint(parseInt(c, 16)).normalize('NFKC'); } catch (e) { return ''; }
+    }
+    if (tag === 'text') return String(el.textContent || '').normalize('NFKC');
+    return '';
+  }
+  /** The equation as plain text in writing order ("W=H(0,f0,f1,…)"), with a map from characters to glyphs. */
+  function glyphText(glyphs) {
+    var text = '';
+    var map = [];
+    glyphs.forEach(function (g, i) {
+      var s = charOf(g).replace(/\s+/g, '');   // \  and \quad spaces are glyphs too; a search ignores them
+      for (var k = 0; k < s.length; k++) { text += s[k]; map.push(i); }
+    });
+    return { text: text, map: map };
+  }
+
+  // ------------------------------------------------------------------ targets
+  function resolveBox(t) {
+    if (t == null) throw new Error('no target');
+    if (typeof t === 'string') {
+      var it0 = items.get(t);
+      if (!it0) throw new Error('unknown target "' + t + '"');
+      return boxOf(it0);
+    }
+    if (t.x != null && t.y != null && t.w != null) return { x: t.x, y: t.y, w: t.w, h: t.h || 0 };
+    if (t.x != null && t.y != null) return { x: t.x, y: t.y, w: 0, h: 0 };
+    var it = items.get(t.eq || t.id || t.item);
+    if (!it) throw new Error('unknown target ' + JSON.stringify(t));
+    if (it.kind !== 'eq') return boxOf(it);
+    if (t.find != null || t.findRe != null) {
+      var gt = glyphText(it.glyphs);
+      var start = -1, len = 0;
+      if (t.findRe != null) {
+        var re = new RegExp(t.findRe, 'g');
+        var m, n = 0;
+        while ((m = re.exec(gt.text))) { if (n++ === (t.nth || 0)) { start = m.index; len = m[0].length; break; } if (!m[0].length) re.lastIndex++; }
+      } else {
+        var needle = String(t.find).replace(/\s+/g, '');
+        var from = 0;
+        for (var k = 0; k <= (t.nth || 0); k++) { start = gt.text.indexOf(needle, from); if (start < 0) break; from = start + 1; }
+        len = needle.length;
+      }
+      if (start < 0) throw new Error('"' + (t.find != null ? t.find : t.findRe) + '" is not in ' + it.id + ' (it reads: ' + gt.text + ')');
+      var picked = [];
+      for (var j = start; j < start + len; j++) if (picked.indexOf(gt.map[j]) < 0) picked.push(gt.map[j]);
+      return toBox(union(picked.map(function (i) { return glyphRect(it.glyphs[i]); })));
+    }
+    if (t.line != null) {
+      var rows = outerRows(it.svg);
+      var row = rows[(t.line | 0) - 1];
+      if (!row) throw new Error(it.id + ' has ' + rows.length + ' lines, not ' + t.line);
+      return toBox(union(it.glyphs.filter(function (g) { return row.contains(g); }).map(glyphRect)));
+    }
+    if (t.cssId) {
+      var el = it.el.querySelector('#' + CSS.escape(t.cssId));
+      if (!el) throw new Error('no \\cssId{' + t.cssId + '} in ' + it.id);
+      return toBox(union(it.glyphs.filter(function (g) { return el.contains(g); }).map(glyphRect)) || el.getBoundingClientRect());
+    }
+    return boxOf(it);
+  }
+  function center(b) { return { x: b.x + b.w / 2, y: b.y + b.h / 2 }; }
+  function edgePoint(b, toward, pad) {
+    var c = center(b);
+    var dx = toward.x - c.x, dy = toward.y - c.y;
+    if (!dx && !dy) return c;
+    var hw = b.w / 2 + pad, hh = b.h / 2 + pad;
+    var s = Math.min(dx ? hw / Math.abs(dx) : Infinity, dy ? hh / Math.abs(dy) : Infinity);
+    return { x: c.x + dx * s, y: c.y + dy * s };
+  }
+  function clampInto(x, y, w, h) {
+    var s = surfaceCss();
+    return { x: Math.max(10, Math.min(s.width - w - 10, x)), y: Math.max(8, Math.min(s.height - h - cfg.bottomPad, y)) };
+  }
+  function besideBox(b, w, h, side, gap) {
+    if (side === 'left') return { x: b.x - gap - w, y: b.y + b.h / 2 - h / 2 };
+    if (side === 'above') return { x: b.x + b.w / 2 - w / 2, y: b.y - gap - h };
+    if (side === 'below') return { x: b.x + b.w / 2 - w / 2, y: b.y + b.h + gap };
+    return { x: b.x + b.w + gap, y: b.y + b.h / 2 - h / 2 };
+  }
+  /** Beside a box, but past any note or mark already there (a second note on the same side moves along). */
+  function freeSpot(b, w, h, side, gap) {
+    var p = besideBox(b, w, h, side, gap);
+    var others = [];
+    items.forEach(function (it) {
+      if (it.kind === 'note' || it.kind === 'check') others.push(boxOf(it));
+    });
+    for (var k = 0; k < 8; k++) {
+      var hit = null;
+      for (var i = 0; i < others.length; i++) {
+        var o = others[i];
+        if (p.x < o.x + o.w && p.x + w > o.x && p.y < o.y + o.h && p.y + h > o.y) { hit = o; break; }
+      }
+      if (!hit) break;
+      if (side === 'left') p.x = hit.x - w - 12;
+      else if (side === 'above') p.y = hit.y - h - 6;
+      else if (side === 'below') p.y = hit.y + hit.h + 6;
+      else p.x = hit.x + hit.w + 12;
+    }
+    return p;
+  }
+  // a point in board CSS pixels -> screen pixels (where the pen and the eraser are drawn from)
+  function vp(p) { var s = surfaceRect(); var z = Z(); return { x: s.left + p.x * z, y: s.top + p.y * z }; }
+
+  // ------------------------------------------------------------------ writing
+  function placeBlock(el, o) {
+    var s = surfaceCss();
+    var size = Number(o.size) || 44;
+    el.style.fontSize = size + 'px';
+    el.style.left = '0px';
+    el.style.top = '0px';
+    var r = zr(el.getBoundingClientRect());
+    var abs = o.at && typeof o.at === 'object';
+    var y = abs && o.at.y != null ? Number(o.at.y) : (cursorY != null ? cursorY : cfg.top);
+    var maxW = s.width - 2 * cfg.margin;
+    var maxH = Math.max(40, s.height - cfg.bottomPad - y);
+    var f = Math.min(1, maxW / Math.max(1, r.width), abs ? 1 : maxH / Math.max(1, r.height));
+    if (f < 1) {
+      size = Math.max(12, Math.floor(size * f * 10) / 10);
+      el.style.fontSize = size + 'px';
+      r = zr(el.getBoundingClientRect());
+    }
+    var x = cfg.margin;
+    if (abs && o.at.x != null) x = Number(o.at.x);
+    else if (o.align === 'center' || o.at === 'center') x = (s.width - r.width) / 2;
+    else if (o.align === 'right') x = s.width - cfg.margin - r.width;
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    cursorY = Math.max(cursorY || 0, y + r.height + (o.gap != null ? Number(o.gap) : cfg.gap));
+    return { size: size, x: x, y: y, w: r.width, h: r.height, shrunk: f < 1 };
+  }
+  /** rootScale: the equation's own user-unit-to-pixel scale, so a subscript's outline is thinner, as a pen's would be. */
+  function prepGlyph(el, color, strokePx, rootScale) {
+    var tag = el.tagName.toLowerCase();
+    if (tag === 'path') {
+      var L = 0;
+      try { L = el.getTotalLength(); } catch (e) { L = 0; }
+      var m = el.getScreenCTM();
+      var s = m ? Math.hypot(m.a, m.b) : 1;
+      el.__len = L;
+      el.__screenLen = L * s;
+      el.style.fill = color;
+      el.style.fillOpacity = '0';
+      el.style.stroke = color;
+      el.style.strokeWidth = String(strokePx / (rootScale || s || 1));
+      el.style.strokeLinecap = 'round';
+      el.style.strokeLinejoin = 'round';
+      el.style.strokeDasharray = (L + 1) + ' ' + (L + 1);
+      el.style.strokeDashoffset = String(L + 1);
+      el.style.transition = 'fill-opacity 200ms ease-out';
+    } else if (tag === 'rect') {
+      el.__w0 = el.width.baseVal.value;
+      el.__screenLen = el.getBoundingClientRect().width;
+      el.style.fill = color;
+      el.setAttribute('width', '0');
+    } else {
+      el.__screenLen = el.getBoundingClientRect().width;
+      el.style.fill = color;
+      if (tag !== 'text') el.style.stroke = color;
+      el.style.opacity = '0';
+      el.style.transition = 'opacity 220ms ease-out';
+    }
+  }
+  function revealNow(el) {
+    var tag = el.tagName.toLowerCase();
+    if (tag === 'path') { el.style.strokeDashoffset = '0'; el.style.fillOpacity = String(cfg.fill); }
+    else if (tag === 'rect') el.setAttribute('width', String(el.__w0));
+    else el.style.opacity = '1';
+  }
+  async function strokeOne(el, dur, color, lift) {
+    var tag = el.tagName.toLowerCase();
+    var t0, p, e;
+    if (tag === 'path' && el.__len > 0) {
+      var L = el.__len;
+      var start = pointOn(el, 0);
+      if (lift > 0) await travel(start, lift, color); else tipAt(start.x, start.y, color);
+      t0 = performance.now();
+      for (;;) {
+        await frame();
+        p = Math.min(1, (performance.now() - t0) / dur);
+        e = easeSine(p);
+        el.style.strokeDashoffset = String((L + 1) * (1 - e));
+        var q = pointOn(el, L * e);
+        tipAt(q.x, q.y, color);
+        if (p >= 1) break;
+      }
+      revealNow(el);
+      return;
+    }
+    if (tag === 'rect') {
+      var r0 = el.getBoundingClientRect();
+      var y = r0.top + r0.height / 2;
+      if (lift > 0) await travel({ x: r0.left, y: y }, lift, color);
+      t0 = performance.now();
+      for (;;) {
+        await frame();
+        p = Math.min(1, (performance.now() - t0) / dur);
+        e = easeSine(p);
+        el.setAttribute('width', String(el.__w0 * e));
+        tipAt(r0.left + (el.__screenLen || 0) * e, y, color);
+        if (p >= 1) break;
+      }
+      revealNow(el);
+      return;
+    }
+    var r = el.getBoundingClientRect();
+    if (lift > 0) await travel({ x: r.left, y: r.top + r.height * 0.7 }, lift, color);
+    el.style.opacity = '1';
+    t0 = performance.now();
+    for (;;) {
+      await frame();
+      p = Math.min(1, (performance.now() - t0) / dur);
+      tipAt(r.left + r.width * p, r.top + r.height * 0.7, color);
+      if (p >= 1) break;
+    }
+  }
+  function defaultMs(glyphs) { return Math.max(1200, Math.min(14000, 90 * glyphs.length + 400)); }
+  async function strokeAll(glyphs, ms, color) {
+    var n = glyphs.length;
+    if (!n) return;
+    var lifts = glyphs.map(function (_, i) { return i === 0 ? 0 : cfg.liftMin + rnd() * (cfg.liftMax - cfg.liftMin); });
+    var liftTotal = lifts.reduce(function (a, b) { return a + b; }, 0);
+    var budget = ms - liftTotal;
+    if (budget < n * 35) {
+      var k = Math.max(0, (ms - n * 35) / Math.max(1, liftTotal));
+      lifts = lifts.map(function (l) { return l * k; });
+      budget = ms - lifts.reduce(function (a, b) { return a + b; }, 0);
+    }
+    // an empty glyph (a \  space is an empty path) takes no time and no pen lift
+    var empty = glyphs.map(function (g) { return !(g.__screenLen > 0.5); });
+    var lens = glyphs.map(function (g, i) { return empty[i] ? 0 : Math.max(4, g.__screenLen || 10); });
+    var total = Math.max(1, lens.reduce(function (a, b) { return a + b; }, 0));
+    var drawn = Math.max(1, empty.filter(function (e) { return !e; }).length);
+    var minT = Math.min(60, (budget / drawn) * 0.5);
+    var times = lens.map(function (L, i) { return empty[i] ? 0 : Math.max(minT, (budget * L) / total); });
+    var sum = Math.max(1, times.reduce(function (a, b) { return a + b; }, 0));
+    times = times.map(function (t) { return (t * budget) / sum; });
+    for (var i = 0; i < n; i++) {
+      if (empty[i]) { revealNow(glyphs[i]); continue; }
+      await strokeOne(glyphs[i], Math.max(16, times[i]), color, lifts[i]);
+    }
+    await restPen();
+  }
+  /** The pen comes off the board a little (so it does not hide the last glyph) and disappears soon after. */
+  async function restPen() {
+    await travel({ x: tipPos.x + 34, y: tipPos.y - 26 }, 220);
+    scheduleTipHide(900);
+  }
+  async function writeEquation(a, b) {
+    var o = typeof a === 'string' ? Object.assign({ latex: a }, b || {}) : Object.assign({}, a || {});
+    var id = o.id || ('eq' + (++seq));
+    var color = colorOf(o.color);
+    var wrap = document.createElement('div');
+    wrap.className = 'eq';
+    wrap.dataset.id = id;
+    wrap.style.color = color;
+    var pre = prepared.get(id);
+    if (pre && (!o.latex || pre.latex === o.latex)) wrap.innerHTML = pre.html;
+    else wrap.appendChild(await typeset(o.latex));
+    layer.appendChild(wrap);
+    var fit = placeBlock(wrap, o);
+    var svg = wrap.querySelector('svg');
+    if (cfg.rough && o.rough !== false) svg.style.filter = 'url(#rough)';
+    var glyphs = drawablesOf(svg, o.order || cfg.order);
+    var rm = svg.getScreenCTM();
+    var rootScale = rm ? Math.hypot(rm.a, rm.b) / Z() : 0;   // user units -> CSS pixels
+    var strokePx = o.strokePx != null ? Number(o.strokePx) : Math.max(cfg.strokeMin, Math.min(cfg.strokeMax, fit.size * cfg.strokeEm));
+    glyphs.forEach(function (g) { prepGlyph(g, color, strokePx, rootScale); });
+    var item = { id: id, kind: 'eq', el: wrap, svg: svg, glyphs: glyphs, color: color };
+    items.set(id, item);
+    var ms = Number(o.ms || o.durationMs) || defaultMs(glyphs);
+    if (o.instant) glyphs.forEach(revealNow);
+    else await strokeAll(glyphs, ms, color);
+    return { id: id, box: boxOf(item), size: fit.size, shrunk: fit.shrunk, glyphs: glyphs.length, ms: o.instant ? 0 : ms, text: glyphText(glyphs).text };
+  }
+
+  // ------------------------------------------------------------------ hand-drawn marks
+  function inkPath(d, color, width) {
+    var p = document.createElementNS(SVGNS, 'path');
+    p.setAttribute('d', d);
+    p.setAttribute('fill', 'none');
+    p.setAttribute('stroke', colorOf(color));
+    p.setAttribute('stroke-width', String(width || cfg.inkWidth));
+    p.setAttribute('stroke-linecap', 'round');
+    p.setAttribute('stroke-linejoin', 'round');
+    if (cfg.rough) p.setAttribute('filter', 'url(#rough)');
+    ink.appendChild(p);
+    var L = p.getTotalLength();
+    p.__len = L;
+    p.style.strokeDasharray = (L + 1) + ' ' + (L + 1);
+    p.style.strokeDashoffset = String(L + 1);
+    return p;
+  }
+  async function strokeInk(p, ms, color) {
+    var L = p.__len;
+    await travel(pointOn(p, 0), 150, colorOf(color));
+    var t0 = performance.now();
+    for (;;) {
+      await frame();
+      var t = Math.min(1, (performance.now() - t0) / ms);
+      var e = easeSine(t);
+      p.style.strokeDashoffset = String((L + 1) * (1 - e));
+      var q = pointOn(p, L * e);
+      tipAt(q.x, q.y, colorOf(color));
+      if (t >= 1) break;
+    }
+    p.style.strokeDashoffset = '0';
+    await restPen();
+  }
+  function register(kind, el, id) {
+    var key = id || (kind + (++seq));
+    el.setAttribute && el.setAttribute('data-id', key);
+    var item = { id: key, kind: kind, el: el };
+    items.set(key, item);
+    return item;
+  }
+  var f1 = function (v) { return v.toFixed(1); };
+  async function circle(o) {
+    o = o || {};
+    var b = resolveBox(o.target);
+    var pad = o.pad != null ? o.pad : 10;
+    var cx = b.x + b.w / 2, cy = b.y + b.h / 2, rx = b.w / 2 + pad, ry = b.h / 2 + pad * 0.85;
+    var turns = o.turns || 1.15, steps = 80, a0 = -Math.PI * 0.62 + (rnd() - 0.5) * 0.4, dir = o.ccw ? -1 : 1;
+    var d = '';
+    for (var i = 0; i <= Math.round(steps * turns); i++) {
+      var t = i / steps;
+      var a = a0 + dir * t * Math.PI * 2;
+      var grow = 1 + 0.07 * t + (rnd() - 0.5) * 0.01;
+      d += (i ? 'L' : 'M') + f1(cx + Math.cos(a) * rx * grow) + ' ' + f1(cy + Math.sin(a) * ry * grow);
+    }
+    var p = inkPath(d, o.color || 'red', o.width);
+    var item = register('ink', p, o.id);
+    await strokeInk(p, Number(o.ms) || 900, o.color || 'red');
+    return { id: item.id };
+  }
+  async function underline(o) {
+    o = o || {};
+    var b = resolveBox(o.target);
+    var y = b.y + b.h + (o.offset != null ? o.offset : 7);
+    var x1 = b.x - 4, x2 = b.x + b.w + 6, c = (x1 + x2) / 2;
+    var d = 'M' + f1(x1) + ' ' + f1(y + 1.5) + ' Q' + f1(c) + ' ' + f1(y - 3) + ' ' + f1(x2) + ' ' + f1(y + 0.5);
+    if (o.double) d += ' M' + f1(x1 + 6) + ' ' + f1(y + 7) + ' Q' + f1(c) + ' ' + f1(y + 3.5) + ' ' + f1(x2 - 4) + ' ' + f1(y + 6);
+    var p = inkPath(d, o.color || 'blue', o.width);
+    var item = register('ink', p, o.id);
+    await strokeInk(p, Number(o.ms) || 520, o.color || 'blue');
+    return { id: item.id };
+  }
+  async function box(o) {
+    o = o || {};
+    var b = resolveBox(o.target);
+    var pad = o.pad != null ? o.pad : 8;
+    var x1 = b.x - pad, y1 = b.y - pad, x2 = b.x + b.w + pad, y2 = b.y + b.h + pad;
+    var j = function () { return (rnd() - 0.5) * 3; };
+    var d = 'M' + f1(x1 + j()) + ' ' + f1(y1 + j()) + ' L' + f1(x2 + 5 + j()) + ' ' + f1(y1 + j())
+      + ' M' + f1(x2 + j()) + ' ' + f1(y1 - 4 + j()) + ' L' + f1(x2 + j()) + ' ' + f1(y2 + 5 + j())
+      + ' M' + f1(x2 + 4 + j()) + ' ' + f1(y2 + j()) + ' L' + f1(x1 - 5 + j()) + ' ' + f1(y2 + j())
+      + ' M' + f1(x1 + j()) + ' ' + f1(y2 + 4 + j()) + ' L' + f1(x1 + j()) + ' ' + f1(y1 - 5 + j());
+    var p = inkPath(d, o.color || 'green', o.width);
+    var item = register('ink', p, o.id);
+    await strokeInk(p, Number(o.ms) || 1000, o.color || 'green');
+    return { id: item.id };
+  }
+  async function arrow(o) {
+    o = o || {};
+    var A = resolveBox(o.from), B = resolveBox(o.to);
+    var a = edgePoint(A, center(B), 6), b = edgePoint(B, center(A), 6);
+    var dx = b.x - a.x, dy = b.y - a.y, len = Math.max(1, Math.hypot(dx, dy));
+    var nx = -dy / len, ny = dx / len, bend = (o.bend != null ? o.bend : 0.2) * len;
+    var c = { x: (a.x + b.x) / 2 + nx * bend, y: (a.y + b.y) / 2 + ny * bend };
+    var ux = b.x - c.x, uy = b.y - c.y, ul = Math.max(1, Math.hypot(ux, uy));
+    ux /= ul; uy /= ul;
+    var hl = o.head || 14, ang = 0.5;
+    var h1 = { x: b.x - hl * (ux * Math.cos(ang) - uy * Math.sin(ang)), y: b.y - hl * (uy * Math.cos(ang) + ux * Math.sin(ang)) };
+    var h2 = { x: b.x - hl * (ux * Math.cos(-ang) - uy * Math.sin(-ang)), y: b.y - hl * (uy * Math.cos(-ang) + ux * Math.sin(-ang)) };
+    var d = 'M' + f1(a.x) + ' ' + f1(a.y) + ' Q' + f1(c.x) + ' ' + f1(c.y) + ' ' + f1(b.x) + ' ' + f1(b.y)
+      + ' M' + f1(h1.x) + ' ' + f1(h1.y) + ' L' + f1(b.x) + ' ' + f1(b.y) + ' L' + f1(h2.x) + ' ' + f1(h2.y);
+    var p = inkPath(d, o.color || 'ink', o.width);
+    var item = register('ink', p, o.id);
+    await strokeInk(p, Number(o.ms) || 800, o.color || 'ink');
+    return { id: item.id };
+  }
+  async function check(o) {
+    o = o || {};
+    var b = resolveBox(o.target);
+    var s = o.size || 28;
+    var label = o.label === undefined ? 'recomputed: match' : o.label;
+    // measure the label, then find room for tick + label to the right of the target, past any note already there
+    var lw = 0, lh = 0;
+    if (label) {
+      var probe = document.createElement('div');
+      probe.className = 'note';
+      probe.style.cssText = 'visibility:hidden;left:0;top:0;font-size:' + (o.labelSize || 24) + 'px';
+      probe.textContent = label;
+      layer.appendChild(probe);
+      var pr = zr(probe.getBoundingClientRect());
+      lw = pr.width; lh = pr.height;
+      probe.remove();
+    }
+    var w = s + (label ? 10 + lw : 0), h = Math.max(s * 1.2, lh);
+    var spot = freeSpot(b, w, h, 'right', 18);
+    var x = spot.x, y = spot.y + h / 2;
+    var d = 'M' + f1(x) + ' ' + f1(y) + ' L' + f1(x + s * 0.36) + ' ' + f1(y + s * 0.42) + ' L' + f1(x + s) + ' ' + f1(y - s * 0.58);
+    var p = inkPath(d, o.color || 'green', (o.width || cfg.inkWidth) + 0.6);
+    var item = register('check', p, o.id);
+    await strokeInk(p, Number(o.ms) || 420, o.color || 'green');
+    if (label) await annotate({ text: label, at: { x: x + s + 10, y: y - lh / 2 }, color: o.color || 'green', size: o.labelSize || 24 });
+    return { id: item.id };
+  }
+
+  // ------------------------------------------------------------------ handwriting
+  async function wipeIn(el, ms, color) {
+    el.style.clipPath = 'inset(-25% 100% -25% 0)';
+    var r = el.getBoundingClientRect();
+    await travel({ x: r.left, y: r.top + r.height * 0.7 }, 160, color);
+    var len = Math.max(2, (el.textContent || '').length);
+    var t0 = performance.now();
+    for (;;) {
+      await frame();
+      var p = Math.min(1, (performance.now() - t0) / ms);
+      el.style.clipPath = 'inset(-25% ' + (100 - p * 100).toFixed(2) + '% -25% 0)';
+      var wob = Math.sin(p * Math.PI * len) * r.height * 0.16;
+      tipAt(r.left + r.width * p, r.top + r.height * 0.6 + wob, color);
+      if (p >= 1) break;
+    }
+    el.style.clipPath = 'none';
+    await restPen();
+  }
+  async function annotate(o) {
+    o = o || {};
+    var id = o.id || ('note' + (++seq));
+    var color = colorOf(o.color || 'blue');
+    var el = document.createElement('div');
+    el.className = 'note';
+    el.dataset.id = id;
+    el.textContent = o.text || '';
+    el.style.color = color;
+    el.style.fontSize = (o.size || 26) + 'px';
+    el.style.left = '0px';
+    el.style.top = '0px';
+    layer.appendChild(el);
+    var r = zr(el.getBoundingClientRect());
+    var pos;
+    if (o.at && typeof o.at === 'object') pos = { x: Number(o.at.x), y: Number(o.at.y) };
+    else if (o.near != null) {
+      var q = freeSpot(resolveBox(o.near), r.width, r.height, o.side || 'right', o.gap != null ? o.gap : 14);
+      pos = clampInto(q.x, q.y, r.width, r.height);
+    }
+    else {
+      pos = { x: cfg.margin + (o.indent || 0), y: cursorY != null ? cursorY : cfg.top };
+      cursorY = pos.y + r.height + cfg.gap;
+    }
+    el.style.left = pos.x + 'px';
+    el.style.top = pos.y + 'px';
+    // the next equation written 'next' starts below a note hung under the last one
+    if (o.near != null || (o.at && typeof o.at === 'object')) cursorY = Math.max(cursorY || 0, pos.y + r.height + cfg.gap * 0.5);
+    if (o.rotate) { el.style.transformOrigin = '0 50%'; el.style.transform = 'rotate(' + Number(o.rotate) + 'deg)'; }
+    var item = { id: id, kind: 'note', el: el };
+    items.set(id, item);
+    if (o.instant) return { id: id, box: boxOf(item) };
+    await wipeIn(el, Number(o.ms) || Math.max(450, (o.text || '').length * 42), color);
+    return { id: id, box: boxOf(item) };
+  }
+  async function value(o) {
+    o = o || {};
+    return annotate({ id: o.id, text: o.text, near: o.target, side: o.side || 'below', gap: o.gap != null ? o.gap : 4, color: o.color || 'blue', size: o.size || 22, ms: o.ms, rotate: o.rotate });
+  }
+  async function setTitle(text, o) {
+    o = o || {};
+    titleEl.textContent = text || '';
+    titleEl.style.color = colorOf(o.color || 'ink');
+    if (!text) return { ok: true };
+    if (o.instant || o.ms === 0) return { ok: true };
+    var span = document.createElement('span');
+    span.textContent = text;
+    span.style.display = 'inline-block';
+    titleEl.textContent = '';
+    titleEl.appendChild(span);
+    await wipeIn(span, Number(o.ms) || Math.max(500, text.length * 38), titleEl.style.color);
+    return { ok: true };
+  }
+
+  // ------------------------------------------------------------------ erasing
+  /** The eraser zigzags over a board box (CSS pixels); it is drawn in screen pixels divided by the zoom. */
+  async function sweep(b, ms) {
+    var z = Z();
+    var a = vp({ x: b.x, y: b.y });
+    var w = b.w * z, h = b.h * z;
+    var rows = Math.max(1, Math.round(b.h / 52));
+    var pts = [];
+    for (var i = 0; i <= rows; i++) {
+      var yy = a.y + (h * i) / rows;
+      pts.push({ x: i % 2 ? a.x + w : a.x, y: yy }, { x: i % 2 ? a.x : a.x + w, y: yy + (h / rows) * 0.5 });
+    }
+    eraserTool.style.display = 'block';
+    var seg = ms / Math.max(1, pts.length - 1);
+    for (var k = 1; k < pts.length; k++) {
+      var p0 = pts[k - 1], p1 = pts[k], t0 = performance.now();
+      for (;;) {
+        await frame();
+        var p = Math.min(1, (performance.now() - t0) / seg);
+        eraserTool.style.transform = 'translate(' + f1((p0.x + (p1.x - p0.x) * p) / z) + 'px,' + f1((p0.y + (p1.y - p0.y) * p) / z) + 'px) rotate(-8deg)';
+        if (p >= 1) break;
+      }
+    }
+    eraserTool.style.display = 'none';
+  }
+  function ghostNode(node, opacity) {
+    node.style.transition = 'opacity 300ms ease-out';
+    node.style.opacity = String(opacity);
+    ghostEl.appendChild(node);
+  }
+  async function erase(o) {
+    o = o || {};
+    var ids = Array.isArray(o.ids) ? o.ids : (o.ids ? [o.ids] : []);
+    var list = ids.map(function (id) { return items.get(id); }).filter(Boolean);
+    if (!list.length) return { erased: 0 };
+    var u = union(list.map(function (it) { return it.el.getBoundingClientRect(); }));
+    var g = o.ghost != null ? o.ghost : 0.05;
+    list.forEach(function (it) { it.el.style.transition = 'opacity ' + (o.ms || 700) + 'ms linear'; it.el.style.opacity = String(g); });
+    if (u) await sweep(toBox(u), Number(o.ms) || 700);
+    list.forEach(function (it) {
+      if (it.kind === 'ink' || it.kind === 'check') {
+        var holder = document.createElementNS(SVGNS, 'svg');
+        holder.setAttribute('class', 'ink');
+        holder.appendChild(it.el);
+        ghostNode(holder, g);
+        it.el.style.opacity = '1';
+      } else ghostNode(it.el, g);
+      items.delete(it.id);
+    });
+    return { erased: list.length };
+  }
+  async function clear(o) {
+    o = o || {};
+    var g = o.ghost != null ? o.ghost : 0.05;
+    var ms = Number(o.ms) || 900;
+    var s = surfaceCss();
+    var hasContent = items.size || (titleEl.textContent && !o.keepTitle);
+    var oldLayer = layer;
+    oldLayer.style.transition = 'opacity ' + ms + 'ms linear';
+    oldLayer.style.opacity = String(Math.max(g, 0.02));
+    // the title is wiped for good (a ghost title under the next one only clutters); the content leaves a ghost
+    if (!o.keepTitle && titleEl.textContent) {
+      titleEl.style.transition = 'opacity ' + ms + 'ms linear';
+      titleEl.style.opacity = '0';
+    }
+    if (hasContent && !o.instant) await sweep({ x: 24, y: 14, w: s.width - 48, h: s.height - 40 }, ms);
+    // only the latest ghost stays on the board: the older ones are wiped for good
+    ghostEl.innerHTML = '';
+    oldLayer.removeAttribute('id');
+    ghostNode(oldLayer, g);
+    if (!o.keepTitle) titleEl.textContent = '';
+    titleEl.style.transition = '';
+    titleEl.style.opacity = '1';
+    layer = document.createElement('div');
+    layer.className = 'layer';
+    layer.id = 'layer';
+    ink = document.createElementNS(SVGNS, 'svg');
+    ink.setAttribute('class', 'ink');
+    layer.appendChild(ink);
+    surface.appendChild(layer);
+    items.clear();
+    cursorY = null;
+    return { ok: true };
+  }
+  function pen(visible) {
+    penShown = visible !== false;
+    if (!penShown) tip.style.display = 'none';
+    return { ok: true };
+  }
+
+  // ------------------------------------------------------------------ the queue and the API
+  function enqueue(fn) {
+    pending++;
+    var p = queue.then(fn);
+    queue = p.catch(function (e) { lastError = e; }).then(function () { pending--; });
+    return p;
+  }
+  async function prepare(list) {
+    var errors = [];
+    for (var i = 0; i < (list || []).length; i++) {
+      var e = list[i];
+      try {
+        var node = await typeset(e.latex);
+        prepared.set(e.id, { latex: e.latex, html: node.outerHTML });
+      } catch (err) {
+        errors.push({ id: e.id, message: String((err && err.message) || err) });
+      }
+    }
+    return { count: prepared.size, errors: errors };
+  }
+  /** The writing-order text of an equation, for authoring { find } targets. */
+  async function text(id) {
+    var it = items.get(id);
+    if (it && it.kind === 'eq') return glyphText(it.glyphs).text;
+    var pre = prepared.get(id);
+    if (!pre) throw new Error('no equation ' + id);
+    var tmp = document.createElement('div');
+    tmp.className = 'eq';
+    tmp.style.cssText = 'left:-9999px;top:0;font-size:40px';
+    tmp.innerHTML = pre.html;
+    document.body.appendChild(tmp);
+    var t = glyphText(drawablesOf(tmp.querySelector('svg'), cfg.order)).text;
+    tmp.remove();
+    return t;
+  }
+  async function ready() {
+    await mathReady();
+    try { await document.fonts.load('26px "Comic Neue Board"'); } catch (e) { /* the CSS fallbacks take over */ }
+    return { ok: true, mathjax: window.MathJax && window.MathJax.version, font: document.fonts.check('26px "Comic Neue Board"') };
+  }
+  window.wb = {
+    ready: ready,
+    configure: function (o) { Object.assign(cfg, o || {}); return Object.assign({}, cfg); },
+    prepare: prepare,
+    text: text,
+    state: function () { return { items: Array.from(items.keys()), prepared: Array.from(prepared.keys()), cursorY: cursorY, pending: pending, lastError: lastError ? String(lastError.message || lastError) : null }; },
+    idle: function () { return queue.then(function () { return { ok: !lastError, lastError: lastError ? String(lastError.message || lastError) : null }; }); },
+    boxOf: function (target) { return resolveBox(target); },
+    setTitle: function (t, o) { return enqueue(function () { return setTitle(t, o); }); },
+    writeEquation: function (a, b) { return enqueue(function () { return writeEquation(a, b); }); },
+    annotate: function (o) { return enqueue(function () { return annotate(o); }); },
+    value: function (o) { return enqueue(function () { return value(o); }); },
+    circle: function (o) { return enqueue(function () { return circle(o); }); },
+    underline: function (o) { return enqueue(function () { return underline(o); }); },
+    box: function (o) { return enqueue(function () { return box(o); }); },
+    arrow: function (o) { return enqueue(function () { return arrow(o); }); },
+    check: function (o) { return enqueue(function () { return check(o); }); },
+    erase: function (o) { return enqueue(function () { return erase(o); }); },
+    clear: function (o) { return enqueue(function () { return clear(o); }); },
+    pen: function (v) { return enqueue(function () { return pen(v); }); }
+  };
+})();
+</script>
+</body>
+</html>
