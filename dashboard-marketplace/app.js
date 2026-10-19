@@ -83,6 +83,13 @@
 
   function esc(s) { if (s == null) return ''; var d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
   function fmtCents(c) { return '$' + (c / 100).toFixed(2); }
+  /** An OOP or benefit limit: 0 means the plan sets no limit, which the fill circuit treats as none. */
+  function fmtLimit(c) { return Number(c) > 0 ? fmtCents(c) : 'No limit'; }
+  /** The dispensing fee a fill is charged: the plan's, or the network default when the plan publishes none. */
+  function fmtFee(p) {
+    if (p.dispensingFeeSource === 'network-default') return fmtCents(p.dispensingFeeCents) + ' (network default)';
+    return p.dispensingFeeCents != null ? fmtCents(p.dispensingFeeCents) : 'Network default';
+  }
 
   function toast(msg, type) {
     var c = document.getElementById('toast-container');
@@ -234,10 +241,11 @@
         '<div class="plan-type">' + esc(coverageLabels[p.coverageType] || 'Pharmacy') + ' Coverage</div>' +
         '<div class="plan-price">' + esc(fmtCents(p.copayAmountCents)) + ' <span>base copay</span></div>' +
         '<div class="plan-detail"><span class="plan-detail-label">Deductible</span><span class="plan-detail-value">' + esc(fmtCents(p.deductibleAmountCents)) + '</span></div>' +
-        '<div class="plan-detail"><span class="plan-detail-label">Out-of-Pocket Max</span><span class="plan-detail-value">' + esc(fmtCents(p.oopMaxCents)) + '</span></div>' +
-        '<div class="plan-detail"><span class="plan-detail-label">Annual Benefit Max</span><span class="plan-detail-value">' + esc(fmtCents(p.annualBenefitMaxCents)) + '</span></div>' +
+        '<div class="plan-detail"><span class="plan-detail-label">Out-of-Pocket Max</span><span class="plan-detail-value">' + esc(fmtLimit(p.oopMaxCents)) + '</span></div>' +
+        '<div class="plan-detail"><span class="plan-detail-label">Annual Benefit Max</span><span class="plan-detail-value">' + esc(fmtLimit(p.annualBenefitMaxCents)) + '</span></div>' +
         '<div class="plan-detail"><span class="plan-detail-label">Family Deductible</span><span class="plan-detail-value">' + esc(fmtCents(p.familyDeductibleAmountCents)) + '</span></div>' +
-        '<div class="plan-detail"><span class="plan-detail-label">Family OOP Max</span><span class="plan-detail-value">' + esc(fmtCents(p.familyOopMaxCents)) + '</span></div>' +
+        '<div class="plan-detail"><span class="plan-detail-label">Family OOP Max</span><span class="plan-detail-value">' + esc(fmtLimit(p.familyOopMaxCents)) + '</span></div>' +
+        '<div class="plan-detail"><span class="plan-detail-label">Dispensing Fee</span><span class="plan-detail-value">' + esc(fmtFee(p)) + '</span></div>' +
         '<div class="plan-select-btn">' + (selected ? 'Selected' : 'Select This Plan') + '</div>' +
       '</div>';
     }).join('');
@@ -558,6 +566,15 @@
       }
 
       if (status.status === 'signed' || status.status === 'active') {
+        // The signed agreement is checked against what members are billed now. If a plan was published again with other
+        // terms since, the new terms are shown for signing as the next attestation.
+        var current = null;
+        try { current = await api('GET', '/marketplace/api/agreement/' + encodeURIComponent(applicationId)); } catch (e) { current = null; }
+        if (current && nextAttestationReason(current.signedAttestation)) {
+          agreementData = current;
+          renderAgreement();
+          return;
+        }
         document.getElementById('sign-content').innerHTML =
           '<div class="info-banner success">Agreement already signed. Proceed to activation.</div>' +
           '<div class="form-actions"><button class="btn btn-primary btn-lg" id="btn-to-activate">Continue to Activation</button></div>';
@@ -574,12 +591,68 @@
     }
   }
 
+  /**
+   * Why an employer that has signed should sign the agreement again, as its next attestation: 'changed' (the terms it
+   * signed are no longer what its members are billed), 'legacy' (it signed before agreements covered every published
+   * term), 'add' (a plan it selected is published now and its attestation does not authorize it), or '' (nothing).
+   */
+  function nextAttestationReason(signed) {
+    if (!signed) return '';
+    if (signed.termsChanged) return 'changed';
+    if (signed.signedBeforeFullTerms) return 'legacy';
+    if (signed.plansToAdd && signed.plansToAdd.length > 0) return 'add';
+    return '';
+  }
+
+  /** A notice above the agreement when these terms would be the employer's next attestation, saying why. */
+  function termsChangedNotice(data) {
+    var signed = data && data.signedAttestation;
+    var reason = nextAttestationReason(signed);
+    if (!reason) return '';
+    var next = ' Review and sign them to register attestation #' + esc(data.attestationSeq) + '.';
+    if (reason === 'changed') {
+      return '<div class="info-banner warning"><strong>Terms changed since signed.</strong> What your members are billed is no longer what you signed (attestation #' + esc(signed.attestationSeq) + '): a plan was published again with other terms, or withdrawn. Your members are billed the terms below.' + next + '</div>';
+    }
+    if (reason === 'legacy') {
+      return '<div class="info-banner warning"><strong>Signed before full terms.</strong> Your agreement (attestation #' + esc(signed.attestationSeq) + ') was signed before agreements covered dispensing fees, formularies, family limits and the provider network. The terms it covered are unchanged; the terms below are everything your members are billed under.' + next + '</div>';
+    }
+    var adding = signed.plansToAdd;
+    return '<div class="info-banner warning"><strong>Plans to add.</strong> ' + esc(adding.join(', ')) + (adding.length === 1 ? ' is' : ' are') + ' published now, and your agreement (attestation #' + esc(signed.attestationSeq) + ') does not cover ' + (adding.length === 1 ? 'it' : 'them') + '. Employees can be enrolled in a plan only under an agreement that covers it.' + next + '</div>';
+  }
+
+  /** The plans the agreement covers, at the terms their members are billed, and the selected plans it does not cover. */
+  function agreementPlansSection(t) {
+    var unavailable = t.unavailablePlanIds || [];
+    return '<div class="agreement-section"><h3>2. Benefit Plans</h3>' +
+      (t.selectedPlans.length === 0 ? '<div class="info-banner warning">None of your selected plans is published yet, so there is nothing to sign. The insurer must publish them first.</div>' :
+      '<p>Members are billed under the terms each plan was last published with. Each fill costs the NADAC price per unit times the quantity dispensed, plus the plan\'s dispensing fee.</p>' +
+      '<table class="agreement-table"><thead><tr><th>Plan</th><th>Copay</th><th>Deductible</th><th>OOP Max</th><th>Annual Max</th><th>Dispensing Fee</th></tr></thead><tbody>' +
+      t.selectedPlans.map(function(p) {
+        return '<tr><td>' + esc(p.planName) + '</td><td>' + esc(fmtCents(p.copayAmountCents)) + '</td><td>' + esc(fmtCents(p.deductibleAmountCents)) + '</td><td>' + esc(fmtLimit(p.oopMaxCents)) + '</td><td>' + esc(fmtLimit(p.annualBenefitMaxCents)) + '</td><td>' + esc(fmtFee(p)) + '</td></tr>';
+      }).join('') + '</tbody></table>' +
+      '<p>Family limits, the out-of-pocket and benefit amounts the members of a family count together:</p>' +
+      '<table class="agreement-table"><thead><tr><th>Plan</th><th>Family Deductible</th><th>Family OOP Max</th><th>Family Annual Max</th></tr></thead><tbody>' +
+      t.selectedPlans.map(function(p) {
+        return '<tr><td>' + esc(p.planName) + '</td><td>' + esc(fmtCents(Number(p.familyDeductibleAmountCents || 0))) + '</td><td>' + esc(fmtLimit(p.familyOopMaxCents)) + '</td><td>' + esc(fmtLimit(p.familyAnnualBenefitMaxCents)) + '</td></tr>';
+      }).join('') + '</tbody></table>' +
+      '<p style="font-size:12px;color:var(--text-muted)">Published formulary roots: ' +
+      t.selectedPlans.map(function(p) { return esc(p.planId) + ' <span class="commitment-block" style="display:inline">' + esc(p.formularyRoot) + '</span>'; }).join('; ') + '</p>' +
+      '<p style="font-size:12px;color:var(--text-muted)">Published provider network roots: ' +
+      t.selectedPlans.map(function(p) { return esc(p.planId) + ' <span class="commitment-block" style="display:inline">' + esc(p.networkRoot) + '</span>'; }).join('; ') + '</p>') +
+      (unavailable.length > 0 ? '<div class="info-banner warning">Not covered by this agreement, because they have no published terms: ' + esc(unavailable.join(', ')) + '. A plan published later is covered only once you sign an agreement that includes it.</div>' : '') +
+      '</div>';
+  }
+
   function renderAgreement() {
     if (!agreementData) return;
     var t = agreementData.terms;
     var el = document.getElementById('sign-content');
+    // Signing again after a terms change: the key that signed the first attestation must be in this browser, because
+    // the rekey route serves applications that are not signed yet (a signed one is rekeyed by the insurer).
+    var renewal = !!agreementData.signedAttestation;
 
     el.innerHTML =
+      termsChangedNotice(agreementData) +
       '<div class="card"><div class="card-header"><div class="card-title">Employer Benefit Plan Agreement</div>' +
       '<div class="card-subtitle">' + esc(t.insurerName) + ' &mdash; ' + esc(t.companyName) + '</div></div><div class="card-body">' +
 
@@ -587,11 +660,7 @@
       '<p>This Agreement is between <strong>' + esc(t.insurerName) + '</strong> ("Insurer") and <strong>' + esc(t.companyName) + '</strong> ("Employer"), ID: ' + esc(t.employerId) + '.</p>' +
       '<p>Effective Date: ' + esc(t.effectiveDate.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')) + ' | Enrollment Cap: ' + esc(t.enrollmentCap) + ' members</p></div>' +
 
-      '<div class="agreement-section"><h3>2. Benefit Plans</h3>' +
-      '<table class="agreement-table"><thead><tr><th>Plan</th><th>Copay</th><th>Deductible</th><th>OOP Max</th><th>Annual Max</th></tr></thead><tbody>' +
-      t.selectedPlans.map(function(p) {
-        return '<tr><td>' + esc(p.planName) + '</td><td>' + esc(fmtCents(p.copayAmountCents)) + '</td><td>' + esc(fmtCents(p.deductibleAmountCents)) + '</td><td>' + esc(fmtCents(p.oopMaxCents)) + '</td><td>' + esc(fmtCents(p.annualBenefitMaxCents)) + '</td></tr>';
-      }).join('') + '</tbody></table></div>' +
+      agreementPlansSection(t) +
 
       '<div class="agreement-section"><h3>3. Terms</h3>' +
       '<p>All drug pricing follows the <strong>NADAC Transparent Pricing</strong> model. No rebates, clawbacks, or spread pricing.</p>' +
@@ -625,9 +694,10 @@
       '</label></div>' +
 
       (keypair ? '<div class="info-banner success" style="margin-bottom:12px">Signing key loaded.</div>' :
+        renewal ? '<div class="info-banner warning" style="margin-bottom:12px">The key that signed your agreement is not loaded in this browser. Ask the insurer to rekey your signed application, then sign the new terms with the new key.</div>' :
         '<div class="info-banner warning" style="margin-bottom:12px">Signing key lost (browser refresh). <button class="btn btn-primary" id="btn-regen-key" style="margin-left:8px">Generate New Key</button></div>') +
       '<div class="form-actions">' +
-        '<button class="btn btn-primary btn-lg" id="btn-sign" disabled>Sign Agreement</button>' +
+        '<button class="btn btn-primary btn-lg" id="btn-sign" disabled>' + (renewal ? 'Sign New Terms' : 'Sign Agreement') + '</button>' +
         '<span id="sign-status" style="font-size:13px;color:var(--text-muted)"></span>' +
       '</div></div>' +
 
@@ -659,7 +729,7 @@
       var titleOk = !!document.getElementById('signer-title')?.value;
       var attestOk = !!document.getElementById('attest-checkbox')?.checked;
       var btn = document.getElementById('btn-sign');
-      if (btn) btn.disabled = !(scrolled && nameOk && titleOk && attestOk && keypair);
+      if (btn) btn.disabled = !(scrolled && nameOk && titleOk && attestOk && keypair && t.selectedPlans.length > 0);
     }
 
     // Attach change listeners
@@ -737,7 +807,8 @@
       });
 
       toast('Agreement signed and registered!', 'success');
-      applicationStatus = 'signed';
+      // signing the new terms keeps an active employer active; a first signing moves the application to signed
+      if (applicationStatus !== 'active') applicationStatus = 'signed';
       persistState();
       navigate('activate');
     } catch (e) {

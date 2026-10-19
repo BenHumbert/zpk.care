@@ -545,12 +545,19 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
       if (!att) {
         return server.sendResponse(res, 200, true, { loaded: false, authorizedPlanIds: [], enrollmentCap: null, effectiveDate: null });
       }
+      // Whether the terms the employer signed are still what its plans' members are billed (null: could not tell). The
+      // node reads the plans from the sequencer at most once per EmployerNode.TERMS_STATUS_TTL_MS for this open route.
+      const terms = await node.attestationTermsStatus();
       server.sendResponse(res, 200, true, {
         loaded: true,
         authorizedPlanIds: att.authorizedPlanIds || [],
         enrollmentCap: att.enrollmentCap,
         effectiveDate: att.effectiveDate,
         employerId: att.employerId,
+        attestationSeq: att.attestationSeq,
+        termsChanged: terms.termsChanged,
+        signedBeforeFullTerms: terms.signedBeforeFullTerms,
+        unavailablePlanIds: terms.unavailablePlanIds,
       });
     },
   });
@@ -583,8 +590,10 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
 
       try {
         const allPlans = await node.getClient().getPlans();
-        // Only return published plans to employers
-        const published = allPlans.filter((p: any) => p.published);
+        // Plan-bound formularies: only plans with published terms are offered to employers, shown at those terms (what
+        // members are billed), never a draft the insurer is still editing.
+        const { planAsPublished, publishedTermsOf } = await import('../../l2/plan-terms.js');
+        const published = (Array.isArray(allPlans) ? allPlans : []).filter((p) => publishedTermsOf(p)).map((p) => planAsPublished(p));
         server.sendResponse(res, 200, true, published);
       } catch (err: any) {
         server.sendResponse(res, 502, false, undefined, 'Failed to fetch plans: ' + err.message);

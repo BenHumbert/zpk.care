@@ -17,6 +17,141 @@
 import { AccumulatorData, ACCUMULATOR_LEAF_INDEX } from './accumulator-data.js';
 import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
 
+/** A member's accumulator in whole cents: its limits (0 = none) and what has been paid against them. */
+export interface AccumulatorAmounts {
+  deductibleAmountCents: number;
+  deductiblePaidCents: number;
+  oopMaxCents: number;
+  oopPaidCents: number;
+  annualBenefitMaxCents: number;
+  annualBenefitUsedCents: number;
+}
+
+/** B8: the family's totals before a claim and the plan's family limits (0 = none), the six family inputs of the fill circuit. */
+export interface FamilyAmounts {
+  deductiblePaidCents: number;
+  oopPaidCents: number;
+  annualBenefitUsedCents: number;
+  familyDeductibleAmountCents: number;
+  familyOopMaxCents: number;
+  familyAnnualBenefitMaxCents: number;
+}
+
+/** The rule that decided the member's share of a claim. */
+export type ClaimPhase = 'deductible' | 'copay' | 'oop-max-reached' | 'benefit-max-reached';
+
+/** A claim's split between the member and the plan, with the deductible credit the fill records. */
+export interface ClaimSplit {
+  patientPayCents: number;
+  planPayCents: number;
+  /** The part of the patient pay that counts toward the deductible */
+  deductibleCreditCents: number;
+  /** B8, the circuit's familyRule: 0 none, 1 family OOP max met, 2 family benefit exhausted, 3 patient pay capped at the family OOP remaining, 4 plan pay capped at the family benefit remaining */
+  familyRule: 0 | 1 | 2 | 3 | 4;
+  /** Out-of-pocket max reached (individual or family, met before the claim or reached by it), else benefit max reached, else deductible, else copay */
+  phase: ClaimPhase;
+}
+
+/** A member's accumulator as whole cents. */
+export function accumulatorAmountsOf(acc: AccumulatorData): AccumulatorAmounts {
+  return {
+    deductibleAmountCents: Number(acc.deductibleAmountCents.toBigInt()),
+    deductiblePaidCents: Number(acc.deductiblePaidCents.toBigInt()),
+    oopMaxCents: Number(acc.oopMaxCents.toBigInt()),
+    oopPaidCents: Number(acc.oopPaidCents.toBigInt()),
+    annualBenefitMaxCents: Number(acc.annualBenefitMaxCents.toBigInt()),
+    annualBenefitUsedCents: Number(acc.annualBenefitUsedCents.toBigInt()),
+  };
+}
+
+const NO_FAMILY: FamilyAmounts = {
+  deductiblePaidCents: 0, oopPaidCents: 0, annualBenefitUsedCents: 0,
+  familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0,
+};
+
+/**
+ * How a claim splits between the member and the plan: the fill circuit's own rules (AccumulatorFulfillmentProgram,
+ * step 16 and the B8 family rules) in plain integers, in the circuit's order, so a quote made before the script equals
+ * what the fill proof will commit to for the same accumulators, total and copay.
+ *
+ *   deductible phase  a deductible is set and not met: the member pays min(total, deductible remaining), plus the
+ *                     copay on what is left of the total
+ *   copay             otherwise min(total, copay)
+ *   benefit max       the plan's share is capped at the annual benefit remaining; the member pays the rest
+ *   OOP max           the member's share is capped at the out-of-pocket remaining
+ *   family (B8)       family OOP max met: the member pays 0; family benefit exhausted: the member pays the total;
+ *                     else the member's share is capped at the family OOP remaining, then the plan's at the family
+ *                     benefit remaining
+ *
+ * A paid total at or over its limit means that limit is met (a limit lowered below what is paid included), as in the
+ * circuit, which compares before it subtracts. The deductible credit is min(patient pay, deductible portion).
+ */
+export function splitClaimCost(input: {
+  totalCostCents: number;
+  copayCents: number;
+  accumulator: AccumulatorAmounts;
+  family?: FamilyAmounts | null;
+}): ClaimSplit {
+  const total = input.totalCostCents;
+  const copay = input.copayCents;
+  const a = input.accumulator;
+  const f = input.family ?? NO_FAMILY;
+
+  // 16a: the deductible
+  const inDeductiblePhase = a.deductibleAmountCents > 0 && a.deductiblePaidCents < a.deductibleAmountCents;
+  const remainingDeductible = inDeductiblePhase ? a.deductibleAmountCents - a.deductiblePaidCents : 0;
+  const deductiblePay = total < remainingDeductible ? total : remainingDeductible;
+  const afterDeductible = total - deductiblePay;
+
+  // 16b: the copay, on what the deductible leaves in the deductible phase
+  const copayOnRemainder = afterDeductible < copay ? afterDeductible : copay;
+  const normalPay = total < copay ? total : copay;
+  const basePay = inDeductiblePhase ? deductiblePay + copayOnRemainder : normalPay;
+
+  // 16c: the annual benefit maximum caps the plan's share
+  const hasBenefitMax = a.annualBenefitMaxCents > 0;
+  const benefitExhausted = hasBenefitMax && a.annualBenefitUsedCents >= a.annualBenefitMaxCents;
+  const basePlanPay = total - basePay;
+  const remainingBenefit = benefitExhausted ? 0 : hasBenefitMax ? a.annualBenefitMaxCents - a.annualBenefitUsedCents : basePlanPay;
+  const benefitCapApplies = hasBenefitMax && basePlanPay > remainingBenefit;
+  const postBenefitPay = total - (benefitCapApplies ? remainingBenefit : basePlanPay);
+
+  // 16d: the out-of-pocket maximum caps the member's share
+  const hasOopMax = a.oopMaxCents > 0;
+  const oopMet = hasOopMax && a.oopPaidCents >= a.oopMaxCents;
+  const remainingOop = oopMet ? 0 : hasOopMax ? a.oopMaxCents - a.oopPaidCents : postBenefitPay;
+  const oopCapApplies = hasOopMax && postBenefitPay > remainingOop;
+  const individualPatientPay = oopCapApplies ? remainingOop : postBenefitPay;
+  const individualPlanPay = total - individualPatientPay;
+
+  // B8: family pooling, from the family's totals before this claim and the plan's family limits
+  const hasFamilyOopMax = f.familyOopMaxCents > 0;
+  const familyOopMet = hasFamilyOopMax && f.oopPaidCents >= f.familyOopMaxCents;
+  const hasFamilyBenefitMax = f.familyAnnualBenefitMaxCents > 0;
+  const familyBenefitExhausted = hasFamilyBenefitMax && f.annualBenefitUsedCents >= f.familyAnnualBenefitMaxCents;
+  const familyOopRemaining = familyOopMet ? 0 : hasFamilyOopMax ? f.familyOopMaxCents - f.oopPaidCents : individualPatientPay;
+  const familyOopCapApplies = hasFamilyOopMax && !familyOopMet && individualPatientPay > familyOopRemaining;
+  const familyBenefitRemaining = familyBenefitExhausted ? 0 : hasFamilyBenefitMax ? f.familyAnnualBenefitMaxCents - f.annualBenefitUsedCents : individualPlanPay;
+  const familyBenefitCapApplies = hasFamilyBenefitMax && !familyBenefitExhausted && individualPlanPay > familyBenefitRemaining;
+  const familyRule: ClaimSplit['familyRule'] = familyOopMet ? 1 : familyBenefitExhausted ? 2 : familyOopCapApplies ? 3 : familyBenefitCapApplies ? 4 : 0;
+  const patientPay = familyRule === 1 ? 0
+    : familyRule === 2 ? total
+      : familyRule === 3 ? familyOopRemaining
+        : familyRule === 4 ? total - familyBenefitRemaining
+          : individualPatientPay;
+
+  // 16e: only the deductible portion counts toward the deductible
+  const deductibleCredit = patientPay < deductiblePay ? patientPay : deductiblePay;
+
+  let phase: ClaimPhase;
+  if (familyRule === 1 || familyRule === 3 || (familyRule === 0 && (oopMet || oopCapApplies))) phase = 'oop-max-reached';
+  else if (familyRule === 2 || familyRule === 4 || (familyRule === 0 && (benefitExhausted || benefitCapApplies))) phase = 'benefit-max-reached';
+  else if (inDeductiblePhase) phase = 'deductible';
+  else phase = 'copay';
+
+  return { patientPayCents: patientPay, planPayCents: total - patientPay, deductibleCreditCents: deductibleCredit, familyRule, phase };
+}
+
 /**
  * Current accumulator status for a member — human-readable metrics.
  *
@@ -138,41 +273,12 @@ export class AccumulatorQueryService {
     totalCostCents: number,
     copayCents: number,
   ): { patientPayCents: number; planPayCents: number } {
-    const status = AccumulatorQueryService.getStatus(accumulatorData);
-
-    // 16a: Deductible phase
-    const inDeductiblePhase = status.deductibleAmountCents > 0 && !status.isDeductibleMet;
-    const deductiblePay = inDeductiblePhase
-      ? Math.min(status.deductibleRemainingCents, totalCostCents)
-      : 0;
-    const afterDeductible = totalCostCents - deductiblePay;
-
-    // 16b: Copay on post-deductible amount (split payment)
-    const copayOnRemainder = Math.min(afterDeductible, copayCents);
-    const normalPay = Math.min(copayCents, totalCostCents);
-    const basePay = inDeductiblePhase ? deductiblePay + copayOnRemainder : normalPay;
-
-    // 16c: Benefit maximum mid-claim cap
-    let basePlanPay = totalCostCents - basePay;
-    if (status.annualBenefitMaxCents > 0) {
-      const remainingBenefit = Math.max(0, status.benefitRemainingCents);
-      if (basePlanPay > remainingBenefit) {
-        basePlanPay = remainingBenefit;
-      }
-    }
-    let patientPay = totalCostCents - basePlanPay;
-
-    // 16d: OOPM mid-claim cap
-    if (status.oopMaxCents > 0) {
-      const remainingOopm = Math.max(0, status.oopRemainingCents);
-      if (patientPay > remainingOopm) {
-        patientPay = remainingOopm;
-      }
-    }
-
-    return {
-      patientPayCents: patientPay,
-      planPayCents: totalCostCents - patientPay,
-    };
+    // One rule for every quote: splitClaimCost, the fill circuit's step 16 with no family
+    const { patientPayCents, planPayCents } = splitClaimCost({
+      totalCostCents,
+      copayCents,
+      accumulator: accumulatorAmountsOf(accumulatorData),
+    });
+    return { patientPayCents, planPayCents };
   }
 }

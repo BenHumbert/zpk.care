@@ -536,14 +536,17 @@ async function main(): Promise<void> {
           break;
       }
     });
-    proofPool.start().then(() => {
+    const proofPoolStarted = proofPool.start().then(() => {
       interactiveService.setProofPool(proofPool);
       rpcServer.setEntityProofPoolStatus(() => ({
         status: { ...proofPool.getStatus() },
         workers: proofPool.getWorkerStatuses(),
       }));
       console.log('  [proof-pool] Proof pool ready — proving offloaded to child processes');
-    }).catch((err: unknown) => {
+    });
+    // a proof that arrives while the workers compile waits for them; proving inline would block this event loop
+    interactiveService.setProofPoolStarting(proofPoolStarted);
+    proofPoolStarted.catch((err: unknown) => {
       console.error('  [proof-pool] Failed to start proof pool:', err);
       console.log('  [proof-pool] Falling back to inline proving (will block event loop)');
     });

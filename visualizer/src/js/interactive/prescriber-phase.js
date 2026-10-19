@@ -39,6 +39,7 @@ import {
   truncHash,
 } from '../node-common.js';
 import { loadInteractiveState } from './state-client.js';
+import { nadacPerUnitLabel, parseQuantity } from './nadac-price.js';
 
 export class PrescriberPhase {
   constructor(app) {
@@ -251,8 +252,8 @@ export class PrescriberPhase {
         <div class="card-body">
           <div class="form-row">
             <div class="form-group">
-              <label>Quantity</label>
-              <input type="number" id="rx-quantity" value="30" min="1" max="999" />
+              <label>Quantity <span id="rx-quantity-unit">(pricing unit)</span></label>
+              <input type="number" id="rx-quantity" value="30" min="0.001" step="0.001" />
             </div>
             <div class="form-group">
               <label>Refills Authorized</label>
@@ -530,7 +531,7 @@ export class PrescriberPhase {
         <div class="label">Step Therapy</div><div class="value">${stepDisplay}</div>
         <div class="label">Max Qty/Fill</div><div class="value">${med.maxQuantityPerFill}</div>
         <div class="label">Max Day Supply</div><div class="value">${med.maxDaySupply}</div>
-        <div class="label">AWP Unit Price</div><div class="value">${formatCents(med.awpUnitPriceCents)}</div>
+        <div class="label">NADAC Unit Price</div><div class="value">${nadacPerUnitLabel(med)}</div>
         <div class="label">Manufacturer</div><div class="value">${med.manufacturer}</div>
         <div class="label">Therapeutic Class</div><div class="value">${med.therapeuticClass}</div>
         <div class="label">DEA Schedule</div><div class="value">${deaDisplay}</div>
@@ -551,8 +552,10 @@ export class PrescriberPhase {
       this.checkStepTherapyStatus(med.index, patientWalletId);
     }
 
-    // Update quantity default from medication
+    // Update quantity default from medication, in its NADAC pricing unit (EA, ML or GM): a 0.4 ML pen is 0.4
     document.getElementById('rx-quantity').value = med.maxQuantityPerFill;
+    const quantityUnit = document.getElementById('rx-quantity-unit');
+    if (quantityUnit) quantityUnit.textContent = med.pricingUnit ? `(${med.pricingUnit})` : '(pricing unit)';
 
     // DEA Schedule II: force refills to 0
     if (med.deaSchedule === 2) {
@@ -1016,8 +1019,13 @@ export class PrescriberPhase {
   async doWriteRx() {
     const btn = document.getElementById('btn-write-rx');
     const patientWalletId = document.getElementById('patient-select').value;
-    const quantity = parseInt(document.getElementById('rx-quantity').value, 10);
+    // thousandths of the pricing unit, as the engine takes them; never rounded to a whole unit
+    const quantity = parseQuantity(document.getElementById('rx-quantity').value);
     const refills = parseInt(document.getElementById('rx-refills').value, 10);
+    if (Number.isNaN(quantity)) {
+      alert('Quantity must be greater than 0, in the drug\'s pricing unit, with at most three decimals.');
+      return;
+    }
 
     btn.classList.add('loading');
     btn.disabled = true;

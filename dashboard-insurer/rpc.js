@@ -197,6 +197,22 @@ const API = (() => {
     return stripBigints(json.result);
   }
 
+  /**
+   * The engine's price of a fill (l2_estimateCost, through this node's /rpc proxy): NADAC x quantity plus the plan's fee,
+   * split as the fill would split it today. With a walletId it is that member's own quote, which the proxy forwards
+   * only for this node's administrator, so the request carries the admin token; with a planId, the plan's list price.
+   */
+  async function estimateCost(params) {
+    var res = await fetch(baseUrl + '/rpc', {
+      method: 'POST',
+      headers: headers(true),
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_estimateCost', params: params }),
+    });
+    var json = await res.json();
+    if (json.error) throw new Error(json.error.message || 'RPC error');
+    return stripBigints(json.result);
+  }
+
   function publishFormulary(planIdHash, formularyRoot, entriesJson) {
     return request('POST', '/admin/formulary/publish', { planIdHash, formularyRoot, entriesJson }, true);
   }
@@ -299,7 +315,7 @@ const API = (() => {
     getCredentialingStatus, suspendProvider, terminateProvider,
     getProviderRegistry,
     getPlans, getPlan, createPlan, updatePlan, deletePlan, publishPlan,
-    getFormulary, publishFormulary,
+    getFormulary, publishFormulary, estimateCost,
     getMessagesByWallet, getMessagesByThread, getMessageStoreStatus,
     getEmployerApplications, approveEmployerApplication, denyEmployerApplication, requestEmployerDocuments, getEmployerDocument,
     connectSSE, disconnectSSE, onConnectionChange, checkConnection,

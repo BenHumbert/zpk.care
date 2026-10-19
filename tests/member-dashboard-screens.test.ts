@@ -330,6 +330,22 @@ describe('(4) the claim card labels the ingredient cost as what it is', () => {
   });
 });
 
+describe('(8) the drug catalog promises no estimate a prescriber cannot show', () => {
+  // Review of the pricing fixes (F1): the catalog said the member's share "your prescriber's estimate shows it", but a
+  // prescriber's screen cannot read the member's own quote (the sequencer answers it to the member, the plan, or a
+  // caller holding the member's tap, and the prescriber app has no tap), so that estimate never appeared.
+  test('the catalog note says what the share depends on, and names no prescriber estimate', () => {
+    const containers: Record<string, { innerHTML: string }> = {};
+    const $ = (id: string) => (containers[id] = containers[id] ?? { innerHTML: '' });
+    const render = load([...HELPERS, fn('tierBadge'), fn('renderFormularyTable')], { $ }, 'renderFormularyTable');
+    render([{ brandName: 'ABACAVIR', strength: '300 MG', tierLevel: 1, nadacPerUnit: 0.60042, pricingUnit: 'EA', dosageForm: 'TABLET', maxDaySupply: 90 }], 1, 0, false);
+    const html = containers['formulary-table'].innerHTML;
+    expect(html).toContain('$18.01 (30 EA)');
+    expect(html).toContain('what you pay depends on your plan\'s copay and your deductible');
+    expect(html).not.toMatch(/prescriber/i);                          // before: "your prescriber's estimate shows it"
+  });
+});
+
 describe('labels the demo shows', () => {
   test('the completion screen names no "Adjuda-GATOR network", and says what stayed on the phone', () => {
     expect(APP).not.toContain('registered on the Adjuda-GATOR network');

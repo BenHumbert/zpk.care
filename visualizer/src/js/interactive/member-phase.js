@@ -30,6 +30,7 @@ import {
   renderSectionCard, renderMetricRow, renderSortableTable,
   truncHash,
 } from '../node-common.js';
+import { nadacPerUnitLabel } from './nadac-price.js';
 
 const PCP_ELIGIBLE_SPECIALTIES = [
   'Internal Medicine',
@@ -1001,7 +1002,7 @@ export class MemberPhase {
         <div class="label">Step Therapy</div><div class="value">${step ? '<span class="step-therapy-badge">Required</span>' : '<span style="color: var(--accent-green);">Not Required</span>'}</div>
         <div class="label">Max Qty/Fill</div><div class="value">${med.maxQuantityPerFill}</div>
         <div class="label">Max Day Supply</div><div class="value">${med.maxDaySupply}</div>
-        <div class="label">AWP Unit Price</div><div class="value">${formatCents(med.awpUnitPriceCents)}</div>
+        <div class="label">NADAC Unit Price</div><div class="value">${nadacPerUnitLabel(med)}</div>
         <div class="label">Manufacturer</div><div class="value">${med.manufacturer}</div>
         <div class="label">Therapeutic Class</div><div class="value">${med.therapeuticClass}</div>
         <div class="label">DEA Schedule</div><div class="value">${deaDisplay}</div>

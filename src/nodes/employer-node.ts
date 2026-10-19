@@ -150,6 +150,43 @@ export class EmployerNode extends EntityNodeBase {
     return this.attestation;
   }
 
+  /** The last answer of attestationTermsStatus, for the attestation it was computed for. */
+  private termsStatusCache: {
+    at: number;
+    attestation: import('../l2/l2-types.js').EmployerAttestation;
+    value: Promise<{ termsChanged: boolean | null; signedBeforeFullTerms: boolean | null; unavailablePlanIds: string[] }>;
+  } | null = null;
+
+  /** How long an attestationTermsStatus answer is reused, so the open GET /attestation reads the plans at most this often. */
+  static readonly TERMS_STATUS_TTL_MS = 30_000;
+
+  /**
+   * Whether the loaded attestation still commits to what its plans' members are billed (attestationTermsStatus in
+   * src/onboarding/employer-attestation.ts), against the plans as the sequencer holds them now, and whether it was
+   * signed before agreements covered every published term (signedBeforeFullTerms). Both are null with no attestation
+   * loaded or when the plans cannot be read. When either is true the employer can sign the current terms on the
+   * marketplace, which registers the next attestation (seq + 1). The answer is reused for TERMS_STATUS_TTL_MS (or until
+   * another attestation is loaded), so callers cannot drive one sequencer read per request.
+   */
+  async attestationTermsStatus(): Promise<{ termsChanged: boolean | null; signedBeforeFullTerms: boolean | null; unavailablePlanIds: string[] }> {
+    const att = this.attestation;
+    if (!att) return { termsChanged: null, signedBeforeFullTerms: null, unavailablePlanIds: [] };
+    const cached = this.termsStatusCache;
+    if (cached && cached.attestation === att && Date.now() - cached.at < EmployerNode.TERMS_STATUS_TTL_MS) return cached.value;
+    const value = (async () => {
+      try {
+        const plans = await this.client.getPlans();
+        const { attestationTermsStatus } = await import('../onboarding/employer-attestation.js');
+        const status = attestationTermsStatus(att, Array.isArray(plans) ? plans : []);
+        return { termsChanged: status.termsChanged, signedBeforeFullTerms: status.signedBeforeFullTerms, unavailablePlanIds: status.unavailablePlanIds };
+      } catch {
+        return { termsChanged: null, signedBeforeFullTerms: null, unavailablePlanIds: [] };
+      }
+    })();
+    this.termsStatusCache = { at: Date.now(), attestation: att, value };
+    return value;
+  }
+
   /** Whether attestation is required for plan authorization (set via config) */
   private requireAttestation = false;
 

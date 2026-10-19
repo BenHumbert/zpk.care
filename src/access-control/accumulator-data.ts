@@ -112,6 +112,26 @@ export function withAmountsPaid(
   });
 }
 
+/**
+ * The same plan year and amounts paid under new limits: a member moved onto its plan's republished deductible, OOP
+ * maximum and annual benefit maximum keeps everything it has paid. A limit lowered below what is already paid is met:
+ * the fill circuit compares paid >= limit before it subtracts (accumulator-fulfillment-program.ts, step 16).
+ */
+export function withLimits(
+  acc: AccumulatorData,
+  limits: { deductibleAmountCents: number; oopMaxCents: number; annualBenefitMaxCents: number },
+): AccumulatorData {
+  return new AccumulatorData({
+    planYear: acc.planYear,
+    deductibleAmountCents: centsToField(limits.deductibleAmountCents),
+    deductiblePaidCents: acc.deductiblePaidCents,
+    oopMaxCents: centsToField(limits.oopMaxCents),
+    oopPaidCents: acc.oopPaidCents,
+    annualBenefitMaxCents: centsToField(limits.annualBenefitMaxCents),
+    annualBenefitUsedCents: acc.annualBenefitUsedCents,
+  });
+}
+
 /** A-35: the start of a new plan year: the same limits, nothing paid. */
 export function forNewPlanYear(acc: AccumulatorData, planYear: string): AccumulatorData {
   return new AccumulatorData({

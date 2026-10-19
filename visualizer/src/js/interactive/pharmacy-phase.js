@@ -48,6 +48,10 @@ import {
   truncHash,
 } from '../node-common.js';
 import { loadInteractiveState } from './state-client.js';
+import {
+  nadacIngredientPreview, nadacPerUnitLabel, engineFillPriceLine,
+  parseQuantity, quantityMilli, remainingQuantity, formatQuantity,
+} from './nadac-price.js';
 
 export class PharmacyPhase {
   constructor(app) {
@@ -462,7 +466,7 @@ export class PharmacyPhase {
     const rows = fillable.map(rx => {
       const med = state.demoData.medications[rx.medicationIndex];
       const member = state.enrolledMembers.find(m => m.walletId === rx.memberWalletId);
-      const remaining = rx.quantity - (rx.quantityDispensed || 0);
+      const remaining = remainingQuantity(rx.quantity, rx.quantityDispensed);
       const isSelected = rx.id === this.selectedRxId;
       const statusClass = `rx-status-${rx.status.toLowerCase().replace('_', '-')}`;
       return `
@@ -529,8 +533,10 @@ export class PharmacyPhase {
     const member = state.enrolledMembers.find(m => m.walletId === currentRx.memberWalletId);
     const accumulator = member ? member.accumulator : { deductiblePaidCents: 0, oopPaidCents: 0 };
     const plan = state.demoData.plan;
-    const remainingQty = currentRx.quantity - (currentRx.quantityDispensed || 0);
-    const totalCostCents = med.awpUnitPriceCents * remainingQty + 200;
+    const billing = memberBilling(member, med, plan);
+    const remainingQty = remainingQuantity(currentRx.quantity, currentRx.quantityDispensed);
+    // NADAC pricing: the console previews only the ingredient (NADAC x quantity); the engine adds the member's plan fee
+    const ingredientPreview = nadacIngredientPreview(med, remainingQty);
     const isPartial = currentRx.status === 'PARTIALLY_FILLED';
     const isDispensed = currentRx.status === 'DISPENSED';
 
@@ -565,10 +571,10 @@ export class PharmacyPhase {
             <div class="label">Drug</div><div class="value">${med.brandName} ${med.strength}</div>
             <div class="label">NDC</div><div class="value mono">${med.ndc}</div>
             <div class="label">Tier</div><div class="value"><span class="tier-badge tier-${med.tier}">Tier ${med.tier}</span></div>
-            <div class="label">Copay</div><div class="value">${formatCents(med.copayAmountCents)}</div>
-            <div class="label">Qty Prescribed</div><div class="value">${currentRx.quantity}</div>
-            ${isPartial ? `<div class="label">Qty Dispensed</div><div class="value">${currentRx.quantityDispensed}</div>` : ''}
-            <div class="label">Qty Remaining</div><div class="value" ${isPartial ? 'style="color: var(--accent-yellow); font-weight: 600;"' : ''}>${remainingQty}</div>
+            <div class="label">${billing.copayLabel}</div><div class="value">${formatCents(billing.copayCents)}</div>
+            <div class="label">Qty Prescribed</div><div class="value">${formatQuantity(currentRx.quantity, med)}</div>
+            ${isPartial ? `<div class="label">Qty Dispensed</div><div class="value">${formatQuantity(currentRx.quantityDispensed, med)}</div>` : ''}
+            <div class="label">Qty Remaining</div><div class="value" ${isPartial ? 'style="color: var(--accent-yellow); font-weight: 600;"' : ''}>${formatQuantity(remainingQty, med)}</div>
             <div class="label">Refills</div><div class="value">${currentRx.refills || 0}</div>
             <div class="label">Prescriber</div><div class="value">Dr. ${prescriber.firstName} ${prescriber.lastName}, ${prescriber.credential}</div>
             <div class="label">Patient</div><div class="value">${member ? member.displayName : 'Unknown'}</div>
@@ -592,16 +598,16 @@ export class PharmacyPhase {
             <div class="progress-container">
               <div class="progress-label">
                 <span>Deductible</span>
-                <span>${formatCents(accumulator.deductiblePaidCents)} / ${formatCents(plan.deductibleAmountCents)}</span>
+                <span>${formatCents(accumulator.deductiblePaidCents)} / ${formatCents(billing.deductibleAmountCents)}</span>
               </div>
-              <div class="progress-bar"><div class="fill deductible" style="width: ${pct(accumulator.deductiblePaidCents, plan.deductibleAmountCents)}%"></div></div>
+              <div class="progress-bar"><div class="fill deductible" style="width: ${pct(accumulator.deductiblePaidCents, billing.deductibleAmountCents)}%"></div></div>
             </div>
             <div class="progress-container">
               <div class="progress-label">
                 <span>Out-of-Pocket Max</span>
-                <span>${formatCents(accumulator.oopPaidCents)} / ${formatCents(plan.oopMaxCents)}</span>
+                <span>${formatCents(accumulator.oopPaidCents)} / ${formatCents(billing.oopMaxCents)}</span>
               </div>
-              <div class="progress-bar"><div class="fill oop" style="width: ${pct(accumulator.oopPaidCents, plan.oopMaxCents)}%"></div></div>
+              <div class="progress-bar"><div class="fill oop" style="width: ${pct(accumulator.oopPaidCents, billing.oopMaxCents)}%"></div></div>
             </div>
           </div>
         </div>
@@ -621,21 +627,22 @@ export class PharmacyPhase {
                 style="color: var(--accent-green); font-weight: 600; font-size: 12px;" />
             </div>
             <div class="form-group">
-              <label>Quantity to Dispense</label>
-              <input type="number" id="fill-quantity" value="${remainingQty}" min="1" max="${remainingQty}" />
-              ${remainingQty < currentRx.quantity ? `<div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Max: ${remainingQty} remaining</div>` : ''}
+              <label>Quantity to Dispense${med.pricingUnit ? ` (${med.pricingUnit})` : ''}</label>
+              <input type="number" id="fill-quantity" value="${remainingQty}" min="0.001" step="0.001" max="${remainingQty}" />
+              ${quantityMilli(remainingQty) < quantityMilli(currentRx.quantity) ? `<div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Max: ${formatQuantity(remainingQty, med)} remaining</div>` : ''}
             </div>
             <div class="form-group">
-              <label>Ingredient Cost</label>
-              <input type="text" id="fill-ingredient" value="${formatCents(med.awpUnitPriceCents * remainingQty)}" readonly />
+              <label>Ingredient Cost (NADAC)</label>
+              <input type="text" id="fill-ingredient" value="${ingredientPreview.cents != null ? formatCents(ingredientPreview.cents) : 'Not priced'}" readonly />
+              <div id="fill-ingredient-basis" style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">${ingredientPreview.text}</div>
             </div>
             <div class="form-group">
               <label>Dispensing Fee</label>
-              <input type="text" id="fill-dispensing" value="$2.00" readonly />
+              <input type="text" id="fill-dispensing" value="The member's plan fee, added at the fill" readonly />
             </div>
             <div class="form-group">
               <label>Total Cost</label>
-              <input type="text" id="fill-total" value="${formatCents(totalCostCents)}" readonly style="font-weight: 700;" />
+              <input type="text" id="fill-total" value="Ingredient + plan fee, priced by the engine at the fill" readonly style="font-weight: 700;" />
             </div>
           </div>
           <div style="display: flex; gap: 8px; align-items: center;">
@@ -680,7 +687,7 @@ export class PharmacyPhase {
           <td>${m.dosageForm}</td>
           <td><span class="tier-badge tier-${tier}">Tier ${tier}</span></td>
           <td>${formatCents(copay)}</td>
-          <td>${formatCents(m.awpUnitPriceCents)}</td>
+          <td>${nadacPerUnitLabel(m)}</td>
           <td>${paBadge}</td>
           <td>${m.maxQuantityPerFill}</td>
         </tr>
@@ -706,7 +713,7 @@ export class PharmacyPhase {
                   <th>Dosage Form</th>
                   <th>Tier</th>
                   <th>Copay</th>
-                  <th>AWP/Unit</th>
+                  <th>NADAC/Unit</th>
                   <th>PA?</th>
                   <th>Max Qty</th>
                 </tr>
@@ -791,8 +798,7 @@ export class PharmacyPhase {
         <div class="label">Step Therapy</div><div class="value">${stepDisplay}</div>
         <div class="label">Max Qty/Fill</div><div class="value">${med.maxQuantityPerFill}</div>
         <div class="label">Max Day Supply</div><div class="value">${med.maxDaySupply}</div>
-        <div class="label">AWP Unit Price</div><div class="value">${formatCents(med.awpUnitPriceCents)}</div>
-        <div class="label">AWP Package Price</div><div class="value">${formatCents(med.awpPackagePriceCents)} (${med.packageSize} units)</div>
+        <div class="label">NADAC Unit Price</div><div class="value">${nadacPerUnitLabel(med)}</div>
         <div class="label">Manufacturer</div><div class="value">${med.manufacturer}</div>
         <div class="label">Therapeutic Class</div><div class="value">${med.therapeuticClass}</div>
         <div class="label">DEA Schedule</div><div class="value">${deaDisplay}</div>
@@ -1232,21 +1238,23 @@ export class PharmacyPhase {
   bindFillDetailEvents(currentRx, med, state) {
     const qtyInput = document.getElementById('fill-quantity');
     const ingredientInput = document.getElementById('fill-ingredient');
-    const totalInput = document.getElementById('fill-total');
-    const remainingQty = currentRx.quantity - (currentRx.quantityDispensed || 0);
+    const ingredientBasis = document.getElementById('fill-ingredient-basis');
+    const remainingQty = remainingQuantity(currentRx.quantity, currentRx.quantityDispensed);
 
     if (qtyInput) {
       qtyInput.addEventListener('input', () => {
-        let qty = parseInt(qtyInput.value, 10) || 0;
-        // FWA guard: clamp to remaining quantity
-        if (qty > remainingQty) {
+        // thousandths of the pricing unit, as the engine takes them (0.4 ML); anything else previews no price
+        let qty = parseQuantity(qtyInput.value);
+        if (Number.isNaN(qty)) qty = 0;
+        // FWA guard: clamp to remaining quantity, compared in exact thousandths
+        if (quantityMilli(qty) > quantityMilli(remainingQty)) {
           qty = remainingQty;
           qtyInput.value = qty;
         }
-        if (qty < 1) qty = 0;
-        const cost = med.awpUnitPriceCents * qty;
-        ingredientInput.value = formatCents(cost);
-        totalInput.value = formatCents(cost + 200);
+        // The NADAC ingredient for this quantity; the dispensing fee is the member's plan fee, added by the engine
+        const preview = nadacIngredientPreview(med, qty);
+        if (ingredientInput) ingredientInput.value = preview.cents != null ? formatCents(preview.cents) : 'Not priced';
+        if (ingredientBasis) ingredientBasis.textContent = preview.text;
       });
     }
 
@@ -1302,16 +1310,17 @@ export class PharmacyPhase {
 
   async doFill(currentRx, med) {
     const btn = document.getElementById('btn-fill');
-    const qty = parseInt(document.getElementById('fill-quantity').value, 10);
+    // In the drug's pricing unit, to thousandths (0.4 ML), as the engine takes it; never rounded to a whole unit.
+    const qty = parseQuantity(document.getElementById('fill-quantity').value);
 
     // FWA guard: reject quantity exceeding prescription
-    if (!qty || qty < 1) {
-      alert('Quantity must be at least 1.');
+    if (Number.isNaN(qty)) {
+      alert(`Quantity must be greater than 0, in ${med.pricingUnit || 'the pricing unit'}, with at most three decimals.`);
       return;
     }
-    const remainingQty = currentRx.quantity - (currentRx.quantityDispensed || 0);
-    if (qty > remainingQty) {
-      alert(`Quantity dispensed (${qty}) exceeds remaining qty (${remainingQty}). Fill rejected.`);
+    const remainingQty = remainingQuantity(currentRx.quantity, currentRx.quantityDispensed);
+    if (quantityMilli(qty) > quantityMilli(remainingQty)) {
+      alert(`Quantity dispensed (${formatQuantity(qty, med)}) exceeds remaining qty (${formatQuantity(remainingQty, med)}). Fill rejected.`);
       return;
     }
 
@@ -1396,6 +1405,9 @@ export class PharmacyPhase {
    * Render the fill result card (extracted from doFill for clarity).
    */
   _renderFillResult(result, currentRx) {
+    // The engine's fill result names the credentials *Credential. This card read the names from before that rename
+    // (*Nft) and threw after every fill, so the engine's numbers in it were never shown.
+    const elig = result.eligibilityCredential || {};
     const sd = result.serviceDateStr;
     const serviceDateDisplay = sd
       ? sd.slice(4,6) + '/' + sd.slice(6,8) + '/' + sd.slice(0,4)
@@ -1416,7 +1428,10 @@ export class PharmacyPhase {
         <div class="data-grid">
           <div class="label">Service Date</div><div class="value" style="color: var(--accent-green); font-weight: 600;">${serviceDateDisplay}</div>
           <div class="label">Phase</div><div class="value">${result.adjudication.phase}</div>
+          ${result.adjudication.ingredientCostCents != null ? `<div class="label">Ingredient (NADAC)</div><div class="value">${formatCents(result.adjudication.ingredientCostCents)}</div>` : ''}
+          ${result.adjudication.dispensingFeeCents != null ? `<div class="label">Dispensing Fee</div><div class="value">${formatCents(result.adjudication.dispensingFeeCents)}${result.adjudication.pricing ? (result.adjudication.pricing.dispensingFeeSource === 'plan' ? ' (plan)' : ' (network default)') : ''}</div>` : ''}
           <div class="label">Total Cost</div><div class="value">${formatCents(result.adjudication.totalCostCents)}</div>
+          ${engineFillPriceLine(result.adjudication.pricing) ? `<div class="label">Priced As</div><div class="value mono">${engineFillPriceLine(result.adjudication.pricing)}</div>` : ''}
           <div class="label">Patient Pay</div><div class="value" style="color: var(--accent-orange); font-weight: 700;">${formatCents(result.adjudication.patientPayCents)}</div>
           <div class="label">Plan Pay</div><div class="value" style="color: var(--accent-green); font-weight: 700;">${formatCents(result.adjudication.planPayCents)}</div>
         </div>
@@ -1465,9 +1480,9 @@ export class PharmacyPhase {
 
         <h4 style="color: var(--accent-blue); margin: 16px 0 8px; font-size: 13px;">ELIGIBILITY CREDENTIAL</h4>
         <div class="data-grid">
-          <div class="label">Forest Root BEFORE</div><div class="value mono">${result.eligibilityNft.oldForestRoot}</div>
-          <div class="label">Forest Root AFTER</div><div class="value mono highlight">${result.eligibilityNft.newForestRoot}</div>
-          <div class="label">Changed</div><div class="value" style="color: ${result.eligibilityNft.changed ? 'var(--accent-green)' : 'var(--accent-red)'};">${result.eligibilityNft.changed ? 'YES \u2014 accumulator updated in credential' : 'NO (unexpected)'}</div>
+          <div class="label">Forest Root BEFORE</div><div class="value mono">${elig.oldForestRoot}</div>
+          <div class="label">Forest Root AFTER</div><div class="value mono highlight">${elig.newForestRoot}</div>
+          <div class="label">Changed</div><div class="value" style="color: ${elig.changed ? 'var(--accent-green)' : 'var(--accent-red)'};">${elig.changed ? 'YES \u2014 accumulator updated in credential' : 'NO (unexpected)'}</div>
         </div>
 
         <div class="mt-4" style="font-size: 12px; color: var(--text-secondary);">
@@ -1492,11 +1507,11 @@ export class PharmacyPhase {
         ${renderZkDataSection('FulfillmentData (7 Fields)', result.fulfillmentDetail, 'pharmacy', '7 fields', result.fulfillmentDetail ? result.fulfillmentDetail.commitment : '')}
         ${renderZkDataSection('Filled PrescriptionStatusData', result.filledStatusData, 'pharmacy', '7 fields', result.filledStatusData ? result.filledStatusData.commitment : '')}
         ${this.renderSettlementSection(result)}
-        ${renderCredentialCard('Updated Prescription Credential', result.updatedPrescriptionNft, 'prescriber')}
+        ${renderCredentialCard('Updated Prescription Credential', result.updatedPrescriptionCredential, 'prescriber')}
         ${renderForestCard('Updated Prescription Forest', result.updatedPrescriptionForest, 'prescriber')}
-        ${renderCredentialCard('Eligibility Credential (Before Fill)', result.oldEligibilityNft, 'member')}
+        ${renderCredentialCard('Eligibility Credential (Before Fill)', result.oldEligibilityCredential, 'member')}
         ${renderForestCard('Eligibility Forest (Before Fill)', result.oldEligibilityForest, 'member')}
-        ${renderCredentialCard('Updated Eligibility Credential (After Fill)', result.updatedEligibilityNft, 'member')}
+        ${renderCredentialCard('Updated Eligibility Credential (After Fill)', result.updatedEligibilityCredential, 'member')}
         ${renderForestCard('Updated Eligibility Forest (After Fill)', result.updatedEligibilityForest, 'member')}
         ${result.l2Receipt ? this.renderL2Receipt(result.l2Receipt) : ''}
       </div>
@@ -1569,8 +1584,13 @@ export class PharmacyPhase {
       }
 
       const result = await res.json();
-      const plan = state.demoData.plan;
-      const credChanged = result.eligibilityNft.oldForestRoot !== result.eligibilityNft.newForestRoot;
+      // the member's own limits, as on the fill screen (the reversal result carries none)
+      const reversedRx = (state.prescriptions || []).find(rx => rx.id === rxId);
+      const reversedMember = reversedRx ? (state.enrolledMembers || []).find(m => m.walletId === reversedRx.memberWalletId) : null;
+      const limits = memberBilling(reversedMember, {}, state.demoData.plan);
+      // the reversal result's name for it since the credential rename (it was eligibilityNft)
+      const elig = result.eligibilityCredential || {};
+      const credChanged = elig.oldForestRoot !== elig.newForestRoot;
 
       if (resultDiv) {
         resultDiv.classList.remove('hidden');
@@ -1590,22 +1610,22 @@ export class PharmacyPhase {
             <div class="progress-container">
               <div class="progress-label">
                 <span>Deductible</span>
-                <span>${formatCents(result.accumulator.before.deductiblePaidCents)} \u2192 ${formatCents(result.accumulator.after.deductiblePaidCents)} / ${formatCents(plan.deductibleAmountCents)}</span>
+                <span>${formatCents(result.accumulator.before.deductiblePaidCents)} \u2192 ${formatCents(result.accumulator.after.deductiblePaidCents)} / ${formatCents(limits.deductibleAmountCents)}</span>
               </div>
-              <div class="progress-bar"><div class="fill deductible" style="width: ${pct(result.accumulator.after.deductiblePaidCents, plan.deductibleAmountCents)}%"></div></div>
+              <div class="progress-bar"><div class="fill deductible" style="width: ${pct(result.accumulator.after.deductiblePaidCents, limits.deductibleAmountCents)}%"></div></div>
             </div>
             <div class="progress-container">
               <div class="progress-label">
                 <span>Out-of-Pocket Max</span>
-                <span>${formatCents(result.accumulator.before.oopPaidCents)} \u2192 ${formatCents(result.accumulator.after.oopPaidCents)} / ${formatCents(plan.oopMaxCents)}</span>
+                <span>${formatCents(result.accumulator.before.oopPaidCents)} \u2192 ${formatCents(result.accumulator.after.oopPaidCents)} / ${formatCents(limits.oopMaxCents)}</span>
               </div>
-              <div class="progress-bar"><div class="fill oop" style="width: ${pct(result.accumulator.after.oopPaidCents, plan.oopMaxCents)}%"></div></div>
+              <div class="progress-bar"><div class="fill oop" style="width: ${pct(result.accumulator.after.oopPaidCents, limits.oopMaxCents)}%"></div></div>
             </div>
 
             <h4 style="color: var(--accent-blue); margin: 16px 0 8px; font-size: 13px;">ELIGIBILITY CREDENTIAL</h4>
             <div class="data-grid">
-              <div class="label">Forest Root BEFORE</div><div class="value mono">${result.eligibilityNft.oldForestRoot}</div>
-              <div class="label">Forest Root AFTER</div><div class="value mono highlight">${result.eligibilityNft.newForestRoot}</div>
+              <div class="label">Forest Root BEFORE</div><div class="value mono">${elig.oldForestRoot}</div>
+              <div class="label">Forest Root AFTER</div><div class="value mono highlight">${elig.newForestRoot}</div>
               <div class="label">Changed</div><div class="value" style="color: ${credChanged ? 'var(--accent-green)' : 'var(--accent-red)'};">${credChanged ? 'YES \u2014 accumulator rolled back in credential' : 'NO (unexpected)'}</div>
             </div>
 
@@ -1967,4 +1987,24 @@ export class PharmacyPhase {
 function pct(current, max) {
   if (max === 0) return 0;
   return Math.min(100, (current / max * 100)).toFixed(1);
+}
+
+/**
+ * What a member is billed under, for the fill and reversal screens. A member on the console's formulary (a fixture,
+ * memberIndex >= 0, or a member bound to PLAN-GOLD-2026, which has no plan record) pays the drug's catalog tier copay;
+ * any other member pays its own plan's copay, the one its credential names (eligibility.copayAmountCents). The
+ * deductible and out-of-pocket maximum are the member's own, as its accumulator is bound; the console's PLAN-GOLD-2026
+ * template only when the member is not known.
+ */
+function memberBilling(member, med, template) {
+  const onConsoleFormulary = !member || member.memberIndex >= 0 || member.planId === 'PLAN-GOLD-2026';
+  const planCopay = member && member.eligibility ? Number(member.eligibility.copayAmountCents) : NaN;
+  const tier = onConsoleFormulary || !Number.isFinite(planCopay);
+  const limits = member && member.accumulator && member.accumulator.limits;
+  return {
+    copayLabel: tier ? 'Tier copay' : 'Plan copay',
+    copayCents: tier ? med.copayAmountCents : planCopay,
+    deductibleAmountCents: limits ? Number(limits.deductibleAmountCents) : template.deductibleAmountCents,
+    oopMaxCents: limits ? Number(limits.oopMaxCents) : template.oopMaxCents,
+  };
 }

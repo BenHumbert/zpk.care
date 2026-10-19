@@ -2933,3 +2933,62 @@ fixed; 3 open (A-22, A-25, A-33 under the interim lease), none critical. Verifie
 typecheck src 20, scripts 2; single-member pipeline 220 of 220; multi-member, concurrent, 201 of 201. Git: with this commit,
 63 commits on local `dev`, nothing pushed. **Next:** plan-bound formularies, then NADAC plus fee pricing, then the
 first video.
+
+**Addendum, 2026-10-19: the pricing review's defects fixed (A-47 to A-58).** The pricing commit before this one
+(e2f0864) has no entry of its own here; its commit message is its record. In short: publishing a plan snapshots its
+terms (`publishedTerms`) and builds the plan's own formulary from its drug list, each drug at the plan's copay; a
+member's credential names that formulary, and the member moves to a republished version at its next prescribe, PA
+approval or fill; a fill costs NADAC times quantity plus the plan's dispensing fee, and a dispense that states another
+cost is refused with 409 before any proof. Verified there: regression batch 72 suites, 939 tests; accumulator and
+proof-table 63 of 63; typecheck src 20, scripts 2; single-member 245 of 245 and four-member concurrent 219 of 219,
+each on a clean secured boot.
+
+An independent three-lens review of e2f0864 (money, security, regressions) found 13 defects (F1 to F12; F4 and F4b are
+one), three of them medium. Two fix agents fixed them; a second three-lens review of the fixes found 21 more items,
+and the confirmed ones were fixed. They are entered as eleven findings, one defect class each, all fixed in this
+commit: A-47, screens showed prices and limits the fill does not charge (the prescriber's and the insurer's estimates,
+the console's fill preview, the pharmacy list, the member's limits and catalog); A-48, the employer's signed agreement
+did not commit what its members are billed; A-49, the insurer node's /rpc proxy handed any member's quote to an
+unauthenticated caller; A-50, a republish moved only part of a member; A-51, a draft saved during a publish was
+labelled published; A-52, quantities had no unit and less than one unit could not be dispensed; A-53, the benefit-plan
+registry gave a witness from one tree and a root from another, and answered 500 when full; A-54, a typed 0 in the
+insurer's plan form became the default; A-55, plans published before plan-bound formularies looked published and bound
+no one; A-56, the plan formulary cache thrashed past 32 plans on the sequencer's thread; A-57, the step-therapy
+display read answered 409 for a published plan. What changed, and the acceptance suites, are in each row of
+`docs/AUDIT.md`; the code map is updated (`docs/CODEMAP.md` §4 and the detail files). Two review items were left for
+the owner: a prescriber reading the member's quote, (a) below, and the family deductible, (b).
+
+*Owner decisions, 2026-10-19 evening.* (a) A prescriber may see the member's own pricing and the drug's formulary
+availability (covered, prior authorization, step therapy, quantity limit) before writing the script, so the prescriber
+can start the prior-authorization pathway. It is bounded by the consent that lets a prescriber prescribe for her: the
+member's named PCP, or a prescriber she authorized from her device (B5). It is to be implemented next, with a
+prescriber credential on the node routes until provider sign-in (B4, passkeys). (b) Family limits wait until later:
+the family deductible, which the circuit does not apply, stays as it is. (c) The insurer node must stop forwarding
+member quotes. This commit makes every non-member node proxy require the node admin credential for member-data reads
+(A-49); the next commit removes `l2_estimateCost` from the insurer, pharmacy and prescriber proxy catalogs.
+
+*Open, from the fix reports.* The BenefitPlanRegistry holds 128 plan versions; more needs a circuit change
+(EligibilityProgram's witness height). Partial fills stay blocked: PrescriptionProgram refuses FILLED to
+PARTIALLY_FILLED, and whether each fill of one prescription owes the dispensing fee is a question for the owner. The
+plan formulary cache ceiling (128 versions, about 256 MB at the 1,024-drug cap) wants real plan sizes, and a member
+quote on a cache miss rebuilds the formulary on the RPC thread. Re-signing new terms needs the key that signed first,
+which the browser holds in memory only; without it the insurer's `rekey-signed` revokes the attestation first. The
+owner decides whether a publish that changes an active attestation's terms is refused or warned about. Leftovers
+scheduled next: the `l2-client` `estimateCost` return type; `planStoreError` checking the live limit fields; the
+insurer Formulary page's copay `|| 1000`; the AWP column in `visualizer/src/js/pharmacy-dashboard.js`;
+dashboard-employer showing `termsChanged`, `signedBeforeFullTerms` and `plansToAdd`.
+
+A-58 came from the four-member live run of these fixes. A member's enrollment code was refused because the sequencer
+did not answer an employer lookup for 6.4 s: the engine had proved a prescription's first proofs inline while its
+proof pool was still compiling, on the event loop the sequencer shares. A proof that arrives while a configured pool
+starts now waits for it (`setProofPoolStarting`); inline proving remains only when no pool is configured or the pool
+failed to start. The single-member run that followed proved nothing inline.
+
+The regression list grows from 72 to 89 suites: this commit's 17 fast suites are added, and
+`tests/plan-republish-limits-proof.test.ts` stays out as slow, like `accumulator.test.ts`. Typecheck src 18, down from
+20 by two real fixes (the `publishError` typing in insurer-routes and the docx Table array in employer-attestation);
+scripts 2. Scoreboard: 58 findings; 55 fixed; 3 open (A-22, A-25, A-33 under the interim lease), none critical.
+Verified: regression batch 89 suites, 1086 tests, all passing; slow suites plan-republish-limits-proof 2 of 2 and
+accumulator 59 of 59; typecheck src 18, scripts 2; live runs: single-member 245 of 245 and four-member concurrent
+220 of 220, each on a clean secured boot. Git: with this commit, 66 commits on local `dev`, nothing pushed. **Next:**
+decision (a), and the proxy catalogs in (c), with the leftovers above.

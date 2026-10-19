@@ -77,9 +77,9 @@ Checks inside the node: `createGroup` dup (171), fail-closed without attestation
 | GET | /messaging/inbox | OPEN | node | `getMessagesByRecipient(employerWalletId)` | — | 463-476 |
 | GET | /messaging/sent | OPEN | node | `getMessagesBySender` | — | 478-491 |
 | GET | /messaging/thread/:threadIdHash | OPEN | node | `getMessagesByThread` | — | 493-506 |
-| GET | /attestation | OPEN | node | — | — (loaded, authorizedPlanIds, enrollmentCap, effectiveDate, employerId 524-530) | 514-532 |
+| GET | /attestation | OPEN | node | `l2_getPlans` at most every 30 s (`EmployerNode.attestationTermsStatus`, `TERMS_STATUS_TTL_MS`; since 2026-10-19, A-48) | — (loaded, authorizedPlanIds, enrollmentCap, effectiveDate, employerId, attestationSeq, and `termsChanged`, `signedBeforeFullTerms`, `unavailablePlanIds`; null when the plans cannot be read) | 538-563 |
 | POST | /attestation/refresh | ADMIN | node | `l2_verifyEmployer` (employer-node.ts:118-122) | node.attestation replaced, no pubkey pin check (125) | 537-551 |
-| GET | /plans/available | OPEN | node | `getPlans` → filter `published` (561-563) | — | 553-569 |
+| GET | /plans/available | OPEN | node | `getPlans` → only plans with published terms, at those terms (`planAsPublished`; since 2026-10-19, A-48) | — | 584-602 |
 
 ### 2.4 Enrollment-code lifecycle
 
@@ -209,8 +209,8 @@ Env: `ZKTRIDENT_PORT` 4002 (59), `ZKTRIDENT_HOST` 127.0.0.1 since A2 (60), seque
 | POST | /proof/registration | OPEN | phase ready (354); node (357); preimageFields+walletId (364) | `getRegistrationWitnesses` (369); `proveRegistration` → `submitProof` with partition retry (382-383; prescriber-node.ts:133-138) | — | 350-396 |
 | POST | /onboarding/backup-key | OPEN | phase past token_received (402-405); pin (406-409); key present (411). GAP: I3 — PIN-encrypted key exported over HTTP to any caller | — | — (returns `{version, walletId, domainTag, salt, iv, encryptedKey, createdAt}`; scrypt N=2^15 + AES-256-GCM, enrollment-backup.ts:52-56, 107-130) | 398-422 |
 | POST | /onboarding/restore-key | OPEN | backup+pin (428-431). GAP: I3/I7 | — | setEnrollmentKey + save (438-442) | 424-448 |
-| POST | /prescriptions/write | OPEN | node (458-461); memberWalletId, pharmacyWalletId, ndcHash (475-477). GAP: I7 | `l2_getEncryptionKey` ×2; `l2_storeMessage` ×2 (503-526) | message store | 454-540 |
-| POST | /prescriptions/prescribe | OPEN | node; same 3 fields (576-578). GAP: I7 — unauthenticated write + engine proving under this node's identity | §4.4 | message store; `prescribeJobs` | 555-687 |
+| POST | /prescriptions/write | OPEN | node (458-461); memberWalletId, pharmacyWalletId, ndcHash (475-477); since 2026-10-19 the quantity is thousandths of the drug's pricing unit (`quantityError`, else 400; :452). GAP: I7 | `l2_getEncryptionKey` ×2; `l2_storeMessage` ×2 (503-526) | message store | 454-540 |
+| POST | /prescriptions/prescribe | OPEN | node; same 3 fields (576-578); since 2026-10-19 the quantity as for write (`quantityError`, :557). GAP: I7 — unauthenticated write + engine proving under this node's identity | §4.4 | message store; `prescribeJobs` | 555-687 |
 | GET | /prescriptions/prescribe-status | OPEN | `?jobKey` (694-695); 404 (698) | — | deletes finished job (709-711) | 690-713 |
 | GET | /prescriptions | OPEN | node | `l2_getClaimsByPrescriber(own)` (prescriber-node.ts:151-156) | — | 719-727 |
 | GET | /prescriptions/summary | OPEN | node | same + aggregate (159-169) | — | 729-737 |
@@ -240,7 +240,7 @@ Env: `ZKTRIDENT_PORT` 4002 (59), `ZKTRIDENT_HOST` 127.0.0.1 since A2 (60), seque
 | GET | /messaging/inbox | OPEN | node | `getMessagesByRecipient(own)` (entity-node-base.ts:222) | — | 1125-1133 |
 | GET | /messaging/sent | OPEN | node | `getMessagesBySender(own)` (229) | — | 1135-1143 |
 | GET | /messaging/thread/:threadIdHash | OPEN | node | `getMessagesByThread` (236-237) | — | 1145-1153 |
-| POST | /estimate-cost | OPEN | node | `l2 estimateCost(body)` (1164) | — | 1157-1170 |
+| POST | /estimate-cost | OPEN | node; ndcHash (400 if missing); quantity checked with `quantityError` (400) | `l2_estimateCost` with only ndcHash, quantity, and either walletId plus `memberAttestation` from the `X-Member-Attestation` header (base64 JSON) or planId; a read-gate refusal → 403 saying the member's tap is needed, -32602 → 400, else 502 (since 2026-10-19, A-47) | — | 1138-1189 |
 | GET | /prescribers/list | OPEN | — | reads `src/data/prescribers.json` (1186-1187) | — (returns NPI, names, credential, specialty, state, city) | 1176-1205 |
 | POST | /interactive/badge/tap | OPEN | providerType==='prescriber' (1219); index range (1231) | `l2_getProvider` (1267-1271); if absent `l2_registerEntity {walletId, displayName, type, npi, specialty, encryptionPublicKeyHex}` with Bearer node adminToken (1280-1301; `require()` inside ESM at 1295, swallowed by try/catch) | — | 1211-1344 |
 
@@ -287,10 +287,10 @@ Same shape: port 4003 (59), host 127.0.0.1 since A2 (60), CORS the local allowli
 | GET | /dispensing/medication/:ndcHash | OPEN | node | own claims filtered | — | 377-385 |
 | GET | /dispensing/medications/breakdown | OPEN | node | own claims | — | 387-395 |
 | GET | /dispensing/prescribers/breakdown | OPEN | node | own claims (308-348) | — | 397-405 |
-| GET | /prescriptions/list | OPEN | node; `?pharmacyIndex` default 0 (453) — not bound to own wallet | `GET <seq>/interactive/prescriptions-by-pharmacy?pharmacyIndex=N` (455), result verbatim | — | 444-462 |
+| GET | /prescriptions/list | OPEN | node; `?pharmacyIndex` default 0 (453) — not bound to own wallet | `GET <seq>/interactive/prescriptions-by-pharmacy?pharmacyIndex=N` (455), result verbatim (since 2026-10-19 each row carries `pricingUnit`, every amount summed over the standing fills and each fill listed, A-47) | — | 479-538 |
 | POST | /dispensing/mark-filled | OPEN | node; prescriptionId (472-475); no ownership check. GAP: I7 | `POST <seq>/interactive/mark-filled {prescriptionId}` (479-483) | — | 465-490 |
-| POST | /dispensing/dispense | OPEN | node; prescriptionId (507-509). GAP: I7 | `POST <seq>/interactive/fill {prescriptionId, quantityDispensed (30), ingredientCostCents, dispensingFeeCents}` (519-528); poll `/interactive/fill-status?prescriptionId=` every 5 s ≤ 120× (547-563) | `dispensingJobs`; 202 `{jobKey}` (573) | 493-575 |
-| POST | /dispensing/fill | OPEN | node; own walletId (584-585); memberWalletId+ndcHash (601-603); prescriberWalletId default '0' (618, 637). GAP: I7 | `POST /interactive/resolve-indices {prescriberWalletId, pharmacyWalletId(own), ndcHash}` (614-622); `POST /interactive/prescribe-and-fill {memberWalletId, ndcHash, prescriberWalletId, pharmacyIndex, quantity (quantity ?? quantityDispensed ?? 30), ingredientCostCents, dispensingFeeCents}` (631-643); poll fill-status 3 s ≤ 10 min (655-674) | `dispensingJobs`; 202 | 578-686 |
+| POST | /dispensing/dispense | OPEN | node; prescriptionId (507-509). GAP: I7 | `POST <seq>/interactive/fill {prescriptionId, quantityDispensed, ingredientCostCents, dispensingFeeCents}` (since 2026-10-19 the quantity is optional, thousandths of the pricing unit and checked with `quantityError` (400); left out, the engine dispenses the quantity prescribed (was 30); costs are passed on only so the engine can refuse a request that states other costs, 409); poll `/interactive/fill-status?prescriptionId=` every 5 s ≤ 120× (547-563) | `dispensingJobs`; 202 `{jobKey}` (573) | 493-575 |
+| POST | /dispensing/fill | OPEN | node; own walletId (584-585); memberWalletId+ndcHash (601-603); prescriberWalletId default '0' (618, 637). GAP: I7 | `POST /interactive/resolve-indices {prescriberWalletId, pharmacyWalletId(own), ndcHash}` (614-622); `POST /interactive/prescribe-and-fill {memberWalletId, ndcHash, prescriberWalletId, pharmacyIndex, quantity (quantity ?? quantityDispensed ?? 30, checked with `quantityError` since 2026-10-19), ingredientCostCents, dispensingFeeCents}` (631-643); poll fill-status 3 s ≤ 10 min (655-674) | `dispensingJobs`; 202 | 578-686 |
 | GET | /dispensing/fill-status | OPEN | `?jobKey` (693-694); prune (696); 404 (698) | — | — | 689-707 |
 | POST | /dispensing/reverse | OPEN | node; prescriptionId (725-727); reason default 'Pharmacy reversal'. GAP: I7 | `POST <seq>/interactive/reverse {prescriptionId, reason}` (737-744) | `reversalJobs`; 202 | 713-763 |
 | GET | /dispensing/reverse-status | OPEN | `?jobKey`; prune; 404 | — | — | 766-784 |

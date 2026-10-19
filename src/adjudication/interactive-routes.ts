@@ -55,7 +55,7 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import type { L2RpcServer } from '../l2/l2-rpc-server.js';
 import type { AdjudicationService, ConsoleEvent } from './interactive-service.js';
 import { RegistrationRefused } from './interactive-service.js';
-import { priceDispense, statedCostMismatch } from '../fulfillment/nadac-pricing.js';
+import { priceDispense, statedCostMismatch, quantityError } from '../fulfillment/nadac-pricing.js';
 import type { NfcReader, NfcTagEvent, NdefPayload } from './nfc-port.js';
 import type { NfcCredentialAttestation } from '../credentials/nfc-attestation.js';
 import { MEDICATIONS, PRESCRIBERS, PHARMACIES } from '../data/index.js';
@@ -168,6 +168,11 @@ export function registerInteractiveRoutes(
     '/interactive/enroll-status',
   ]);
   const OPEN_NODE_READS = new Set(['/node/chain-state', '/node/chain-proof', '/node/all-batches', '/node/formulary']);
+
+  // The prescriber's pre-script estimate (l2_estimateCost with a walletId) is this engine's quote for that member,
+  // reached through one narrow call that can become an RPC when the engine moves into its own process. The service is
+  // asked only when a quote is.
+  server.setMemberCostQuoteProvider((request) => service.quoteMemberCost(request.walletId, request.ndcHash, request.quantity));
 
   // Helper: register route with the admin gate (A11, D2), the wallet gate for wallet routes, and the
   // proving budget for every write route
@@ -602,13 +607,20 @@ export function registerInteractiveRoutes(
         sendError(res, 400, 'Missing required fields: prescriberIndex, memberWalletId, ndcHash, pharmacyIndex');
         return;
       }
+      // The quantity counts the drug's NADAC pricing unit (EA, ML or GM), to thousandths
+      const quantity = params.quantity ?? 30;
+      const quantityProblem = quantityError(quantity);
+      if (quantityProblem) {
+        sendError(res, 400, quantityProblem);
+        return;
+      }
 
       const result = await service.getL2Node().withProvingLock(() => service.createPrescription({
         prescriberIndex: params.prescriberIndex,
         memberWalletId: params.memberWalletId,
         ndcHash: params.ndcHash,
         pharmacyIndex: params.pharmacyIndex,
-        quantity: params.quantity ?? 30,
+        quantity,
         refills: params.refills ?? 3,
         rxId: params.rxId,  // optional: prescriber-supplied ID for cross-node ID consistency
       }));
@@ -638,6 +650,14 @@ export function registerInteractiveRoutes(
       if (typeof params.prescriptionId !== 'string') {
         sendError(res, 400, 'Missing required field: prescriptionId');
         return;
+      }
+      // A quantity dispensed counts the drug's NADAC pricing unit, to thousandths; absent, the engine dispenses the quantity prescribed
+      if (params.quantityDispensed !== undefined) {
+        const quantityProblem = quantityError(params.quantityDispensed, 'quantityDispensed');
+        if (quantityProblem) {
+          sendError(res, 400, quantityProblem);
+          return;
+        }
       }
       const jobKey = params.prescriptionId;
       // D4: a job still running is shared with a second request for the same prescription (one dispense is one
@@ -799,11 +819,18 @@ export function registerInteractiveRoutes(
         return;
       }
       const quantity = params.quantity ?? 30;
+      const quantityDispensed = params.quantityDispensed ?? quantity;
       const refills = params.refills ?? 3;
+      // Quantities count the drug's NADAC pricing unit (EA, ML or GM), to thousandths
+      const quantityProblem = quantityError(quantity) ?? quantityError(quantityDispensed, 'quantityDispensed');
+      if (quantityProblem) {
+        sendError(res, 400, quantityProblem);
+        return;
+      }
       // Owner decision 2026-10-18: the pharmacy does not set the price. A request that states costs must state the
       // engine's NADAC price; checked here, before the prescription's proofs, and again at the dispense.
       if (params.ingredientCostCents != null || params.dispensingFeeCents != null) {
-        const quoted = priceDispense(service.quoteFill(String(params.memberWalletId), ndcHashStr), params.quantityDispensed ?? quantity);
+        const quoted = priceDispense(service.quoteFill(String(params.memberWalletId), ndcHashStr), quantityDispensed);
         const mismatch = statedCostMismatch(quoted, { ingredientCostCents: params.ingredientCostCents, dispensingFeeCents: params.dispensingFeeCents });
         if (mismatch) { sendError(res, 409, mismatch); return; }
       }
@@ -841,7 +868,7 @@ export function registerInteractiveRoutes(
         // Step 2: Fill the prescription
         const fillResult = await service.dispensePrescription({
           prescriptionId,
-          quantityDispensed: params.quantityDispensed ?? quantity,
+          quantityDispensed,
           statedIngredientCostCents: params.ingredientCostCents,
           statedDispensingFeeCents: params.dispensingFeeCents,
         });

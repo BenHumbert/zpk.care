@@ -192,6 +192,28 @@ describe('(2) GET /plan/limits', () => {
     expect(seq.seen.map((s) => s.method)).toEqual(['l2_getPlans']);
   });
 
+  test('answers the limits the plan was published with, which bind the member, not a draft the insurer is editing', async () => {
+    // Review of the pricing fixes (F2): members are billed under the published terms, but this route read the live
+    // record, so an unpublished draft (a $0 deductible here) showed on the member's screens while fills charged $500.
+    const terms = {
+      copayAmountCents: 1500, coverageType: 1, deductibleAmountCents: 50000, oopMaxCents: 780000, annualBenefitMaxCents: 0,
+      familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000, familyAnnualBenefitMaxCents: 2000000, dispensingFeeCents: 1250,
+      formularyNdcs: [], networkProviderWalletIds: [], formularyRoot: '12345', networkRoot: '0', publishedAt: 1,
+    };
+    const drafting = {
+      planId: 'PLAN-E2E-DRAFTING', name: 'Drafting', published: false, publishedTerms: terms, deductibleAmountCents: 0, oopMaxCents: 100,
+      annualBenefitMaxCents: 5, familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0,
+    };
+    const seq = await fakeSequencer((m) => (m === 'l2_getPlans' ? [...PLANS, drafting] : null));
+    const node = await memberNode(seq.url, redeemed('PLAN-E2E-DRAFTING'));
+    const r = await call(node, 'GET', '/plan/limits', undefined, await sessionOf(node));
+    expect(r.status).toBe(200);
+    expect(r.json.data).toEqual({
+      name: 'Drafting', deductibleAmountCents: 50000, oopMaxCents: 780000, annualBenefitMaxCents: 0,
+      familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000, familyAnnualBenefitMaxCents: 2000000,
+    });
+  });
+
   test('needs the device session', async () => {
     const seq = await fakeSequencer(() => PLANS);
     const node = await memberNode(seq.url, redeemed('PLAN-E2E-SILVER'));

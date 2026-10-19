@@ -155,6 +155,8 @@ export interface FormularyDrugWithPlan {
   route: string;
   classification: string;
   nadacPerUnit: number;
+  /** The unit NADAC is quoted per (EA, ML or GM); a prescribed or dispensed quantity is counted in it */
+  pricingUnit: string;
   tierLevel: number;
   copayAmount: number;
   requiresPriorAuth: boolean;
@@ -887,6 +889,7 @@ export class FormularyService {
       route: drug.route,
       classification: drug.classification,
       nadacPerUnit: drug.nadacPerUnit,
+      pricingUnit: drug.pricingUnit,
       tierLevel,
       copayAmount,
       requiresPriorAuth: ovr?.requiresPriorAuth ?? drug.requiresPriorAuth,

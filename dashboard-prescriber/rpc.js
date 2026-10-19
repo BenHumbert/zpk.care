@@ -70,7 +70,9 @@ const API = (() => {
     if (!res.ok) {
       let msg = 'HTTP ' + res.status;
       try { const j = await res.json(); msg = j.error != null ? errMsg(j.error) : (typeof j.message === 'string' ? j.message : msg); } catch { /* use status */ }
-      throw new Error(msg);
+      const err = new Error(msg);
+      err.status = res.status;   // a refusal the page answers differently (403: the member's tap is needed)
+      throw err;
     }
     const json = await res.json();
     // Envelope: { ok, data, error, timestamp }

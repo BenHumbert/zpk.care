@@ -48,20 +48,15 @@ import { ProviderLifecycle, PROVIDER_TYPE_TAG } from './provider-registry-types.
 import type { ProviderType } from './provider-registry-types.js';
 import type { BenefitPlanConfig, ClaimSubmissionMetadata } from './l2-types.js';
 import { hashString } from '../zkp/hash-utils.js';
-import { dispensingFeeOf, priceDispense, quoteNadacPrice } from '../fulfillment/nadac-pricing.js';
-import { planStoreError, planAsPublished } from './plan-terms.js';
+import { dispensingFeeOf, priceDispense, quoteNadacPrice, quantityError, type FillPrice } from '../fulfillment/nadac-pricing.js';
+import { planStoreError, planAsPublished, publishedTermsOf, publishedListCovers } from './plan-terms.js';
+import { splitClaimCost, type ClaimSplit } from '../access-control/accumulator-query-service.js';
 import { ProofRejected } from './l2-proof-verifier.js';
 import { corsOriginHeader, resolveAllowedOrigins } from '../security/network-policy.js';
 import { verifySignedRequest, signerIdFromHeaders, ReplayCache } from '../security/signed-request.js';
 import { SequencerAttestationAuthority, type NfcCredentialAttestation } from '../credentials/nfc-attestation.js';
 
-/** Who may read a member-data method (D1): see L2RpcServer.MEMBER_DATA_METHODS. */
-type MemberDataReader = 'self' | 'pcp' | 'attestation' | 'signed';
-interface MemberDataSpec {
-  subject: 'wallet' | 'optional-wallet' | 'provider' | 'entity' | 'receipt' | 'leaf' | 'thread' | 'enumeration';
-  param?: string;
-  readers: readonly MemberDataReader[];
-}
+import { MEMBER_DATA_METHODS, memberDataSpecOf, type MemberDataSpec } from './member-data-methods.js';
 import { roleMayCall, type NodeRole, type AuthScope } from '../security/node-roles.js';
 import { readRequestBody } from '../security/request-body.js';
 import { RequestRefused } from './request-refused.js';
@@ -244,6 +239,38 @@ export type AuthDecision =
   | { ok: true; principal: { kind: 'operator' } | { kind: 'node'; nodeId: string; role: NodeRole } | { kind: 'wallet'; walletId: string } }
   | { ok: false; status: 401 | 403 | 413; message: string };
 
+// ─── The engine's pre-script quote ──────────────────────
+
+/** What l2_estimateCost asks the engine about a member: one drug at one quantity, priced as that member's fill would be today. */
+export interface MemberCostQuoteRequest {
+  walletId: string;
+  ndcHash: string;
+  /** In the drug's NADAC pricing unit (EA, ML or GM), to thousandths */
+  quantity: number;
+}
+
+/** The engine's answer: not covered, with a reason that names no plan; or the fill's price and the member's share. */
+export type MemberCostQuote =
+  | { covered: false; reason: string }
+  | {
+    covered: true;
+    /** NADAC x quantity + the plan's fee, by the fill's own quote (quoteFill; B3 will lock it at prescribing) */
+    price: FillPrice;
+    copayAmountCents: number;
+    /** 'plan': the copay of the member's plan as published; 'tier': a fixture member's catalog tier copay */
+    copayBasis: 'plan' | 'tier';
+    tierLevel: number;
+    /** The fill circuit's split over the member's and its family's accumulators */
+    split: ClaimSplit;
+  };
+
+/**
+ * The engine's pre-script quote, registered by the engine when it starts in this process (registerInteractiveRoutes).
+ * A narrow call that takes and returns plain JSON, so it can become an RPC when the engine moves into its own process.
+ * Null for a wallet the engine has not enrolled.
+ */
+export type MemberCostQuoteProvider = (request: MemberCostQuoteRequest) => MemberCostQuote | null;
+
 // ─── L2RpcServer ────────────────────────────────────────
 
 export class L2RpcServer {
@@ -260,6 +287,14 @@ export class L2RpcServer {
   /** Register an entity proof pool status provider for the health/status endpoints. */
   setEntityProofPoolStatus(fn: () => { status: Record<string, unknown>; workers: Record<string, unknown>[] }): void {
     this.entityProofPoolStatusFn = fn;
+  }
+
+  /** The engine's pre-script quote for a member (l2_estimateCost with a walletId); null until an engine registers one. */
+  private memberCostQuoteProvider: MemberCostQuoteProvider | null = null;
+
+  /** The engine registers its pre-script quote here when it starts in this process (registerInteractiveRoutes). */
+  setMemberCostQuoteProvider(provider: MemberCostQuoteProvider | null): void {
+    this.memberCostQuoteProvider = provider;
   }
 
   /** Admin-only RPC methods that require authentication (Ed25519 signature or Bearer token) */
@@ -826,7 +861,7 @@ export class L2RpcServer {
     // Read gate (D1, finding A-2): a method that returns a member's data answers only a credential
     // that may read it — the wallet itself, the plan or the operator, a prescriber the member named
     // as primary care, or any signed caller presenting the member's own unexpired attestation.
-    if (L2RpcServer.MEMBER_DATA_METHODS[rpcReq.method]) {
+    if (memberDataSpecOf(rpcReq.method)) {
       const readDecision = this.authorizeRead(req, rpcReq.method, (rpcReq.params ?? {}) as Record<string, unknown>, body);
       if (readDecision && !readDecision.ok) {
         return this.sendRpcError(res, rpcReq.id, readDecision.status === 403 ? RPC_FORBIDDEN : RPC_UNAUTHORIZED, readDecision.message);
@@ -1653,112 +1688,93 @@ export class L2RpcServer {
       }
 
       case 'l2_estimateCost': {
+        // The pre-script quote, the price the fill would charge that day. With a walletId (the read gate admits the
+        // wallet itself, a caller presenting the member's attestation, the plan or the operator) the engine quotes that
+        // member: its own plan as published, the fill's price, and the fill circuit's split over the member's and its
+        // family's accumulators; a planId the caller sends is never used for a member. With no walletId: the named plan
+        // as last published (its drug list, copay and fee: the formulary its members are bound to, not the formulary
+        // service's overlay lists), or, for no plan or one the sequencer does not hold (the fixture plan PLAN-GOLD-2026),
+        // the list price: the drug's catalog tier copay and the network default fee, as a fixture member pays. A fee the
+        // caller sends is not used. Nothing about the member is returned beyond its own share and the rule that set it.
         const estNdcHash = params.ndcHash;
-        const estPlanId = params.planId;
-        const estWalletId = params.walletId;
-        const estQuantity = typeof params.quantity === 'number' ? params.quantity : 30;
         if (typeof estNdcHash !== 'string') throw new Error('Missing ndcHash parameter');
+        const estQuantity = params.quantity === undefined ? 30 : params.quantity;
+        const quantityProblem = quantityError(estQuantity);
+        if (quantityProblem) throw new RequestRefused(quantityProblem, RPC_INVALID_PARAMS);
+        const quantity = estQuantity as number;
 
         const seq = this.node.getSequencer();
-        const fSvc = seq.getFormularyService();
-
-        // Look up drug in formulary
-        const drug = fSvc.getDrug(estNdcHash);
+        const drug = seq.getFormularyService().getDrug(estNdcHash);
         if (!drug) throw new Error(`Drug not found: ${estNdcHash}`);
-
-        // Get plan-specific coverage if planId provided
-        let copayAmountCents = drug.defaultCopay;
-        let tierLevel = drug.defaultTier;
-        if (typeof estPlanId === 'string') {
-          const coverage = fSvc.checkCoverage(estPlanId, estNdcHash);
-          if (coverage && coverage.covered) {
-            copayAmountCents = coverage.copayAmount;
-            tierLevel = coverage.tierLevel;
-          } else if (coverage && !coverage.covered) {
-            return {
-              covered: false,
-              drugName: drug.genericName || drug.brandName || drug.description,
-              ndcHash: estNdcHash,
-              reason: 'Drug excluded from this plan',
-            };
-          }
-        }
-
-        // Owner decision 2026-10-18: the price the fill will charge, by the same rule and code: NADAC x quantity,
-        // rounded half up to the cent in exact integers, plus the fee of the plan as published (a draft's fee is not
-        // charged) or the network default. A fee sent by the caller is not used. (The float rounding this replaces
-        // differed from exact on 41 of the 131,072 drug-quantity pairs in formulary.json at 1, 7, 30 and 90 units.)
-        const estPrice = priceDispense(quoteNadacPrice(drug, typeof estPlanId === 'string' ? planAsPublished(seq.getPlan(estPlanId)) : null), estQuantity);
-        const ingredientCostCents = estPrice.ingredientCostCents;
-        const estDispensingFeeCents = estPrice.dispensingFeeCents;
-        const totalCostCents = estPrice.totalCostCents;
-
-        // Estimate member/employer split using accumulator if walletId provided
-        let memberPayCents = Math.min(totalCostCents, copayAmountCents);
-        let employerPayCents = totalCostCents - memberPayCents;
-
-        if (typeof estWalletId === 'string') {
-          const accum = seq.reconstructAccumulator(estWalletId);
-          if (accum) {
-            // Get plan limits from planStore (authoritative source) — not from caller params
-            let deductibleAmountCents = 0;
-            let oopMaxCents = 0;
-            let annualBenefitMaxCents = 0;
-            if (typeof estPlanId === 'string') {
-              const planConfig = planAsPublished(seq.getPlan(estPlanId)); // the limits as published, which members are bound to
-              if (planConfig) {
-                deductibleAmountCents = planConfig.deductibleAmountCents ?? 0;
-                oopMaxCents = planConfig.oopMaxCents ?? 0;
-                annualBenefitMaxCents = planConfig.annualBenefitMaxCents ?? 0;
-              }
-            }
-            const deductiblePaidCents = Number(accum.deductiblePaidCents);
-            const oopPaidCents = Number(accum.oopPaidCents);
-            const benefitUsedCents = Number(accum.benefitUsedCents);
-
-            // Deductible phase
-            const inDeductiblePhase = deductibleAmountCents > 0 && deductiblePaidCents < deductibleAmountCents;
-            const remainingDeductible = inDeductiblePhase ? deductibleAmountCents - deductiblePaidCents : 0;
-            const deductiblePay = Math.min(totalCostCents, remainingDeductible);
-            const afterDeductible = totalCostCents - deductiblePay;
-            const copayOnRemainder = Math.min(afterDeductible, copayAmountCents);
-            const normalPay = Math.min(totalCostCents, copayAmountCents);
-            const basePay = inDeductiblePhase ? deductiblePay + copayOnRemainder : normalPay;
-
-            // Benefit max
-            let basePlanPay = totalCostCents - basePay;
-            if (annualBenefitMaxCents > 0) {
-              const remainingBenefit = Math.max(0, annualBenefitMaxCents - benefitUsedCents);
-              if (basePlanPay > remainingBenefit) basePlanPay = remainingBenefit;
-            }
-            let patientPay = totalCostCents - basePlanPay;
-
-            // OOPM cap
-            if (oopMaxCents > 0) {
-              const remainingOopm = Math.max(0, oopMaxCents - oopPaidCents);
-              if (patientPay > remainingOopm) patientPay = remainingOopm;
-            }
-
-            memberPayCents = patientPay;
-            employerPayCents = totalCostCents - patientPay;
-          }
-        }
-
-        return {
-          covered: true,
+        const about = {
           drugName: drug.genericName || drug.brandName || drug.description,
           ndcHash: estNdcHash,
           classification: drug.classification,
-          tierLevel,
           nadacPerUnit: drug.nadacPerUnit,
-          quantity: estQuantity,
-          ingredientCostCents,
-          dispensingFeeCents: estDispensingFeeCents,
-          dispensingFeeSource: estPrice.dispensingFeeSource,
-          totalCostCents,
+          pricingUnit: drug.pricingUnit,
+          quantity,
+        };
+
+        const estWalletId = params.walletId;
+        if (typeof estWalletId === 'string' && estWalletId.length > 0) {
+          if (!this.memberCostQuoteProvider) {
+            throw new RequestRefused("A member's estimate is made by the engine, and no engine runs beside this sequencer", RPC_INVALID_PARAMS);
+          }
+          const quote = this.memberCostQuoteProvider({ walletId: estWalletId, ndcHash: estNdcHash, quantity });
+          if (!quote) throw new RequestRefused('This wallet is not a member enrolled with the engine', RPC_INVALID_PARAMS);
+          if (!quote.covered) return { covered: false, ...about, phase: 'not-covered', reason: quote.reason };
+          return {
+            covered: true,
+            ...about,
+            tierLevel: quote.tierLevel,
+            ingredientCostCents: quote.price.ingredientCostCents,
+            dispensingFeeCents: quote.price.dispensingFeeCents,
+            dispensingFeeSource: quote.price.dispensingFeeSource,
+            totalCostCents: quote.price.totalCostCents,
+            copayAmountCents: quote.copayAmountCents,
+            copayBasis: quote.copayBasis,
+            phase: quote.split.phase,
+            memberPayCents: quote.split.patientPayCents,
+            employerPayCents: quote.split.planPayCents,
+          };
+        }
+
+        // No member: owner decision 2026-10-18, the price by the fill's own rule and code: NADAC x quantity, rounded half
+        // up to the cent in exact integers, plus the fee of the plan as published (a draft's fee is not charged) or the
+        // network default.
+        const stored = typeof params.planId === 'string' ? seq.getPlan(params.planId) : null;
+        const terms = publishedTermsOf(stored);
+        const price = priceDispense(quoteNadacPrice(drug, planAsPublished(stored)), quantity);
+        const priced = {
+          ingredientCostCents: price.ingredientCostCents,
+          dispensingFeeCents: price.dispensingFeeCents,
+          dispensingFeeSource: price.dispensingFeeSource,
+          totalCostCents: price.totalCostCents,
+        };
+        if (stored && !terms) {
+          // a plan never published binds no one and bills nothing; the price is what its draft states
+          return { covered: false, ...about, ...priced, phase: 'not-covered', reason: `Plan ${stored.planId} is not published; no member is billed under it until the insurer publishes it` };
+        }
+        if (terms && !publishedListCovers(terms, drug.ndc)) {
+          return { covered: false, ...about, phase: 'not-covered', reason: 'Drug excluded from this plan' };
+        }
+        const copayAmountCents = terms ? terms.copayAmountCents : drug.defaultCopay;
+        // no member, so no accumulators: the copay phase, by the fill circuit's rule
+        const split = splitClaimCost({
+          totalCostCents: price.totalCostCents,
+          copayCents: copayAmountCents,
+          accumulator: { deductibleAmountCents: 0, deductiblePaidCents: 0, oopMaxCents: 0, oopPaidCents: 0, annualBenefitMaxCents: 0, annualBenefitUsedCents: 0 },
+        });
+        return {
+          covered: true,
+          ...about,
+          tierLevel: drug.defaultTier,
+          ...priced,
           copayAmountCents,
-          memberPayCents,
-          employerPayCents,
+          copayBasis: terms ? 'plan' : 'tier',
+          phase: split.phase,
+          memberPayCents: split.patientPayCents,
+          employerPayCents: split.planPayCents,
         };
       }
 
@@ -2913,37 +2929,10 @@ export class L2RpcServer {
   }
 
   /**
-   * The methods that return a member's data, and who may read them (D1, finding A-2). Until this
-   * gate, a bare wallet ID returned a member's claims, receipts, messages, accumulator and keys to
-   * anyone, and the receipt and audit lists enumerated every wallet. Readers: the wallet itself (its
-   * registered signing key), the plan (a node key with the insurer role) and the operator, always; a
-   * prescriber the member named as primary care, for claims, receipts and the directory entry; and
-   * any signed caller presenting the member's own unexpired attestation, the tap at a counter, for
-   * claims, receipts, accumulator and wallet state. Enumerations answer the plan and the operator
-   * only. A thread answers any signed caller with that caller's own messages.
+   * The methods that return a member's data, and who may read them (D1, finding A-2). The table is in
+   * member-data-methods.ts, so a node's /rpc proxy reads the same one without loading the sequencer.
    */
-  static readonly MEMBER_DATA_METHODS: Readonly<Record<string, MemberDataSpec>> = {
-    l2_getClaimsByMember: { subject: 'wallet', param: 'walletId', readers: ['self', 'pcp', 'attestation'] },
-    l2_getReceiptsByWallet: { subject: 'wallet', param: 'walletId', readers: ['self', 'pcp', 'attestation'] },
-    l2_reconstructAccumulator: { subject: 'wallet', param: 'walletId', readers: ['self', 'pcp', 'attestation'] },
-    l2_getWalletState: { subject: 'wallet', param: 'walletId|0', readers: ['self', 'attestation'] },
-    l2_getWalletWitnesses: { subject: 'wallet', param: 'walletId|0', readers: ['self', 'attestation'] },
-    l2_getMessagesByWallet: { subject: 'wallet', param: 'walletId', readers: ['self'] },
-    l2_getMessagesBySender: { subject: 'wallet', param: 'walletId', readers: ['self'] },
-    l2_getMessagesByRecipient: { subject: 'wallet', param: 'walletId', readers: ['self'] },
-    l2_getMessagesByThread: { subject: 'thread', readers: ['signed'] },
-    l2_getEntity: { subject: 'entity', param: 'walletId', readers: ['self', 'pcp', 'attestation'] },
-    l2_getEncryptionKey: { subject: 'wallet', param: 'walletId', readers: ['signed'] },
-    l2_getPcpAssignments: { subject: 'provider', param: 'prescriberWalletId', readers: ['self'] },
-    l2_getClaimsByPharmacy: { subject: 'provider', param: 'walletId', readers: ['self'] },
-    l2_getClaimsByPrescriber: { subject: 'provider', param: 'walletId', readers: ['self'] },
-    l2_getClaimsByNdc: { subject: 'enumeration', readers: [] },
-    l2_getAllReceipts: { subject: 'enumeration', readers: [] },
-    l2_getAuditLog: { subject: 'enumeration', readers: [] },
-    l2_getReceipt: { subject: 'receipt', param: 'receiptId', readers: ['self'] },
-    l2_getClaimWithProof: { subject: 'leaf', param: 'leafIndex', readers: ['self'] },
-    l2_estimateCost: { subject: 'optional-wallet', param: 'walletId', readers: ['self', 'attestation'] },
-  };
+  static readonly MEMBER_DATA_METHODS: Readonly<Record<string, MemberDataSpec>> = MEMBER_DATA_METHODS;
 
   private static readParam(params: Record<string, unknown>, where: string | undefined): string | null {
     if (!where) return null;
@@ -2991,7 +2980,7 @@ export class L2RpcServer {
    * unknown receipt or leaf, a malformed parameter the handler rejects itself): those stay open.
    */
   private authorizeRead(req: IncomingMessage, method: string, params: Record<string, unknown>, body: string | undefined): AuthDecision | null {
-    const spec = L2RpcServer.MEMBER_DATA_METHODS[method];
+    const spec = memberDataSpecOf(method);
     if (!spec) return null;
     // 1. Whose data this call returns.
     let subject: string | null = null;

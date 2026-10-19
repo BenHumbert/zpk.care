@@ -37,6 +37,7 @@ import type { NautilusAppServer } from '../nautilus-app-server.js';
 import { PROVING_BUDGET_MS, type RouteRegistration } from '../nautilus-app-types.js';
 import type { PrescriberLocalData } from '../../models/prescriber.js';
 import { ProviderNetworkRegistry } from '../../eligibility/provider-network-registry.js';
+import { quantityError } from '../../fulfillment/nadac-pricing.js';
 
 const DOMAIN_TAG_PRESCRIBER = 1;
 
@@ -446,6 +447,10 @@ export function buildPrescriberRoutes(
       if (!b?.memberWalletId) return server.sendResponse(res, 400, false, undefined, 'Missing memberWalletId');
       if (!b?.pharmacyWalletId) return server.sendResponse(res, 400, false, undefined, 'Missing pharmacyWalletId');
       if (!b?.ndcHash) return server.sendResponse(res, 400, false, undefined, 'Missing ndcHash');
+      // The quantity counts the drug's NADAC pricing unit (EA, ML or GM), to thousandths
+      const quantity = b.quantity ?? 30;
+      const quantityProblem = quantityError(quantity);
+      if (quantityProblem) return server.sendResponse(res, 400, false, undefined, quantityProblem);
 
       const rxId = `RX-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       const prescription = {
@@ -455,7 +460,7 @@ export function buildPrescriberRoutes(
         pharmacyWalletId: b.pharmacyWalletId,
         ndcHash: b.ndcHash,
         brandName: b.brandName ?? '',
-        quantity: b.quantity ?? 30,
+        quantity,
         daysSupply: b.daysSupply ?? 30,
         refills: b.refills ?? 0,
         directions: b.directions ?? '',
@@ -547,6 +552,10 @@ export function buildPrescriberRoutes(
       if (!b?.memberWalletId) return server.sendResponse(res, 400, false, undefined, 'Missing memberWalletId');
       if (!b?.pharmacyWalletId) return server.sendResponse(res, 400, false, undefined, 'Missing pharmacyWalletId');
       if (!b?.ndcHash) return server.sendResponse(res, 400, false, undefined, 'Missing ndcHash');
+      // The quantity counts the drug's NADAC pricing unit (EA, ML or GM), to thousandths; refused before any eScript goes out
+      const quantity = b.quantity ?? 30;
+      const quantityProblem = quantityError(quantity);
+      if (quantityProblem) return server.sendResponse(res, 400, false, undefined, quantityProblem);
 
       // The engine names a provider by its seed index. Resolve this prescriber's index and the pharmacy's before the
       // eScript goes out, and refuse when the engine has none: the old fallback to index 0 wrote the prescription as
@@ -587,7 +596,7 @@ export function buildPrescriberRoutes(
         pharmacyWalletId: b.pharmacyWalletId,
         ndcHash: b.ndcHash,
         brandName: b.brandName ?? '',
-        quantity: b.quantity ?? 30,
+        quantity,
         daysSupply: b.daysSupply ?? 30,
         refills: b.refills ?? 0,
         directions: b.directions ?? '',
@@ -629,7 +638,7 @@ export function buildPrescriberRoutes(
               memberWalletId: b!.memberWalletId,
               ndcHash: b!.ndcHash,
               pharmacyIndex,
-              quantity: b!.quantity ?? 30,
+              quantity,
               refills: b!.refills ?? 0,
               rxId,  // pass prescriber-generated ID so both sides use the same prescription ID
             }),
@@ -1127,18 +1136,54 @@ export function buildPrescriberRoutes(
   });
 
   // ── Cost Estimation (proxy to sequencer l2_estimateCost) ──
+  //
+  // The pre-script quote. With a member's walletId the sequencer answers only a caller that presents the member's own
+  // attestation (or the member, the plan, the operator): a caller holding the member's tap sends it, base64 JSON in
+  // X-Member-Attestation as the pharmacy's DUR routes take it, and this node passes it on. Without one the sequencer
+  // refuses and so does this route (403), saying why; the quote with no member stays open. Only the fields the quote
+  // reads are forwarded: a planId never overrides a member's own plan (the sequencer ignores it when a walletId is sent).
+
+  const estimateAttestationOf = (req: import('http').IncomingMessage): Record<string, unknown> | null => {
+    const raw = req.headers['x-member-attestation'];
+    if (typeof raw !== 'string' || raw.length === 0) return null;
+    try {
+      const parsed = JSON.parse(Buffer.from(raw, 'base64').toString('utf8')) as unknown;
+      return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+    } catch {
+      return null;
+    }
+  };
 
   routes.push({
     method: 'POST',
     path: '/estimate-cost',
-    handler: async (_req, res, _params, _query, body) => {
+    handler: async (req, res, _params, _query, body) => {
       const node = server.getEntityNode() as PrescriberNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      const b = (body ?? {}) as { ndcHash?: unknown; walletId?: unknown; quantity?: unknown; planId?: unknown };
+      if (typeof b.ndcHash !== 'string' || b.ndcHash.length === 0) return server.sendResponse(res, 400, false, undefined, 'Missing ndcHash');
+      if (b.quantity !== undefined) {
+        const quantityProblem = quantityError(b.quantity);
+        if (quantityProblem) return server.sendResponse(res, 400, false, undefined, quantityProblem);
+      }
+      const params: Record<string, unknown> = { ndcHash: b.ndcHash };
+      if (b.quantity !== undefined) params.quantity = b.quantity;
+      if (typeof b.walletId === 'string' && b.walletId.length > 0) {
+        params.walletId = b.walletId;
+        const attestation = estimateAttestationOf(req);
+        if (attestation) params.memberAttestation = attestation;
+      } else if (typeof b.planId === 'string') {
+        params.planId = b.planId;
+      }
       try {
-        const result = await node.getClient().estimateCost(body as any);
+        const result = await node.getClient().estimateCost(params as unknown as { ndcHash: string });
         server.sendResponse(res, 200, true, result);
       } catch (err) {
-        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : String(err));
+        const message = err instanceof Error ? err.message : String(err);
+        if (/Unauthorized|Forbidden/.test(message)) {
+          return server.sendResponse(res, 403, false, undefined, "The member's own price needs the member's tapped attestation (X-Member-Attestation): " + message);
+        }
+        server.sendResponse(res, /RPC error -32602/.test(message) ? 400 : 502, false, undefined, message);
       }
     },
   });

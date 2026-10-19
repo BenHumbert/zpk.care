@@ -43,6 +43,7 @@ import { PharmacyNode } from '../pharmacy-node.js';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
 import { PROVING_BUDGET_MS, type RouteRegistration } from '../nautilus-app-types.js';
 import type { PharmacyLocalData } from '../../models/pharmacy.js';
+import { quantityError } from '../../fulfillment/nadac-pricing.js';
 
 const DOMAIN_TAG_PHARMACY = 2;
 
@@ -557,6 +558,12 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       if (!b?.prescriptionId) {
         return server.sendResponse(res, 400, false, undefined, 'Missing prescriptionId');
       }
+      // The quantity dispensed counts the drug's NADAC pricing unit (EA, ML or GM), to thousandths. Left out, the
+      // engine dispenses the quantity prescribed.
+      if (b.quantityDispensed !== undefined) {
+        const quantityProblem = quantityError(b.quantityDispensed, 'quantityDispensed');
+        if (quantityProblem) return server.sendResponse(res, 400, false, undefined, quantityProblem);
+      }
 
       const jobKey = `dispense-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       dispensingJobs.set(jobKey, { status: 'pending', createdAt: Date.now() });
@@ -571,7 +578,7 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               prescriptionId: b!.prescriptionId,
-              quantityDispensed: b!.quantityDispensed ?? 30,
+              quantityDispensed: b!.quantityDispensed,
               ingredientCostCents: b!.ingredientCostCents,
               dispensingFeeCents: b!.dispensingFeeCents,
             }),
@@ -657,6 +664,10 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       if (!b?.memberWalletId || !b?.ndcHash || !b?.prescriberWalletId) {
         return server.sendResponse(res, 400, false, undefined, 'Missing memberWalletId, ndcHash or prescriberWalletId');
       }
+      // The quantity counts the drug's NADAC pricing unit (EA, ML or GM), to thousandths
+      const fillQuantity = b.quantity ?? b.quantityDispensed ?? 30;
+      const quantityProblem = quantityError(fillQuantity);
+      if (quantityProblem) return server.sendResponse(res, 400, false, undefined, quantityProblem);
 
       const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
 
@@ -700,7 +711,7 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
               ndcHash: b!.ndcHash,
               prescriberWalletId: b!.prescriberWalletId,
               pharmacyIndex,
-              quantity: b!.quantity ?? b!.quantityDispensed ?? 30,
+              quantity: fillQuantity,
               ingredientCostCents: b!.ingredientCostCents,
               dispensingFeeCents: b!.dispensingFeeCents,
             }),

@@ -36,32 +36,50 @@ import {
 } from 'crypto';
 import { Poseidon, Encoding, Field } from 'o1js';
 import { hashString, dateToField } from '../zkp/hash-utils.js';
-import type { AgreementTerms, EmployerAttestation, EmployerApplication, BenefitPlanConfig } from '../l2/l2-types.js';
+import type { AgreementTerms, AgreementPlanTerms, EmployerAttestation, EmployerApplication, BenefitPlanConfig } from '../l2/l2-types.js';
+import { planAsPublished, publishedTermsOf } from '../l2/plan-terms.js';
+import { dispensingFeeOf } from '../fulfillment/nadac-pricing.js';
 import {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
   HeadingLevel, AlignmentType, WidthType,
 } from 'docx';
 
-// ─── Agreement Commitment ───────────────────────────────────
+// ─── Agreement Terms ────────────────────────────────────────
 
 /**
- * Compute the Poseidon commitment over structured agreement terms.
- * Includes ALL material financial fields + signer identity.
+ * The agreement an employer signs and one plan in it (src/l2/l2-types.ts): each selected plan that is published, at the
+ * terms its members are billed; a selected plan with no published terms is listed in unavailablePlanIds.
  */
-export function computeAgreementCommitment(terms: AgreementTerms, signerName?: string, signerTitle?: string): string {
-  const planFinancials = terms.selectedPlans
-    .slice()
-    .sort((a, b) => a.planId.localeCompare(b.planId))
-    .map(p => `${p.planId}:${p.copayAmountCents}:${p.deductibleAmountCents}:${p.oopMaxCents}:${p.annualBenefitMaxCents}`)
-    .join(';');
+export type { AgreementTerms, AgreementPlanTerms };
 
+/**
+ * The terms version agreements are generated under. 2026.2: the commitment covers every term the plan was published
+ * with, its fee, formulary and network, and its family limits.
+ */
+export const AGREEMENT_TERMS_VERSION = '2026.2';
+
+/**
+ * The version of agreements signed before 2026.2, whose commitment covered each plan's copay, deductible, OOP max and
+ * annual max only (attestationTermsStatus still recognises them).
+ */
+export const LEGACY_AGREEMENT_TERMS_VERSION = '2026.1';
+
+// ─── Agreement Commitment ───────────────────────────────────
+
+/** The Poseidon commitment over an agreement's identity, its per-plan terms (as one string) and its version. */
+function commitmentOver(
+  agreement: { agreementId: string; employerId: string; enrollmentCap: number; effectiveDate: string; termsVersion: string },
+  planFinancials: string,
+  signerName?: string,
+  signerTitle?: string,
+): string {
   const fields = [
-    hashString(terms.agreementId),
-    hashString(terms.employerId),
+    hashString(agreement.agreementId),
+    hashString(agreement.employerId),
     hashString(planFinancials),
-    Field(BigInt(terms.enrollmentCap)),
-    dateToField(terms.effectiveDate),
-    hashString(terms.termsVersion),
+    Field(BigInt(agreement.enrollmentCap)),
+    dateToField(agreement.effectiveDate),
+    hashString(agreement.termsVersion),
   ];
 
   // Include signer identity in commitment — atomic: both or neither (matches buildAttestationMessage)
@@ -71,6 +89,52 @@ export function computeAgreementCommitment(terms: AgreementTerms, signerName?: s
   }
 
   return Poseidon.hash(fields).toString();
+}
+
+/**
+ * Compute the Poseidon commitment over structured agreement terms.
+ * Includes ALL material financial fields + signer identity. Per plan, every term it was published with: coverage
+ * type, copay, deductible, OOP max, annual max, the family deductible, OOP max and annual max (the fill circuit pools
+ * a family against them), the dispensing fee every fill is charged and where it comes from, and the published
+ * formulary and network roots. So a plan republished with any other terms no longer matches an agreement signed
+ * before (see attestationTermsStatus).
+ */
+export function computeAgreementCommitment(terms: AgreementTerms, signerName?: string, signerTitle?: string): string {
+  const planFinancials = terms.selectedPlans
+    .slice()
+    .sort((a, b) => a.planId.localeCompare(b.planId))
+    .map(p => [
+      p.planId, p.coverageType, p.copayAmountCents, p.deductibleAmountCents, p.oopMaxCents, p.annualBenefitMaxCents,
+      p.familyDeductibleAmountCents, p.familyOopMaxCents, p.familyAnnualBenefitMaxCents,
+      p.dispensingFeeCents, p.dispensingFeeSource, p.formularyRoot, p.networkRoot,
+    ].join(':'))
+    .join(';');
+  return commitmentOver(terms, planFinancials, signerName, signerTitle);
+}
+
+/**
+ * The commitment an attestation signed before 2026.2 carries if its plans still bill what it covered: per plan the
+ * copay, deductible, OOP max and annual max (read from the plans as published), under LEGACY_AGREEMENT_TERMS_VERSION.
+ * That format took every authorized plan the sequencer held, so a plan it cannot find is left out, as it was then.
+ */
+function legacyAgreementCommitment(
+  att: Pick<EmployerAttestation, 'applicationId' | 'employerId' | 'authorizedPlanIds' | 'enrollmentCap' | 'effectiveDate'>,
+  plans: BenefitPlanConfig[],
+): string {
+  const planFinancials = (att.authorizedPlanIds ?? [])
+    .map((planId) => plans.find((p) => p && p.planId === planId))
+    .filter((p): p is BenefitPlanConfig => !!p)
+    .map((p) => planAsPublished(p))
+    .sort((a, b) => a.planId.localeCompare(b.planId))
+    .map((p) => `${p.planId}:${p.copayAmountCents}:${p.deductibleAmountCents}:${p.oopMaxCents}:${p.annualBenefitMaxCents}`)
+    .join(';');
+  return commitmentOver({
+    agreementId: `AGR-${att.applicationId}`,
+    employerId: att.employerId,
+    enrollmentCap: att.enrollmentCap,
+    effectiveDate: att.effectiveDate,
+    termsVersion: LEGACY_AGREEMENT_TERMS_VERSION,
+  }, planFinancials);
 }
 
 /**
@@ -242,23 +306,52 @@ export function buildVerificationCertMessage(employerId: string, methods: string
 
 // ─── Agreement Terms Builder ────────────────────────────────
 
+/**
+ * The agreement for an application, from the plans as their members are billed: each selected plan's published terms
+ * (planAsPublished) and the fee a fill on it is charged. A selected plan that has no published terms (never published,
+ * or published before the terms were kept) binds no member, so it is listed in unavailablePlanIds rather than agreed to.
+ */
 export function buildAgreementTerms(
-  application: EmployerApplication,
+  application: Pick<EmployerApplication, 'applicationId' | 'employerId' | 'companyName' | 'selectedPlanIds' | 'effectiveDate' | 'enrollmentCap'>,
   plans: BenefitPlanConfig[],
   insurerName: string = 'zkpCare Network',
-  termsVersion: string = '2026.1',
+  termsVersion: string = AGREEMENT_TERMS_VERSION,
 ): AgreementTerms {
-  const selectedPlans = application.selectedPlanIds
-    .map(pid => plans.find(p => p.planId === pid))
-    .filter((p): p is BenefitPlanConfig => !!p)
-    .map(p => ({
-      planId: p.planId,
-      planName: p.name,
-      copayAmountCents: p.copayAmountCents,
-      deductibleAmountCents: p.deductibleAmountCents,
-      oopMaxCents: p.oopMaxCents,
-      annualBenefitMaxCents: p.annualBenefitMaxCents,
-    }));
+  const selectedPlans: AgreementPlanTerms[] = [];
+  const unavailablePlanIds: string[] = [];
+  for (const planId of application.selectedPlanIds) {
+    const plan = plans.find((p) => p && p.planId === planId);
+    const published = publishedTermsOf(plan);
+    if (!plan || !published) {
+      unavailablePlanIds.push(planId);
+      continue;
+    }
+    const billed = planAsPublished(plan);
+    let fee: ReturnType<typeof dispensingFeeOf>;
+    try {
+      fee = dispensingFeeOf(billed);
+    } catch {
+      // a stored fee no fill could be charged (the plan store refuses one); the plan is not agreed to at it
+      unavailablePlanIds.push(planId);
+      continue;
+    }
+    selectedPlans.push({
+      planId: plan.planId,
+      planName: plan.name,
+      coverageType: billed.coverageType,
+      copayAmountCents: billed.copayAmountCents,
+      deductibleAmountCents: billed.deductibleAmountCents,
+      oopMaxCents: billed.oopMaxCents,
+      annualBenefitMaxCents: billed.annualBenefitMaxCents,
+      familyDeductibleAmountCents: billed.familyDeductibleAmountCents,
+      familyOopMaxCents: billed.familyOopMaxCents,
+      familyAnnualBenefitMaxCents: billed.familyAnnualBenefitMaxCents,
+      dispensingFeeCents: fee.dispensingFeeCents,
+      dispensingFeeSource: fee.dispensingFeeSource,
+      formularyRoot: published.formularyRoot,
+      networkRoot: published.networkRoot,
+    });
+  }
 
   return {
     agreementId: `AGR-${application.applicationId}`,
@@ -266,6 +359,7 @@ export function buildAgreementTerms(
     employerId: application.employerId,
     companyName: application.companyName,
     selectedPlans,
+    unavailablePlanIds,
     effectiveDate: application.effectiveDate,
     enrollmentCap: application.enrollmentCap,
     insurerName,
@@ -274,10 +368,58 @@ export function buildAgreementTerms(
   };
 }
 
+/** Whether an attestation's terms still describe what its plans' members are billed: see attestationTermsStatus. */
+export interface AttestationTermsStatus {
+  /** The terms it committed to are no longer what its plans' members are billed */
+  termsChanged: boolean;
+  /**
+   * It was signed before 2026.2, so it commits to each plan's copay, deductible, OOP max and annual max only, and those
+   * are unchanged; it does not cover the fee, formulary, network or family limits. The employer can sign the full terms.
+   */
+  signedBeforeFullTerms: boolean;
+  /** The commitment of the agreement its authorized plans make now */
+  currentCommitment: string;
+  /** Its authorized plans that have no published terms now */
+  unavailablePlanIds: string[];
+}
+
+/**
+ * Whether an employer's attestation still commits to what its plans' members are billed. The agreement it was signed
+ * over is rebuilt from the attestation's own fields (application, employer, authorized plans, cap, effective date) and
+ * the plans as they are published now, and that commitment is compared with the one the attestation carries. They
+ * differ when a plan was published again with other terms, or withdrawn, after the employer signed. An attestation
+ * signed before 2026.2 is compared with its own format (legacyAgreementCommitment): if the terms it covered are
+ * unchanged it is reported as signedBeforeFullTerms, not as a terms change. The employer can then sign the current
+ * terms (attestation seq + 1). Nothing here blocks a publish or an enrollment.
+ */
+export function attestationTermsStatus(
+  att: Pick<EmployerAttestation, 'applicationId' | 'employerId' | 'authorizedPlanIds' | 'enrollmentCap' | 'effectiveDate' | 'agreementCommitment'>,
+  plans: BenefitPlanConfig[],
+): AttestationTermsStatus {
+  const terms = buildAgreementTerms({
+    applicationId: att.applicationId,
+    employerId: att.employerId,
+    companyName: '',   // not committed to
+    selectedPlanIds: att.authorizedPlanIds ?? [],
+    effectiveDate: att.effectiveDate,
+    enrollmentCap: att.enrollmentCap,
+  }, plans);
+  const currentCommitment = computeAgreementCommitment(terms);
+  const status = { currentCommitment, unavailablePlanIds: terms.unavailablePlanIds };
+  if (currentCommitment === att.agreementCommitment) return { termsChanged: false, signedBeforeFullTerms: false, ...status };
+  if (legacyAgreementCommitment(att, plans) === att.agreementCommitment) return { termsChanged: false, signedBeforeFullTerms: true, ...status };
+  return { termsChanged: true, signedBeforeFullTerms: false, ...status };
+}
+
 // ─── DOCX Agreement Generation ──────────────────────────────
 
 function fmtCents(cents: number): string {
   return '$' + (cents / 100).toFixed(2);
+}
+
+/** An OOP or benefit limit: 0 means the plan sets no limit (the fill circuit tests each for greater than 0). */
+function fmtLimit(cents: number): string {
+  return cents > 0 ? fmtCents(cents) : 'No limit';
 }
 
 function textRun(text: string, bold = false, size = 22): TextRun {
@@ -295,7 +437,7 @@ function bodyParagraph(text: string): Paragraph {
 function cell(text: string, bold = false): TableCell {
   return new TableCell({
     children: [new Paragraph({ children: [textRun(text, bold, 20)] })],
-    width: { size: 25, type: WidthType.PERCENTAGE },
+    width: { size: 20, type: WidthType.PERCENTAGE },
   });
 }
 
@@ -324,7 +466,7 @@ export async function generateAgreementDocx(
   signerName?: string,
   signerTitle?: string,
 ): Promise<Buffer> {
-  const s: Paragraph[] = [];
+  const s: Array<Paragraph | Table> = [];
 
   // Title
   s.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 200 }, children: [textRun('EMPLOYER BENEFIT PLAN AGREEMENT', true, 36)] }));
@@ -341,13 +483,30 @@ export async function generateAgreementDocx(
   // ── 2. Benefit Plans ──
   s.push(headerParagraph('2. Benefit Plans'));
   if (terms.selectedPlans.length === 0) {
-    s.push(bodyParagraph('No plans selected.'));
+    s.push(bodyParagraph('No published plans selected.'));
   } else {
-    const headerRow = new TableRow({ children: [cell('Plan', true), cell('Copay', true), cell('Deductible', true), cell('OOP Max', true)] });
+    s.push(bodyParagraph('Members are billed under the terms each plan was last published with. Each fill costs the NADAC price per unit times the quantity dispensed, plus the plan\'s dispensing fee.'));
+    const headerRow = new TableRow({ children: [cell('Plan', true), cell('Copay', true), cell('Deductible', true), cell('OOP Max', true), cell('Annual Max', true), cell('Dispensing Fee', true)] });
     const planRows = terms.selectedPlans.map(p => new TableRow({
-      children: [cell(p.planName), cell(fmtCents(p.copayAmountCents)), cell(fmtCents(p.deductibleAmountCents)), cell(fmtCents(p.oopMaxCents))],
+      children: [cell(p.planName), cell(fmtCents(p.copayAmountCents)), cell(fmtCents(p.deductibleAmountCents)), cell(fmtLimit(p.oopMaxCents)),
+        cell(fmtLimit(p.annualBenefitMaxCents)), cell(fmtCents(p.dispensingFeeCents) + (p.dispensingFeeSource === 'network-default' ? ' (network default)' : ''))],
     }));
     s.push(new Table({ rows: [headerRow, ...planRows], width: { size: 100, type: WidthType.PERCENTAGE } }));
+    s.push(bodyParagraph('Family limits: the out-of-pocket and benefit amounts a family\'s members count together.'));
+    const familyHeader = new TableRow({ children: [cell('Plan', true), cell('Family Deductible', true), cell('Family OOP Max', true), cell('Family Annual Max', true)] });
+    const familyRows = terms.selectedPlans.map(p => new TableRow({
+      children: [cell(p.planName), cell(fmtCents(p.familyDeductibleAmountCents)), cell(fmtLimit(p.familyOopMaxCents)), cell(fmtLimit(p.familyAnnualBenefitMaxCents))],
+    }));
+    s.push(new Table({ rows: [familyHeader, ...familyRows], width: { size: 100, type: WidthType.PERCENTAGE } }));
+    for (const p of terms.selectedPlans) {
+      s.push(bodyParagraph(`Published formulary root for ${p.planName} (${p.planId}):`));
+      s.push(new Paragraph({ spacing: { after: 80 }, children: [new TextRun({ text: p.formularyRoot, font: 'Courier New', size: 18 })] }));
+      s.push(bodyParagraph(`Published provider network root for ${p.planName} (${p.planId}):`));
+      s.push(new Paragraph({ spacing: { after: 80 }, children: [new TextRun({ text: p.networkRoot, font: 'Courier New', size: 18 })] }));
+    }
+  }
+  if (terms.unavailablePlanIds.length > 0) {
+    s.push(bodyParagraph(`Not covered by this Agreement, because they had no published terms when it was signed: ${terms.unavailablePlanIds.join(', ')}. A plan published later is covered only under a new Agreement that the Employer signs.`));
   }
 
   // ── 3. Terms and Conditions ──

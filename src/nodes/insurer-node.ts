@@ -59,8 +59,24 @@ import type {
   EntityClaimView,
 } from './entity-node-types.js';
 import type { BenefitPlanConfig } from '../l2/l2-types.js';
-import { publishedTermsFrom } from '../l2/plan-terms.js';
+import { publishedTermsFrom, publishedTermsOf } from '../l2/plan-terms.js';
 export type { BenefitPlanConfig };
+
+/** Whether two plan records bind members to the same terms: the fields publishing copies into publishedTerms. */
+function sameBindingTerms(a: BenefitPlanConfig, b: BenefitPlanConfig): boolean {
+  return JSON.stringify(publishedTermsFrom(a, '', '', 0)) === JSON.stringify(publishedTermsFrom(b, '', '', 0));
+}
+
+/**
+ * Plans that must be published again: marked published but carrying no published terms. They were published before
+ * the terms were kept, so their formularyRoot is an overlay version, not a root; the engine binds no member to them
+ * and /enrollment/complete refuses them until the insurer publishes them again.
+ */
+export function plansNeedingRepublish(plans: BenefitPlanConfig[]): Array<{ planId: string; name: string }> {
+  return plans
+    .filter((p) => p && p.published === true && !publishedTermsOf(p))
+    .map((p) => ({ planId: p.planId, name: p.name }));
+}
 
 export class InsurerNode extends EntityNodeBase {
   private reportingService: ReportingService;
@@ -127,18 +143,45 @@ export class InsurerNode extends EntityNodeBase {
    * Mark a plan as published (called after its formulary and network roots are built). Plan-bound formularies: this
    * also keeps the terms its members are bound to (publishedTerms), copied from `source`, the record the roots were
    * built from, when it is given, so the terms and the roots always describe the same plan.
+   *
+   * The publish route reads the plan, builds its roots and waits on the sequencer's overlay call before it gets here,
+   * so an edit (PUT /plans/:planId) can be saved in between. The live record is marked published only if it still has
+   * the binding fields of `source`, the fields publishing copies into publishedTerms; an edit of anything else (the
+   * name) keeps it published. updatedAt is no test: it has millisecond resolution and the plan store keeps whatever a
+   * caller sends, so an edit can carry the published version's stamp. Otherwise the published terms are still written
+   * from `source`, so members are billed what was published, and the live record stays a draft (published false)
+   * holding the edit, which is not published until the plan is published again. The returned record's `published`
+   * says which happened.
    */
   async markPlanPublished(planId: string, formularyRoot: string, networkRoot: string, source?: BenefitPlanConfig): Promise<BenefitPlanConfig> {
     const plan = await this.client.getPlan(planId);
     if (!plan) throw new Error(`Plan ${planId} not found`);
     const now = Date.now();
+    const stillPublishedVersion = !source || sameBindingTerms(plan, source);
     plan.formularyRoot = formularyRoot;
     plan.networkRoot = networkRoot;
-    plan.published = true;
+    plan.published = stillPublishedVersion;
     plan.updatedAt = now;
     plan.publishedTerms = publishedTermsFrom(source ?? plan, formularyRoot, networkRoot, now);
     await this.client.storePlan(plan);
     return plan;
+  }
+
+  /**
+   * Log every plan that must be published again (plansNeedingRepublish), one line each with its plan ID and name. A
+   * plan record holds no member data, so nothing else can reach the log. Meant to run once at boot, when the sequencer
+   * answers; returns the plans it named.
+   */
+  async reportPlansNeedingRepublish(
+    log: (line: string) => void = (line) => console.warn('%s', line),
+  ): Promise<Array<{ planId: string; name: string }>> {
+    const plans = await this.listPlans();
+    const stale = plansNeedingRepublish(Array.isArray(plans) ? plans : []);
+    for (const p of stale) {
+      const name = String(p.name ?? '').replace(/[\r\n\t]+/g, ' ');
+      log(`[insurer] Plan ${p.planId} (${name}) is marked published but has no published terms: members cannot be bound to it until the insurer publishes it again`);
+    }
+    return stale;
   }
 
   // ─── System-Wide Queries ────────────────────────────────

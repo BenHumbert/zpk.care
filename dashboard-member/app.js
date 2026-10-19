@@ -842,8 +842,10 @@
   // ══════════════════════════════════════════════════════
   /**
    * The member's own plan limits. The device finds the plan its enrollment code was redeemed into
-   * among the published plans; the engine binds that plan's limits at registration. Null when the
-   * device cannot tell, and the screens then show no maximum rather than an invented one.
+   * among the published plans, and the node answers the limits that plan was published with: the ones
+   * the member is billed under (bound at registration, and moved to a republished version at the next
+   * prescription, PA approval or fill), never a draft. Null when the device cannot tell, and the
+   * screens then show no maximum rather than an invented one.
    */
   async function loadPlanLimits() {
     try {
@@ -1146,24 +1148,28 @@
       (hasMore ? '<button onclick="window._formNext()" style="cursor:pointer">Next &raquo;</button>' : '') +
       '</span></div>';
 
-    var supply = 30; // default supply for cost display
+    // The price list a fill is charged from (owner decision 2026-10-18): NADAC per pricing unit (EA, ML or GM) times the
+    // quantity, plus the plan's dispensing fee. What a member pays depends on its plan's copay and its deductible, so this
+    // catalog shows the NADAC price only. It promises no prescriber estimate: a prescriber's screen cannot read the
+    // member's own quote today (the sequencer answers it to the member, the plan, or a caller holding the member's tap).
+    var units = 30; // a sample quantity, in each drug's own pricing unit
     var html = paginationHtml +
+      '<div style="font-size:12px;color:var(--text-muted);margin:4px 0 8px">NADAC per pricing unit, and for ' + units + ' units. A fill adds your plan\'s dispensing fee; what you pay depends on your plan\'s copay and your deductible.</div>' +
       '<table class="data-table"><thead><tr>' +
-      '<th>Drug</th><th>Strength</th><th>Tier</th><th>NADAC (' + supply + '-day)</th><th>You Pay</th><th>Employer Pays</th><th>Form</th><th>Supply</th><th>PA</th></tr></thead><tbody>';
+      '<th>Drug</th><th>Strength</th><th>Tier</th><th>NADAC / Unit</th><th>NADAC x ' + units + '</th><th>Form</th><th>Supply</th><th>PA</th></tr></thead><tbody>';
     drugs.forEach(function (d) {
-      var nadacCost = d.nadacPerUnit != null ? (d.nadacPerUnit * supply).toFixed(2) : '--';
-      var youPay = d.copayAmount != null ? (d.copayAmount / 100).toFixed(2) : '--';
-      var totalCents = d.nadacPerUnit != null ? Math.round(d.nadacPerUnit * supply * 100) : 0;
-      var employerPay = totalCents > 0 && d.copayAmount != null
-        ? (Math.max(0, totalCents - d.copayAmount) / 100).toFixed(2)
-        : '--';
+      var unit = d.pricingUnit || 'unit';
+      var perUnit = d.nadacPerUnit != null ? '$' + Number(d.nadacPerUnit).toFixed(5) + ' / ' + esc(unit) : '--';
+      // NADAC x quantity rounded half up to the cent in whole numbers, the rule the engine prices a fill by: NADAC in
+      // whole $0.00001 times a whole number of units is in thousandths of a cent
+      var e5 = d.nadacPerUnit != null ? Math.round(Number(d.nadacPerUnit) * 100000) : null;
+      var forUnits = e5 != null ? '$' + (Math.floor((e5 * units + 500) / 1000) / 100).toFixed(2) + ' (' + units + ' ' + esc(unit) + ')' : '--';
       html += '<tr>' +
         '<td><strong>' + esc(d.brandName || d.genericName || '--') + '</strong></td>' +
         '<td>' + esc(d.strength || '--') + '</td>' +
         '<td>' + tierBadge(d.tierLevel) + '</td>' +
-        '<td class="mono">$' + nadacCost + '</td>' +
-        '<td class="mono" style="color:var(--accent-blue,#58a6ff)">$' + youPay + '</td>' +
-        '<td class="mono" style="color:var(--green,#3fb950)">$' + employerPay + '</td>' +
+        '<td class="mono">' + perUnit + '</td>' +
+        '<td class="mono">' + forUnits + '</td>' +
         '<td>' + esc(d.dosageForm || '--') + '</td>' +
         '<td class="mono">' + (d.maxDaySupply || '--') + 'd</td>' +
         '<td>' + (d.requiresPriorAuth ? '<span class="badge badge-warning">PA</span>' : '--') + '</td></tr>';

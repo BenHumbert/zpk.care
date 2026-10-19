@@ -164,8 +164,8 @@
           </div>
           <div class="form-row form-row-3">
             <div class="form-group">
-              <label class="form-label">Quantity</label>
-              <input type="number" class="form-input" id="rx-quantity" value="30" min="1">
+              <label class="form-label" for="rx-quantity" title="Counted in the drug's NADAC pricing unit: EA (each), ML or GM, to thousandths">Quantity <span id="rx-quantity-unit">(pricing unit)</span></label>
+              <input type="number" class="form-input" id="rx-quantity" value="30" min="0.001" step="0.001">
             </div>
             <div class="form-group">
               <label class="form-label">Days Supply</label>

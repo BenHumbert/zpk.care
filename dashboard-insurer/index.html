@@ -183,36 +183,49 @@
               <input type="text" class="form-input" id="plan-id" placeholder="e.g. PLAN-GOLD-001">
             </div>
           </div>
+          <p class="form-desc" style="margin: 0 0 8px 0;">Whole cents. A blank field takes the default shown; 0 is kept as 0.</p>
           <div class="form-row form-row-4">
             <div class="form-group">
               <label class="form-label">Copay (cents)</label>
-              <input type="number" class="form-input" id="plan-copay" value="2000" min="0">
+              <input type="number" class="form-input" id="plan-copay" value="2000" min="0" step="1">
+              <span class="form-hint">0 = $0 copay: the member pays nothing in the copay phase</span>
             </div>
             <div class="form-group">
               <label class="form-label">Deductible (cents)</label>
-              <input type="number" class="form-input" id="plan-deductible" value="100000" min="0">
+              <input type="number" class="form-input" id="plan-deductible" value="100000" min="0" step="1">
+              <span class="form-hint">0 = no deductible</span>
             </div>
             <div class="form-group">
               <label class="form-label">OOP Max (cents)</label>
-              <input type="number" class="form-input" id="plan-oop" value="500000" min="0">
+              <input type="number" class="form-input" id="plan-oop" value="500000" min="0" step="1">
+              <span class="form-hint">0 = no out-of-pocket limit</span>
             </div>
             <div class="form-group">
               <label class="form-label">Annual Max (cents)</label>
-              <input type="number" class="form-input" id="plan-annual" value="10000000" min="0">
+              <input type="number" class="form-input" id="plan-annual" value="10000000" min="0" step="1">
+              <span class="form-hint">0 = no annual benefit limit</span>
             </div>
           </div>
-          <div class="form-row">
+          <div class="form-row form-row-4">
             <div class="form-group">
               <label class="form-label">Family Deductible (cents)</label>
-              <input type="number" class="form-input" id="plan-fam-ded" value="200000" min="0">
+              <input type="number" class="form-input" id="plan-fam-ded" value="200000" min="0" step="1">
+              <span class="form-hint">0 = no family deductible</span>
             </div>
             <div class="form-group">
               <label class="form-label">Family OOP Max (cents)</label>
-              <input type="number" class="form-input" id="plan-fam-oop" value="1000000" min="0">
+              <input type="number" class="form-input" id="plan-fam-oop" value="1000000" min="0" step="1">
+              <span class="form-hint">0 = no family out-of-pocket limit</span>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Family Annual Max (cents)</label>
+              <input type="number" class="form-input" id="plan-fam-annual" value="20000000" min="0" step="1">
+              <span class="form-hint">0 = no family annual benefit limit</span>
             </div>
             <div class="form-group">
               <label class="form-label">Dispensing Fee (cents)</label>
               <input type="number" class="form-input" id="plan-dispensing-fee" min="0" max="10000" step="1" placeholder="Blank = network default ($10.00)">
+              <span class="form-hint">0 = no fee; blank = the network default ($10.00)</span>
             </div>
           </div>
           <div class="form-group">
@@ -266,6 +279,8 @@
           <button class="btn btn-sm" id="plan-detail-close">Close</button>
         </div>
         <div class="panel-body">
+          <!-- Publish state: a plan counts as published only if it has published terms, which bind its members -->
+          <div id="plan-detail-status" style="margin-bottom: 16px; font-size: 13px;"></div>
           <!-- Formulary Selection -->
           <div style="margin-bottom: 16px;">
             <h4 style="margin: 0 0 8px 0;">Formulary NDC Selection</h4>
@@ -319,8 +334,9 @@
           <!-- Dispensing fee (NADAC pricing, owner decision 2026-10-18) -->
           <div style="margin-bottom: 16px;">
             <h4 style="margin: 0 0 8px 0;">Dispensing Fee</h4>
-            <p class="form-desc" style="margin: 0 0 8px 0;">Cents added to NADAC x quantity on every fill under this plan. Blank = network default ($10.00).</p>
+            <p class="form-desc" style="margin: 0 0 8px 0;">Cents added to NADAC x quantity on every fill under this plan. 0 = no fee. Blank = network default ($10.00).</p>
             <input type="number" class="form-input" id="plan-detail-dispensing-fee" min="0" max="10000" step="1" placeholder="cents" style="max-width: 200px;">
+            <span class="form-hint">0 = no fee; blank = the network default ($10.00)</span>
           </div>
 
           <!-- Save + Publish -->
@@ -441,34 +457,28 @@
       <div class="panel">
         <div class="panel-header"><h3>Cost Estimator</h3></div>
         <div class="panel-body">
-          <p class="form-desc">Estimate patient cost for a medication at a specific pharmacy. Looks up formulary tier and copay, calculates patient pay vs plan pay split.</p>
+          <p class="form-desc">The engine's price of a fill, as the fill would charge it today: NADAC per unit times the quantity, plus the plan's dispensing fee, split between the member and the plan. No price is typed in; the pharmacy does not set the cost.</p>
           <div class="form-row form-row-3">
-            <div class="form-group">
-              <label class="form-label">Member Wallet ID</label>
-              <input type="text" class="form-input" id="price-member" placeholder="Member wallet ID">
-            </div>
             <div class="form-group">
               <label class="form-label">NDC Hash (medication)</label>
               <input type="text" class="form-input" id="price-ndc" placeholder="NDC hash">
             </div>
             <div class="form-group">
-              <label class="form-label">Pharmacy Wallet ID</label>
-              <input type="text" class="form-input" id="price-pharmacy" placeholder="Pharmacy wallet ID">
+              <label class="form-label">Quantity</label>
+              <input type="number" class="form-input" id="price-qty" value="30" min="0.001" step="0.001">
+              <span class="form-hint">In the drug's NADAC pricing unit (EA, ML or GM), to thousandths</span>
             </div>
           </div>
           <div class="form-row form-row-3">
             <div class="form-group">
-              <label class="form-label">Plan ID Hash</label>
-              <input type="text" class="form-input" id="price-plan" placeholder="Plan ID hash">
+              <label class="form-label">Member Wallet ID</label>
+              <input type="text" class="form-input" id="price-member" placeholder="Member wallet ID">
+              <span class="form-hint">That member's own price: its plan as published, its deductible and out-of-pocket so far</span>
             </div>
             <div class="form-group">
-              <label class="form-label">Quantity</label>
-              <input type="number" class="form-input" id="price-qty" value="30" min="1">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Ingredient Cost (cents)</label>
-              <input type="number" class="form-input" id="price-ingredient" value="5000" min="0">
-              <span class="form-hint">Pharmacy's reported drug cost</span>
+              <label class="form-label">Plan ID</label>
+              <input type="text" class="form-input" id="price-plan" placeholder="Plan ID">
+              <span class="form-hint">With no member: the plan's published price in the copay phase. Both blank: the list price</span>
             </div>
           </div>
           <div class="form-actions">

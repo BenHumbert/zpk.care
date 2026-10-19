@@ -458,22 +458,49 @@ export interface EmployerApplication {
   planType?: 'erisa' | 'government' | 'church' | 'other';
   /** Timestamp when signer reviewed the agreement (scrolled to bottom) */
   reviewedAgreementAt?: number;
+  /**
+   * The plans the employer's latest registered attestation authorizes: the published plans its agreement covered, a
+   * subset of selectedPlanIds. Absent on applications signed before it was kept; those authorized selectedPlanIds.
+   */
+  authorizedPlanIds?: string[];
 }
 
-/** AgreementTerms — structured data from which the DOCX agreement is generated */
+/**
+ * One plan in an employer's agreement: what its members are billed, which is the terms the plan was last published
+ * with (BenefitPlanConfig.publishedTerms), never a draft the insurer is still editing.
+ */
+export interface AgreementPlanTerms {
+  planId: string;
+  planName: string;
+  /** 1 pharmacy, 2 medical, 3 dental */
+  coverageType: number;
+  copayAmountCents: number;
+  deductibleAmountCents: number;
+  oopMaxCents: number;
+  annualBenefitMaxCents: number;
+  familyDeductibleAmountCents: number;
+  familyOopMaxCents: number;
+  familyAnnualBenefitMaxCents: number;
+  /** The dispensing fee a fill on the plan is charged: the plan's own, or the network default when it publishes none */
+  dispensingFeeCents: number;
+  dispensingFeeSource: 'plan' | 'network-default';
+  /** The root of the formulary the plan was published with: its drug list, each drug at the plan's copay */
+  formularyRoot: string;
+  /** The root of the provider network the plan was published with */
+  networkRoot: string;
+}
+
+/**
+ * AgreementTerms — the agreement an employer signs, from which the DOCX agreement is generated. It covers the selected
+ * plans that are published; a selected plan with no published terms is listed in unavailablePlanIds and is not covered.
+ */
 export interface AgreementTerms {
   agreementId: string;
   applicationId: string;
   employerId: string;
   companyName: string;
-  selectedPlans: Array<{
-    planId: string;
-    planName: string;
-    copayAmountCents: number;
-    deductibleAmountCents: number;
-    oopMaxCents: number;
-    annualBenefitMaxCents: number;
-  }>;
+  selectedPlans: AgreementPlanTerms[];
+  unavailablePlanIds: string[];
   effectiveDate: string;
   enrollmentCap: number;
   insurerName: string;

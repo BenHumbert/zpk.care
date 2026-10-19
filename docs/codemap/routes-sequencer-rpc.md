@@ -120,16 +120,16 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 |---|---|---|---|---|---|
 | l2_getFormulary | OPEN | planIdHash | published formulary blob for plan | no | 1231-1237 |
 | l2_storeFormulary | ADMIN | planIdHash, formularyRoot, entriesJson | `storeFormularyWithGossip` + emit `formulary:updated` | no | 1239-1264 |
-| l2_storePlan | ADMIN | plan{planId,name,…} | `node.storePlan` + emit `plan:updated` | no | 1266-1274 |
+| l2_storePlan | ADMIN | plan{planId,name,…} | `planStoreError` refuses a malformed copay, drug list, provider list or fee, or incomplete published terms (-32602; the six live limit fields are not checked, open); then `node.storePlan` + emit `plan:updated` | no | 1459-1471 |
 | l2_getPlan | OPEN | planId | plan config | no | 1276-1280 |
-| l2_getPlans | OPEN | — | all plans | no | 1282-1284 |
-| l2_getPlanLimits | OPEN | planId | copay/deductible/OOP/benefit-max subset | no | 1286-1303 |
+| l2_getPlans | OPEN | — | all plans as stored, drafts included; readers that bill or offer a plan take `planAsPublished` | no | 1479-1481 |
+| l2_getPlanLimits | OPEN | planId | the plan as published (`planAsPublished`; a draft is not shown, a plan never published with terms is shown as stored): name, coverage type, copay, deductible, OOP max, annual benefit max, the three family limits, and the dispensing fee with its source (`dispensingFeeOf`) | no | 1483-1505 |
 | l2_deletePlan | ADMIN | planId | `node.deletePlan` + emit `plan:deleted` | no | 1305-1315 |
 | l2_getFormularyCategories | OPEN | — | formulary service categories | no | 1444-1446 |
 | l2_getFormularyPage | OPEN | filter?, offset?, limit?(≤500, default 100) | paginated drug page | no | 1448-1453 |
 | l2_getDrugDetail | OPEN | ndcHash | drug record | no | 1455-1461 |
 | l2_checkCoverage | OPEN | planIdHash, ndcHash | plan coverage for drug | no | 1463-1471 |
-| l2_estimateCost | D1 when walletId is given: the wallet, the plan or operator, or the member’s attestation; without walletId open | ndcHash, planId?, walletId?, quantity?(30), dispensingFeeCents?(300) | drug + coverage; if walletId: `seq.reconstructAccumulator(walletId)` and plan limits from plan store (caller limit params ignored) → member/employer split | yes: member-specific pay derived from accumulator | 1473-1576 |
+| l2_estimateCost | D1 when walletId is given: the wallet, the plan or operator, or the member’s attestation; without walletId open. Through a node's `/rpc` proxy a call with a walletId needs that node's admin credential (A-49, 2026-10-19) | ndcHash, quantity? (30; thousandths of the drug's NADAC pricing unit, else -32602 from `quantityError`), walletId? or planId? (a planId sent with a walletId is not used; fee and limit params are not used) | with walletId: the engine's quote through `setMemberCostQuoteProvider` → `AdjudicationService.quoteMemberCost` (the member's plan as published; `quoteFill` + `priceDispense`; `splitClaimCost` over the accumulator the next fill is proven against and the family's inputs); no engine beside the sequencer (a replica) or an unenrolled wallet → -32602. Without: a planId's published list, copay and fee (`publishedListCovers`), copay phase; a plan never published is not covered; no plan → tier copay and network default fee. Answers drug, nadacPerUnit, pricingUnit, quantity, ingredient, fee and its source, total, copay and `copayBasis`, `phase`, member and employer pay; a drug off the plan answers `covered: false`, phase `not-covered`, with a reason that names no plan | yes: the member's share and phase, no balances | 1690-1779 |
 | l2_publishPlanOverlay | ADMIN | planIdHash, planName?, overrides?, defaults | `formularyService.publishOverlay` + emit | no | 1578-1593 |
 | l2_getFormularyRoutes | OPEN | — | routes list | no | 1595-1597 |
 | l2_getFormularyDrugCount | OPEN | — | count | no | 1599-1601 |
@@ -266,7 +266,7 @@ Callers = files in `src/nodes` matching `client.<method>(` (grep); "—" = none 
 | storeFormulary (169) | l2_storeFormulary (ADMIN) | " | insurer-node |
 | storePlan (180) / getPlan (185) / getPlans (190) / deletePlan (195) | l2_storePlan (ADMIN) / l2_getPlan / l2_getPlans / l2_deletePlan (ADMIN) | " | insurer-node; getPlans also routes/employer-routes |
 | getPlanLimits (200) | l2_getPlanLimits | " | — |
-| estimateCost (216) — sends deductible/oop/benefit-max params the server ignores | l2_estimateCost | " | routes/prescriber-routes |
+| estimateCost (225): its declared params (fee, limits) and return type are older than the server's: the server uses neither those params nor a planId sent with a walletId, and the return type lacks pricingUnit, phase, copayBasis and dispensingFeeSource (open) | l2_estimateCost | " | routes/prescriber-routes (forwards only ndcHash, quantity, and walletId with the member's attestation, or planId) |
 | getClaimsByMember (247) | l2_getClaimsByMember | " | insurer-node, member-node, pharmacy-node |
 | getClaimsByPharmacy (252) / getClaimsByPrescriber (257) / getClaimsByNdc (262) | matching l2_* | " | insurer-node (+pharmacy-node / prescriber-node) |
 | getClaimWithProof (267) | l2_getClaimWithProof | " | member-node, pharmacy-node |

@@ -1609,6 +1609,26 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     },
   });
 
+  /**
+   * A plan's amounts in whole cents. The copay is what the member pays in the copay phase, and every formulary entry
+   * carries it. For the deductible, the OOP max, the annual benefit max and the three family limits, 0 means none or
+   * no limit: the fill circuit and the engine test each one for greater than 0. So 0 is kept as 0; a field left out
+   * takes the default on POST and keeps the plan's value on PUT; anything but a whole number of cents, 0 or more, is
+   * refused before the sequencer is called.
+   */
+  const PLAN_CENTS_FIELDS = [
+    'copayAmountCents', 'deductibleAmountCents', 'oopMaxCents', 'annualBenefitMaxCents',
+    'familyDeductibleAmountCents', 'familyOopMaxCents', 'familyAnnualBenefitMaxCents',
+  ] as const;
+  function planAmountsError(b: Partial<BenefitPlanConfig>): string | null {
+    for (const field of PLAN_CENTS_FIELDS) {
+      const v = (b as Record<string, unknown>)[field];
+      if (v === undefined) continue;
+      if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 0) return `${field} must be a whole number of cents, 0 or more`;
+    }
+    return null;
+  }
+
   // POST /plans — Create a new plan
   routes.push({
     method: 'POST',
@@ -1622,10 +1642,8 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!b?.planId || !b?.name) {
         return server.sendResponse(res, 400, false, undefined, 'Missing planId or name');
       }
-      // Plan-bound formularies: the copay is what the member pays in the copay phase, and every formulary entry carries it.
-      if (b.copayAmountCents !== undefined && (typeof b.copayAmountCents !== 'number' || !Number.isSafeInteger(b.copayAmountCents) || b.copayAmountCents < 0)) {
-        return server.sendResponse(res, 400, false, undefined, 'copayAmountCents must be a whole number of cents, 0 or more');
-      }
+      const amountsError = planAmountsError(b);
+      if (amountsError) return server.sendResponse(res, 400, false, undefined, amountsError);
       if (b.formularyNdcs !== undefined && (!Array.isArray(b.formularyNdcs) || b.formularyNdcs.some((n) => typeof n !== 'string'))) {
         return server.sendResponse(res, 400, false, undefined, 'formularyNdcs must be a list of NDC strings (empty for every drug in the formulary)');
       }
@@ -1652,6 +1670,8 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
 
         // Auto-publish: push plan overlay to sequencer (Option C — lightweight ~5KB, not 10MB)
         // Empty formularyNdcs = all drugs (no per-drug overrides); empty networkProviderWalletIds = all providers
+        let publishError: string | undefined;
+        let draftPending = false;
         try {
           const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
           const pubHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -1677,18 +1697,20 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
           const networkRoot = planNetworkRoot(plan.networkProviderWalletIds).toString(); // '0' = all providers accepted
 
           // Mark plan as published, with the roots a member's credential will name and the terms its members are bound to
+          // (published stays false if an edit was saved while the overlay call was pending; see markPlanPublished)
           const stored = await node.markPlanPublished(plan.planId, formulary.root.toString(), networkRoot, plan);
-          plan.published = true;
+          plan.published = stored.published;
           plan.formularyRoot = stored.formularyRoot;
           plan.networkRoot = stored.networkRoot;
           plan.publishedTerms = stored.publishedTerms;
+          draftPending = !stored.published;
         } catch (pubErr: any) {
           // Plan created but publish failed — flag it clearly so the client can retry
           console.warn('[insurer] Auto-publish failed for %s: %s', plan.planId, pubErr.message);
-          plan.publishError = pubErr.message;
+          publishError = pubErr.message;
         }
 
-        server.sendResponse(res, 201, true, plan);
+        server.sendResponse(res, 201, true, { ...plan, ...(publishError ? { publishError } : {}), ...(draftPending ? { draftPending } : {}) });
       } catch (err: any) {
         server.sendResponse(res, 409, false, undefined, err.message);
       }
@@ -1713,6 +1735,8 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       // default; like any edit, fills are charged it only once the plan is published again.
       const feeError = dispensingFeeError(edits.dispensingFeeCents);
       if (feeError) return server.sendResponse(res, 400, false, undefined, feeError);
+      const amountsError = planAmountsError(edits);
+      if (amountsError) return server.sendResponse(res, 400, false, undefined, amountsError);
       try {
         const plan = await node.updatePlan(params.planId, edits);
         server.sendResponse(res, 200, true, plan);
@@ -1779,9 +1803,16 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
 
         // Mark plan as published, with the roots a member's credential will name and the terms its members are bound to
         const updated = await node.markPlanPublished(params.planId, formulary.root.toString(), networkRoot, plan);
+        // An edit saved while the overlay call was pending is not what was published: the published terms are the plan
+        // as read above, and the live record stays a draft holding the edit until the plan is published again.
+        const draftPending = !updated.published;
 
         server.sendResponse(res, 200, true, {
-          published: true,
+          published: updated.published,
+          draftPending,
+          ...(draftPending
+            ? { message: 'Published the plan as it was when publishing began. A newer draft was saved meanwhile and is not published; publish again to publish it.' }
+            : {}),
           planId: params.planId,
           overlayVersion: overlayJson.result?.version ?? 1,
           formularyRoot: formulary.root.toString(),

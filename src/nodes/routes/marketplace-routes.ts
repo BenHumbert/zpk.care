@@ -35,15 +35,18 @@ import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync } from '
 import { join } from 'path';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
 import type { RouteRegistration } from '../nautilus-app-types.js';
-import type { EmployerApplication, AgreementTerms, EmployerAttestation, BenefitPlanConfig } from '../../l2/l2-types.js';
+import type { EmployerApplication, EmployerAttestation, BenefitPlanConfig } from '../../l2/l2-types.js';
+import { planAsPublished, publishedTermsOf } from '../../l2/plan-terms.js';
 import {
   computeAgreementCommitment,
   computeDocumentHash,
   buildAttestationMessage,
   buildAgreementTerms,
+  attestationTermsStatus,
   verifyAttestationSignature,
   generateAgreementDocx,
   deriveInsurerKeypair,
+  type AgreementTerms,
 } from '../../onboarding/employer-attestation.js';
 
 // ─── Shared Application Store (persisted to stateDir) ───────
@@ -203,8 +206,10 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getPlans', params: {} }),
         });
         const json = await resp.json() as any;
-        const plans: BenefitPlanConfig[] = json.result || [];
-        server.sendResponse(res, 200, true, plans.filter(p => p.published));
+        const plans: BenefitPlanConfig[] = Array.isArray(json.result) ? json.result : [];
+        // Plan-bound formularies: an employer is offered a plan only once it has published terms, and is shown those
+        // terms (what members are billed), not a draft the insurer is still editing.
+        server.sendResponse(res, 200, true, plans.filter((p) => publishedTermsOf(p)).map((p) => planAsPublished(p)));
       } catch {
         server.sendResponse(res, 502, false, undefined, 'Cannot fetch plans');
       }
@@ -223,8 +228,9 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getPlan', params: { planId: params.planId } }),
         });
         const json = await resp.json() as any;
-        if (!json.result) return server.sendResponse(res, 404, false, undefined, 'Plan not found');
-        server.sendResponse(res, 200, true, json.result);
+        // As the list: a plan with no published terms is not offered, and a published one is shown as published.
+        if (!json.result || !publishedTermsOf(json.result)) return server.sendResponse(res, 404, false, undefined, 'Plan not found');
+        server.sendResponse(res, 200, true, planAsPublished(json.result as BenefitPlanConfig));
       } catch {
         server.sendResponse(res, 502, false, undefined, 'Cannot fetch plan');
       }
@@ -522,6 +528,7 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
       // (seq=0). If one exists, this is a renewal (seq = existing + 1). The
       // sequencer enforces this exact value at l2_registerEmployer time.
       let attestationSeq = 0;
+      let existing: EmployerAttestation | null = null;
       try {
         const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
         const attResp = await fetch(`${seqUrl}/rpc`, {
@@ -531,12 +538,14 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
         });
         const attJson = await attResp.json() as any;
         if (attJson.result && typeof attJson.result.attestationSeq === 'number') {
+          existing = attJson.result as EmployerAttestation;
           attestationSeq = attJson.result.attestationSeq + 1;
         }
       } catch {
         return server.sendResponse(res, 502, false, undefined, 'Cannot reach sequencer to compute attestation seq');
       }
 
+      // Plan-bound formularies: the agreement states what members are billed, each plan's published terms and fee.
       const terms = buildAgreementTerms(app, plans);
       const commitment = computeAgreementCommitment(terms);
       const documentHash = computeDocumentHash(terms);
@@ -545,16 +554,34 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
       // Store ts and attestationSeq in cache so the sign endpoint uses the SAME values
       agreementCache.set(params.applicationId, { terms, commitment, documentHash, ts, attestationSeq });
 
+      // An attestation already registered: say whether the terms it committed to are still what members are billed, whether
+      // it was signed before agreements covered every published term, and which selected plans it does not authorize
+      // that are published now. In each case the employer can sign these terms as the next attestation (attestationSeq).
+      let signed: { attestationSeq: number; signedAt: number; termsChanged: boolean; signedBeforeFullTerms: boolean; plansToAdd: string[] } | null = null;
+      if (existing) {
+        const status = attestationTermsStatus(existing, plans);
+        const authorized = new Set(existing.authorizedPlanIds ?? []);
+        signed = {
+          attestationSeq: existing.attestationSeq,
+          signedAt: existing.ts,
+          termsChanged: status.termsChanged,
+          signedBeforeFullTerms: status.signedBeforeFullTerms,
+          plansToAdd: terms.selectedPlans.map((p) => p.planId).filter((planId) => !authorized.has(planId)),
+        };
+      }
+
       server.sendResponse(res, 200, true, {
         terms,
         commitment,
         documentHash,
         ts,
         attestationSeq,
+        signedAttestation: signed,
         canonicalMessage: buildAttestationMessage({
           employerId: app.employerId,
           publicKeyHex: app.publicKeyHex,
-          authorizedPlanIds: app.selectedPlanIds,
+          // the plans the agreement covers, never a selected plan it lists as unavailable (its terms are not committed to)
+          authorizedPlanIds: terms.selectedPlans.map((p) => p.planId),
           enrollmentCap: app.enrollmentCap,
           agreementCommitment: commitment,
           documentHash,
@@ -606,6 +633,11 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
       if (!cached) {
         return server.sendResponse(res, 409, false, undefined, 'Call GET /agreement first');
       }
+      // An agreement covering no published plan states no terms anyone is billed under, so there is nothing to sign.
+      if (cached.terms.selectedPlans.length === 0) {
+        return server.sendResponse(res, 409, false, undefined,
+          'None of the plans in this application is published, so the agreement covers no plan. The insurer must publish them first.');
+      }
 
       // Use the ts and attestationSeq from the agreement cache exclusively.
       // Neither can be supplied by the client — both MUST come from the cache
@@ -614,10 +646,13 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
       const ts = cached.ts;
       const attestationSeq = cached.attestationSeq;
 
+      // The attestation authorizes the plans the signed agreement covers and nothing else: a selected plan with no published
+      // terms is not committed to, so publishing it later does not admit it under this signature; the employer signs again
+      // (attestation seq + 1) to add it, at the terms it is published with.
       const attestationBase = {
         employerId: app.employerId,
         publicKeyHex: app.publicKeyHex,
-        authorizedPlanIds: app.selectedPlanIds,
+        authorizedPlanIds: cached.terms.selectedPlans.map((p) => p.planId),
         enrollmentCap: app.enrollmentCap,
         agreementCommitment: cached.commitment,
         documentHash: cached.documentHash,
@@ -701,6 +736,7 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
 
       // Sequencer confirmed — now safe to update status
       server.registerPartnerKey(app.employerId, app.publicKeyHex);
+      app.authorizedPlanIds = attestation.authorizedPlanIds;
       // On first signing, advance to 'signed'. On renewal, preserve the
       // existing 'active' status (a renewed active employer stays active).
       if (!isRenewal) {
@@ -797,7 +833,8 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
           employerId: app.employerId,
           sequencerUrl,
           insurerUrl,
-          authorizedPlanIds: app.selectedPlanIds,
+          // what the registered attestation authorizes (older applications kept no copy: they authorized every selected plan)
+          authorizedPlanIds: app.authorizedPlanIds ?? app.selectedPlanIds,
           enrollmentCap: app.enrollmentCap,
           publicKeyHex: app.publicKeyHex,
           effectiveDate: app.effectiveDate,
@@ -896,7 +933,7 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
         employerId: app.employerId,
         sequencerUrl,
         insurerUrl,
-        authorizedPlanIds: app.selectedPlanIds,
+        authorizedPlanIds: app.authorizedPlanIds ?? app.selectedPlanIds,
         enrollmentCap: app.enrollmentCap,
         publicKeyHex: app.publicKeyHex,
         effectiveDate: app.effectiveDate,
@@ -970,11 +1007,51 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
 export function buildEmployerAdminRoutes(server: NautilusAppServer): RouteRegistration[] {
   const routes: RouteRegistration[] = [];
 
+  /**
+   * For each signed or active employer: whether the terms its attestation committed to are still what its plans'
+   * members are billed, and whether it was signed before agreements covered every published term
+   * (attestationTermsStatus). Two sequencer reads, the plans and the attestations; null for an employer with no
+   * attestation, or when the sequencer cannot be read.
+   */
+  async function termsStatusByEmployer(apps: EmployerApplication[]): Promise<Map<string, { termsChanged: boolean; signedBeforeFullTerms: boolean } | null>> {
+    const out = new Map<string, { termsChanged: boolean; signedBeforeFullTerms: boolean } | null>();
+    const signed = apps.filter((a) => a.status === 'signed' || a.status === 'active');
+    if (signed.length === 0) return out;
+    try {
+      const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+      const read = async (method: string): Promise<unknown> => {
+        const resp = await fetch(`${seqUrl}/rpc`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params: {} }),
+          signal: AbortSignal.timeout(5000),
+        });
+        return ((await resp.json()) as { result?: unknown }).result;
+      };
+      const [plans, attestations] = await Promise.all([read('l2_getPlans'), read('l2_getEmployerAttestations')]);
+      const planList = Array.isArray(plans) ? plans as BenefitPlanConfig[] : [];
+      const byEmployer = new Map<string, EmployerAttestation>();
+      for (const att of Array.isArray(attestations) ? attestations as EmployerAttestation[] : []) {
+        if (att && typeof att.employerId === 'string') byEmployer.set(att.employerId, att);
+      }
+      for (const app of signed) {
+        const att = byEmployer.get(app.employerId);
+        if (!att) { out.set(app.applicationId, null); continue; }
+        const status = attestationTermsStatus(att, planList);
+        out.set(app.applicationId, { termsChanged: status.termsChanged, signedBeforeFullTerms: status.signedBeforeFullTerms });
+      }
+    } catch {
+      for (const app of signed) out.set(app.applicationId, null);
+    }
+    return out;
+  }
+
   routes.push({
     method: 'GET',
     path: '/employer-applications',
     adminOnly: true,
     handler: async (_req, res) => {
+      const termsStatus = await termsStatusByEmployer(Array.from(applicationStore.values()));
       // Strip sensitive fields from admin view (keep cp575DocumentId + resubmissionCount for review workflow)
       const apps = Array.from(applicationStore.values()).map(app => ({
         applicationId: app.applicationId,
@@ -992,6 +1069,11 @@ export function buildEmployerAdminRoutes(server: NautilusAppServer): RouteRegist
         approvedAt: app.approvedAt || null,
         cp575DocumentId: app.cp575DocumentId || null,
         resubmissionCount: app.resubmissionCount || 0,
+        // signed or active only: true when a plan's published terms changed after the employer signed
+        termsChanged: termsStatus.get(app.applicationId)?.termsChanged ?? null,
+        // signed or active only: true when it was signed before agreements covered fees, formularies, family limits and the
+        // network, and the terms it did cover are unchanged
+        signedBeforeFullTerms: termsStatus.get(app.applicationId)?.signedBeforeFullTerms ?? null,
       }));
       server.sendResponse(res, 200, true, apps);
     },

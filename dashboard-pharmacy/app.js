@@ -315,13 +315,15 @@
       var hashKey = 'h_' + (rx.memberWalletId || '') + '_' + (rx.ndcHash || '') + '_' + (rx.dateOfService || '');
       var acc = accumulatorByKey[key] || accumulatorByKey[hashKey];
       if (acc) {
-        // Merge settlement data from accumulator into prescription
-        if (acc.patientPayCents != null && !rx.patientPayCents) rx.patientPayCents = acc.patientPayCents;
-        if (acc.planPayCents != null && !rx.planPayCents) rx.planPayCents = acc.planPayCents;
-        if (acc.deductibleCreditCents != null) rx.deductibleCreditCents = acc.deductibleCreditCents;
+        // Merge settlement data from the accumulator into the prescription only where the engine's list has none. The
+        // engine's amounts are sums over all the prescription's standing fills (patient + plan = ingredient + fee); a
+        // ledger claim is one fill, and laying it over the sums would make the card disagree with itself.
+        if (acc.patientPayCents != null && rx.patientPayCents == null) rx.patientPayCents = acc.patientPayCents;
+        if (acc.planPayCents != null && rx.planPayCents == null) rx.planPayCents = acc.planPayCents;
+        if (acc.deductibleCreditCents != null && rx.deductibleCreditCents == null) rx.deductibleCreditCents = acc.deductibleCreditCents;
         if (acc.leafIndex != null && rx.leafIndex == null) rx.leafIndex = acc.leafIndex;
-        if (acc.ingredientCostCents != null) rx.ingredientCostCents = acc.ingredientCostCents;
-        if (acc.dispensingFeeCents != null) rx.dispensingFeeCents = acc.dispensingFeeCents;
+        if (acc.ingredientCostCents != null && rx.ingredientCostCents == null) rx.ingredientCostCents = acc.ingredientCostCents;
+        if (acc.dispensingFeeCents != null && rx.dispensingFeeCents == null) rx.dispensingFeeCents = acc.dispensingFeeCents;
         if (acc.metadata) rx.metadata = Object.assign(rx.metadata || {}, acc.metadata);
       }
     });
@@ -516,6 +518,9 @@
       // Use workflow data first (from proof result), then server data. Use != null to preserve $0.00 amounts.
       var wf = scriptWorkflow[scriptKey(claim)] || {};
       var pricing = fillPricingOf(claim, wf);
+      // The prescribed quantity in the drug's NADAC pricing unit (EA, ML or GM)
+      var qtyUnit = claim.pricingUnit || (pricing && pricing.pricingUnit) || '';
+      var qtyText = claim.quantity != null ? String(claim.quantity) + (qtyUnit ? ' ' + qtyUnit : '') : '';
       const patientPayVal = wf.patientPayCents != null ? wf.patientPayCents : (claim.patientPayCents != null ? claim.patientPayCents : claim.patientPay);
       const patientPay = isEscript ? 'Pending' : formatCents(patientPayVal);
       const planPayVal = wf.planPayCents != null ? wf.planPayCents : (claim.planPayCents != null ? claim.planPayCents : claim.planPay);
@@ -572,6 +577,7 @@
           '<span class="script-patient" title="Patient">' + escapeHtml(patient) + '</span>' +
           '<span title="Prescriber">' + escapeHtml(prescriber) + '</span>' +
           '<span>' + escapeHtml(date) + '</span>' +
+          (qtyText ? '<span title="Quantity prescribed, in the drug\'s NADAC pricing unit">' + escapeHtml(qtyText) + '</span>' : '') +
         '</div>' +
         '<div class="script-card-bottom">' +
           '<div class="script-pricing">' +
@@ -601,17 +607,26 @@
   }
 
   // NADAC pricing (owner decision 2026-10-18): what a fill cost, as the engine priced it: NADAC per unit x quantity +
-  // the dispensing fee. Taken from the fill result just received, the engine's prescription list, or the ledger claim;
-  // a claim recorded before NADAC pricing has no unit price and shows its two amounts only.
+  // the dispensing fee. Taken from the fill result just received (one fill, shown with that fill's own patient and plan
+  // pay), the engine's prescription list (the one standing fill's breakdown, or, with several fills, the sums of their
+  // amounts, which have no single unit price), or the ledger claim (one fill); a claim recorded before NADAC
+  // pricing has no unit price and shows its two amounts only.
   function fillPricingOf(claim, wf) {
     var meta = claim.metadata || {};
     var p = (wf && wf.pricing) || claim.pricing || null;
+    if (!p && Array.isArray(claim.fills) && claim.ingredientCostCents != null && claim.dispensingFeeCents != null) {
+      p = {
+        pricingUnit: claim.pricingUnit, quantity: claim.quantityDispensed,
+        ingredientCostCents: claim.ingredientCostCents, dispensingFeeCents: claim.dispensingFeeCents,
+        fillCount: claim.fills.filter(function (f) { return !f.reversed; }).length,
+      };
+    }
     if (!p) {
       var ingredient = meta.ingredientCostCents != null ? meta.ingredientCostCents : claim.ingredientCostCents;
       var fee = meta.dispensingFeeCents != null ? meta.dispensingFeeCents : claim.dispensingFeeCents;
       if (ingredient == null || fee == null) return null;
       p = {
-        nadacUnitPriceE5: meta.nadacUnitPriceE5, pricingUnit: meta.pricingUnit, dispensingFeeSource: meta.dispensingFeeSource,
+        nadacUnitPriceE5: meta.nadacUnitPriceE5, pricingUnit: meta.pricingUnit || claim.pricingUnit, dispensingFeeSource: meta.dispensingFeeSource,
         quantity: meta.quantityDispensed != null ? meta.quantityDispensed : (claim.quantityDispensed || claim.quantity),
         ingredientCostCents: ingredient, dispensingFeeCents: fee,
       };
@@ -626,12 +641,13 @@
     return '$' + s.slice(0, -5) + '.' + s.slice(-5);
   }
 
-  /** "NADAC $0.60042/EA x 30 = $18.01 + dispensing fee $12.50 = $30.51" */
+  /** "NADAC $0.60042/EA x 30 EA = $18.01 + dispensing fee $12.50 = $30.51"; several fills: "Ingredient $43.01 (2 fills) + ..." */
   function nadacBreakdown(p) {
+    var unit = p.pricingUnit || 'unit';
     var ingredient = p.nadacUnitPriceE5 != null
-      ? 'NADAC ' + formatNadacUnit(p.nadacUnitPriceE5) + '/' + (p.pricingUnit || 'unit') + ' x ' + p.quantity + ' = ' + formatCents(p.ingredientCostCents)
-      : 'Ingredient ' + formatCents(p.ingredientCostCents);
-    return ingredient + ' + dispensing fee ' + formatCents(p.dispensingFeeCents) +
+      ? 'NADAC ' + formatNadacUnit(p.nadacUnitPriceE5) + '/' + unit + ' x ' + p.quantity + ' ' + unit + ' = ' + formatCents(p.ingredientCostCents)
+      : 'Ingredient ' + formatCents(p.ingredientCostCents) + (p.fillCount > 1 ? ' (' + p.fillCount + ' fills, ' + p.quantity + ' ' + unit + ')' : '');
+    return ingredient + ' + dispensing fee' + (p.fillCount > 1 ? 's ' : ' ') + formatCents(p.dispensingFeeCents) +
       (p.dispensingFeeSource === 'network-default' ? ' (network default)' : '') + ' = ' + formatCents(p.totalCostCents);
   }
 
@@ -664,7 +680,10 @@
 
     // NADAC pricing (owner decision 2026-10-18): the engine prices the fill at NADAC x quantity + the plan's
     // dispensing fee. The pharmacy sends the quantity it dispensed and no costs (it used to send $0 + $13.00).
-    var quantityDispensed = Number(claim.quantityDispensed || claim.quantity || 30);
+    // The quantity still to dispense, in the drug's NADAC pricing unit, counted in exact thousandths of it.
+    var prescribedMilli = Math.round(Number(claim.quantity || 0) * 1000);
+    var dispensedMilli = Math.round(Number(claim.quantityDispensed || 0) * 1000);
+    var quantityDispensed = prescribedMilli > dispensedMilli ? (prescribedMilli - dispensedMilli) / 1000 : Number(claim.quantity || 30);
 
     // Fire async ZK proof pipeline via pharmacy route → sequencer interactive service
     // Uses prescriptionId from the existing eScript (prescriber already adjudicated)
@@ -1070,6 +1089,9 @@
     var meta = claim.metadata || {};
     var pricing = fillPricingOf(claim, w);
     var qty = meta.quantityDispensed || claim.quantityDispensed || claim.quantity;
+    // Every quantity in the drug's NADAC pricing unit (EA, ML or GM)
+    var unit = claim.pricingUnit || meta.pricingUnit || (pricing && pricing.pricingUnit) || '';
+    var withUnit = function (q) { return q == null || q === '' ? '--' : String(q) + (unit ? ' ' + unit : ''); };
 
     const fields = [
       ['Leaf Index', claim.leafIndex || claim.index],
@@ -1079,7 +1101,8 @@
       ['Prescriber Wallet', claim.prescriberWalletId || claim.prescriber],
       ['Pharmacy Wallet', claim.pharmacyWalletId || claim.pharmacy],
       ['Date of Service', formatDate(claim.dateOfService || claim.date)],
-      ['Qty Dispensed', qty || '--'],
+      ['Qty Prescribed', withUnit(claim.quantity)],
+      ['Qty Dispensed', withUnit(qty)],
       ['Days Supply', meta.daysSupply || claim.daysSupply || '--'],
     ];
 
@@ -1088,15 +1111,31 @@
       fields.push(['--- COST BREAKDOWN ---', '']);
       if (pricing.nadacUnitPriceE5 != null) fields.push(['NADAC Unit Price', formatNadacUnit(pricing.nadacUnitPriceE5) + ' / ' + (pricing.pricingUnit || 'unit')]);
       // a claim recorded before NADAC pricing has no unit price: its ingredient cost is not labelled NADAC
-      fields.push([pricing.nadacUnitPriceE5 != null ? 'Ingredient (NADAC x ' + (pricing.quantity != null ? pricing.quantity : (qty || '--')) + ')' : 'Ingredient', formatCents(pricing.ingredientCostCents)]);
-      fields.push(['Dispensing Fee' + (pricing.dispensingFeeSource === 'network-default' ? ' (network default)' : pricing.dispensingFeeSource === 'plan' ? ' (plan)' : ''), formatCents(pricing.dispensingFeeCents)]);
+      fields.push([pricing.nadacUnitPriceE5 != null ? 'Ingredient (NADAC x ' + withUnit(pricing.quantity != null ? pricing.quantity : qty) + ')' : (pricing.fillCount > 1 ? 'Ingredient (' + pricing.fillCount + ' fills)' : 'Ingredient'), formatCents(pricing.ingredientCostCents)]);
+      fields.push(['Dispensing Fee' + (pricing.fillCount > 1 ? 's' : '') + (pricing.dispensingFeeSource === 'network-default' ? ' (network default)' : pricing.dispensingFeeSource === 'plan' ? ' (plan)' : ''), formatCents(pricing.dispensingFeeCents)]);
       fields.push(['Total Drug Cost', formatCents(pricing.totalCostCents)]);
+    }
+    // Each fill's own pricing and split, beside the prescription's sums above
+    if (Array.isArray(claim.fills) && claim.fills.length > 1) {
+      fields.push(['--- FILLS ---', '']);
+      claim.fills.forEach(function (f) {
+        var fp = f.pricing || null;
+        var cost = fp && fp.nadacUnitPriceE5 != null
+          ? 'NADAC ' + formatNadacUnit(fp.nadacUnitPriceE5) + '/' + (fp.pricingUnit || unit || 'unit') + ' x ' + withUnit(f.quantityDispensed) + ' = ' + formatCents(f.ingredientCostCents)
+          : 'Ingredient ' + formatCents(f.ingredientCostCents) + ' for ' + withUnit(f.quantityDispensed);
+        fields.push([
+          'Fill ' + (Number(f.fillIndex) + 1) + (f.reversed ? ' (reversed)' : ''),
+          cost + ' + fee ' + formatCents(f.dispensingFeeCents) + ' = ' + formatCents(f.totalCostCents) +
+            '; patient ' + formatCents(f.patientPayCents) + ', plan ' + formatCents(f.planPayCents),
+        ]);
+      });
     }
 
     fields.push(['--- SETTLEMENT ---', '']);
-    fields.push(['Patient Copay', formatCents(claim.patientPayCents || claim.patientPay)]);
-    fields.push(['Plan Pays', formatCents(claim.planPayCents || claim.planPay)]);
-    fields.push(['Deductible Credit', formatCents(claim.deductibleCreditCents || claim.deductibleCredit)]);
+    // the prescription's sums over its standing fills, $0.00 included (patient + plan = the total drug cost above)
+    fields.push(['Patient Copay', formatCents(claim.patientPayCents != null ? claim.patientPayCents : claim.patientPay)]);
+    fields.push(['Plan Pays', formatCents(claim.planPayCents != null ? claim.planPayCents : claim.planPay)]);
+    fields.push(['Deductible Credit', formatCents(claim.deductibleCreditCents != null ? claim.deductibleCreditCents : claim.deductibleCredit)]);
     fields.push(['Workflow Status', status.toUpperCase()]);
     fields.push(['Member Verified', isScriptVerified(claim) ? 'YES' : 'NO']);
 
@@ -1156,7 +1195,8 @@
     if (status === 'filled') {
       var isVerified = isScriptVerified(claim);
       if (isVerified) {
-        html += '<button class="btn btn-primary" onclick="App.dispenseScript(\'' + escapeHtml(key) + '\'); App.closeModal();">Dispense (Collect Payment + Settle)</button>';
+        var toDispense = Math.max(0, Math.round(Number(claim.quantity || 0) * 1000) - Math.round(Number(claim.quantityDispensed || 0) * 1000)) / 1000;
+        html += '<button class="btn btn-primary" onclick="App.dispenseScript(\'' + escapeHtml(key) + '\'); App.closeModal();">Dispense' + (toDispense > 0 ? ' ' + escapeHtml(withUnit(toDispense)) : '') + ' (Collect Payment + Settle)</button>';
       } else {
         html += '<div style="color:var(--text-muted);font-size:12px;margin:8px 0">Verify member (NFC/attestation) to enable dispensing</div>';
         html += '<button class="btn" onclick="App.verifyMemberForScript(\'' + escapeHtml(key) + '\'); App.closeModal();">Verify Member</button>';

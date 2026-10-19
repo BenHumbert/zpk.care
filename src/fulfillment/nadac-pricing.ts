@@ -129,6 +129,41 @@ export function quoteNadacPrice(
   };
 }
 
+/**
+ * The most a quantity may be: NCPDP's quantity field (442-E7, 460-ET) holds seven digits and three decimals.
+ */
+export const MAX_QUANTITY = 9_999_999.999;
+
+/**
+ * Why `q` cannot be a quantity, or null when it can. A quantity counts the drug's NADAC pricing unit (EA, ML or GM, the
+ * NCPDP billing units): greater than 0, at most three decimals (thousandths of the unit, NCPDP's precision), at most
+ * MAX_QUANTITY. Every consumer works in thousandths: quantityToField scales by 1,000 for the circuits, so a prescribed
+ * quantity, a dispensed quantity and a formulary's maximum per fill are compared at one scale, and the engine's
+ * remaining-quantity arithmetic uses quantityMilli. A number with a fourth decimal is refused rather than rounded.
+ */
+export function quantityError(q: unknown, what = 'quantity'): string | null {
+  if (typeof q !== 'number' || !Number.isFinite(q)) return `${what} must be a number of the drug's pricing unit (EA, ML or GM), got ${show(q)}`;
+  if (q <= 0) return `${what} must be greater than 0 (got ${q})`;
+  if (q > MAX_QUANTITY) return `${what} must be at most ${MAX_QUANTITY} (got ${q})`;
+  if (Number(q.toFixed(3)) !== q) return `${what} has at most three decimals, thousandths of the pricing unit (got ${q})`;
+  return null;
+}
+
+/** A quantity in thousandths of its pricing unit, as an exact integer: 0.4 -> 400. Valid quantities only (quantityError). */
+export function quantityMilli(q: number): number {
+  return Math.round(q * 1000);
+}
+
+/** The quantity a count of thousandths stands for: 400 -> 0.4. */
+export function quantityFromMilli(milli: number): number {
+  return milli / 1000;
+}
+
+/** A quantity with its pricing unit, for screens and logs: "30 EA", "0.4 ML". */
+export function formatQuantity(quantity: number, pricingUnit: string | undefined | null): string {
+  return pricingUnit ? `${quantity} ${pricingUnit}` : `${quantity}`;
+}
+
 /** A quote applied to the quantity dispensed. Nothing is re-read, so a quote locked at prescribing (B3) stays fixed. */
 export function priceDispense(quote: PriceQuote, quantity: number): FillPrice {
   const ingredientCostCents = nadacIngredientCents(quote.nadacUnitPriceE5, quantity);

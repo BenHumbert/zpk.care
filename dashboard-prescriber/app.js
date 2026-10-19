@@ -396,7 +396,7 @@
         var page = await API.getFormularyPage({ limit: 500, offset: 0 });
         if (page && Array.isArray(page.drugs)) {
           cachedMedications = page.drugs.map(function (d) {
-            return { ndcHash: d.ndcHash, brandName: d.brandName || '', genericName: d.genericName || '', ndc: d.ndc || '', strength: d.strength || '', dosageForm: d.dosageForm || '', tierLevel: d.tierLevel, copay: d.copayAmount != null ? d.copayAmount / 100 : 0, claimCount: 0 };
+            return { ndcHash: d.ndcHash, brandName: d.brandName || '', genericName: d.genericName || '', ndc: d.ndc || '', strength: d.strength || '', dosageForm: d.dosageForm || '', pricingUnit: d.pricingUnit || '', tierLevel: d.tierLevel, copay: d.copayAmount != null ? d.copayAmount / 100 : 0, claimCount: 0 };
           });
           // Store total count for UI
           window._formularyTotalCount = page.total || cachedMedications.length;
@@ -462,6 +462,8 @@
     if (!memberWalletId) { toast('Select a patient', 'error'); return; }
     if (!pharmacyWalletId) { toast('Select a pharmacy', 'error'); return; }
     if (!ndcHash) { toast('Select a medication or enter NDC hash', 'error'); return; }
+    var quantity = parseQuantity($('#rx-quantity').value);
+    if (isNaN(quantity)) { toast(QUANTITY_RULE, 'error'); return; }
 
     var btn = $('#rx-write-btn');
     btn.disabled = true;
@@ -475,7 +477,7 @@
         pharmacyWalletId: pharmacyWalletId,
         ndcHash: ndcHash,
         brandName: brandName,
-        quantity: parseInt($('#rx-quantity').value) || 30,
+        quantity: quantity,
         daysSupply: parseInt($('#rx-days-supply').value) || 30,
         refills: parseInt($('#rx-refills').value) || 0,
         directions: $('#rx-directions').value.trim(),
@@ -574,6 +576,44 @@
     }, 5000);
   }
 
+  // A quantity counts the drug's NADAC pricing unit (EA, ML or GM: the NCPDP billing units), to thousandths of it,
+  // NCPDP's precision. A typed value with a fourth decimal, or 0, is refused, never rounded.
+  var QUANTITY_RULE = 'Quantity must be greater than 0, with at most three decimals, in the drug\'s pricing unit (EA, ML or GM)';
+  function parseQuantity(text) {
+    var s = String(text == null ? '' : text).trim();
+    if (!/^(\d+(\.\d{0,3})?|\.\d{1,3})$/.test(s)) return NaN;
+    var q = Number(s);
+    return q > 0 ? q : NaN;
+  }
+
+  /** The pricing unit of the medication picked in the form, from the formulary page; '' when unknown (an NDC hash typed in). */
+  function selectedPricingUnit(ndcHash) {
+    for (var i = 0; i < cachedMedications.length; i++) {
+      if (cachedMedications[i].ndcHash === ndcHash) return cachedMedications[i].pricingUnit || '';
+    }
+    return '';
+  }
+
+  /** The unit beside the quantity input: "(EA)", "(ML)" or "(GM)". */
+  function showQuantityUnit(unit) {
+    var el = document.getElementById('rx-quantity-unit');
+    if (el) el.textContent = unit ? '(' + unit + ')' : '(pricing unit)';
+  }
+
+  // What decided the member's share, as the engine's quote names it. A fixture member's copay is its drug's tier
+  // copay; a member with a device pays its plan's copay whatever the tier.
+  var PHASE_LABELS = {
+    'deductible': 'Deductible phase',
+    'copay': 'Plan copay',
+    'oop-max-reached': 'Out-of-pocket max reached',
+    'benefit-max-reached': 'Annual benefit max reached',
+    'not-covered': 'Not covered',
+  };
+  function memberPaysLabel(est) {
+    if (est.phase === 'copay' && est.copayBasis === 'tier') return 'Tier ' + esc(est.tierLevel) + ' copay';
+    return esc(PHASE_LABELS[est.phase] || est.phase || '');
+  }
+
   async function updateCostEstimate() {
     var el = document.getElementById('rx-cost-estimate');
     if (!el) {
@@ -590,48 +630,68 @@
 
     var ndcHash = $('#rx-med-select').value || ($('#rx-ndc-manual') ? $('#rx-ndc-manual').value.trim() : '');
     var memberWalletId = $('#rx-patient-select') ? $('#rx-patient-select').value : '';
-    var quantity = parseInt($('#rx-quantity') ? $('#rx-quantity').value : '30') || 30;
+    showQuantityUnit(selectedPricingUnit(ndcHash));
 
     if (!ndcHash) { el.innerHTML = ''; return; }
+    var quantity = parseQuantity($('#rx-quantity') ? $('#rx-quantity').value : '30');
+    if (isNaN(quantity)) { el.innerHTML = '<div style="color:var(--red,#f85149);font-size:12px">' + esc(QUANTITY_RULE) + '</div>'; return; }
 
     el.innerHTML = '<div style="color:var(--text-muted);font-size:12px">Estimating cost...</div>';
 
     try {
-      var est = await API.estimateCost({
-        ndcHash: ndcHash,
-        walletId: memberWalletId || undefined,
-        quantity: quantity,
-      });
+      // The engine's quote for the selected member, the price the fill would charge that member today. The
+      // sequencer answers it only with the member's tapped attestation (or to the member itself); refused, the card shows
+      // the drug's ingredient cost and says the member's price needs the tap, never another price list as the member's.
+      var est;
+      var tapNeeded = false;
+      try {
+        est = await API.estimateCost({ ndcHash: ndcHash, walletId: memberWalletId || undefined, quantity: quantity });
+      } catch (refusal) {
+        if (!memberWalletId || !refusal || refusal.status !== 403) throw refusal;
+        tapNeeded = true;
+        est = await API.estimateCost({ ndcHash: ndcHash, quantity: quantity });
+      }
+      if (est && est.pricingUnit) showQuantityUnit(est.pricingUnit);
 
       if (!est || !est.covered) {
         el.innerHTML = '<div style="color:var(--red,#f85149)">Not covered: ' + esc(est ? est.reason : 'Drug not found') + '</div>';
         return;
       }
 
+      var unit = est.pricingUnit || 'unit';
+      var forMember = !!memberWalletId && !tapNeeded;
+      var box = 'padding:8px;background:var(--bg-surface,#222);border-radius:6px;text-align:center';
+      var memberBox = forMember
+        ? '<div style="font-size:16px;font-weight:700;color:var(--accent-blue,#58a6ff);font-family:var(--font-mono)">$' + (est.memberPayCents / 100).toFixed(2) + '</div>' +
+          '<div style="color:var(--text-muted);margin-top:2px">' + memberPaysLabel(est) + '</div>'
+        : '<div style="font-size:13px;font-weight:600;color:var(--text-muted)">' + (tapNeeded ? 'Needs the member\'s tap' : 'Select a patient') + '</div>' +
+          '<div style="color:var(--text-muted);margin-top:2px">' + (tapNeeded ? 'The member\'s attestation opens the member\'s own price' : 'The share depends on the member\'s plan') + '</div>';
+      var employerBox = forMember
+        ? '<div style="font-size:16px;font-weight:700;color:var(--green,#3fb950);font-family:var(--font-mono)">$' + (est.employerPayCents / 100).toFixed(2) + '</div>' +
+          '<div style="color:var(--text-muted);margin-top:2px">Plan covers remainder</div>'
+        : '<div style="font-size:13px;font-weight:600;color:var(--text-muted)">&mdash;</div>';
       el.innerHTML =
         '<div style="font-size:13px;font-weight:600;margin-bottom:8px">Cost Estimate — ' + esc(est.drugName) + '</div>' +
         '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px">' +
-          '<div style="padding:8px;background:var(--bg-surface,#222);border-radius:6px;text-align:center">' +
-            '<div style="color:var(--text-muted);margin-bottom:4px">Drug Cost (NADAC)</div>' +
+          '<div style="' + box + '">' +
+            '<div style="color:var(--text-muted);margin-bottom:4px">Ingredient (NADAC)</div>' +
             '<div style="font-size:16px;font-weight:700;font-family:var(--font-mono)">$' + (est.ingredientCostCents / 100).toFixed(2) + '</div>' +
-            '<div style="color:var(--text-muted);margin-top:2px">$' + est.nadacPerUnit.toFixed(4) + '/unit x ' + est.quantity + '</div>' +
+            '<div style="color:var(--text-muted);margin-top:2px">$' + Number(est.nadacPerUnit).toFixed(5) + '/' + esc(unit) + ' x ' + esc(est.quantity) + ' ' + esc(unit) + '</div>' +
           '</div>' +
-          '<div style="padding:8px;background:var(--bg-surface,#222);border-radius:6px;text-align:center">' +
-            '<div style="color:var(--text-muted);margin-bottom:4px">Member Pays</div>' +
-            '<div style="font-size:16px;font-weight:700;color:var(--accent-blue,#58a6ff);font-family:var(--font-mono)">$' + (est.memberPayCents / 100).toFixed(2) + '</div>' +
-            '<div style="color:var(--text-muted);margin-top:2px">Tier ' + est.tierLevel + ' copay</div>' +
+          '<div style="' + box + '">' +
+            '<div style="color:var(--text-muted);margin-bottom:4px">Member Pays</div>' + memberBox +
           '</div>' +
-          '<div style="padding:8px;background:var(--bg-surface,#222);border-radius:6px;text-align:center">' +
-            '<div style="color:var(--text-muted);margin-bottom:4px">Employer Pays</div>' +
-            '<div style="font-size:16px;font-weight:700;color:var(--green,#3fb950);font-family:var(--font-mono)">$' + (est.employerPayCents / 100).toFixed(2) + '</div>' +
-            '<div style="color:var(--text-muted);margin-top:2px">Plan covers remainder</div>' +
+          '<div style="' + box + '">' +
+            '<div style="color:var(--text-muted);margin-bottom:4px">Employer Pays</div>' + employerBox +
           '</div>' +
         '</div>' +
         '<div style="margin-top:8px;font-size:11px;color:var(--text-muted)">' +
-          'Total: $' + (est.totalCostCents / 100).toFixed(2) + ' (NADAC $' + (est.ingredientCostCents / 100).toFixed(2) + ' + dispensing $' + (est.dispensingFeeCents / 100).toFixed(2) + ')' +
+          (forMember
+            ? 'Total: $' + (est.totalCostCents / 100).toFixed(2) + ' (ingredient $' + (est.ingredientCostCents / 100).toFixed(2) + ' + dispensing fee $' + (est.dispensingFeeCents / 100).toFixed(2) + ')'
+            : 'The dispensing fee and the member\'s share come from the member\'s plan') +
         '</div>';
     } catch (err) {
-      el.innerHTML = '<div style="color:var(--text-muted);font-size:12px">Cost estimate unavailable</div>';
+      el.innerHTML = '<div style="color:var(--text-muted);font-size:12px">Cost estimate unavailable' + (err && err.message ? ': ' + esc(err.message) : '') + '</div>';
     }
   }
 
@@ -899,7 +959,7 @@
       '</span></div>';
 
     resultEl.innerHTML = paginationHtml +
-      '<table class="data-table"><thead><tr><th>Drug Name</th><th>NDC</th><th>Strength</th><th>Form</th><th>Route</th><th>Tier</th><th>Copay</th><th>NADAC/Unit</th><th>Proof</th></tr></thead><tbody>' +
+      '<table class="data-table"><thead><tr><th>Drug Name</th><th>NDC</th><th>Strength</th><th>Form</th><th>Route</th><th>Tier</th><th title="The catalog tier copay; a member with a plan pays its plan\'s copay">Tier Copay</th><th>NADAC / Unit</th><th>Proof</th></tr></thead><tbody>' +
       drugs.map(function (d) {
         var name = d.brandName || d.genericName || d.ndc;
         var tierNames = { 1: 'T1 Generic', 2: 'T2 Preferred', 3: 'T3 Non-Pref', 4: 'T4 Specialty' };
@@ -915,7 +975,7 @@
           '<td>' + esc(d.route || '--') + '</td>' +
           '<td><span class="badge tier-' + d.tierLevel + '">' + esc(tierLabel) + '</span></td>' +
           '<td>$' + (d.copayAmount / 100).toFixed(2) + '</td>' +
-          '<td>$' + (d.nadacPerUnit != null ? d.nadacPerUnit.toFixed(4) : '--') + '</td>' +
+          '<td>' + (d.nadacPerUnit != null ? '$' + Number(d.nadacPerUnit).toFixed(5) + ' / ' + esc(d.pricingUnit || 'unit') : '--') + '</td>' +
           '<td><button class="btn btn-sm" onclick="window._showWitness(\'' + esc(d.ndcHash) + '\')" title="Show Merkle inclusion proof">Verify</button></td>' +
           '</tr>';
       }).join('') +

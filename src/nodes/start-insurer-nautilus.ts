@@ -232,6 +232,16 @@ async function main(): Promise<void> {
     } catch (err) {
       console.error('  [formulary] Failed to publish plan overlay: %s', err);
     }
+
+    // ── Plans to publish again (plan-bound formularies) ──
+    // A plan marked published before its terms were kept has no published terms: the engine binds no member to it and
+    // /enrollment/complete refuses it, so each one is named here, by plan ID and name, until the insurer publishes it.
+    try {
+      const stale = await node.reportPlansNeedingRepublish();
+      if (stale.length === 0) console.log('  [plans] Every published plan carries its published terms');
+    } catch (err) {
+      console.warn('  [plans] Could not check for plans to publish again: %s', err instanceof Error ? err.message : String(err));
+    }
   } else {
     console.error('  [credential] Sequencer not reachable after 30s — skipping provider registration');
   }

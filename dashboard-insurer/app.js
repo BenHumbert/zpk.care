@@ -69,6 +69,12 @@
     return '$' + (Number(c) / 100).toFixed(2);
   }
 
+  /** An OOP or benefit limit: 0 means the plan sets no limit (the fill circuit tests each for greater than 0). */
+  function fmtLimit(c) {
+    if (c == null) return '--';
+    return Number(c) > 0 ? fmtCents(c) : 'No limit';
+  }
+
   function fmtDate(v) {
     if (!v) return '--';
     try { return new Date(v).toLocaleString(); } catch (e) { return String(v); }
@@ -491,6 +497,38 @@
     return String(t || 'Pharmacy');
   }
 
+  /** The terms the plan was last published with, or null, by the engine's own test (publishedTermsOf in src/l2/plan-terms.ts). */
+  function planPublishedTerms(p) {
+    var t = p && p.publishedTerms;
+    return t && typeof t === 'object' && typeof t.formularyRoot === 'string' && t.formularyRoot !== '' ? t : null;
+  }
+
+  /**
+   * Where a plan stands. A plan counts as published only if it has published terms: those are what the engine binds its
+   * members to and what /enrollment/complete requires. 'published': the live record is the version published.
+   * 'draft-pending': published terms are in force and an edit is not published yet. 'republish': marked published
+   * before the terms were kept, so no member can be bound to it until it is published again. 'draft': never published.
+   */
+  function planPublishState(p) {
+    if (planPublishedTerms(p)) return p.published ? 'published' : 'draft-pending';
+    return p.published ? 'republish' : 'draft';
+  }
+
+  function planStatusBadge(state) {
+    if (state === 'published') return '<span class="badge badge-ready">Published</span>';
+    if (state === 'draft-pending') return '<span class="badge badge-pending" title="Members are billed the published terms until this edit is published">Draft, published version in force</span>';
+    if (state === 'republish') return '<span class="badge badge-error" title="Published before published terms were kept: no member can be bound to it until it is published again">Republish needed</span>';
+    return '<span class="badge badge-pending">Draft</span>';
+  }
+
+  /** What to tell the operator after a publish: the route says when an edit saved during the publish is still a draft. */
+  function publishOutcome(pid, result) {
+    if (result && result.draftPending) {
+      return { msg: result.message || ('Published ' + pid + ' as it was when publishing began; a newer draft is not published yet'), type: 'info' };
+    }
+    return { msg: 'Plan published: ' + pid + ' (' + ((result && result.formularyEntryCount) || 0) + ' formulary entries)', type: 'success' };
+  }
+
   function renderPlanList() {
     var el = $('plan-list-container');
     if (!el) return;
@@ -504,7 +542,7 @@
       '</tr></thead><tbody>' +
       planData.map(function (p) {
         var pid = p.planId || p.id;
-        var published = p.published;
+        var state = planPublishState(p);
         var formularyCount = (p.formularyNdcs && p.formularyNdcs.length) || 0;
         var networkCount = (p.networkProviderWalletIds && p.networkProviderWalletIds.length) || 0;
         return '<tr>' +
@@ -512,15 +550,15 @@
           '<td><a href="#" class="plan-edit-link" data-plan-id="' + esc(pid) + '" style="color:var(--accent-blue);text-decoration:underline;cursor:pointer">' + esc(p.name) + '</a></td>' +
           '<td style="font-family:var(--font-mono)">' + fmtCents(p.copayAmountCents || p.copay || 0) + '</td>' +
           '<td style="font-family:var(--font-mono)">' + fmtCents(p.deductibleAmountCents || p.deductible || 0) + '</td>' +
-          '<td style="font-family:var(--font-mono)">' + fmtCents(p.oopMaxCents || p.oopMax || 0) + '</td>' +
-          '<td style="font-family:var(--font-mono)">' + fmtCents(p.annualBenefitMaxCents || p.annualMax || 0) + '</td>' +
+          '<td style="font-family:var(--font-mono)">' + fmtLimit(p.oopMaxCents || p.oopMax || 0) + '</td>' +
+          '<td style="font-family:var(--font-mono)">' + fmtLimit(p.annualBenefitMaxCents || p.annualMax || 0) + '</td>' +
           '<td style="font-family:var(--font-mono)">' + (p.dispensingFeeCents != null ? fmtCents(p.dispensingFeeCents) : 'Default') + '</td>' +
           '<td>' + coverageLabel(p.coverageType || p.coverage) + '</td>' +
           '<td style="font-family:var(--font-mono)">' + (formularyCount > 0 ? formularyCount + ' NDCs' : 'All') + '</td>' +
           '<td style="font-family:var(--font-mono)">' + (networkCount > 0 ? networkCount + ' providers' : 'All') + '</td>' +
-          '<td>' + (published ? '<span class="badge badge-active">Published</span>' : '<span class="badge badge-pending">Draft</span>') + '</td>' +
+          '<td>' + planStatusBadge(state) + '</td>' +
           '<td style="white-space:nowrap">' +
-            '<button class="btn btn-sm btn-primary plan-publish-btn" data-plan-id="' + esc(pid) + '"' + (published ? ' disabled' : '') + '>Publish</button> ' +
+            '<button class="btn btn-sm btn-primary plan-publish-btn" data-plan-id="' + esc(pid) + '"' + (state === 'published' ? ' disabled' : '') + '>Publish</button> ' +
             '<button class="btn btn-sm plan-delete-btn" data-plan-id="' + esc(pid) + '">Delete</button>' +
           '</td>' +
         '</tr>';
@@ -535,7 +573,8 @@
         btn.textContent = 'Publishing...';
         try {
           var result = await API.publishPlan(pid);
-          toast('Plan published: ' + pid + ' (' + (result.formularyEntryCount || 0) + ' formulary entries)', 'success');
+          var outcome = publishOutcome(pid, result);
+          toast(outcome.msg, outcome.type);
           await fetchPlans();
           renderPlanList();
         } catch (err) {
@@ -807,6 +846,15 @@
     var raw = String(($(id) || {}).value || '').trim();
     return raw === '' ? undefined : Number(raw);
   }
+  /**
+   * A whole-cents field of the plan form: blank takes the default, and anything typed is sent as typed, 0 included. A $0
+   * copay is a $0 copay, and for the deductible, the OOP max, the annual max and the family limits 0 means none or no
+   * limit (the fill circuit tests each for greater than 0). The insurer node refuses a negative or fractional amount.
+   */
+  function centsFromInput(id, dflt) {
+    var raw = String(($(id) || {}).value || '').trim();
+    return raw === '' ? dflt : Number(raw);
+  }
   /** The plan-detail fee for a PUT: blank -> null, which returns the plan to the network default. */
   function detailFee() {
     var fee = feeFromInput('plan-detail-dispensing-fee');
@@ -826,13 +874,14 @@
         planId: id.trim(),
         name: name.trim(),
         coverageType: coverageMap[coverageVal] || 1,
-        // A typed 0 is a $0 copay: what the insurer types is what the member pays in the copay phase. Only an empty box takes the default.
-        copayAmountCents: (($('plan-copay') || {}).value || '') === '' ? 2000 : Number($('plan-copay').value),
-        deductibleAmountCents: Number(($('plan-deductible') || {}).value) || 100000,
-        oopMaxCents: Number(($('plan-oop') || {}).value) || 500000,
-        annualBenefitMaxCents: Number(($('plan-annual') || {}).value) || 10000000,
-        familyDeductibleAmountCents: Number(($('plan-fam-ded') || {}).value) || 200000,
-        familyOopMaxCents: Number(($('plan-fam-oop') || {}).value) || 1000000,
+        // What the insurer types is what binds the members, 0 included; only an empty box takes the default (centsFromInput).
+        copayAmountCents: centsFromInput('plan-copay', 2000),
+        deductibleAmountCents: centsFromInput('plan-deductible', 100000),
+        oopMaxCents: centsFromInput('plan-oop', 500000),
+        annualBenefitMaxCents: centsFromInput('plan-annual', 10000000),
+        familyDeductibleAmountCents: centsFromInput('plan-fam-ded', 200000),
+        familyOopMaxCents: centsFromInput('plan-fam-oop', 1000000),
+        familyAnnualBenefitMaxCents: centsFromInput('plan-fam-annual', 20000000),
         // NADAC pricing: the plan's dispensing fee; blank leaves it unset, so the network default applies (0 stays 0)
         dispensingFeeCents: feeFromInput('plan-dispensing-fee'),
         formularyNdcs: [],
@@ -870,6 +919,8 @@
     if (panel) panel.classList.remove('hidden');
     var nameEl = $('plan-detail-name');
     if (nameEl) nameEl.textContent = plan.name + ' (' + planId + ')';
+    var statusEl = $('plan-detail-status');
+    if (statusEl) statusEl.innerHTML = planDetailStatus(plan);
 
     // Fetch formulary + providers in parallel
     try {
@@ -889,6 +940,20 @@
     renderFormularySelection();
     renderNetworkSelection();
     initPlanDetailEvents();
+  }
+
+  /** The detail panel's publish state, with what to do about it. */
+  function planDetailStatus(plan) {
+    var state = planPublishState(plan);
+    var terms = planPublishedTerms(plan);
+    var since = terms && terms.publishedAt ? ' Published ' + new Date(terms.publishedAt).toLocaleString() + '.' : '';
+    var says = {
+      'published': 'Members are bound to these terms.' + since,
+      'draft-pending': 'Members are billed the published terms until this plan is published again; the edits below are a draft.' + since,
+      'republish': 'This plan was published before published terms were kept, so no member can be bound to it and no employee can enroll in it. Use Save &amp; Publish to publish it again.',
+      'draft': 'Not published: no member can be bound to it until it is published.',
+    }[state];
+    return planStatusBadge(state) + ' <span style="color:var(--text-secondary)">' + says + '</span>';
   }
 
   function renderFormularySelection() {
@@ -1037,6 +1102,10 @@
         showResult('plan-detail-result', 'Saved formulary (' + selectedFormularyNdcs.size + ' NDCs) + network (' + selectedNetworkWalletIds.size + ' providers)', true);
         await fetchPlans();
         renderPlanList();
+        // a save is a draft until the plan is published again
+        var saved = planData.find(function (p) { return (p.planId || p.id) === editingPlanId; });
+        var savedStatusEl = $('plan-detail-status');
+        if (saved && savedStatusEl) savedStatusEl.innerHTML = planDetailStatus(saved);
       } catch (err) {
         toast('Save failed: ' + err.message, 'error');
         showResult('plan-detail-result', err.message, false);
@@ -1056,10 +1125,18 @@
           dispensingFeeCents: detailFee(),
         });
         var result = await API.publishPlan(editingPlanId);
-        toast('Plan published: ' + (result.formularyEntryCount || 0) + ' formulary entries, ' + (result.networkProviderCount || 0) + ' network providers', 'success');
-        showResult('plan-detail-result', 'Published successfully', true);
+        if (result && result.draftPending) {
+          toast(publishOutcome(editingPlanId, result).msg, 'info');
+          showResult('plan-detail-result', result.message || 'Published; a newer draft is not published yet', true);
+        } else {
+          toast('Plan published: ' + (result.formularyEntryCount || 0) + ' formulary entries, ' + (result.networkProviderCount || 0) + ' network providers', 'success');
+          showResult('plan-detail-result', 'Published successfully', true);
+        }
         await fetchPlans();
         renderPlanList();
+        var refreshed = planData.find(function (p) { return (p.planId || p.id) === editingPlanId; });
+        var detailStatusEl = $('plan-detail-status');
+        if (refreshed && detailStatusEl) detailStatusEl.innerHTML = planDetailStatus(refreshed);
       } catch (err) {
         toast('Publish failed: ' + err.message, 'error');
         showResult('plan-detail-result', err.message, false);
@@ -1153,7 +1230,15 @@
       }
     }
     if (a.status === 'approved') return '<span class="badge blue">Approved — awaiting employer signature</span>';
-    if (a.status === 'signed' || a.status === 'active') return '<span class="badge green">' + esc(a.status) + '</span>';
+    if (a.status === 'signed' || a.status === 'active') {
+      // The insurer node compares the commitment the employer signed with its plans' current published terms.
+      var changed = a.termsChanged === true
+        ? ' <span class="badge badge-error" title="A plan this employer signed for was published again with other terms, or withdrawn, since the agreement was signed. The employer can sign the new terms on the marketplace.">Terms changed since signed</span>'
+        : a.signedBeforeFullTerms === true
+          ? ' <span class="badge badge-pending" title="This employer signed before agreements covered dispensing fees, formularies, family limits and the provider network. The terms it signed (copay, deductible, OOP max, annual max) are unchanged. The employer can sign the full terms on the marketplace.">Signed before full terms</span>'
+          : '';
+      return '<span class="badge green">' + esc(a.status) + '</span>' + changed;
+    }
     if (a.status === 'denied') return '<span class="badge red">Denied</span>';
     return '';
   }
@@ -1649,65 +1734,94 @@
     if (btn) btn.onclick = doPriceEstimate;
   }
 
-  function doPriceEstimate() {
-    var ndcHash = ($('price-ndc') || {}).value || '';
-    var ingredientCost = Number(($('price-ingredient') || {}).value) || 0;
-    var qty = Number(($('price-qty') || {}).value) || 30;
-    var memberWallet = ($('price-member') || {}).value || '';
-    var pharmacyWallet = ($('price-pharmacy') || {}).value || '';
-    var planIdHash = ($('price-plan') || {}).value || '';
+  /** A quantity in the drug's pricing unit: greater than 0 with at most three decimals, as the engine takes it; NaN otherwise. */
+  function parseQuantity(text) {
+    var s = String(text == null ? '' : text).trim();
+    if (!/^(\d+(\.\d{0,3})?|\.\d{1,3})$/.test(s)) return NaN;
+    var q = Number(s);
+    return q > 0 ? q : NaN;
+  }
 
-    if (!ndcHash.trim()) { toast('NDC Hash is required', 'error'); return; }
+  /** What set the member's share, as the engine's quote names it. */
+  function quotePhaseLabel(q) {
+    if (q.phase === 'copay') return q.copayBasis === 'tier' ? 'Tier ' + q.tierLevel + ' copay' : 'Plan copay';
+    var labels = {
+      'deductible': 'Deductible phase',
+      'oop-max-reached': 'Out-of-pocket max reached',
+      'benefit-max-reached': 'Annual benefit max reached',
+    };
+    return labels[q.phase] || String(q.phase || '');
+  }
 
-    // Look up formulary entry
-    var entry = formularyData.find(function (f) { return f.ndcHash === ndcHash.trim(); });
+  /**
+   * The engine's price of a fill (l2_estimateCost), the price list the fill is charged from: NADAC x quantity plus the
+   * plan's dispensing fee, split as the fill would split it today. A member's own quote (its plan as published, its
+   * accumulators), or with no member a plan's published price in the copay phase, or the list price. Nothing here
+   * computes a price: a typed ingredient cost is what the pharmacy does not get to set.
+   */
+  async function doPriceEstimate() {
+    var ndcHash = (($('price-ndc') || {}).value || '').trim();
+    var quantity = parseQuantity(($('price-qty') || {}).value);
+    var memberWallet = (($('price-member') || {}).value || '').trim();
+    var planId = (($('price-plan') || {}).value || '').trim();
 
     var resultEl = $('price-result');
     if (!resultEl) return;
+    if (!ndcHash) { toast('NDC Hash is required', 'error'); return; }
+    if (isNaN(quantity)) { toast('Quantity must be greater than 0, in the drug\'s pricing unit, with at most three decimals', 'error'); return; }
 
-    if (!entry) {
-      resultEl.innerHTML = '<div class="form-result error">NDC Hash not found in formulary. Cannot estimate cost.</div>';
+    var params = { ndcHash: ndcHash, quantity: quantity };
+    if (memberWallet) params.walletId = memberWallet;
+    else if (planId) params.planId = planId;
+
+    var q;
+    try {
+      q = await API.estimateCost(params);
+    } catch (e) {
+      resultEl.innerHTML = '<div class="form-result error">' + esc(e.message || 'The estimate failed') + '</div>';
+      return;
+    }
+    var unit = q.pricingUnit || 'unit';
+    var priced = q.ingredientCostCents != null;
+    var basis = priced
+      ? 'NADAC $' + Number(q.nadacPerUnit).toFixed(5) + '/' + esc(unit) + ' x ' + esc(q.quantity) + ' ' + esc(unit) + ' = ' + fmtCents(q.ingredientCostCents)
+      : '';
+    var who = memberWallet ? 'Member ' + esc(truncHash(memberWallet, 16)) : planId ? 'Plan ' + esc(planId) : 'List price';
+
+    if (!q.covered) {
+      resultEl.innerHTML =
+        '<div class="price-result-card">' +
+          '<div class="price-result-header">Not covered: ' + esc(q.drugName || truncHash(ndcHash, 16)) + '</div>' +
+          '<div class="form-result error">' + esc(q.reason || 'Not covered') + '</div>' +
+          '<div class="detail-grid" style="margin-top:12px">' +
+            '<div class="detail-key">Quoted For</div><div class="detail-val">' + who + '</div>' +
+            (priced ? '<div class="detail-key">Ingredient (NADAC)</div><div class="detail-val">' + basis + '</div>' : '') +
+          '</div>' +
+        '</div>';
       return;
     }
 
-    // Settlement logic: patientPay = min(totalCost, copayAmount), planPay = totalCost - patientPay
-    var totalCost = ingredientCost;
-    var copay = entry.copayAmountCents;
-    var patientPay = Math.min(totalCost, copay);
-    var planPay = totalCost - patientPay;
-
-    var estimate = {
-      ndcHash: ndcHash.trim(),
-      brandName: entry.brandName,
-      tier: entry.tierLevel,
-      copay: copay,
-      ingredientCost: ingredientCost,
-      totalCost: totalCost,
-      patientPay: patientPay,
-      planPay: planPay,
-      qty: qty,
-      priorAuth: entry.requiresPriorAuth,
-      timestamp: new Date().toISOString(),
-    };
-
     resultEl.innerHTML =
       '<div class="price-result-card">' +
-        '<div class="price-result-header">Cost Estimate: ' + esc(entry.brandName || truncHash(ndcHash, 16)) + '</div>' +
+        '<div class="price-result-header">Cost Estimate: ' + esc(q.drugName || truncHash(ndcHash, 16)) + '</div>' +
         '<div class="price-breakdown">' +
-          '<div class="price-item"><div class="price-item-label">Patient Pays</div><div class="price-item-value patient">' + fmtCents(patientPay) + '</div></div>' +
-          '<div class="price-item"><div class="price-item-label">Plan Pays</div><div class="price-item-value plan">' + fmtCents(planPay) + '</div></div>' +
-          '<div class="price-item"><div class="price-item-label">Total Cost</div><div class="price-item-value total">' + fmtCents(totalCost) + '</div></div>' +
+          '<div class="price-item"><div class="price-item-label">Patient Pays</div><div class="price-item-value patient">' + fmtCents(q.memberPayCents) + '</div></div>' +
+          '<div class="price-item"><div class="price-item-label">Plan Pays</div><div class="price-item-value plan">' + fmtCents(q.employerPayCents) + '</div></div>' +
+          '<div class="price-item"><div class="price-item-label">Total Cost</div><div class="price-item-value total">' + fmtCents(q.totalCostCents) + '</div></div>' +
         '</div>' +
         '<div class="detail-grid" style="margin-top:12px">' +
-          '<div class="detail-key">Tier</div><div class="detail-val">T' + entry.tierLevel + '</div>' +
-          '<div class="detail-key">Plan Copay</div><div class="detail-val">' + fmtCents(copay) + '</div>' +
-          '<div class="detail-key">Quantity</div><div class="detail-val">' + qty + '</div>' +
-          '<div class="detail-key">Prior Auth Required</div><div class="detail-val">' + (entry.requiresPriorAuth ? 'Yes' : 'No') + '</div>' +
+          '<div class="detail-key">Quoted For</div><div class="detail-val">' + who + '</div>' +
+          '<div class="detail-key">Ingredient (NADAC)</div><div class="detail-val">' + basis + '</div>' +
+          '<div class="detail-key">Dispensing Fee</div><div class="detail-val">' + fmtCents(q.dispensingFeeCents) + (q.dispensingFeeSource === 'plan' ? ' (plan)' : ' (network default)') + '</div>' +
+          '<div class="detail-key">Member Pays By</div><div class="detail-val">' + esc(quotePhaseLabel(q)) + '</div>' +
+          '<div class="detail-key">' + (q.copayBasis === 'tier' ? 'Tier Copay' : 'Plan Copay') + '</div><div class="detail-val">' + fmtCents(q.copayAmountCents) + '</div>' +
         '</div>' +
       '</div>';
 
-    // Add to history
-    priceHistory.unshift(estimate);
+    priceHistory.unshift({
+      ndcHash: ndcHash, brandName: q.drugName, tier: q.tierLevel, patientPay: q.memberPayCents, planPay: q.employerPayCents,
+      timestamp: new Date().toISOString(),
+    });
     if (priceHistory.length > 20) priceHistory.pop();
     renderPriceHistory();
     toast('Estimate calculated', 'success');

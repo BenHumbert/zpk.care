@@ -50,6 +50,8 @@ import type { NautilusAppServer } from '../nautilus-app-server.js';
 import { PROVING_BUDGET_MS, type RouteRegistration } from '../nautilus-app-types.js';
 import type { MemberLocalData } from '../../models/member.js';
 import { PinAttemptThrottled } from '../nautilus-local-state.js';
+import { planAsPublished } from '../../l2/plan-terms.js';
+import type { BenefitPlanConfig } from '../../l2/l2-types.js';
 
 /** Domain tag for members */
 const DOMAIN_TAG_MEMBER = 0;
@@ -1388,7 +1390,10 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   // ── The member's own plan limits (the Dashboard and My Plan screens) ──
   // The device knows its plan only as the hash the insurer answered at redemption (C2). Plans are
   // published under their plain id, so the device finds its own by hashing each one, as the insurer
-  // matched it at /enrollment/complete; the engine binds that plan's limits at registration.
+  // matched it at /enrollment/complete. The limits are the plan as published (planAsPublished), the ones
+  // its members are bound to: the engine binds them at registration and moves the member to a republished
+  // version at its next prescription, PA approval or fill. A draft the insurer is still editing binds no
+  // one, so it is never shown here.
   routes.push({
     method: 'GET',
     path: '/plan/limits',
@@ -1413,10 +1418,11 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       } catch {
         return server.sendResponse(res, 502, false, undefined, 'Cannot reach the sequencer to read the plan');
       }
-      const plan = plans.find((p) => typeof p.planId === 'string' && hashString(p.planId).toString() === planIdHash);
-      if (!plan) {
+      const found = plans.find((p) => typeof p.planId === 'string' && hashString(p.planId).toString() === planIdHash);
+      if (!found) {
         return server.sendResponse(res, 404, false, undefined, 'The plan this device enrolled into is not published on the sequencer');
       }
+      const plan = planAsPublished(found as unknown as BenefitPlanConfig);
       server.sendResponse(res, 200, true, {
         name: plan.name,
         deductibleAmountCents: plan.deductibleAmountCents,
@@ -1424,6 +1430,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         annualBenefitMaxCents: plan.annualBenefitMaxCents,
         familyDeductibleAmountCents: plan.familyDeductibleAmountCents,
         familyOopMaxCents: plan.familyOopMaxCents,
+        familyAnnualBenefitMaxCents: plan.familyAnnualBenefitMaxCents,
       });
     },
   });

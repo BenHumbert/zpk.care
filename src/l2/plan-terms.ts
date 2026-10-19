@@ -103,6 +103,19 @@ export function planAsPublished(plan: BenefitPlanConfig | null | undefined): Ben
   };
 }
 
+/** An NDC as the formulary catalog spells it: digits only ("12345-6789-01" becomes "12345678901"). */
+const digitsOnly = (ndc: string): string => String(ndc).replace(/\D/g, '');
+
+/**
+ * Whether a plan's published drug list covers an NDC, as buildPlanFormulary reads the list: an empty list covers every
+ * drug in the formulary catalog; otherwise the NDC must be listed (dashes ignored). Whether the catalog has the drug at
+ * all is the caller's to check. A set lookup, no formulary build, so a read that names no member can ask it cheaply.
+ */
+export function publishedListCovers(terms: PublishedPlanTerms, ndc: string): boolean {
+  const listed = terms.formularyNdcs.map(digitsOnly).filter((n) => n.length > 0);
+  return listed.length === 0 || listed.includes(digitsOnly(ndc));
+}
+
 const isCents = (v: unknown): boolean => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 const isStringList = (v: unknown): boolean => Array.isArray(v) && v.every((x) => typeof x === 'string');
 const isDecimal = (v: unknown): boolean => typeof v === 'string' && /^\d+$/.test(v);

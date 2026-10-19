@@ -55,6 +55,7 @@ import type {
   OnboardingPhase,
 } from './nautilus-app-types.js';
 import { corsOriginHeader } from '../security/network-policy.js';
+import { callReadsMemberData } from '../l2/member-data-methods.js';
 import { verifySignedRequest, signerIdFromHeaders, signRequest, privateKeyFromSeedHex, ReplayCache } from '../security/signed-request.js';
 import { readRequestBody } from '../security/request-body.js';
 import { signedFetch as signedFetchWith, type SignedFetchInit } from './sequencer-fetch.js';
@@ -724,8 +725,11 @@ export class NautilusAppServer {
       const body = await this.readBody(req);
 
       let method: string | undefined;
+      let params: unknown;
       try {
-        method = (JSON.parse(body) as { method?: string }).method;
+        const request = JSON.parse(body) as { method?: string; params?: unknown };
+        method = request.method;
+        params = request.params;
       } catch {
         this.sendJson(res, 400, {
           jsonrpc: '2.0', id: null,
@@ -737,6 +741,20 @@ export class NautilusAppServer {
         this.sendJson(res, 403, {
           jsonrpc: '2.0', id: null,
           error: { code: -32601, message: `Method not available through this node's proxy: ${method ?? 'none'}` },
+        });
+        return;
+      }
+
+      // The proxy signs what it forwards with this node's key or wallet, so a read of a member's data sent through it
+      // is read with this node's rights on behalf of whoever reached the port. An insurer node's key reads every
+      // member as the plan (the sequencer's D1 gate admits it for any wallet), so an open proxy handed any member's
+      // quote to anyone. A member node's proxy answers only the device's session (above); any other node forwards
+      // such a read (callReadsMemberData: the D1 table) only for its own administrator.
+      if (this.config.role !== 'member' && callReadsMemberData(method, params)
+        && !(await this.checkNautilusAdminAuth(req, 'POST', '/rpc'))) {
+        this.sendJson(res, 403, {
+          jsonrpc: '2.0', id: null,
+          error: { code: -32004, message: `Forbidden — ${method} returns a member's data, and this node's proxy forwards it only for this node's administrator` },
         });
         return;
       }
