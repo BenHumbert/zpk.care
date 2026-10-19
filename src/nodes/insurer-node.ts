@@ -59,6 +59,7 @@ import type {
   EntityClaimView,
 } from './entity-node-types.js';
 import type { BenefitPlanConfig } from '../l2/l2-types.js';
+import { publishedTermsFrom } from '../l2/plan-terms.js';
 export type { BenefitPlanConfig };
 
 export class InsurerNode extends EntityNodeBase {
@@ -86,7 +87,10 @@ export class InsurerNode extends EntityNodeBase {
     return config;
   }
 
-  /** Update an existing plan */
+  /**
+   * Update an existing plan. Plan-bound formularies: an edit never changes the published terms its members are bound
+   * to (only publishing does), and it leaves the live record unpublished until the plan is published again.
+   */
   async updatePlan(planId: string, updates: Partial<Omit<BenefitPlanConfig, 'planId' | 'createdAt'>>): Promise<BenefitPlanConfig> {
     const existing = await this.client.getPlan(planId);
     if (!existing) throw new Error(`Plan ${planId} not found`);
@@ -97,6 +101,7 @@ export class InsurerNode extends EntityNodeBase {
       createdAt: existing.createdAt,
       updatedAt: Date.now(),
       published: updates.formularyRoot ? existing.published : false,
+      publishedTerms: existing.publishedTerms,
     };
     await this.client.storePlan(updated);
     return updated;
@@ -118,14 +123,20 @@ export class InsurerNode extends EntityNodeBase {
     return result.success;
   }
 
-  /** Mark a plan as published (called after formulary + network roots are stored) */
-  async markPlanPublished(planId: string, formularyRoot: string, networkRoot: string): Promise<BenefitPlanConfig> {
+  /**
+   * Mark a plan as published (called after its formulary and network roots are built). Plan-bound formularies: this
+   * also keeps the terms its members are bound to (publishedTerms), copied from `source`, the record the roots were
+   * built from, when it is given, so the terms and the roots always describe the same plan.
+   */
+  async markPlanPublished(planId: string, formularyRoot: string, networkRoot: string, source?: BenefitPlanConfig): Promise<BenefitPlanConfig> {
     const plan = await this.client.getPlan(planId);
     if (!plan) throw new Error(`Plan ${planId} not found`);
+    const now = Date.now();
     plan.formularyRoot = formularyRoot;
     plan.networkRoot = networkRoot;
     plan.published = true;
-    plan.updatedAt = Date.now();
+    plan.updatedAt = now;
+    plan.publishedTerms = publishedTermsFrom(source ?? plan, formularyRoot, networkRoot, now);
     await this.client.storePlan(plan);
     return plan;
   }

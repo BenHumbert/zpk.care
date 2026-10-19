@@ -122,14 +122,24 @@ export interface ClaimMetadata {
   fillNumber?: number;
 
   // ─── NADAC Transparent Pricing Breakdown ──────────────
-  /** Drug ingredient cost in cents (NADAC acquisition cost) */
+  /** Drug ingredient cost in cents: NADAC per unit x quantityDispensed (nadacUnitPriceE5 below), as the engine priced the fill */
   ingredientCostCents?: number;
-  /** Pharmacy dispensing fee in cents (e.g. 1300 = $13.00) */
+  /** Dispensing fee in cents: the plan's, or the network default (dispensingFeeSource below) */
   dispensingFeeCents?: number;
   /** Total drug cost in cents (ingredient + dispensing fee) */
   totalDrugCostCents?: number;
   /** Quantity dispensed (decimal, e.g. 30 tablets) */
   quantityDispensed?: number;
+  /** How the cost was made (owner decision 2026-10-18): ingredientCostCents = NADAC per unit x quantityDispensed */
+  pricingBasis?: 'NADAC';
+  /** NADAC per pricing unit in whole $0.00001 (0.60042 -> 60042) */
+  nadacUnitPriceE5?: number;
+  /** The unit NADAC is quoted per: EA, ML or GM */
+  pricingUnit?: string;
+  /** The NADAC week the price is from (MM/DD/YYYY) */
+  nadacEffectiveDate?: string;
+  /** Whether dispensingFeeCents is the plan's fee or the network default */
+  dispensingFeeSource?: 'plan' | 'network-default';
 
   // ─── Plan Context ─────────────────────────────────────
   /** Benefit plan ID hash (links claim to plan for accumulator filtering) */

@@ -226,7 +226,7 @@ const API = {
     },
     dispense(params) {
       // Dispense an existing FILLED prescription (3 ZK proofs: ProofGate + PrescriptionStatus + AccumulatorFulfillment).
-      // params: { prescriptionId, quantityDispensed, ingredientCostCents, dispensingFeeCents }
+      // params: { prescriptionId, quantityDispensed }. No costs: the engine prices the fill at NADAC x quantity + the plan's dispensing fee.
       return post('/dispensing/dispense', params);
     },
     fillStatus(jobKey) {

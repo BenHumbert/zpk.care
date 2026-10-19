@@ -55,6 +55,7 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import type { L2RpcServer } from '../l2/l2-rpc-server.js';
 import type { AdjudicationService, ConsoleEvent } from './interactive-service.js';
 import { RegistrationRefused } from './interactive-service.js';
+import { priceDispense, statedCostMismatch } from '../fulfillment/nadac-pricing.js';
 import type { NfcReader, NfcTagEvent, NdefPayload } from './nfc-port.js';
 import type { NfcCredentialAttestation } from '../credentials/nfc-attestation.js';
 import { MEDICATIONS, PRESCRIBERS, PHARMACIES } from '../data/index.js';
@@ -655,11 +656,13 @@ export function registerInteractiveRoutes(
       // Mark as pending and kick off in background
       fillJobs.set(jobKey, { status: 'pending' });
 
+      // Owner decision 2026-10-18: the pharmacy does not set the price. Costs in the request are only checked against
+      // the engine's NADAC price; a fill that states different ones is refused before any proof.
       service.getL2Node().withProvingLock(() => service.dispensePrescription({
         prescriptionId: params.prescriptionId,
         quantityDispensed: params.quantityDispensed,
-        ingredientCostCents: params.ingredientCostCents,
-        dispensingFeeCents: params.dispensingFeeCents,
+        statedIngredientCostCents: params.ingredientCostCents,
+        statedDispensingFeeCents: params.dispensingFeeCents,
       }))
         .then(async (result) => {
           fillJobs.set(jobKey, { status: 'complete', result, completedAt: Date.now() });
@@ -797,6 +800,13 @@ export function registerInteractiveRoutes(
       }
       const quantity = params.quantity ?? 30;
       const refills = params.refills ?? 3;
+      // Owner decision 2026-10-18: the pharmacy does not set the price. A request that states costs must state the
+      // engine's NADAC price; checked here, before the prescription's proofs, and again at the dispense.
+      if (params.ingredientCostCents != null || params.dispensingFeeCents != null) {
+        const quoted = priceDispense(service.quoteFill(String(params.memberWalletId), ndcHashStr), params.quantityDispensed ?? quantity);
+        const mismatch = statedCostMismatch(quoted, { ingredientCostCents: params.ingredientCostCents, dispensingFeeCents: params.dispensingFeeCents });
+        if (mismatch) { sendError(res, 409, mismatch); return; }
+      }
 
       // Build a job key from the claim data
       const jobKey = `pf_${params.memberWalletId}_${ndcHashStr}_${Date.now()}`;
@@ -832,8 +842,8 @@ export function registerInteractiveRoutes(
         const fillResult = await service.dispensePrescription({
           prescriptionId,
           quantityDispensed: params.quantityDispensed ?? quantity,
-          ingredientCostCents: params.ingredientCostCents,
-          dispensingFeeCents: params.dispensingFeeCents,
+          statedIngredientCostCents: params.ingredientCostCents,
+          statedDispensingFeeCents: params.dispensingFeeCents,
         });
 
         return fillResult;
@@ -1353,6 +1363,8 @@ export function registerInteractiveRoutes(
       });
       res.end(safeJsonStringify(result));
     } catch (err) {
+      // plan-bound formularies: a drug off the member's plan is refused with its own status (403), not a server error
+      if (err instanceof RegistrationRefused) return sendError(res, err.status, err.message);
       const message = err instanceof Error ? err.message : String(err);
       sendError(res, 500, message);
     }

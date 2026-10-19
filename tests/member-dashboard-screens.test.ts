@@ -15,7 +15,7 @@
  */
 
 /**
- * The member app's screens, dashboard-member (screen audit, member items 1, 2, 3, 5, 6 and 7, and the labels).
+ * The member app's screens, dashboard-member (screen audit, member items 1 to 7, and the labels).
  *
  * What was wrong, and what each block holds:
  * (1) Enrollment's Retry called enroll again (409 forever) and started a second run beside the one the re-render
@@ -25,6 +25,9 @@
  *     limits from the device's GET /plan/limits, with the session, and shows no maximum when it cannot tell.
  * (3) The attestation card read att.expiry, att.signature and att.nonce; the sequencer signs exp (Unix seconds),
  *     sig and n, so the card showed "--" everywhere.
+ * (4) The claim card labelled the recorded ingredient cost "NADAC", whatever it was (the pharmacy's own number, or AWP
+ *     x quantity). With NADAC pricing a claim shows NADAC per unit x quantity = ingredient, plus the fee; a claim
+ *     recorded before it shows its ingredient cost as "Ingredient".
  * (5) The Backup tab still offered the old PIN-encrypted Recovery Backup panel, and the Restore screen wrote the
  *     real enrollment key to localStorage (rule I3) from the old PBKDF2 format. Restore now recovers through the
  *     device's /onboarding/recover, and boot purges any key an old Restore left behind.
@@ -298,6 +301,32 @@ describe('(7) one relock prompt at a time', () => {
     await new Promise((resolve) => setImmediate(resolve));
     handler();
     expect(prompts).toHaveLength(2);
+  });
+});
+
+describe('(4) the claim card labels the ingredient cost as what it is', () => {
+  const render = (claims: unknown[]): string => load([...HELPERS, fn('nadacUnit'), fn('renderClaimCards')], {}, 'renderClaimCards')(claims);
+
+  test('a claim recorded before NADAC pricing reads "Ingredient", not NADAC', () => {
+    const html = render([{
+      leaf: { operationType: '1', patientPayCents: '1300', planPayCents: '0' },
+      metadata: { brandName: 'Lisinopril', ingredientCostCents: 0, dispensingFeeCents: 1300, totalDrugCostCents: 1300 },
+    }]);
+    expect(html).toContain('Ingredient $0.00');
+    expect(html).toContain('Fee $13.00');
+    expect(html).not.toMatch(/NADAC/);
+  });
+
+  test('a NADAC-priced claim shows NADAC per unit x quantity = ingredient, plus the fee', () => {
+    const html = render([{
+      leaf: { operationType: '1', patientPayCents: '3051', planPayCents: '0' },
+      metadata: {
+        brandName: 'Abacavir', ingredientCostCents: 1801, dispensingFeeCents: 1250, totalDrugCostCents: 3051, quantityDispensed: 30,
+        pricingBasis: 'NADAC', nadacUnitPriceE5: 60042, pricingUnit: 'EA', dispensingFeeSource: 'plan',
+      },
+    }]);
+    expect(html).toContain('Drug Cost:</span> $30.51');
+    expect(html).toContain('(NADAC $0.60042/EA &times; 30 = $18.01 + Fee $12.50)');
   });
 });
 

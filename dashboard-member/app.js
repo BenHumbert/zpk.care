@@ -82,6 +82,13 @@
     return '$' + (Number(c) / 100).toFixed(2);
   }
 
+  /** A NADAC unit price from whole $0.00001: 60042 -> "$0.60042". */
+  function nadacUnit(e5) {
+    var s = String(Math.round(Number(e5) || 0));
+    while (s.length < 6) s = '0' + s;
+    return '$' + s.slice(0, -5) + '.' + s.slice(-5);
+  }
+
   function esc(s) {
     if (!s) return '';
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -965,18 +972,22 @@
       if (meta.tierLevel) details.push('Tier ' + meta.tierLevel);
       if (meta.deaSchedule && meta.deaSchedule !== '0') details.push('C-' + meta.deaSchedule);
 
-      // NADAC transparent pricing breakdown
-      var hasNadac = meta.ingredientCostCents != null || meta.totalDrugCostCents != null;
+      // NADAC pricing (owner decision 2026-10-18): the ingredient cost as the engine priced it, NADAC per unit x
+      // quantity, plus the dispensing fee. A claim recorded before NADAC pricing has no unit price; its ingredient cost
+      // is shown as what it is ("Ingredient"), never labelled NADAC.
+      var hasCost = meta.ingredientCostCents != null || meta.totalDrugCostCents != null;
       var nadacHtml = '';
-      if (hasNadac) {
+      if (hasCost) {
         var totalDrug = meta.totalDrugCostCents || (
           (meta.ingredientCostCents || 0) + (meta.dispensingFeeCents || 0)
         );
+        var drugPart = meta.nadacUnitPriceE5 != null
+          ? 'NADAC ' + nadacUnit(meta.nadacUnitPriceE5) + '/' + esc(meta.pricingUnit || 'unit') + ' &times; ' + esc(String(meta.quantityDispensed != null ? meta.quantityDispensed : '')) + ' = ' + fmtCents(meta.ingredientCostCents)
+          : 'Ingredient ' + fmtCents(meta.ingredientCostCents);
         nadacHtml =
           '<div class="claim-nadac">' +
             '<span class="nadac-label">Drug Cost:</span> ' + fmtCents(totalDrug) +
-            ' <span class="nadac-detail">(NADAC ' + fmtCents(meta.ingredientCostCents) +
-            ' + Fee ' + fmtCents(meta.dispensingFeeCents) + ')</span>' +
+            ' <span class="nadac-detail">(' + drugPart + ' + Fee ' + fmtCents(meta.dispensingFeeCents) + ')</span>' +
           '</div>';
       }
 

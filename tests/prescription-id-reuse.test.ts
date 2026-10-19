@@ -101,6 +101,8 @@ describe('createPrescription and a caller\'s rxId', () => {
     e.emit = e.emitViz = () => {};
     e.checkStepTherapy = () => ({ allowed: true, message: '' });
     e.checkDeaSchedule = () => ({ allowed: true, warnings: [] });
+    // Plan-bound formularies: the drug's entry in the member's formulary (the bare engine has no formulary registry)
+    e.formularyEntryFor = () => ({ registry: {}, leafIndex: 0n, entry: { requiresPriorAuth: Field(0), stepTherapyRequired: Field(0) }, copayAmountCents: 1000 });
     e.dispatchProof = async () => { throw new Error('stop after the pending entry'); };
 
     await expect(e.createPrescription(req())).rejects.toThrow('stop after the pending entry');

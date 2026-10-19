@@ -524,6 +524,11 @@ export class L2SequencerService {
           dispensingFeeCents: metadata.dispensingFeeCents,
           totalDrugCostCents: costsKnown ? metadata.ingredientCostCents! + metadata.dispensingFeeCents! : undefined,
           quantityDispensed: metadata.quantityDispensed,
+          pricingBasis: metadata.pricingBasis,
+          nadacUnitPriceE5: metadata.nadacUnitPriceE5,
+          pricingUnit: metadata.pricingUnit,
+          nadacEffectiveDate: metadata.nadacEffectiveDate,
+          dispensingFeeSource: metadata.dispensingFeeSource,
           planIdHash: metadata.planIdHash,
         },
       );

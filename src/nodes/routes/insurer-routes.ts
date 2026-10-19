@@ -35,6 +35,9 @@ import type { KeyObject } from 'crypto';
 import { signRequest } from '../../security/signed-request.js';
 import { timingSafeEqual } from 'crypto';
 import { hashString } from '../../zkp/hash-utils.js';
+import { buildPlanFormulary, planNetworkRoot, type PlanFormulary } from '../../onboarding/plan-formulary.js';
+import { publishedTermsOf } from '../../l2/plan-terms.js';
+import { dispensingFeeError } from '../../fulfillment/nadac-pricing.js';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { join } from 'path';
 import { PersistedAttemptLimiter } from '../../security/attempt-limiter.js';
@@ -295,6 +298,27 @@ async function redeemWithEmployers(
 }
 
 /**
+ * Plan-bound formularies: what publishing a plan commits to. The formulary is built from the plan's copay and NDC list
+ * over the formulary catalog (src/data, the same files and ZKTRIDENT_FORMULARY_LIMIT the engine loads), exactly as the
+ * engine rebuilds it when it binds a member; its root goes into the plan record as formularyRoot, and a member's
+ * eligibility credential names it. A plan none of whose NDCs is in the catalog covers nothing and is not published.
+ */
+async function publishedFormularyOf(plan: BenefitPlanConfig): Promise<PlanFormulary> {
+  const { getAllFormularyEntries } = await import('../../data/index.js');
+  const formulary = buildPlanFormulary(plan, getAllFormularyEntries());
+  if (formulary.registry.count === 0) {
+    throw new Error(`None of the plan's ${(plan.formularyNdcs ?? []).length} NDCs is in the formulary catalog`);
+  }
+  return formulary;
+}
+
+/** The overlay's tier copays: the plan's copay at every tier (the member pays the plan's copay, owner decision 2026-10-18). */
+function planCopayDefaults(plan: BenefitPlanConfig): { tier1Copay: number; tier2Copay: number; tier3Copay: number; tier4Copay: number } {
+  const copay = plan.copayAmountCents ?? 0;
+  return { tier1Copay: copay, tier2Copay: copay, tier3Copay: copay, tier4Copay: copay };
+}
+
+/**
  * Build all insurer routes.
  */
 export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration[] {
@@ -481,9 +505,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       try { plans = (await node.listPlans()) ?? []; } catch { plans = []; }
       if (!Array.isArray(plans)) plans = [];
       const plan = rec.planIdHash ? plans.find((p) => p && typeof p.planId === 'string' && hashString(p.planId).toString() === rec.planIdHash) : undefined;
-      if (!plan) {
+      // Plan-bound formularies: a wallet is approved only into a plan the insurer has published (one with published
+      // terms), whose formulary the engine will bind; a draft being edited still enrols at its published terms.
+      if (!plan || !publishedTermsOf(plan)) {
         return server.sendResponse(res, 409, false, undefined,
-          'The plan this enrollment code enrols into is not on the sequencer; the insurer must publish it before members enroll.');
+          'The plan this enrollment code enrols into is not published on the sequencer; the insurer must publish it before members enroll.');
       }
       try {
         const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
@@ -1596,6 +1622,16 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!b?.planId || !b?.name) {
         return server.sendResponse(res, 400, false, undefined, 'Missing planId or name');
       }
+      // Plan-bound formularies: the copay is what the member pays in the copay phase, and every formulary entry carries it.
+      if (b.copayAmountCents !== undefined && (typeof b.copayAmountCents !== 'number' || !Number.isSafeInteger(b.copayAmountCents) || b.copayAmountCents < 0)) {
+        return server.sendResponse(res, 400, false, undefined, 'copayAmountCents must be a whole number of cents, 0 or more');
+      }
+      if (b.formularyNdcs !== undefined && (!Array.isArray(b.formularyNdcs) || b.formularyNdcs.some((n) => typeof n !== 'string'))) {
+        return server.sendResponse(res, 400, false, undefined, 'formularyNdcs must be a list of NDC strings (empty for every drug in the formulary)');
+      }
+      // NADAC pricing (owner decision 2026-10-18): the plan's dispensing fee in whole cents; absent, the network default applies
+      const feeError = dispensingFeeError(b.dispensingFeeCents);
+      if (feeError) return server.sendResponse(res, 400, false, undefined, feeError);
 
       try {
         const plan = await node.createPlan({
@@ -1611,6 +1647,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
           familyAnnualBenefitMaxCents: b.familyAnnualBenefitMaxCents ?? 20000000,
           formularyNdcs: b.formularyNdcs ?? [],
           networkProviderWalletIds: b.networkProviderWalletIds ?? [],
+          ...(b.dispensingFeeCents != null ? { dispensingFeeCents: b.dispensingFeeCents } : {}),
         });
 
         // Auto-publish: push plan overlay to sequencer (Option C — lightweight ~5KB, not 10MB)
@@ -1619,22 +1656,15 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
           const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
           const pubHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
 
-          // Build per-drug overrides only for explicitly listed NDCs
-          const overrides: any[] = [];
-          if (plan.formularyNdcs.length > 0) {
-            // When NDCs are specified, mark all OTHER drugs as excluded
-            // For now, just publish with the specified NDCs as the covered set
-            // (the overlay defaults apply to all drugs not in overrides)
-          }
+          // Plan-bound formularies: the formulary root the plan commits to, built from its copay and NDC list over the
+          // catalog the way the engine rebuilds it (first, so a plan that covers nothing is not published).
+          const formulary = await publishedFormularyOf(plan);
 
-          // Plan-wide tier copay defaults (cents) — derived from plan's base copay
-          const baseCopay = plan.copayAmountCents || 1000;
-          const defaults = {
-            tier1Copay: baseCopay,
-            tier2Copay: Math.round(baseCopay * 3.5),
-            tier3Copay: Math.round(baseCopay * 7.5),
-            tier4Copay: Math.round(baseCopay * 15),
-          };
+          // No per-drug overrides: the drugs a plan covers are its formulary (above), which the engine enforces.
+          const overrides: any[] = [];
+
+          // The member pays the plan's copay in the copay phase, whatever the drug's tier (owner decision 2026-10-18).
+          const defaults = planCopayDefaults(plan);
 
           const overlayRes = await server.signedFetch(seqUrl + '/rpc', {
             method: 'POST', headers: pubHeaders,
@@ -1644,15 +1674,14 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
           const overlayJson = await overlayRes.json() as any;
           if (overlayJson.error) throw new Error(overlayJson.error.message ?? 'Sequencer error');
 
-          const networkRoot = plan.networkProviderWalletIds.length > 0
-            ? String(plan.networkProviderWalletIds.length)
-            : '0';
+          const networkRoot = planNetworkRoot(plan.networkProviderWalletIds).toString(); // '0' = all providers accepted
 
-          // Mark plan as published
-          await node.markPlanPublished(plan.planId, String(overlayJson.result?.version ?? 1), networkRoot);
+          // Mark plan as published, with the roots a member's credential will name and the terms its members are bound to
+          const stored = await node.markPlanPublished(plan.planId, formulary.root.toString(), networkRoot, plan);
           plan.published = true;
-          plan.formularyRoot = String(overlayJson.result?.version ?? 1);
-          plan.networkRoot = networkRoot;
+          plan.formularyRoot = stored.formularyRoot;
+          plan.networkRoot = stored.networkRoot;
+          plan.publishedTerms = stored.publishedTerms;
         } catch (pubErr: any) {
           // Plan created but publish failed — flag it clearly so the client can retry
           console.warn('[insurer] Auto-publish failed for %s: %s', plan.planId, pubErr.message);
@@ -1676,8 +1705,16 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
 
       const b = body as Partial<BenefitPlanConfig> | undefined;
+      // Plan-bound formularies: the roots, the published flag and the published terms are set only by publishing, from
+      // the plan itself; an edit leaves the plan unpublished until it is published again, and its members bound to the
+      // terms last published.
+      const { formularyRoot: _formularyRoot, networkRoot: _networkRoot, published: _published, publishedTerms: _publishedTerms, ...edits } = (b ?? {}) as Partial<BenefitPlanConfig>;
+      // NADAC pricing: a fee sent here replaces the plan's (whole cents), and null returns the plan to the network
+      // default; like any edit, fills are charged it only once the plan is published again.
+      const feeError = dispensingFeeError(edits.dispensingFeeCents);
+      if (feeError) return server.sendResponse(res, 400, false, undefined, feeError);
       try {
-        const plan = await node.updatePlan(params.planId, b ?? {});
+        const plan = await node.updatePlan(params.planId, edits);
         server.sendResponse(res, 200, true, plan);
       } catch (err: any) {
         server.sendResponse(res, 404, false, undefined, err.message);
@@ -1719,16 +1756,12 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
+        // Plan-bound formularies: see publishedFormularyOf (built first, so a plan that covers nothing is not published).
+        const formulary = await publishedFormularyOf(plan);
         // Option C: Publish lightweight plan overlay (~5KB, not 10MB blob)
         const overrides: any[] = [];
-        // Plan-wide tier copay defaults (cents) — derived from plan's base copay
-        const baseCopay = plan.copayAmountCents || 1000;
-        const defaults = {
-          tier1Copay: baseCopay,
-          tier2Copay: Math.round(baseCopay * 3.5),
-          tier3Copay: Math.round(baseCopay * 7.5),
-          tier4Copay: Math.round(baseCopay * 15),
-        };
+        // The member pays the plan's copay in the copay phase, whatever the drug's tier (owner decision 2026-10-18).
+        const defaults = planCopayDefaults(plan);
 
         const overlayRes = await server.signedFetch(seqUrl + '/rpc', {
           method: 'POST',
@@ -1742,17 +1775,18 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         const overlayJson = await overlayRes.json() as any;
         if (overlayJson.error) throw new Error(overlayJson.error.message ?? 'Sequencer error');
 
-        const networkRoot = plan.networkProviderWalletIds.length > 0
-          ? String(plan.networkProviderWalletIds.length)
-          : '0'; // 0 = all providers accepted
+        const networkRoot = planNetworkRoot(plan.networkProviderWalletIds).toString(); // '0' = all providers accepted
 
-        // Mark plan as published
-        const updated = await node.markPlanPublished(params.planId, String(overlayJson.result?.version ?? 1), networkRoot);
+        // Mark plan as published, with the roots a member's credential will name and the terms its members are bound to
+        const updated = await node.markPlanPublished(params.planId, formulary.root.toString(), networkRoot, plan);
 
         server.sendResponse(res, 200, true, {
           published: true,
           planId: params.planId,
           overlayVersion: overlayJson.result?.version ?? 1,
+          formularyRoot: formulary.root.toString(),
+          formularyEntryCount: formulary.registry.count,
+          unknownNdcs: formulary.unknownNdcs,
           networkRoot,
           networkProviderCount: plan.networkProviderWalletIds.length,
           plan: updated,

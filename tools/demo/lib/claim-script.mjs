@@ -43,7 +43,7 @@ import { sayAmount, sayNumber } from './narrate.mjs';
 
 export const SCRIPT_STATUS = 'final';
 /** The lines marked pricing wait on the pricing commit (see the header). */
-export const PRICING_STATUS = 'pending';
+export const PRICING_STATUS = 'final';
 
 export const PEOPLE = Object.freeze({
   narrator: Object.freeze({ key: 'narrator', name: 'Narrator', role: 'Narrator', color: '#a5b4fc', mood: 'precise' }),
@@ -174,14 +174,25 @@ export function priceFill({ ing, fee, c, acc, fam }) {
 /**
  * The pricing rule the lines tell. The engine prices every fill itself: the drug's NADAC per unit times the quantity,
  * plus the plan's dispensing fee; the pharmacy sends no cost. The copay is the plan's: every entry of a plan-bound
- * formulary carries it (src/onboarding/plan-formulary.ts, in progress).
+ * formulary carries it (src/onboarding/plan-formulary.ts).
  */
 export function predictPrice({ plan, drug }) {
   return {
-    ingredientCents: Math.round(drug.nadacPerUnit * drug.quantity * 100), // PRICING: confirm after the pricing commit
-    feeCents: plan.dispensingFeeCents, // PRICING: confirm after the pricing commit
-    copayCents: plan.copayCents // PRICING: confirm after the pricing commit
+    ingredientCents: nadacIngredientCents(drug.nadacPerUnit, drug.quantity),
+    feeCents: plan.dispensingFeeCents,
+    copayCents: plan.copayCents
   };
+}
+
+/**
+ * NADAC x quantity in cents, exactly as the engine computes it (src/fulfillment/nadac-pricing.ts): NADAC held as a whole
+ * number of $0.00001 (CMS publishes 5 decimals), quantity in thousandths, half up to the cent, in BigInt. Floating point
+ * disagreed with the engine on a few dozen drug-quantity pairs.
+ */
+export function nadacIngredientCents(nadacPerUnit, quantity) {
+  const e5 = (v) => { const [w, f = ''] = String(Number(v).toFixed(5)).split('.'); return BigInt(w) * 100000n + BigInt((f + '00000').slice(0, 5)); };
+  const milli = (q) => { const [w, f = ''] = String(Number(q).toFixed(3)).split('.'); return BigInt(w) * 1000n + BigInt((f + '000').slice(0, 3)); };
+  return Number((e5(nadacPerUnit) * milli(quantity) + 500000n) / 1000000n);
 }
 
 /** The claim amounts a line may say; storyLines() fills each {slot} from c.claim. */
@@ -233,7 +244,7 @@ export function castOf(input = {}) {
   const plan = {
     name: 'Standard Rx 2026', id: 'PLAN-STD-RX-2026', copayCents: 1000, deductibleCents: 50000, oopCents: 780000, annualCents: 10000000,
     famDedCents: 100000, famOopCents: 1600000, famBenefitCents: 20000000 /* the insurer route's default; the form has no field */, coverage: 'pharmacy',
-    dispensingFeeCents: 1300, // PRICING: confirm after the pricing commit (the plan's dispensing fee; the form has no field for it yet)
+    dispensingFeeCents: 1300, // the plan's dispensing fee, typed into the insurer's plan form (#plan-dispensing-fee)
     ...(input.plan || {})
   };
   const altPlan = input.altPlan === null ? null : {

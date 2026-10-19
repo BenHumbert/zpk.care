@@ -93,6 +93,34 @@ export function expectedAdjudication(
   };
 }
 
+/**
+ * NADAC per unit as published, a decimal string with at most 5 places ("23.69832"), as an exact count of $0.00001.
+ * Parsed from the digits, never through a float, so the expected price owes nothing to the engine's arithmetic.
+ */
+export function nadacE5(decimal: string): bigint {
+  const m = /^(\d+)(?:\.(\d{1,5}))?$/.exec(decimal.trim());
+  if (!m) throw new Error(`not a NADAC unit price with at most 5 decimals: ${decimal}`);
+  return BigInt(m[1]) * 100_000n + BigInt((m[2] ?? '').padEnd(5, '0'));
+}
+
+/**
+ * The plan rule for the ingredient cost (owner decision 2026-10-18): NADAC x quantity, rounded half up to the cent.
+ * For a whole-unit quantity the exact product is in $0.00001, so cents = (product + 500) / 1000, truncated.
+ */
+export function expectedNadacIngredientCents(nadacE5Value: bigint, quantity: number): bigint {
+  if (!Number.isInteger(quantity) || quantity <= 0) throw new Error(`whole-unit quantities only (got ${quantity})`);
+  return (nadacE5Value * BigInt(quantity) + 500n) / 1000n;
+}
+
+/** Where a claim of this total lands against the member's deductible: to check a scenario tests what its label says. */
+export function deductibleLanding(
+  total: bigint,
+  acc: Pick<AccumulatorState, 'deductibleAmountCents' | 'deductiblePaidCents'>,
+): 'inside-deductible' | 'crosses-deductible' | 'copay-only' {
+  if (acc.deductibleAmountCents <= 0n || acc.deductiblePaidCents >= acc.deductibleAmountCents) return 'copay-only';
+  return total <= acc.deductibleAmountCents - acc.deductiblePaidCents ? 'inside-deductible' : 'crosses-deductible';
+}
+
 /** Recursively collect every string/number leaf under an object, with its JSON path. */
 export function leaves(obj: unknown, path = '$', out: Array<{ path: string; value: string }> = []) {
   if (obj === null || obj === undefined) return out;

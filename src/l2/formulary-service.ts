@@ -30,6 +30,7 @@
 import { Field, Poseidon, MerkleTree, MerkleWitness } from 'o1js';
 import { createHash } from 'crypto';
 import { hashString } from '../zkp/hash-utils.js';
+import { buildTreeBottomUp } from '../zkp/merkle-build.js';
 
 // ─── Tree Constants ──────────────────────────────────────────
 
@@ -39,48 +40,10 @@ export const FORMULARY_TREE_HEIGHT = 16;
 /** Merkle witness for the formulary tree */
 export class FormularyWitness extends MerkleWitness(FORMULARY_TREE_HEIGHT) {}
 
-/**
- * Fill a MerkleTree from contiguous leaves in one bottom-up pass.
- *
- * Why this exists. `MerkleTree.setLeaf` rehashes the whole path to the root on every call, and
- * o1js's `fill()` is just a loop over `setLeaf`, so filling N leaves costs N × (height − 1)
- * hashes. For the formulary that is 32,768 drugs × 15 = about 491,000 Poseidon hashes, measured
- * at roughly 20 ms per drug, or eleven to thirteen minutes on the sequencer's main thread before
- * the RPC server can open its port.
- *
- * Building level by level instead computes each internal node exactly once: ceil(N/2) parents,
- * then ceil(N/4), and so on, which sums to about N hashes. Same tree, same root, roughly fifteen
- * times fewer hashes.
- *
- * The result is identical rather than merely equivalent, and `formulary-tree.test.ts` asserts
- * that against `setLeaf` for several sizes including odd counts, because this tree is a
- * commitment and a subtly different root would be a silent integrity failure.
- *
- * Nodes outside the filled range are left unset, which is what `setLeaf` also does: `getNode`
- * falls back to the level's canonical empty hash, so a partially filled tree has the same root
- * either way.
- */
-export function buildTreeBottomUp(tree: MerkleTree, leaves: Field[]): void {
-  // `nodes` is MerkleTree's public field; `setNode` is private, so write the same shape it
-  // writes — level → index string → Field.
-  const put = (level: number, index: number, value: Field): void => {
-    (tree.nodes[level] ??= {})[index.toString()] = value;
-  };
-
-  for (let i = 0; i < leaves.length; i++) put(0, i, leaves[i]);
-
-  let width = leaves.length;
-  for (let level = 0; level < tree.height - 1 && width > 0; level++) {
-    const parents = Math.ceil(width / 2);
-    for (let p = 0; p < parents; p++) {
-      put(level + 1, p, Poseidon.hash([
-        tree.getNode(level, BigInt(2 * p)),
-        tree.getNode(level, BigInt(2 * p + 1)),
-      ]));
-    }
-    width = parents;
-  }
-}
+// buildTreeBottomUp lives in src/zkp/merkle-build.ts, which depends on o1js alone, so the access-control formulary
+// registry can build plan formularies with it without importing this service. Re-exported for the callers that import
+// it from here (tests/formulary-tree.test.ts).
+export { buildTreeBottomUp };
 
 /**
  * Compute the Poseidon hash of a formulary leaf (6 Fields → 1 hash).

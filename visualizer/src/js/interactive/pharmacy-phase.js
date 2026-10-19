@@ -1315,8 +1315,8 @@ export class PharmacyPhase {
       return;
     }
 
-    const ingredientCostCents = med.awpUnitPriceCents * qty;
-
+    // NADAC pricing (owner decision 2026-10-18): the engine prices the fill; the console sends only the quantity.
+    // A cost sent here would be refused unless it matched the engine's NADAC price exactly.
     btn.classList.add('loading');
     btn.disabled = true;
     this.app.setStatus('working', 'Submitting fill request...');
@@ -1329,8 +1329,6 @@ export class PharmacyPhase {
         body: JSON.stringify({
           prescriptionId: currentRx.id,
           quantityDispensed: qty,
-          ingredientCostCents,
-          dispensingFeeCents: 200,
         }),
       });
 

@@ -277,6 +277,12 @@ export interface ClaimSubmissionMetadata {
   ingredientCostCents?: number;
   dispensingFeeCents?: number;
   quantityDispensed?: number;
+  /** NADAC pricing: how the cost was made: NADAC per unit (whole $0.00001) x quantityDispensed + dispensingFeeCents */
+  pricingBasis?: 'NADAC';
+  nadacUnitPriceE5?: number;
+  pricingUnit?: string;
+  nadacEffectiveDate?: string;
+  dispensingFeeSource?: 'plan' | 'network-default';
   /** Benefit plan ID hash (for plan-filtered accumulator reconstruction) */
   planIdHash?: string;
 }
@@ -346,18 +352,55 @@ export interface BenefitPlanConfig {
   familyDeductibleAmountCents: number;
   familyOopMaxCents: number;
   familyAnnualBenefitMaxCents: number;
-  /** NDCs included in this plan's formulary (subset of full NADAC list) */
+  /**
+   * NADAC pricing (owner decision 2026-10-18): the dispensing fee in whole cents, added to NADAC x quantity on every
+   * fill under this plan. The insurer sets it with the plan; absent or null means the network default
+   * (NETWORK_DEFAULT_DISPENSING_FEE_CENTS in src/fulfillment/nadac-pricing.ts). 0 to 10,000; l2_storePlan refuses others.
+   * A fill is charged the fee the plan was last published with (publishedTerms), never a draft's.
+   */
+  dispensingFeeCents?: number | null;
+  /** NDCs included in this plan's formulary (subset of the formulary catalog; empty = every drug in it). Every entry of the plan's formulary carries copayAmountCents. */
   formularyNdcs: string[];
   /** Provider wallet IDs in-network for this plan (empty = all accepted) */
   networkProviderWalletIds: string[];
-  /** Computed formulary root (after publish) */
+  /** The plan's formulary Merkle root, set at publish by buildPlanFormulary (src/onboarding/plan-formulary.ts) from copayAmountCents and formularyNdcs; a member's EligibilityData names it, and the engine refuses a root it cannot rebuild */
   formularyRoot?: string;
-  /** Computed network root (after publish) */
+  /** The plan's provider network root, set at publish by planNetworkRoot ('0' = all providers accepted) */
   networkRoot?: string;
-  /** Whether plan has been published to sequencer */
+  /** Whether the live record is the one last published (an edit sets it false until the plan is published again) */
   published: boolean;
+  /**
+   * Plan-bound formularies: the terms the plan was last published with, the ones its members are bound to. Set only by
+   * publishing (InsurerNode.markPlanPublished) and kept across edits, so while the insurer drafts a change (published
+   * false) the plan's members go on being served at the version they hold. See src/l2/plan-terms.ts.
+   */
+  publishedTerms?: PublishedPlanTerms;
   createdAt: number;
   updatedAt: number;
+}
+
+/**
+ * The terms a plan was published with (BenefitPlanConfig.publishedTerms): the fields its members are bound by, and the
+ * formulary and network roots built from them. The engine rebuilds the formulary from copayAmountCents and
+ * formularyNdcs and refuses the terms unless the result is formularyRoot.
+ */
+export interface PublishedPlanTerms {
+  copayAmountCents: number;
+  coverageType: number;
+  deductibleAmountCents: number;
+  oopMaxCents: number;
+  annualBenefitMaxCents: number;
+  familyDeductibleAmountCents: number;
+  familyOopMaxCents: number;
+  familyAnnualBenefitMaxCents: number;
+  /** NADAC pricing: the dispensing fee the plan was published with; absent or null means the network default */
+  dispensingFeeCents?: number | null;
+  formularyNdcs: string[];
+  networkProviderWalletIds: string[];
+  formularyRoot: string;
+  networkRoot: string;
+  /** When it was published (milliseconds since the epoch) */
+  publishedAt: number;
 }
 
 // ─── Employer Attestation ─────────────────────────────────

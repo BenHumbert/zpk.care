@@ -63,3 +63,10 @@ tests/member-dashboard-screens.test.ts
 tests/screens-insurer-employer-marketplace.test.ts
 tests/prescriber-proof-labels.test.ts
 tests/l2-client-rpc-ids.test.ts
+tests/plan-formulary.test.ts
+tests/engine-plan-formulary.test.ts
+tests/insurer-plan-publish.test.ts
+tests/nadac-pricing.test.ts
+tests/nadac-dispense-price.test.ts
+tests/plan-dispensing-fee.test.ts
+tests/pharmacy-queue-phase.test.ts

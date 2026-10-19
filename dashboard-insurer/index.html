@@ -210,6 +210,10 @@
               <label class="form-label">Family OOP Max (cents)</label>
               <input type="number" class="form-input" id="plan-fam-oop" value="1000000" min="0">
             </div>
+            <div class="form-group">
+              <label class="form-label">Dispensing Fee (cents)</label>
+              <input type="number" class="form-input" id="plan-dispensing-fee" min="0" max="10000" step="1" placeholder="Blank = network default ($10.00)">
+            </div>
           </div>
           <div class="form-group">
             <label class="form-label">Coverage Type</label>
@@ -310,6 +314,13 @@
               <button class="btn btn-sm" id="plan-network-select-all">Select All Visible</button>
               <button class="btn btn-sm" id="plan-network-clear">Clear Selection</button>
             </div>
+          </div>
+
+          <!-- Dispensing fee (NADAC pricing, owner decision 2026-10-18) -->
+          <div style="margin-bottom: 16px;">
+            <h4 style="margin: 0 0 8px 0;">Dispensing Fee</h4>
+            <p class="form-desc" style="margin: 0 0 8px 0;">Cents added to NADAC x quantity on every fill under this plan. Blank = network default ($10.00).</p>
+            <input type="number" class="form-input" id="plan-detail-dispensing-fee" min="0" max="10000" step="1" placeholder="cents" style="max-width: 200px;">
           </div>
 
           <!-- Save + Publish -->

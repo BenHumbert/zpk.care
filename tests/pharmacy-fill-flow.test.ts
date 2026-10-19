@@ -85,7 +85,7 @@ test('a PENDING script offers no Fill and cannot be filled; an ADJUDICATED one b
     getScriptIssue: () => null, isScriptVerified: () => false, $: () => null,
     truncate: String, formatDate: String, formatCents: String, escapeHtml: String,
     API: { dispensing: { markFilled } },
-  }, ['getScriptStatus', 'setScriptStatus', 'renderColumn', 'fillScript']);
+  }, ['getScriptStatus', 'setScriptStatus', 'fillPricingOf', 'formatNadacUnit', 'nadacBreakdown', 'renderColumn', 'fillScript']);
   expect(p.getScriptStatus(pending)).toBe('pending');
   const column = { innerHTML: '' };
   p.renderColumn(column, [pending, ready], 'adjudicated');

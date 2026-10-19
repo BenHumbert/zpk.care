@@ -563,7 +563,12 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
   const G1 = hashString('GRP-1').toString();
   const P1 = hashString('PLAN-1').toString();
   const F1 = hashString('FAM-1').toString(); // A-34: the code's opaque family hash
-  const PLAN_1 = { planId: 'PLAN-1', name: 'Plan 1', coverageType: 1, copayAmountCents: 1000, deductibleAmountCents: 50000, oopMaxCents: 800000, annualBenefitMaxCents: 0, familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0, formularyNdcs: [], networkProviderWalletIds: [], published: true, createdAt: 0, updatedAt: 0 };
+  const PLAN_1 = {
+    planId: 'PLAN-1', name: 'Plan 1', coverageType: 1, copayAmountCents: 1000, deductibleAmountCents: 50000, oopMaxCents: 800000, annualBenefitMaxCents: 0, familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0, formularyNdcs: [], networkProviderWalletIds: [], published: true, createdAt: 0, updatedAt: 0,
+    // Plan-bound formularies: a published plan carries the terms its members are bound to
+    publishedTerms: { copayAmountCents: 1000, coverageType: 1, deductibleAmountCents: 50000, oopMaxCents: 800000, annualBenefitMaxCents: 0, familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0, formularyNdcs: [], networkProviderWalletIds: [], formularyRoot: '12345', networkRoot: '0', publishedAt: 0 },
+  };
+  let plansAnswer = (): unknown[] => [PLAN_1];
   const approvals: unknown[] = [];
   const VALID = () => ({ status: 200, body: { ok: true, data: { valid: true, groupIdHash: G1, planIdHash: P1, familyIdHash: F1, consumed: true } } });
   const NOT_FOUND = () => ({ status: 200, body: { ok: true, data: { valid: false, reason: 'Token not found' } } });
@@ -606,7 +611,7 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
     const seq = await jsonServer((req, bodyText) => {
       if ((req.url ?? '') === '/interactive/approve-member') { approvals.push(JSON.parse(bodyText || '{}')); return { status: 200, body: { approved: true } }; }
       const rpc = JSON.parse(bodyText || '{}') as { method?: string };
-      if (rpc.method === 'l2_getPlans') return { status: 200, body: { jsonrpc: '2.0', id: 1, result: [PLAN_1] } };
+      if (rpc.method === 'l2_getPlans') return { status: 200, body: { jsonrpc: '2.0', id: 1, result: plansAnswer() } };
       if (rpc.method === 'l2_listEmployerNodes') {
         return { status: 200, body: { jsonrpc: '2.0', id: 1, result: [
           { employerId: 'EMP-A', employerNodeUrl: a.url },
@@ -769,6 +774,21 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
     expect(last.familyIdHash).toBeNull();
     expect(JSON.stringify(approvals)).not.toContain('FAM-PLAINTEXT');
     answerA = VALID;
+  });
+
+  test('a plan without published terms enrols no one, and the engine is not asked to approve the wallet (plan-bound formularies)', async () => {
+    // a plan published before the terms were kept (its formularyRoot is the overlay version), or a draft never published
+    for (const unpublished of [{ ...PLAN_1, formularyRoot: '1', publishedTerms: undefined }, { ...PLAN_1, published: false, publishedTerms: undefined }]) {
+      plansAnswer = () => [unpublished];
+      const code = generateEnrollmentCode('EMP-A');
+      expect((await call(main.process, { body: { tokenId: code, tokenPinHash: `pin-${unpublished.published}` } })).status).toBe(200);
+      const before = approvals.length;
+      const r = await call(main.complete, { body: { walletId: unpublished.published ? '44' : '45', tokenId: code } });
+      expect(r.status).toBe(409);
+      expect(r.payload.error).toMatch(/not published/);
+      expect(approvals.length).toBe(before);
+    }
+    plansAnswer = () => [PLAN_1];
   });
 });
 

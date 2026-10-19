@@ -41,7 +41,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { Field, Poseidon, verify } from 'o1js';
 import { Trace, makeHttp, poll, sleep, abbrev } from './trace.js';
-import { expectedAdjudication, findSecrets } from './reference.js';
+import { expectedAdjudication, findSecrets, nadacE5, expectedNadacIngredientCents, deductibleLanding } from './reference.js';
 import { hashString, hashIdentityField, hashIdentityDate, isIdentitySalt } from '../../src/zkp/hash-utils.js';
 import { combineEnrollmentKey, recoveryPinVerifier, type RecoveryCardV3 } from '../../src/security/recovery-card.js';
 import { deriveMemberWalletId, derivePrescriberWalletId, derivePharmacyWalletId } from '../../src/wallets/wallet-derivation.js';
@@ -226,6 +226,27 @@ async function main() {
   const insOnSeq = await http('POST', `${SEQ}/rpc`, { jsonrpc: '2.0', id: 1, method: 'l2_forceBatch', params: {} }, insurerBearer);
   trace.check('The sequencer refuses the insurer node token', insOnSeq.json?.error?.code === -32003, -32003, insOnSeq.json?.error?.code ?? insOnSeq.json);
 
+  // Plan-bound formularies and NADAC pricing (owner decisions 2026-10-18): the run's claim drugs, which are the plan's
+  // formulary and nothing else. The engine prices a fill at NADAC x quantity, rounded half up to the cent, plus the
+  // plan's dispensing fee ($12.50 here), and the pharmacy sends no costs; so each claim names a drug and a quantity
+  // whose NADAC price puts it where its label says against this plan ($500 deductible, $15 copay). The member pays the
+  // plan's copay in the copay phase for every drug whatever its tier; the third drug is tier 2 to show it. Prices are
+  // the NADAC records in src/data, the same in formulary-100.json and formulary.json; none needs PA or step therapy, and
+  // at most 90 go in a fill. D4: a different drug for each claim, since the same drug twice on the same day at the same
+  // pharmacy is a duplicate (probed below).
+  //   1. ABACAVIR 300 MG TABLET          $0.60042 x 30 = $18.01  + $12.50 = $30.51:  member $30.51, plan $0, deductible $30.51 of $500
+  //   2. ADEFOVIR DIPIVOXIL 10 MG TAB    $23.69832 x 30 = $710.95 + $12.50 = $723.45: member $469.49 + $15 = $484.49, plan $238.96, deductible met
+  //   3. ABILIFY 10 MG TABLET (tier 2)   $18.68756 x 30 = $560.63 + $12.50 = $573.13: member $15.00, plan $558.13
+  // ABACAVIR-LAMIVUDINE, which the run could also claim, is left off the plan to show that it is refused at prescribing
+  // (7d).
+  const SCENARIO_DRUGS = [
+    { label: 'Claim 1 — inside the deductible', ndc: '00378410591', nadac: '0.60042', qty: 30, lands: 'inside-deductible', confirmPrice: false },
+    { label: 'Claim 2 — crosses the deductible', ndc: '42794000308', nadac: '23.69832', qty: 30, lands: 'crosses-deductible', confirmPrice: false },
+    // Claim 3 states the price it expects; the engine accepts it because it is exactly the engine's own.
+    { label: 'Claim 3 — copay only', ndc: '59148000813', nadac: '18.68756', qty: 30, lands: 'copay-only', confirmPrice: true },
+  ] as const;
+  const OFF_PLAN_NDC = '42385096230';                                  // ABACAVIR-LAMIVUDINE 600-300 MG: claimable, not on the plan
+
   // ── 3. Insurer creates a plan ───────────────────────────────
   trace.begin('insurer', 'Create and publish the benefit plan');
   const planId = `PLAN-E2E-${RUN}`;
@@ -241,9 +262,14 @@ async function main() {
     ...networkPrescriberIdx.map(i => fixturePrescriberIds[i]), ...networkPharmacyIdx.map(i => fixturePharmacyIds[i]),
     ...[results.prescriberWalletId, results.pharmacyWalletId].filter((x): x is string => typeof x === 'string' && x.length > 0),
   ];
-  const plan = { planId, name: 'E2E Gold', coverageType: 1, copayAmountCents: 1000, deductibleAmountCents: 50000, oopMaxCents: 780000, annualBenefitMaxCents: 0, familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000, networkProviderWalletIds };
+  // Plan-bound formularies: the plan lists its drugs (SCENARIO_DRUGS) and sets a $15 copay. $15 is no tier's copay in the
+  // data (they are $10, $35, $75 and $150), so a $15 charge can only have come from the plan. NADAC pricing: the insurer
+  // sets this plan's dispensing fee at $12.50, apart from the $10.00 network default, so a fill that charges $12.50 shows
+  // the engine used the plan's fee.
+  const plan = { planId, name: 'E2E Gold', coverageType: 1, copayAmountCents: 1500, deductibleAmountCents: 50000, oopMaxCents: 780000, annualBenefitMaxCents: 0, familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000, dispensingFeeCents: 1250, formularyNdcs: SCENARIO_DRUGS.map((s) => s.ndc), networkProviderWalletIds };
   const planRes = await insAdmin('POST', '/plans', plan);
   trace.check('Plan created', planRes.status === 201 || planRes.status === 200, '201', planRes.status);
+  trace.check('The plan carries the dispensing fee the insurer set', Number(unwrap(planRes.json)?.dispensingFeeCents) === plan.dispensingFeeCents, plan.dispensingFeeCents, unwrap(planRes.json)?.dispensingFeeCents);
   const mkt = await http('GET', `${INS}/marketplace/api/plans`);
   const listed = JSON.stringify(mkt.json).includes(planId);
   trace.check('Plan is listed in the marketplace', listed, true, listed);
@@ -440,6 +466,18 @@ async function main() {
   trace.check('The accumulator limits come from that plan (its out-of-pocket maximum, not PLAN-GOLD\'s)', Number(mine?.accumulator?.limits?.oopMaxCents) === plan.oopMaxCents, plan.oopMaxCents, mine?.accumulator?.limits);
   const sameList = (a: unknown, b: number[]) => Array.isArray(a) && a.length === b.length && a.every((v, i) => Number(v) === b[i]);
   trace.check('The provider network comes from the plan the insurer published, not a demo table', sameList(mine?.inNetworkPrescribers, networkPrescriberIdx) && sameList(mine?.inNetworkPharmacies, networkPharmacyIdx), `${networkPrescriberIdx.join(',')} / ${networkPharmacyIdx.join(',')}`, `${mine?.inNetworkPrescribers} / ${mine?.inNetworkPharmacies}`);
+  // Plan-bound formularies: the eligibility credential names the plan, the employer group, the plan's copay and the
+  // formulary and network roots the insurer published, never the console's PLAN-GOLD-2026 template.
+  const publishedPlan = (await rpc('l2_getPlan', { planId })).result ?? {};
+  const elig = mine?.eligibility ?? {};
+  trace.check('The credential names the plan the insurer sold', elig.planIdHash === hashString(planId).toString(), hashString(planId).toString(), elig.planIdHash);
+  trace.check('The credential names the employer group (its hash)', elig.groupIdHash === hashString(groupId).toString(), hashString(groupId).toString(), elig.groupIdHash);
+  trace.check('The credential carries the plan\'s copay', Number(elig.copayAmountCents) === plan.copayAmountCents, plan.copayAmountCents, elig.copayAmountCents);
+  trace.check('The plan record\'s formulary root is a Merkle root, not an overlay version number', typeof publishedPlan.formularyRoot === 'string' && publishedPlan.formularyRoot.length > 20, 'a field element', publishedPlan.formularyRoot);
+  trace.check('The credential names the formulary root the insurer published', elig.formularyRoot === publishedPlan.formularyRoot, publishedPlan.formularyRoot, elig.formularyRoot);
+  trace.check('The credential names the provider network root the insurer published', elig.networkRoot === publishedPlan.networkRoot, publishedPlan.networkRoot, elig.networkRoot);
+  const eligCommitment = Poseidon.hash([elig.planIdHash, elig.groupIdHash, elig.effectiveDate, elig.terminationDate, elig.copayAmountCents, elig.coverageType, elig.formularyRoot, elig.networkRoot].map((v: unknown) => Field(BigInt(String(v ?? '0'))))).toString();
+  trace.check('The eligibility commitment recomputes from those fields', eligCommitment === elig.commitment, elig.commitment, eligCommitment);
   const mallory = [1n, 2n, 3n, 4n, 5n, 6n].map(n => Field(n * 7919n + 17n));
   const malloryWallet = Poseidon.hash([Field(0), ...mallory]).toString();
   // B2: the engine takes no identity preimage at all, from anyone
@@ -518,18 +556,24 @@ async function main() {
   // ── 8. Prescriptions and fills ──────────────────────────────
   const st = await httpAdmin('GET', `${SEQ}/interactive/state`);
   const meds = (st.json?.demoData?.medications ?? st.json?.medications ?? []) as any[];
-  const med = meds.find(m => m.active !== false && !m.requiresPriorAuth && !m.stepTherapyRequired && !m.deaSchedule && (m.maxQuantityPerFill ?? 999) >= 30) ?? meds[0];
-  const ndcRaw = String(med.ndc).replace(/-/g, '');
-  const ndcHash = hashString(ndcRaw).toString();
-  const copay = BigInt(med.currentCopayAmountCents ?? med.copayAmountCents);
+  const medByNdc = (ndc: string) => meds.find((m: any) => String(m.ndc).replace(/-/g, '') === ndc);
+  // Plan-bound formularies: the claims use the plan's drugs (SCENARIO_DRUGS), and the member pays the plan's copay
+  // whatever the drug's tier, not the engine's PLAN-GOLD-2026 tier copay (currentCopayAmountCents). NADAC pricing: each
+  // drug must be listed at the NADAC price its scenario was written for (a NADAC refresh changes prices, and then the
+  // scenarios must be picked again). D4: a different drug for each of the three claims. The same drug twice on the same
+  // day at the same pharmacy is a duplicate claim and is refused (probed below); until D4 the ledger silently dropped
+  // the second leaf while the engine billed it.
+  const copay = BigInt(plan.copayAmountCents);
+  const planDrugsListed = SCENARIO_DRUGS.map((s) => medByNdc(s.ndc));
+  const listedAt = (m: any, nadac: string) => { try { return m?.nadacPerUnit != null && nadacE5(String(m.nadacPerUnit)) === nadacE5(nadac); } catch { return false; } };
+  trace.check('The formulary lists each of the plan\'s drugs, claimable, at the NADAC price its scenario was written for',
+    planDrugsListed.every((m: any, i: number) => !!m && m.active !== false && !m.requiresPriorAuth && !m.stepTherapyRequired && (m.maxQuantityPerFill ?? 0) >= SCENARIO_DRUGS[i].qty && listedAt(m, SCENARIO_DRUGS[i].nadac)),
+    SCENARIO_DRUGS.map((s) => `${s.ndc} at $${s.nadac}`), planDrugsListed.map((m: any, i: number) => (m ? `${SCENARIO_DRUGS[i].ndc} at $${m.nadacPerUnit}` : `${SCENARIO_DRUGS[i].ndc} not listed`)));
+  const drugFor = (m: any) => ({ med: m, ndcHash: hashString(String(m.ndc).replace(/-/g, '')).toString(), copay });
+  const claimDrugs = planDrugsListed.map((m: any) => drugFor(m ?? meds[0]));
+  const med = claimDrugs[0].med;
+  const ndcHash = claimDrugs[0].ndcHash;
   results.drug = { brandName: med.brandName, ndc: med.ndc, tier: med.tier, copayCents: copay.toString(), ndcHash };
-  // D4: a different drug for each of the three claims. The same drug twice on the same day at the same pharmacy is a
-  // duplicate claim and is refused (probed below); until D4 the ledger silently dropped the second leaf while the
-  // engine billed it.
-  const eligibleMeds = meds.filter((m: any) => m.active !== false && !m.requiresPriorAuth && !m.stepTherapyRequired && !m.deaSchedule && (m.maxQuantityPerFill ?? 999) >= 30);
-  const drugFor = (m: any) => ({ med: m, ndcHash: hashString(String(m.ndc).replace(/-/g, '')).toString(), copay: BigInt(m.currentCopayAmountCents ?? m.copayAmountCents) });
-  const claimDrugs = [med, ...eligibleMeds.filter((m: any) => m !== med).slice(0, 2)].map(drugFor);
-  if (claimDrugs.length < 3) trace.note(`only ${claimDrugs.length} eligible drugs in the formulary; later claims reuse one`);
   // B1: the fixture people are served by the explorer beside the console, not by the gated dump.
   const fixtures = (await http('GET', `${EXP}/fixtures.json`)).json ?? {};
   const prescribers = (fixtures?.prescribers ?? []) as any[];
@@ -542,11 +586,8 @@ async function main() {
   // fixed values after the first fill, and this expectation used those values, which hid it).
   let acc0 = { deductibleAmountCents: BigInt(plan.deductibleAmountCents), deductiblePaidCents: 0n, oopMaxCents: BigInt(plan.oopMaxCents), oopPaidCents: 0n, annualBenefitMaxCents: BigInt(plan.annualBenefitMaxCents), annualBenefitUsedCents: 0n };
 
-  const scenarios = [
-    { label: 'Claim 1 — inside the deductible', ingredient: 1200n, fee: 200n, qty: 30 },
-    { label: 'Claim 2 — crosses the deductible', ingredient: 60000n, fee: 200n, qty: 30 },
-    { label: 'Claim 3 — copay only', ingredient: 4500n, fee: 200n, qty: 30 },
-  ];
+  // What each claim should cost, from its NADAC price and the plan's fee, by the plan rule rather than the engine's code.
+  const scenarios = SCENARIO_DRUGS.map((s) => ({ ...s, ingredient: expectedNadacIngredientCents(nadacE5(s.nadac), s.qty), fee: BigInt(plan.dispensingFeeCents) }));
   // ── 6b. The employer's roster (B6, I6) ──────────────────────
   trace.begin('employer', 'The employer\'s roster knows the enrollment happened, never the wallet');
   const roster = await http('GET', `${employerNodeUrl}/roster`, undefined, { Authorization: `Bearer ${empAdmin}` });
@@ -580,6 +621,16 @@ async function main() {
   trace.check('The engine refuses: not the primary-care prescriber, no authorization from the device', strangerRx.status === 403 && /primary-care prescriber/.test(String(strangerRx.json?.error ?? '')), '403 primary-care prescriber', `${strangerRx.status} ${strangerRx.json?.error ?? ''}`.trim());
   const strangerState = unwrap((await httpAdmin('GET', `${SEQ}/interactive/state`)).json) ?? {};
   trace.check('No prescription record was created for the refused request', !((strangerState.prescriptions ?? []) as any[]).some((x: any) => x.id === strangerRxId || x.rxId === strangerRxId), 'none', ((strangerState.prescriptions ?? []) as any[]).filter((x: any) => x.id === strangerRxId).length);
+
+  // ── 7d. Plan-bound formularies: a drug the plan does not list is refused at prescribing ──
+  trace.begin('prescriber', 'The member\'s primary-care doctor prescribes a drug the plan does not cover');
+  const offPlanMed = medByNdc(OFF_PLAN_NDC);
+  trace.check('The formulary lists the drug left off the plan, claimable, so the probe tests the plan and nothing else', !!offPlanMed && offPlanMed.active !== false && !offPlanMed.requiresPriorAuth && !offPlanMed.stepTherapyRequired, OFF_PLAN_NDC, offPlanMed ? offPlanMed.brandName : 'not listed');
+  const offRxId = `RX-${RUN}-OFFPLAN`;
+  const offRx = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash: hashString(OFF_PLAN_NDC).toString(), quantity: 30, refills: 0, rxId: offRxId });
+  trace.check('The engine refuses a drug that is not on the member\'s plan formulary, before any proof', offRx.status === 403 && /not on the formulary/.test(String(offRx.json?.error ?? '')), '403 not on the formulary', `${offRx.status} ${offRx.json?.error ?? ''}`.trim());
+  const offState = unwrap((await httpAdmin('GET', `${SEQ}/interactive/state`)).json) ?? {};
+  trace.check('No prescription record was created for the refused drug', !((offState.prescriptions ?? []) as any[]).some((x: any) => x.id === offRxId || x.rxId === offRxId), 'none', ((offState.prescriptions ?? []) as any[]).filter((x: any) => x.id === offRxId).length);
 
   for (let ci = 0; ci < scenarios.length; ci++) {
     const sc = scenarios[ci];
@@ -619,16 +670,26 @@ async function main() {
     trace.begin('pharmacy', `${sc.label}: dispense and adjudicate (real AccumulatorFulfillment proof)`);
     await http('POST', `${PHA}/dispensing/mark-filled`, { prescriptionId });
     if (ci === 0) {
-      const over = await http('POST', `${PHA}/dispensing/dispense`, { prescriptionId, quantityDispensed: sc.qty + 1, ingredientCostCents: Number(sc.ingredient), dispensingFeeCents: Number(sc.fee) });
+      const over = await http('POST', `${PHA}/dispensing/dispense`, { prescriptionId, quantityDispensed: sc.qty + 1 });
       let overResult: any = unwrap(over.json);
       if (over.status < 300 && overResult?.jobKey) {
         const od = await poll(quiet, `${PHA}/dispensing/fill-status?jobKey=${encodeURIComponent(overResult.jobKey)}`, j => ['complete', 'error'].includes(unwrap(j)?.status), 900_000, 5000);
         overResult = unwrap(od.json);
       }
       trace.check('Circuit rejects dispensing more than was prescribed', overResult?.status === 'error' || over.status >= 400, 'error', overResult?.error ?? overResult?.status ?? over.json);
+      // Owner decision 2026-10-18: the pharmacy does not set the price. A dispense that names its own cost (the $0
+      // ingredient and $13.00 fee the dashboard used to send) is refused before any proof, and nothing is billed.
+      const priced = await http('POST', `${PHA}/dispensing/dispense`, { prescriptionId, quantityDispensed: sc.qty, ingredientCostCents: 0, dispensingFeeCents: 1300 });
+      let pricedResult: any = unwrap(priced.json);
+      if (priced.status < 300 && pricedResult?.jobKey) {
+        const pd = await poll(quiet, `${PHA}/dispensing/fill-status?jobKey=${encodeURIComponent(pricedResult.jobKey)}`, j => ['complete', 'error'].includes(unwrap(j)?.status), 900_000, 5000);
+        pricedResult = unwrap(pd.json);
+      }
+      trace.check('A dispense that names its own cost is refused: the pharmacy does not set the price', (pricedResult?.status === 'error' && /does not set the price/.test(String(pricedResult?.error ?? ''))) || priced.status === 409, 'error: does not set the price', pricedResult?.error ?? pricedResult?.status ?? priced.json);
     }
     const tf = Date.now();
-    const disp = await http('POST', `${PHA}/dispensing/dispense`, { prescriptionId, quantityDispensed: sc.qty, ingredientCostCents: Number(sc.ingredient), dispensingFeeCents: Number(sc.fee) });
+    // No costs: the engine prices the fill. Claim 3 states the expected price instead, accepted because it is exactly the engine's.
+    const disp = await http('POST', `${PHA}/dispensing/dispense`, { prescriptionId, quantityDispensed: sc.qty, ...(sc.confirmPrice ? { ingredientCostCents: Number(sc.ingredient), dispensingFeeCents: Number(sc.fee) } : {}) });
     let fill: any = unwrap(disp.json);
     if (disp.status < 300 && fill?.jobKey) {
       const fd = await poll(quiet, `${PHA}/dispensing/fill-status?jobKey=${encodeURIComponent(fill.jobKey)}`, j => ['complete', 'error'].includes(unwrap(j)?.status), 900_000, 5000);
@@ -650,6 +711,9 @@ async function main() {
     trace.check('Accumulator before the claim matches the running total', BigInt(before.deductiblePaidCents) === accNow.deductiblePaidCents && BigInt(before.oopPaidCents) === accNow.oopPaidCents,
       { deductiblePaid: accNow.deductiblePaidCents, oopPaid: accNow.oopPaidCents }, before);
     const exp = expectedAdjudication(sc.ingredient, sc.fee, drug.copay, accNow);
+    trace.check(`Ingredient = NADAC $${sc.nadac} x ${sc.qty}, rounded half up to the cent`, BigInt(adj.ingredientCostCents) === sc.ingredient, sc.ingredient, adj.ingredientCostCents);
+    trace.check(`Dispensing fee = the plan's, not one the pharmacy chose`, BigInt(adj.dispensingFeeCents) === sc.fee && adj.pricing?.dispensingFeeSource === 'plan', `${sc.fee} (plan)`, `${adj.dispensingFeeCents} (${adj.pricing?.dispensingFeeSource})`);
+    trace.check(`The claim lands where its label says (${sc.lands})`, deductibleLanding(exp.total, accNow) === sc.lands, sc.lands, deductibleLanding(exp.total, accNow));
     trace.check('Total = ingredient + dispensing fee', BigInt(adj.totalCostCents) === exp.total, exp.total, adj.totalCostCents);
     trace.check(`Patient pay matches plan rules (${exp.phase})`, BigInt(adj.patientPayCents) === exp.patientPay, exp.patientPay, adj.patientPayCents);
     trace.check('Plan pay matches plan rules', BigInt(adj.planPayCents) === exp.planPay, exp.planPay, adj.planPayCents);
@@ -678,6 +742,10 @@ async function main() {
     trace.check(`${sc.label}: the member's device finalized the fill by proving its own wallet update`, Number(fin?.pending) === 0 && (fin?.errors ?? []).length === 0 && (fin?.refused ?? []).length === 0, 'pending 0, no errors', fin);
     const walletNow = await rpc('l2_getWalletState', { walletId });
     trace.check(`${sc.label}: the ledger holds the credential root the device proved`, !!r.walletUpdate?.newInventoryRoot && walletNow.result?.credentialInventoryRoot === r.walletUpdate.newInventoryRoot, abbrev(String(r.walletUpdate?.newInventoryRoot ?? 'walletUpdate missing from the fill result'), 14), abbrev(String(walletNow.result?.credentialInventoryRoot ?? walletNow), 14));
+    const ledgerNow = (await rpc('l2_getClaimsByMember', { walletId })).result;
+    const ledgerClaim = ((ledgerNow?.claims ?? ledgerNow ?? []) as any[]).filter((c: any) => (c.leaf ?? c).ndcHash === drug.ndcHash && String((c.leaf ?? c).operationType) === '1').pop();
+    const lm = ledgerClaim?.metadata ?? {};
+    trace.check(`${sc.label}: the ledger claim records NADAC x quantity + fee`, Number(lm.nadacUnitPriceE5) === Number(nadacE5(sc.nadac)) && Number(lm.quantityDispensed) === sc.qty && BigInt(lm.ingredientCostCents ?? -1) === sc.ingredient && BigInt(lm.dispensingFeeCents ?? -1) === sc.fee && lm.dispensingFeeSource === 'plan', `${nadacE5(sc.nadac)} x ${sc.qty} = ${sc.ingredient} + ${sc.fee} (plan)`, ledgerClaim ? `${lm.nadacUnitPriceE5} x ${lm.quantityDispensed} = ${lm.ingredientCostCents} + ${lm.dispensingFeeCents} (${lm.dispensingFeeSource})` : 'no claim on the ledger');
     results.claims.push({ label: sc.label, drug: drug.med.brandName, ndcHash: drug.ndcHash, prescriptionId, ingredient: sc.ingredient.toString(), fee: sc.fee.toString(), adjudication: adj, accumulator: r.accumulator, expected: { ...exp, total: exp.total.toString(), patientPay: exp.patientPay.toString(), planPay: exp.planPay.toString(), deductibleCredit: exp.deductibleCredit.toString() }, proofTimesMs: r.proofTimesMs, receiptId: r.l2Receipt?.receiptId, settlementCommitment: r.settlementCommitment });
     acc0 = { ...accNow, deductiblePaidCents: BigInt(after.deductiblePaidCents), oopPaidCents: BigInt(after.oopPaidCents), annualBenefitUsedCents: BigInt(after.benefitUsedCents ?? 0) };
   }
@@ -727,7 +795,7 @@ async function main() {
     trace.check('A second prescription for the same drug is written (the duplicate rule is about the fill)', !!dupPid, 'prescriptionId', dupPid ?? dupRx.json);
     if (dupPid) {
       await http('POST', `${PHA}/dispensing/mark-filled`, { prescriptionId: dupPid });
-      const dupDisp = await http('POST', `${PHA}/dispensing/dispense`, { prescriptionId: dupPid, quantityDispensed: 30, ingredientCostCents: 4500, dispensingFeeCents: 200 });
+      const dupDisp = await http('POST', `${PHA}/dispensing/dispense`, { prescriptionId: dupPid, quantityDispensed: 30 });
       let dupFill: any = unwrap(dupDisp.json);
       if (dupDisp.status < 300 && dupFill?.jobKey) {
         const fd = await poll(quiet, `${PHA}/dispensing/fill-status?jobKey=${encodeURIComponent(dupFill.jobKey)}`, j => ['complete', 'error'].includes(unwrap(j)?.status), 900_000, 5000);
@@ -958,7 +1026,7 @@ async function main() {
   trace.check('The operator terminates the member', term.status < 300, '2xx', term.status);
   const afterTerm = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId: `RX-${RUN}-AFTER` });
   trace.check('No prescription can be written for a terminated member', afterTerm.status === 409 && /terminated/.test(String(afterTerm.json?.error ?? '')), '409 terminated', `${afterTerm.status} ${afterTerm.json?.error ?? ''}`.trim());
-  const lateDisp = await http('POST', `${PHA}/dispensing/dispense`, { prescriptionId: lastPrescriptionId, quantityDispensed: 30, ingredientCostCents: 4500, dispensingFeeCents: 200 });
+  const lateDisp = await http('POST', `${PHA}/dispensing/dispense`, { prescriptionId: lastPrescriptionId, quantityDispensed: 30 });
   let lateFill: any = unwrap(lateDisp.json);
   if (lateDisp.status < 300 && lateFill?.jobKey) {
     const ld = await poll(quiet, `${PHA}/dispensing/fill-status?jobKey=${encodeURIComponent(lateFill.jobKey)}`, j => ['complete', 'error'].includes(unwrap(j)?.status), 600_000, 5000);

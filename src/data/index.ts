@@ -104,6 +104,17 @@ export interface SeedMedication {
   manufacturer: string;
   therapeuticClass: string;
   deaSchedule: number;
+  /**
+   * NADAC per pricing unit in dollars, as CMS publishes it (up to 5 decimals): what a fill is priced from. Optional on
+   * the type because the generated literals in src/seed predate it; every record src/data loads carries it, and a drug
+   * without it cannot be priced (quoteNadacPrice refuses it).
+   */
+  nadacPerUnit?: number;
+  /** The unit NADAC is quoted per (EA, ML or GM); a fill's quantity is counted in it */
+  pricingUnit?: string;
+  /** The NADAC week the price is from, as published (MM/DD/YYYY) */
+  nadacEffectiveDate?: string;
+  /** Display only: AWP no longer prices a fill (owner decision 2026-10-18: NADAC plus a dispensing fee) */
   awpUnitPriceCents: number;
   awpPackagePriceCents: number;
   packageSize: number;
@@ -355,6 +366,9 @@ function nadacToMedication(f: FormularyJson): SeedMedication {
     manufacturer: '', // Not available from NADAC
     therapeuticClass: '', // Not available from NADAC
     deaSchedule: 0,
+    nadacPerUnit: f.nadacPerUnit,
+    pricingUnit: f.pricingUnit,
+    nadacEffectiveDate: f.effectiveDate,
     awpUnitPriceCents: awpUnitCents,
     awpPackagePriceCents: awpUnitCents * 30, // Default 30-unit package
     packageSize: 30,

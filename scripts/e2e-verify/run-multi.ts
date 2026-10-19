@@ -39,7 +39,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { Field, Poseidon, verify } from 'o1js';
 import { Trace, makeHttp, poll, abbrev } from './trace.js';
-import { expectedAdjudication, findSecrets } from './reference.js';
+import { expectedAdjudication, findSecrets, nadacE5, expectedNadacIngredientCents, deductibleLanding } from './reference.js';
 import { hashString, hashDate } from '../../src/zkp/hash-utils.js';
 import { NautilusLocalState } from '../../src/nodes/nautilus-local-state.js';
 import { l2Parse } from '../../src/l2/l2-json.js';
@@ -295,13 +295,45 @@ async function enrollMember(p: Person, token: { tokenId: string; tokenPIN: strin
 }
 
 // ─── Claims ─────────────────────────────────────────────────
+/** Plan-bound formularies: the copay the run's plan sets, which the member pays in the copay phase for every drug whatever its tier. No tier copay in the data is $15 (they are $10, $35, $75 and $150). */
+const PLAN_COPAY_CENTS = 1500;
+/** The copay the members' plan charges: this run's plan, or on resume the plan the earlier run created, as published. */
+let planCopayCents = BigInt(PLAN_COPAY_CENTS);
+// NADAC pricing (owner decision 2026-10-18): the engine prices each fill at NADAC x quantity, rounded half up to the
+// cent, plus the dispensing fee; this plan sets none, so the $10.00 network default applies, and the pharmacy sends no
+// costs. Each claim names a drug and quantity whose NADAC price lands it where its label says. Prices are the NADAC
+// records in src/data (the same in formulary-100.json and formulary.json); all six are tier 1 (the member pays the
+// plan's $15 copay in the copay phase all the same), no PA or step therapy, at most 90 per fill.
+const NETWORK_DEFAULT_FEE_CENTS = 1000n;
+const DRUGS = {
+  ABACAVIR:    { ndc: '00378410591', nadac: '0.60042', qty: 30 },  // ABACAVIR 300 MG TABLET          $18.01 + $10.00 = $28.01
+  ADEFOVIR:    { ndc: '42794000308', nadac: '23.69832', qty: 30 }, // ADEFOVIR DIPIVOXIL 10 MG TAB    $710.95 + $10.00 = $720.95
+  ABIGALE:     { ndc: '70700033084', nadac: '0.76504', qty: 30 },  // ABIGALE 1 MG-0.5 MG TABLET      $22.95 + $10.00 = $32.95
+  ABIGALE_LO:  { ndc: '70700030384', nadac: '0.81693', qty: 30 },  // ABIGALE LO 0.5-0.1 MG TABLET    $24.51 + $10.00 = $34.51
+  ACAMPROSATE: { ndc: '00378633380', nadac: '0.36315', qty: 30 },  // ACAMPROSATE CALC DR 333 MG TAB  $10.89 + $10.00 = $20.89
+  ABIRTEGA:    { ndc: '82249001112', nadac: '0.90511', qty: 30 },  // ABIRTEGA 250 MG TABLET          $27.15 + $10.00 = $37.15
+} as const;
+type DrugKey = keyof typeof DRUGS;
+type Lands = 'inside-deductible' | 'crosses-deductible' | 'copay-only';
+interface ClaimDrug { key: DrugKey; ndcHash: string; copay: bigint; qty: number; nadac: string; ingredient: bigint; fee: bigint; name: string }
+let formularyMeds: any[] = [];
+/** A scenario drug as the engine lists it; refused if it is missing or not at the NADAC price the scenarios assume. */
+function claimDrug(key: DrugKey): ClaimDrug {
+  const d = DRUGS[key];
+  const m = formularyMeds.find((x: any) => String(x.ndc).replace(/-/g, '') === d.ndc);
+  if (!m) throw new Error(`The engine's formulary does not list ${key} (NDC ${d.ndc}); choose new scenario drugs`);
+  if (m.nadacPerUnit == null || nadacE5(String(m.nadacPerUnit)) !== nadacE5(d.nadac)) throw new Error(`${key} is listed at NADAC $${m.nadacPerUnit}, not the $${d.nadac} these scenarios were written for`);
+  // plan-bound formularies: the plan's copay, whatever the drug's tier (not the engine's PLAN-GOLD-2026 tier copay)
+  return { key, ndcHash: hashString(d.ndc).toString(), copay: planCopayCents, qty: d.qty, nadac: d.nadac, ingredient: expectedNadacIngredientCents(nadacE5(d.nadac), d.qty), fee: NETWORK_DEFAULT_FEE_CENTS, name: `${m.brandName} ${m.strength}` };
+}
 const accState: Record<string, { deductiblePaidCents: bigint; oopPaidCents: bigint }> = {};
-async function fileClaim(memberKey: string, walletId: string, ndcHash: string, copay: bigint, ingredient: bigint, fee: bigint, label: string, opts: { expectRefusal?: RegExp } = {}) {
+async function fileClaim(memberKey: string, walletId: string, drug: ClaimDrug, label: string, opts: { expectRefusal?: RegExp; lands?: Lands } = {}) {
+  const { ndcHash, copay, ingredient, fee } = drug;
   const { t, http } = lane(`claim-${memberKey}-${results.claims.length + 1}`);
   t.begin(`claim ${memberKey}`, label);
   const rxId = `RX-${RUN}-${memberKey}-${results.claims.length + 1}`;
   const tp = Date.now();
-  const sp = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId });
+  const sp = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: drug.qty, refills: 0, rxId });
   const isMine = (x: any) => x.id === rxId;
   let prescriptionId: string | undefined = sp.json?.prescriptionId;
   const stillRunning = sp.status === 504 || /timeout/i.test(String(sp.json?.error ?? ''));
@@ -314,7 +346,7 @@ async function fileClaim(memberKey: string, walletId: string, ndcHash: string, c
   if (!prescriptionId) { t.end(); results.claims.push({ memberKey, label, error: sp.json }); return null; }
   await http('POST', `${PHA}/dispensing/mark-filled`, { prescriptionId });
   const tf = Date.now();
-  const disp = await http('POST', `${PHA}/dispensing/dispense`, { prescriptionId, quantityDispensed: 30, ingredientCostCents: Number(ingredient), dispensingFeeCents: Number(fee) });
+  const disp = await http('POST', `${PHA}/dispensing/dispense`, { prescriptionId, quantityDispensed: drug.qty }); // no costs: the engine prices the fill
   let fill: any = unwrap(disp.json);
   if (disp.status < 300 && fill?.jobKey) fill = unwrap((await poll(quiet, `${PHA}/dispensing/fill-status?jobKey=${encodeURIComponent(fill.jobKey)}`, j => ['complete', 'error'].includes(unwrap(j)?.status), 900_000, 4000)).json);
   const fillMs = Date.now() - tf;
@@ -344,6 +376,12 @@ async function fileClaim(memberKey: string, walletId: string, ndcHash: string, c
     deductibleAmountCents: BigInt(limits.deductibleAmountCents), deductiblePaidCents: acc.deductiblePaidCents,
     oopMaxCents: BigInt(limits.oopMaxCents), oopPaidCents: acc.oopPaidCents, annualBenefitMaxCents: BigInt(limits.annualBenefitMaxCents ?? 0), annualBenefitUsedCents: 0n,
   });
+  t.check(`Ingredient = NADAC $${drug.nadac} x ${drug.qty}, rounded half up`, BigInt(adj.ingredientCostCents) === ingredient, ingredient, adj.ingredientCostCents);
+  t.check('Dispensing fee = the network default (this plan sets none), not one the pharmacy chose', BigInt(adj.dispensingFeeCents) === fee && adj.pricing?.dispensingFeeSource === 'network-default', `${fee} (network-default)`, `${adj.dispensingFeeCents} (${adj.pricing?.dispensingFeeSource})`);
+  if (opts.lands) {
+    const landed = deductibleLanding(exp.total, { deductibleAmountCents: BigInt(limits.deductibleAmountCents), deductiblePaidCents: acc.deductiblePaidCents });
+    t.check(`The claim lands where its label says (${opts.lands})`, landed === opts.lands, opts.lands, landed);
+  }
   t.check(`Patient pay matches the plan rules (${exp.phase})`, BigInt(adj.patientPayCents) === exp.patientPay, exp.patientPay, adj.patientPayCents);
   t.check('Plan pay matches the plan rules', BigInt(adj.planPayCents) === exp.planPay, exp.planPay, adj.planPayCents);
   const credit = BigInt(after.deductiblePaidCents) - BigInt(before.deductiblePaidCents);
@@ -370,7 +408,7 @@ async function mainFlow() {
 
   t.begin('insurer', 'Create the plan');
   const planId = `PLAN-E2E-${RUN}`;
-  const plan = await http('POST', `${INS}/plans`, { planId, name: 'E2E Gold', coverageType: 1, copayAmountCents: 1000, deductibleAmountCents: 50000, oopMaxCents: 800000, annualBenefitMaxCents: 0, familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000 }, insurerBearer);
+  const plan = await http('POST', `${INS}/plans`, { planId, name: 'E2E Gold', coverageType: 1, copayAmountCents: PLAN_COPAY_CENTS, deductibleAmountCents: 50000, oopMaxCents: 800000, annualBenefitMaxCents: 0, familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000 }, insurerBearer);
   t.check('Plan created with the insurer token', plan.status < 300, '2xx', plan.status);
 
   // A-34: A1 and A2 are one family on employer A's roster; B1 and B2 are each a family of one.
@@ -410,46 +448,48 @@ async function mainFlow() {
   t.check(SERIAL ? 'All three registrations succeeded (serial mode)' : 'All three concurrent registrations succeeded', enrolled.length === 3, 3, enrolled.length);
   await checkInvariant('3 concurrent registrations', enrolled);
 
-  // Drug choice.
+  // Drug choice: named drugs at known NADAC prices (DRUGS above). D4: a different drug for each of a member's
+  // same-day claims; the same drug twice is a duplicate and is refused.
   const st = (await httpAdmin('GET', `${SEQ}/interactive/state`)).json;
-  const med = (st?.demoData?.medications ?? []).find((m: any) => m.active !== false && !m.requiresPriorAuth && !m.stepTherapyRequired && !m.deaSchedule && (m.maxQuantityPerFill ?? 999) >= 30);
-  const ndcHash = hashString(String(med.ndc).replace(/-/g, '')).toString();
-  const copay = BigInt(med.currentCopayAmountCents ?? med.copayAmountCents);
-  results.drug = { brandName: med.brandName, ndc: med.ndc, copayCents: copay.toString() };
-  // D4: a different drug for each of a member's same-day claims; the same drug twice is a duplicate and is refused.
-  const eligibleMeds = (st?.demoData?.medications ?? []).filter((m: any) => m.active !== false && !m.requiresPriorAuth && !m.stepTherapyRequired && !m.deaSchedule && (m.maxQuantityPerFill ?? 999) >= 30);
-  const drugAt = (i: number) => { const m = eligibleMeds[i % eligibleMeds.length]; return { ndcHash: hashString(String(m.ndc).replace(/-/g, '')).toString(), copay: BigInt(m.currentCopayAmountCents ?? m.copayAmountCents) }; };
-  t.note(`drug ${med.brandName} ${med.strength}, copay ${copay}¢`);
+  formularyMeds = (st?.demoData?.medications ?? []) as any[];
+  const first = claimDrug('ABACAVIR');
+  results.drug = { brandName: first.name, ndc: DRUGS.ABACAVIR.ndc, copayCents: first.copay.toString() };
+  t.note(`scenario drugs ${Object.keys(DRUGS).join(', ')}; plan copay ${planCopayCents}¢; network-default dispensing fee ${NETWORK_DEFAULT_FEE_CENTS}¢`);
 
   // B2 enrolls while A1's first claim is being adjudicated (registration vs. fill contention).
   t.begin('harness', "B2 enrolls while A1's first claim is adjudicated");
   const b2 = people[3];
   let b2Wallet: string = '';
+  const a1First = claimDrug('ABACAVIR');   // $18.01 + $10.00 = $28.01: A1 pays it all, deductible $28.01 of $500
   if (SERIAL) {
     b2Wallet = await enrollMember(b2, token(b2), group(b2));
-    await fileClaim('A1', wallets[0], ndcHash, copay, 1200n, 200n, 'A1 claim 1 — inside the deductible');
+    await fileClaim('A1', wallets[0], a1First, 'A1 claim 1 — inside the deductible', { lands: 'inside-deductible' });
   } else {
     [b2Wallet] = await Promise.all([
       enrollMember(b2, token(b2), group(b2)),
-      fileClaim('A1', wallets[0], ndcHash, copay, 1200n, 200n, 'A1 claim 1 — inside the deductible'),
+      fileClaim('A1', wallets[0], a1First, 'A1 claim 1 — inside the deductible', { lands: 'inside-deductible' }),
     ]);
   }
   if (b2Wallet) enrolled.push(b2Wallet);
   t.check('B2 registered while a fill was in flight', !!b2Wallet, 'walletId', b2Wallet);
   await checkInvariant('registration during a fill', enrolled);
 
-  // Remaining claims, invariant after each.
-  const rest: Array<[string, string, bigint, bigint, string, number]> = [
-    ['A1', wallets[0], 60000n, 200n, 'A1 claim 2 — crosses the deductible', 1],
-    ['A1', wallets[0], 4500n, 200n, 'A1 claim 3 — copay only', 2],
-    ['A2', wallets[1], 3000n, 200n, 'A2 claim 1', 0],
-    ['B1', wallets[2], 900n, 200n, 'B1 claim 1', 0],
-    ['B2', b2Wallet, 70000n, 200n, 'B2 claim 1 — crosses the deductible', 0],
+  // Remaining claims, invariant after each. Expected (fee $10.00, deductible $500, plan copay $15):
+  //   A1 claim 2  ADEFOVIR x30 $720.95: $471.99 of A1's deductible left -> A1 $486.99, plan $233.96; deductible met
+  //   A1 claim 3  ABIGALE  x30 $32.95:  A1 $15.00, plan $17.95
+  //   A2 claim 1  ABACAVIR x30 $28.01:  A2 $28.01, plan $0 (A1's family; no family limit is near)
+  //   B1 claim 1  ABACAVIR x30 $28.01:  B1 $28.01, plan $0
+  //   B2 claim 1  ADEFOVIR x30 $720.95: B2 $500 + $15 = $515.00, plan $205.95; deductible met
+  const rest: Array<[string, string, DrugKey, string, Lands]> = [
+    ['A1', wallets[0], 'ADEFOVIR', 'A1 claim 2 — crosses the deductible', 'crosses-deductible'],
+    ['A1', wallets[0], 'ABIGALE', 'A1 claim 3 — copay only', 'copay-only'],
+    ['A2', wallets[1], 'ABACAVIR', 'A2 claim 1 — inside the deductible', 'inside-deductible'],
+    ['B1', wallets[2], 'ABACAVIR', 'B1 claim 1 — inside the deductible', 'inside-deductible'],
+    ['B2', b2Wallet, 'ADEFOVIR', 'B2 claim 1 — crosses the deductible', 'crosses-deductible'],
   ];
-  for (const [k, w, ing, fee, label, drugIndex] of rest) {
+  for (const [k, w, drugKey, label, lands] of rest) {
     if (!w) continue;
-    const d = drugIndex === 0 ? { ndcHash, copay } : drugAt(drugIndex);
-    await fileClaim(k, w, d.ndcHash, d.copay, ing, fee, label);
+    await fileClaim(k, w, claimDrug(drugKey), label, { lands });
     await checkInvariant(label, enrolled);
   }
 
@@ -611,30 +651,38 @@ async function resumeFromMembers(peopleTemplate: Person[], _planId: string) {
     accState[k] = { deductiblePaidCents: BigInt(m?.accumulator?.deductiblePaidCents ?? 0), oopPaidCents: BigInt(m?.accumulator?.oopPaidCents ?? 0) };
   }
   t.note(`starting totals: ${JSON.stringify(Object.fromEntries(Object.entries(accState).map(([k, v]) => [k, { ded: v.deductiblePaidCents.toString(), oop: v.oopPaidCents.toString() }])))}`);
-  // A different covered drug for each claim, so the same-day duplicate rule doesn't apply.
-  const meds = (st?.demoData?.medications ?? []).filter((m: any) => m.active !== false && !m.requiresPriorAuth && !m.stepTherapyRequired && !m.deaSchedule && (m.maxQuantityPerFill ?? 999) >= 30);
-  let mi = 5;   // skip the drug used by the earlier claims
-  const nextDrug = () => { const m = meds[mi++ % meds.length]; return { ndcHash: hashString(String(m.ndc).replace(/-/g, '')).toString(), copay: BigInt(m.currentCopayAmountCents ?? m.copayAmountCents), name: `${m.brandName} ${m.strength}` }; };
-  const plan: Array<[string, bigint, bigint, string]> = [
-    ['A1', 1500n, 200n, 'A1 claim 4 — deductible already met'],
-    ['A2', 52000n, 200n, 'A2 claim 2 — crosses the deductible'],
-    ['A2', 2500n, 200n, 'A2 claim 3 — copay only'],
-    ['B1', 800n, 200n, 'B1 claim 2'],
-    ['B2', 3600n, 200n, 'B2 claim 2 — copay only'],
+  // Named drugs at known NADAC prices (DRUGS above); none repeats a drug the same member took in the first run, so the
+  // same-day duplicate rule does not apply. Plan-bound formularies: the members pay the copay of the plan they enrolled
+  // into, the earlier run's, as it was published, whatever the drug's tier (this run's planId names a plan created a
+  // moment ago, not theirs). Expected, from the totals the first run leaves (fee $10.00, copay $15):
+  //   A1 claim 4  ABIGALE LO  x30 $34.51:  deductible met -> A1 $15.00, plan $19.51
+  //   A2 claim 2  ADEFOVIR    x30 $720.95: $471.99 of A2's deductible left -> A2 $486.99, plan $233.96; deductible met
+  //   A2 claim 3  ABIGALE     x30 $32.95:  A2 $15.00, plan $17.95
+  //   B1 claim 2  ACAMPROSATE x30 $20.89:  inside B1's deductible -> B1 $20.89, plan $0
+  //   B2 claim 2  ABIRTEGA    x30 $37.15:  deductible met -> B2 $15.00, plan $22.15
+  const earlierPlanId = (st?.enrolledMembers ?? []).find((x: any) => x.walletId === wallets.A1)?.planId ?? _planId;
+  const earlierPlan = (await rpc('l2_getPlan', { planId: earlierPlanId })).result;
+  planCopayCents = BigInt(earlierPlan?.publishedTerms?.copayAmountCents ?? earlierPlan?.copayAmountCents ?? PLAN_COPAY_CENTS);
+  t.note(`the members' plan ${earlierPlanId}: copay ${planCopayCents}¢`);
+  formularyMeds = (st?.demoData?.medications ?? []) as any[];
+  const plan: Array<[string, DrugKey, string, Lands]> = [
+    ['A1', 'ABIGALE_LO', 'A1 claim 4 — deductible already met', 'copay-only'],
+    ['A2', 'ADEFOVIR', 'A2 claim 2 — crosses the deductible', 'crosses-deductible'],
+    ['A2', 'ABIGALE', 'A2 claim 3 — copay only', 'copay-only'],
+    ['B1', 'ACAMPROSATE', 'B1 claim 2 — inside the deductible', 'inside-deductible'],
+    ['B2', 'ABIRTEGA', 'B2 claim 2 — copay only', 'copay-only'],
   ];
   results.drugs = [];
-  for (const [k, ing, fee, label] of plan) {
-    const d = nextDrug();
+  for (const [k, drugKey, label, lands] of plan) {
+    const d = claimDrug(drugKey);
     results.drugs.push({ claim: label, drug: d.name, copayCents: d.copay.toString() });
-    await fileClaim(k, wallets[k], d.ndcHash, d.copay, ing, fee, `${label} (${d.name})`);
+    await fileClaim(k, wallets[k], d, `${label} (${d.name})`, { lands });
     await checkInvariant(label, enrolled);
   }
   // Deliberate duplicate: the same drug for B1 again on the same day.
   t.begin('pharmacy', 'Same drug, same member, same pharmacy, same day — a duplicate claim');
-  const dup = results.drugs[3];
-  const dupMed = meds.find((m: any) => `${m.brandName} ${m.strength}` === dup.drug);
   const leavesBefore = Number((await rpc('l2_getClaimAccumulatorRoot')).result?.leafCount ?? 0);
-  const dupAdj = await fileClaim('B1', wallets.B1, hashString(String(dupMed.ndc).replace(/-/g, '')).toString(), BigInt(dup.copayCents), 800n, 200n, 'B1 duplicate of claim 2', { expectRefusal: /duplicate/i });
+  const dupAdj = await fileClaim('B1', wallets.B1, claimDrug('ACAMPROSATE'), 'B1 duplicate of claim 2', { expectRefusal: /duplicate/i });
   const leavesAfter = Number((await rpc('l2_getClaimAccumulatorRoot')).result?.leafCount ?? 0);
   main.t.check('A duplicate is either rejected before payment or recorded as a claim — never paid and dropped',
     !dupAdj || leavesAfter === leavesBefore + 1, 'rejected, or one new claim leaf', dupAdj ? `adjudicated (patient pays ${dupAdj.patientPayCents}) with ${leavesAfter - leavesBefore} new leaf` : 'rejected');

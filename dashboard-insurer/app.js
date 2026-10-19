@@ -500,7 +500,7 @@
     }
     el.innerHTML =
       '<table class="data-table"><thead><tr>' +
-        '<th>Plan ID</th><th>Name</th><th>Copay</th><th>Deductible</th><th>OOP Max</th><th>Annual Max</th><th>Coverage</th><th>Formulary</th><th>Network</th><th>Status</th><th>Actions</th>' +
+        '<th>Plan ID</th><th>Name</th><th>Copay</th><th>Deductible</th><th>OOP Max</th><th>Annual Max</th><th>Disp. Fee</th><th>Coverage</th><th>Formulary</th><th>Network</th><th>Status</th><th>Actions</th>' +
       '</tr></thead><tbody>' +
       planData.map(function (p) {
         var pid = p.planId || p.id;
@@ -514,6 +514,7 @@
           '<td style="font-family:var(--font-mono)">' + fmtCents(p.deductibleAmountCents || p.deductible || 0) + '</td>' +
           '<td style="font-family:var(--font-mono)">' + fmtCents(p.oopMaxCents || p.oopMax || 0) + '</td>' +
           '<td style="font-family:var(--font-mono)">' + fmtCents(p.annualBenefitMaxCents || p.annualMax || 0) + '</td>' +
+          '<td style="font-family:var(--font-mono)">' + (p.dispensingFeeCents != null ? fmtCents(p.dispensingFeeCents) : 'Default') + '</td>' +
           '<td>' + coverageLabel(p.coverageType || p.coverage) + '</td>' +
           '<td style="font-family:var(--font-mono)">' + (formularyCount > 0 ? formularyCount + ' NDCs' : 'All') + '</td>' +
           '<td style="font-family:var(--font-mono)">' + (networkCount > 0 ? networkCount + ' providers' : 'All') + '</td>' +
@@ -574,7 +575,8 @@
     {
       planId: 'COST-PLUS-BASIC',
       name: 'Cost Plus Basic',
-      desc: 'NADAC + 2% + $3.50 dispensing fee. $0 generic copay, 100% rebate passthrough.',
+      desc: 'NADAC + $3.50 dispensing fee. $0 generic copay, 100% rebate passthrough.',
+      dispensingFeeCents: 350,
       coverageType: 1,
       copayAmountCents: 0,
       deductibleAmountCents: 0,
@@ -626,7 +628,8 @@
     {
       planId: 'COSTPLUS-COPAY-ASSIST',
       name: 'Cost Plus + Copay Assist',
-      desc: 'NADAC + 3% + $2 dispensing. 5-tier with manufacturer copay assistance.',
+      desc: 'NADAC + $2 dispensing. 5-tier with manufacturer copay assistance.',
+      dispensingFeeCents: 200,
       coverageType: 1,
       copayAmountCents: 300,
       deductibleAmountCents: 15000,
@@ -742,6 +745,7 @@
           familyDeductibleAmountCents: t.familyDeductibleAmountCents,
           familyOopMaxCents: t.familyOopMaxCents,
           familyAnnualBenefitMaxCents: t.familyAnnualBenefitMaxCents || 0,
+          dispensingFeeCents: t.dispensingFeeCents, // undefined for the others: the network default applies
           formularyNdcs: [],
           networkProviderWalletIds: [],
         });
@@ -798,6 +802,17 @@
     };
   }
 
+  /** A dispensing-fee field in cents: blank -> undefined (the plan sets none, the network default applies); 0 stays 0. */
+  function feeFromInput(id) {
+    var raw = String(($(id) || {}).value || '').trim();
+    return raw === '' ? undefined : Number(raw);
+  }
+  /** The plan-detail fee for a PUT: blank -> null, which returns the plan to the network default. */
+  function detailFee() {
+    var fee = feeFromInput('plan-detail-dispensing-fee');
+    return fee === undefined ? null : fee;
+  }
+
   async function createPlan() {
     var name = ($('plan-name') || {}).value || '';
     var id = ($('plan-id') || {}).value || '';
@@ -811,12 +826,15 @@
         planId: id.trim(),
         name: name.trim(),
         coverageType: coverageMap[coverageVal] || 1,
-        copayAmountCents: Number(($('plan-copay') || {}).value) || 2000,
+        // A typed 0 is a $0 copay: what the insurer types is what the member pays in the copay phase. Only an empty box takes the default.
+        copayAmountCents: (($('plan-copay') || {}).value || '') === '' ? 2000 : Number($('plan-copay').value),
         deductibleAmountCents: Number(($('plan-deductible') || {}).value) || 100000,
         oopMaxCents: Number(($('plan-oop') || {}).value) || 500000,
         annualBenefitMaxCents: Number(($('plan-annual') || {}).value) || 10000000,
         familyDeductibleAmountCents: Number(($('plan-fam-ded') || {}).value) || 200000,
         familyOopMaxCents: Number(($('plan-fam-oop') || {}).value) || 1000000,
+        // NADAC pricing: the plan's dispensing fee; blank leaves it unset, so the network default applies (0 stays 0)
+        dispensingFeeCents: feeFromInput('plan-dispensing-fee'),
         formularyNdcs: [],
         networkProviderWalletIds: [],
       });
@@ -845,6 +863,8 @@
     editingPlanId = planId;
     selectedFormularyNdcs = new Set(plan.formularyNdcs || []);
     selectedNetworkWalletIds = new Set(plan.networkProviderWalletIds || []);
+    var feeEl = $('plan-detail-dispensing-fee');
+    if (feeEl) feeEl.value = plan.dispensingFeeCents != null ? String(plan.dispensingFeeCents) : '';
 
     var panel = $('plan-detail-panel');
     if (panel) panel.classList.remove('hidden');
@@ -1011,6 +1031,7 @@
         await API.updatePlan(editingPlanId, {
           formularyNdcs: Array.from(selectedFormularyNdcs),
           networkProviderWalletIds: Array.from(selectedNetworkWalletIds),
+          dispensingFeeCents: detailFee(),
         });
         toast('Plan configuration saved', 'success');
         showResult('plan-detail-result', 'Saved formulary (' + selectedFormularyNdcs.size + ' NDCs) + network (' + selectedNetworkWalletIds.size + ' providers)', true);
@@ -1032,6 +1053,7 @@
         await API.updatePlan(editingPlanId, {
           formularyNdcs: Array.from(selectedFormularyNdcs),
           networkProviderWalletIds: Array.from(selectedNetworkWalletIds),
+          dispensingFeeCents: detailFee(),
         });
         var result = await API.publishPlan(editingPlanId);
         toast('Plan published: ' + (result.formularyEntryCount || 0) + ' formulary entries, ' + (result.networkProviderCount || 0) + ' network providers', 'success');

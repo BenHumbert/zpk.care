@@ -48,6 +48,8 @@ import { ProviderLifecycle, PROVIDER_TYPE_TAG } from './provider-registry-types.
 import type { ProviderType } from './provider-registry-types.js';
 import type { BenefitPlanConfig, ClaimSubmissionMetadata } from './l2-types.js';
 import { hashString } from '../zkp/hash-utils.js';
+import { dispensingFeeOf, priceDispense, quoteNadacPrice } from '../fulfillment/nadac-pricing.js';
+import { planStoreError, planAsPublished } from './plan-terms.js';
 import { ProofRejected } from './l2-proof-verifier.js';
 import { corsOriginHeader, resolveAllowedOrigins } from '../security/network-policy.js';
 import { verifySignedRequest, signerIdFromHeaders, ReplayCache } from '../security/signed-request.js';
@@ -1424,6 +1426,10 @@ export class L2RpcServer {
         if (!plan || typeof plan.planId !== 'string' || typeof plan.name !== 'string') {
           throw new Error('Missing or invalid plan parameter (requires planId, name)');
         }
+        // Plan-bound formularies: the engine builds formularies and binds members from what is stored here (copay, drug
+        // list, provider list, published terms), so a malformed plan is refused now, not later inside register or a fill.
+        const planError = planStoreError(plan);
+        if (planError) throw new RequestRefused(planError, RPC_INVALID_PARAMS);
         await this.node.storePlan(plan);
         this.node.emit({ type: 'plan:updated', timestamp: Date.now(), data: { planId: plan.planId } });
         return { success: true, planId: plan.planId };
@@ -1442,8 +1448,11 @@ export class L2RpcServer {
       case 'l2_getPlanLimits': {
         const planId = params.planId;
         if (typeof planId !== 'string') throw new Error('Missing planId parameter');
-        const plan = this.node.getSequencer().getPlan(planId);
-        if (!plan) return null;
+        const stored = this.node.getSequencer().getPlan(planId);
+        if (!stored) return null;
+        // Plan-bound formularies: the plan as its members are bound to it, the terms it was last published with, not a
+        // draft the insurer is editing (a plan never published with terms is shown as it is)
+        const plan = planAsPublished(stored);
         return {
           planId: plan.planId,
           name: plan.name,
@@ -1455,6 +1464,8 @@ export class L2RpcServer {
           familyDeductibleAmountCents: plan.familyDeductibleAmountCents,
           familyOopMaxCents: plan.familyOopMaxCents,
           familyAnnualBenefitMaxCents: plan.familyAnnualBenefitMaxCents,
+          // NADAC pricing: the fee a fill on this plan is charged, and whether the plan set it or the network default applies
+          ...dispensingFeeOf(plan),
         };
       }
 
@@ -1646,7 +1657,6 @@ export class L2RpcServer {
         const estPlanId = params.planId;
         const estWalletId = params.walletId;
         const estQuantity = typeof params.quantity === 'number' ? params.quantity : 30;
-        const estDispensingFeeCents = typeof params.dispensingFeeCents === 'number' ? params.dispensingFeeCents : 300;
         if (typeof estNdcHash !== 'string') throw new Error('Missing ndcHash parameter');
 
         const seq = this.node.getSequencer();
@@ -1674,9 +1684,14 @@ export class L2RpcServer {
           }
         }
 
-        // Compute total cost
-        const ingredientCostCents = Math.round(drug.nadacPerUnit * estQuantity * 100);
-        const totalCostCents = ingredientCostCents + estDispensingFeeCents;
+        // Owner decision 2026-10-18: the price the fill will charge, by the same rule and code: NADAC x quantity,
+        // rounded half up to the cent in exact integers, plus the fee of the plan as published (a draft's fee is not
+        // charged) or the network default. A fee sent by the caller is not used. (The float rounding this replaces
+        // differed from exact on 41 of the 131,072 drug-quantity pairs in formulary.json at 1, 7, 30 and 90 units.)
+        const estPrice = priceDispense(quoteNadacPrice(drug, typeof estPlanId === 'string' ? planAsPublished(seq.getPlan(estPlanId)) : null), estQuantity);
+        const ingredientCostCents = estPrice.ingredientCostCents;
+        const estDispensingFeeCents = estPrice.dispensingFeeCents;
+        const totalCostCents = estPrice.totalCostCents;
 
         // Estimate member/employer split using accumulator if walletId provided
         let memberPayCents = Math.min(totalCostCents, copayAmountCents);
@@ -1690,7 +1705,7 @@ export class L2RpcServer {
             let oopMaxCents = 0;
             let annualBenefitMaxCents = 0;
             if (typeof estPlanId === 'string') {
-              const planConfig = seq.getPlan(estPlanId);
+              const planConfig = planAsPublished(seq.getPlan(estPlanId)); // the limits as published, which members are bound to
               if (planConfig) {
                 deductibleAmountCents = planConfig.deductibleAmountCents ?? 0;
                 oopMaxCents = planConfig.oopMaxCents ?? 0;
@@ -1739,6 +1754,7 @@ export class L2RpcServer {
           quantity: estQuantity,
           ingredientCostCents,
           dispensingFeeCents: estDispensingFeeCents,
+          dispensingFeeSource: estPrice.dispensingFeeSource,
           totalCostCents,
           copayAmountCents,
           memberPayCents,

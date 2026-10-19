@@ -61,6 +61,7 @@ import { CredentialInventory } from '../credentials/credential-inventory.js';
 // ZKP
 import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
 import { hashString, dateToField, centsToField, quantityToField } from '../zkp/hash-utils.js';
+import { quoteNadacPrice, priceDispense, statedCostMismatch, formatFillPrice, NETWORK_DEFAULT_DISPENSING_FEE_CENTS, type PriceQuote, type FillPrice } from '../fulfillment/nadac-pricing.js';
 
 // Credentials
 import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY, CREDENTIAL_TYPE_PRESCRIPTION } from '../credentials/credential-data.js';
@@ -80,7 +81,7 @@ import type { ProviderBadge, BadgeTapEvent } from '../credentials/provider-badge
 // Eligibility
 import { EligibilityData, buildEligibilityData } from '../eligibility/eligibility-data.js';
 import { ForestRoots, forestRootWithAccessControl } from '../eligibility/forest-roots.js';
-import { BenefitPlanRegistry } from '../eligibility/benefit-plan-registry.js';
+import { BenefitPlanRegistry, BENEFIT_PLAN_TREE_HEIGHT } from '../eligibility/benefit-plan-registry.js';
 import { EligibilityProgram } from '../eligibility/eligibility-program.js';
 import { ProviderNetworkRegistry } from '../eligibility/provider-network-registry.js';
 
@@ -92,6 +93,8 @@ import { PcpVerificationProgram } from '../eligibility/pcp-verification-program.
 // Access Control
 import { buildFormularyEntry, FormularyEntry, type FormularyEntryLocalData } from '../access-control/formulary-entry.js';
 import { FormularyRegistry } from '../access-control/formulary-registry.js';
+import { buildPlanFormulary, planNetworkRoot, type PlanFormulary } from '../onboarding/plan-formulary.js';
+import { publishedTermsOf, planAsPublished } from '../l2/plan-terms.js';
 import { AccessControlProgram } from '../access-control/access-control-program.js';
 import { AccumulatorData, buildAccumulatorData, withAmountsPaid, forNewPlanYear, ACCUMULATOR_LEAF_INDEX } from '../access-control/accumulator-data.js';
 import { PriorAuthData, buildPriorAuthData } from '../access-control/prior-auth-data.js';
@@ -266,6 +269,8 @@ interface PrescriptionState {
   memberWalletId: string;
   ndcHash: string;
   formularyLeafIndex: bigint;
+  /** Plan-bound formularies: the formulary root the entry was proven against at prescribing; absent in older checkpoints */
+  formularyRoot?: string;
   quantity: number;
   quantityDispensed: number;  // running total of qty dispensed
   refills: number;
@@ -296,6 +301,7 @@ interface FulfillmentState {
   deductibleCreditField: Field;   // original deductible credit (ZK Field)
   settlementLeafIndex: bigint;    // TRANSACTION tree leaf index of settlement commitment
   quantityDispensed: number;      // qty dispensed in THIS fill
+  pricing?: FillPrice;            // NADAC x quantity + fee as this fill was priced; absent in a checkpoint from before NADAC pricing
   reversed: boolean;              // true if this fill has been reversed
   dateOfService: string;          // YYYYMMDD of this fill — the day the duplicate rule is about (D4)
 }
@@ -372,6 +378,7 @@ interface SerializedPrescription {
   memberWalletId: string;
   ndcHash: string;
   formularyLeafIndex: string;                    // bigint as string
+  formularyRoot?: string;                        // absent in a checkpoint from before plan-bound formularies
   quantity: number;
   quantityDispensed: number;
   refills: number;
@@ -406,6 +413,7 @@ interface SerializedFulfillment {
   quantityDispensed: number;
   reversed: boolean;
   dateOfService?: string;                        // absent in a checkpoint from before D4
+  pricing?: FillPrice;                           // absent in a checkpoint from before NADAC pricing
 }
 
 /** Serialized PriorAuthState (JSON-safe) */
@@ -607,6 +615,12 @@ export class AdjudicationService {
   private enrollmentService!: EnrollmentService;
   private adminWalletId!: Field;
   private sharedEligibilityData!: EligibilityData;
+  /** Plan-bound formularies: each published plan's formulary by its root (decimal), built from the plan's published terms on first use. */
+  private planFormularies: Map<string, PlanFormulary> = new Map();
+  /** Plan network roots by the plan's provider list, so a binding check does not rebuild the network tree each time. */
+  private planNetworkRoots: Map<string, Field> = new Map();
+  /** The BenefitPlanRegistry index of each EligibilityData registered in it, by commitment (decimal). */
+  private benefitPlanIndexByCommitment: Map<string, bigint> = new Map();
 
   // Messaging registries
   private messageRegistry!: MessageRegistry;
@@ -654,6 +668,8 @@ export class AdjudicationService {
     quantity: number;
     refills: number;
     startedAt: number;
+    /** The copay of the entry being proven (the member's plan copay), for the pharmacy list; absent after a restore */
+    copayAmountCents?: number;
   }> = new Map();
   /** Next available PA leaf index per member (leaves 1-126 in ACCESS_CONTROL tree) */
   private nextPaLeafIndex: Map<string, bigint> = new Map();
@@ -731,6 +747,7 @@ export class AdjudicationService {
 
     this.adminWalletId = hashString('ADMIN-INSURER-2026');
     this.benefitPlanRegistry = new BenefitPlanRegistry();
+    this.benefitPlanIndexByCommitment = new Map();
 
     // Register prescribers + pharmacies (pre-enrolled entities) directly in the sequencer's
     // trees. provision() is idempotent, so a session reset doesn't re-register them.
@@ -834,6 +851,9 @@ export class AdjudicationService {
           awpUnitPriceCents: awpUnitCents,
           awpPackagePriceCents: awpUnitCents * 30,
           packageSize: 30,
+          nadacPerUnit: r.nadacPerUnit,
+          pricingUnit: r.pricingUnit,
+          nadacEffectiveDate: r.effectiveDate,
           route: dosageForm,
           formularyEntry: {
             ndc: r.ndc,
@@ -916,9 +936,9 @@ export class AdjudicationService {
       planTemplates, this.opaqueRoster, this.benefitPlanRegistry, this.adminWalletId,
     );
 
-    // Build shared plan data and register it once
+    // Build shared plan data and register it once (index 0: the console's PLAN-GOLD-2026)
     this.sharedEligibilityData = this.rebuildSharedEligibilityData();
-    this.benefitPlanRegistry.addPlan(this.sharedEligibilityData);
+    this.benefitPlanIndexOf(this.sharedEligibilityData);
 
     // Messaging
     this.messageRegistry = new MessageRegistry();
@@ -963,6 +983,20 @@ export class AdjudicationService {
     return med;
   }
 
+  /**
+   * The price list a fill is charged from (owner decision 2026-10-18): the drug's NADAC per unit, from the same
+   * records the formulary tree is built from, and the dispensing fee of the member's plan as last published
+   * (publishedTerms: a draft the insurer is editing bills nothing), or the network default when the plan sets none.
+   * Fixture exception, until phase F: a fixture member's plan, PLAN-GOLD-2026, is not on the sequencer, so fixtures pay
+   * the network default. priceDispense(quote, quantity) turns it into amounts. B3 will take this quote at prescribing
+   * and lock it on the prescription; neither function changes then.
+   */
+  quoteFill(memberWalletId: string, ndcHash: string): PriceQuote {
+    const enrolled = this.enrolledMembers.get(memberWalletId);
+    if (!enrolled) throw new RegistrationRefused(404, `Member ${memberWalletId.slice(0, 16)}... is not enrolled with this engine`);
+    return quoteNadacPrice(this.getMedicationByNdcHash(ndcHash), planAsPublished(this.l2Node.getSequencer().getPlan(enrolled.planId)));
+  }
+
   /** Get the FormularyRegistry leaf index for a drug by ndcHash.
    *  If the drug is in the full 32K NADAC set but not yet in the Merkle tree
    *  (because FORMULARY_LIMIT truncated the initial load), it is dynamically
@@ -987,24 +1021,21 @@ export class AdjudicationService {
     this.currentFormularyEntries[leafIdx] = { ...med.formularyEntry };
     this.formularyActive[leafIdx] = true;
 
-    // Formulary root changed — update all enrolled members' eligibility data
-    // so their ZK proofs reference the current tree root.
-    const newFormularyRoot = this.formularyRegistry.getRoot();
+    // The console's formulary root changed. Rebuild the console's EligibilityData and register it again at index 0, as
+    // updateFormularyEntry does (a fresh BenefitPlanRegistry and index map; members with a device register their own
+    // EligibilityData again on use), and move every member served from the console's formulary onto the new root, so
+    // its proofs reference the current tree. Plan-bound formularies: a member with a device names its own plan's
+    // formulary and is not touched. (This path adds a drug outside MEDICATIONS, which the formulary loader never
+    // yields today.)
+    this.sharedEligibilityData = this.rebuildSharedEligibilityData();
+    this.benefitPlanRegistry = new BenefitPlanRegistry();
+    this.benefitPlanIndexByCommitment = new Map();
+    this.benefitPlanIndexOf(this.sharedEligibilityData);
     for (const [, enrolled] of this.enrolledMembers) {
-      const oldElig = enrolled.eligibilityData;
-      enrolled.eligibilityData = new EligibilityData({
-        planIdHash: oldElig.planIdHash,
-        groupIdHash: oldElig.groupIdHash,
-        effectiveDate: oldElig.effectiveDate,
-        terminationDate: oldElig.terminationDate,
-        copayAmountCents: oldElig.copayAmountCents,
-        coverageType: oldElig.coverageType,
-        formularyRoot: newFormularyRoot,
-        networkRoot: oldElig.networkRoot,
-      });
+      if (enrolled.lifecycle === 'REVOKED' || !this.onConsoleFormulary(enrolled)) continue;
+      enrolled.eligibilityData = this.sharedEligibilityData;
       enrolled.forest.setLeaf(ForestDomain.ACCESS_CONTROL, 0n, enrolled.eligibilityData.commitment());
-      // Credential forestRoot must also reflect the updated forest
-      // (same pattern as approvePriorAuth — line ~1679)
+      // Credential forestRoot must also reflect the updated forest (the approvePriorAuth pattern)
       const oldCred = enrolled.credentialData;
       enrolled.credentialData = new CredentialData({
         credentialType: oldCred.credentialType,
@@ -1015,12 +1046,183 @@ export class AdjudicationService {
         expiresAt: oldCred.expiresAt,
         revoked: oldCred.revoked,
       });
-      // BenefitPlanRegistry leaf = EligibilityData.commitment().
-      // Since formularyRoot is inside EligibilityData, changing it changes
-      // the commitment hash, so the registry leaf must be updated too.
-      this.benefitPlanRegistry.updatePlan(0n, enrolled.eligibilityData);
     }
 
+    return index;
+  }
+
+  // Plan-bound formularies.
+  //
+  // A member with a device is served from the formulary of the plan the insurer approved, as last published: built from
+  // the plan's published terms (its copay and NDC list) over the formulary catalog by buildPlanFormulary, every entry at
+  // the plan's copay, its root the published formularyRoot, and named by the member's EligibilityData. AccessControl
+  // proves an entry against that root at prescribing; the fill circuit takes the root as a bare input, so
+  // formularyEntryFor is where a fill is held to the root the member's credential names.
+  //
+  // Fixture exception, until phase F retires the fixtures: a fixture member (memberIndex >= 0, no device) is bound to
+  // PLAN-GOLD-2026, which has no plan record on the sequencer, and is served from the console's PLAN-GOLD-2026
+  // formulary as before. It pays the catalog's tier copays ($10, $35, $75 or $150), not one plan copay, so for fixtures
+  // "the member pays the plan's copay" does not hold; the PLAN-GOLD-2026 block in getState (copay 3000) describes the
+  // console's template, not what a fixture pays.
+
+  /** Served from the console's formulary: a fixture member, or a member with a device bound to PLAN-GOLD-2026 before plan binding (no plan record has that ID). */
+  private onConsoleFormulary(enrolled: EnrolledMember): boolean {
+    return enrolled.memberIndex >= 0 || (enrolled.planId === 'PLAN-GOLD-2026' && !this.l2Node.getSequencer().getPlan(enrolled.planId));
+  }
+
+  /** How many plan formulary versions the engine keeps built; past this the oldest is dropped (a member names the latest at its next action). */
+  private static readonly PLAN_FORMULARY_CACHE_SIZE = 32;
+
+  /**
+   * The formulary a plan committed to when it was last published, built from its published terms and cached by root.
+   * The rebuilt root must be the published formularyRoot: a plan with no published terms (never published, or published
+   * before the terms were kept), or whose terms name a root the engine cannot rebuild (another catalog, or the overlay
+   * version an older insurer stored there), is refused with 409 until the insurer publishes it again. A draft the
+   * insurer is editing changes nothing here: only publishing replaces the terms.
+   */
+  private publishedPlanFormulary(plan: BenefitPlanConfig): PlanFormulary {
+    const terms = publishedTermsOf(plan);
+    if (!terms) {
+      throw new RegistrationRefused(409, `Plan ${plan.planId} is not published (it has no published terms); the insurer must publish it before its members are served`);
+    }
+    const cached = this.planFormularies.get(terms.formularyRoot);
+    if (cached && cached.copayAmountCents === terms.copayAmountCents) return cached;
+    let built: PlanFormulary;
+    try {
+      built = buildPlanFormulary(terms, getAllFormularyEntries());
+    } catch (err) {
+      throw new RegistrationRefused(409, `Plan ${plan.planId}'s published formulary cannot be built here (${err instanceof Error ? err.message : String(err)}); the insurer must republish the plan`);
+    }
+    const root = built.root.toString();
+    if (root !== terms.formularyRoot) {
+      throw new RegistrationRefused(409, `Plan ${plan.planId} publishes formulary root ${terms.formularyRoot.slice(0, 12)}…, but its published copay and drug list build to ${root.slice(0, 12)}… over this engine's ${getAllFormularyEntries().length}-drug catalog; the insurer must republish the plan`);
+    }
+    this.planFormularies.set(root, built);
+    if (this.planFormularies.size > AdjudicationService.PLAN_FORMULARY_CACHE_SIZE) {
+      this.planFormularies.delete(this.planFormularies.keys().next().value as string);
+    }
+    return built;
+  }
+
+  /**
+   * The EligibilityData of a member with a device: the plan the insurer approved, the approval's employer group (its
+   * hash; the plain group ID stays with the employer, I5), the plan's copay and coverage type, the plan's formulary root
+   * and its network root, all as published. The plan year is the demo's, as for every member (EligibilityProgram is
+   * proven at 20260202).
+   */
+  private planEligibilityData(planId: string, groupIdHash: string, published: BenefitPlanConfig, formulary: PlanFormulary): EligibilityData {
+    const networkKey = (published.networkProviderWalletIds ?? []).join(',');
+    let networkRoot = this.planNetworkRoots.get(networkKey);
+    if (!networkRoot) {
+      networkRoot = planNetworkRoot(published.networkProviderWalletIds);
+      this.planNetworkRoots.set(networkKey, networkRoot);
+    }
+    return new EligibilityData({
+      planIdHash: hashString(planId),
+      groupIdHash: Field(BigInt(groupIdHash)),
+      effectiveDate: dateToField('20260101'),
+      terminationDate: Field(0),
+      copayAmountCents: centsToField(formulary.copayAmountCents),
+      coverageType: Field(BigInt(published.coverageType || 1)),
+      formularyRoot: formulary.root,
+      networkRoot,
+    });
+  }
+
+  /**
+   * Bring a member with a device onto its plan as the insurer last published it: the plan's copay, formulary and network
+   * in leaf 0 of its ACCESS_CONTROL tree and its network indices from the plan, with the wallet update queued for its
+   * device to prove. Nothing changes for a member served from the console's formulary, a revoked member, one that
+   * already names that version, or a plan with no published terms (the member keeps the version it holds). A draft the
+   * insurer is editing is not a new version. The accumulator's limits stay as bound at registration. Synchronous, so
+   * callers keep their no-await windows; called only under the proving lock (prescribe, PA approval, fill).
+   */
+  private ensurePlanBinding(enrolled: EnrolledMember, phase: string): void {
+    if (this.onConsoleFormulary(enrolled) || enrolled.lifecycle === 'REVOKED') return;
+    const plan = this.l2Node.getSequencer().getPlan(enrolled.planId);
+    if (!plan || !publishedTermsOf(plan)) return;
+    const published = planAsPublished(plan);
+    const formulary = this.publishedPlanFormulary(plan);
+    const eligibilityData = this.planEligibilityData(enrolled.planId, enrolled.groupId, published, formulary);
+    if (eligibilityData.commitment().equals(enrolled.eligibilityData.commitment()).toBoolean()) return;
+    enrolled.eligibilityData = eligibilityData;
+    enrolled.forest.setLeaf(ForestDomain.ACCESS_CONTROL, 0n, eligibilityData.commitment());
+    enrolled.credentialData = new CredentialData({
+      credentialType: enrolled.credentialData.credentialType,
+      forestRoot: enrolled.forest.getForestRoot(),
+      issuerWalletId: enrolled.credentialData.issuerWalletId,
+      subjectWalletId: enrolled.credentialData.subjectWalletId,
+      issuedAt: enrolled.credentialData.issuedAt,
+      expiresAt: enrolled.credentialData.expiresAt,
+      revoked: enrolled.credentialData.revoked,
+    });
+    const binding = bindPlan(published, { prescribers: this.prescriberWalletIds, pharmacies: this.pharmacyWalletIds });
+    enrolled.inNetworkPrescriberIndices = binding.prescriberIndices;
+    enrolled.inNetworkPharmacyIndices = binding.pharmacyIndices;
+    enrolled.credentialInventory.updateCredential(0n, enrolled.credentialData);
+    this.emit('info', phase, `  Plan ${enrolled.planId} as last published: copay $${(formulary.copayAmountCents / 100).toFixed(2)}, formulary ${truncField(formulary.root)} (${formulary.registry.count} drugs); the member's credential is rebound`);
+    this.queueWalletUpdate(enrolled, 'plan binding', phase);
+  }
+
+  /**
+   * Where a member's formulary entry for a drug lives: the registry, the leaf and the entry the proofs use. The console's
+   * PLAN-GOLD-2026 registry for a member served from it; otherwise the formulary its credential names, which must be its
+   * plan's as last published (or a version still held in memory). A drug not on it is refused (403). The registry's root
+   * must be the root the member's EligibilityData names.
+   */
+  private formularyEntryFor(enrolled: EnrolledMember, ndcHash: string): { registry: FormularyRegistry; leafIndex: bigint; entry: FormularyEntry; copayAmountCents: number } {
+    let registry: FormularyRegistry;
+    let leafIndex: bigint | undefined;
+    let label: string;
+    if (this.onConsoleFormulary(enrolled)) {
+      registry = this.formularyRegistry;
+      label = 'PLAN-GOLD-2026';
+      try { leafIndex = this.getFormularyLeafIndex(ndcHash); } catch { leafIndex = undefined; }
+    } else {
+      const plan = this.l2Node.getSequencer().getPlan(enrolled.planId);
+      if (!plan) throw new RegistrationRefused(409, `This member's plan ${enrolled.planId} is not on the sequencer`);
+      const root = enrolled.eligibilityData.formularyRoot.toString();
+      const terms = publishedTermsOf(plan);
+      const formulary = terms && terms.formularyRoot === root ? this.publishedPlanFormulary(plan) : this.planFormularies.get(root);
+      if (!formulary) {
+        throw new RegistrationRefused(409, `This member's credential names a formulary plan ${enrolled.planId} does not publish now; the insurer must publish the plan`);
+      }
+      registry = formulary.registry;
+      leafIndex = formulary.leafByNdcHash.get(ndcHash);
+      label = enrolled.planId;
+    }
+    const entry = leafIndex === undefined ? undefined : registry.getEntry(leafIndex);
+    if (leafIndex === undefined || !entry || entry.ndcHash.toString() !== ndcHash) {
+      throw new RegistrationRefused(403, `${this.medByNdcHash.get(ndcHash)?.brandName ?? 'This drug'} is not on the formulary of this member's plan (${label})`);
+    }
+    if (!registry.getRoot().equals(enrolled.eligibilityData.formularyRoot).toBoolean()) {
+      throw new Error(`The formulary the engine would prove against is not the one this member's credential names (${label})`);
+    }
+    return { registry, leafIndex, entry, copayAmountCents: Number(entry.copayAmountCents.toBigInt()) };
+  }
+
+  /**
+   * The BenefitPlanRegistry index of an EligibilityData, registered on first use. Index 0 is the console's PLAN-GOLD-2026;
+   * a member with a device names its own plan and group, one leaf per distinct EligibilityData. When the registry is
+   * full it is rebuilt from what live members name (versions no one holds drop out).
+   */
+  private benefitPlanIndexOf(elig: EligibilityData): bigint {
+    const key = elig.commitment().toString();
+    const known = this.benefitPlanIndexByCommitment.get(key);
+    if (known !== undefined) return known;
+    if (this.benefitPlanRegistry.count >= 2 ** (BENEFIT_PLAN_TREE_HEIGHT - 1)) {
+      this.benefitPlanRegistry = new BenefitPlanRegistry();
+      this.benefitPlanIndexByCommitment = new Map();
+      const live = [this.sharedEligibilityData, ...[...this.enrolledMembers.values()].filter((m) => m.lifecycle !== 'REVOKED').map((m) => m.eligibilityData)];
+      for (const e of live) {
+        const k = e.commitment().toString();
+        if (!this.benefitPlanIndexByCommitment.has(k)) this.benefitPlanIndexByCommitment.set(k, this.benefitPlanRegistry.addPlan(e).index);
+      }
+      const rebuilt = this.benefitPlanIndexByCommitment.get(key);
+      if (rebuilt !== undefined) return rebuilt;
+    }
+    const { index } = this.benefitPlanRegistry.addPlan(elig);
+    this.benefitPlanIndexByCommitment.set(key, index);
     return index;
   }
 
@@ -1958,14 +2160,22 @@ export class AdjudicationService {
     // verified here against ProofGate's verification key and kept for the portable credential.
     const ownershipProofJson = await this.verifyOwnershipProof(opts.walletId, opts.ownershipProofJson);
 
-    // Build eligibility + accumulator using the plan configuration
-    const eligibilityData = this.sharedEligibilityData;
-// Step 2 commit two (C2, A-9): the limits come from the plan the insurer approved, read from the
+    // Step 2 commit two (C2, A-9): the limits come from the plan the insurer approved, read from the
     // sequencer's plan store, and the network from that plan's overlay.
-    const plan = this.l2Node.getSequencer().getPlan(approval.planId);
-    if (!plan) {
+    const storedPlan = this.l2Node.getSequencer().getPlan(approval.planId);
+    if (!storedPlan) {
       throw new RegistrationRefused(409, `The approved plan ${approval.planId} is not on the sequencer`);
     }
+    if (hashString(approval.planId).toString() !== approval.planIdHash) {
+      throw new RegistrationRefused(409, `The approval's plan hash does not name plan ${approval.planId}`);
+    }
+    // Plan-bound formularies: the member is bound to the plan as last published (its publishedTerms), never to a draft
+    // the insurer is editing. The eligibility credential names the approved plan, the approval's group, the plan's copay
+    // and the formulary the plan published (every entry at the plan's copay), never the console's PLAN-GOLD-2026 template.
+    const formulary = this.publishedPlanFormulary(storedPlan);
+    const plan = planAsPublished(storedPlan);
+    const eligibilityData = this.planEligibilityData(approval.planId, approval.groupIdHash, plan, formulary);
+    this.emit('info', 'register', `  Plan ${approval.planId}: copay $${(formulary.copayAmountCents / 100).toFixed(2)}, formulary ${truncField(formulary.root)} (${formulary.registry.count} drugs)`);
     const binding = bindPlan(plan, { prescribers: this.prescriberWalletIds, pharmacies: this.pharmacyWalletIds });
     const accumulatorData = buildAccumulatorData({
       planYear: '20260101',
@@ -2213,6 +2423,10 @@ export class AdjudicationService {
 
     const enrolled = this.enrolledMembers.get(paState.memberWalletId);
     if (!enrolled) throw new Error(`Member not enrolled: ${paState.memberWalletId}`);
+    // Plan-bound formularies: the PA is proven against the formulary the member's credential names; a drug not on it is
+    // refused here, before the PA is written into the member's forest.
+    this.ensurePlanBinding(enrolled, 'prior-auth');
+    const paCoverage = this.formularyEntryFor(enrolled, paState.ndcHash);
 
     const medication = this.getMedicationByNdcHash(paState.ndcHash);
     const prescriber = PRESCRIBERS[paState.prescriberIndex];
@@ -2263,9 +2477,9 @@ export class AdjudicationService {
     const eligForestRoots = ForestRoots.fromForest(eligForest);
     const eligWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
     const paWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, paLeafIndex);
-    const formIdx = this.getFormularyLeafIndex(paState.ndcHash);
-    const formularyEntry = this.formularyRegistry.getEntry(formIdx)!;
-    const formularyWitness = this.formularyRegistry.getEntryWitness(formIdx);
+    const formIdx = paCoverage.leafIndex;
+    const formularyEntry = paCoverage.entry;
+    const formularyWitness = paCoverage.registry.getEntryWitness(formIdx);
 
     this.emit('proof', 'prior-auth', `  Generating AccessControl.provePriorAuth proof...`, 'start');
     const startProof = performance.now();
@@ -2390,13 +2604,25 @@ export class AdjudicationService {
   checkStepTherapy(
     memberWalletId: string,
     ndcHash: string,
+    /** The formulary entry the member's proofs use, when the caller has resolved it (createPrescription does). */
+    entry?: FormularyEntry,
   ): { allowed: boolean; message: string; prerequisiteClass?: string; prerequisiteMeds?: string[] } {
     const medication = this.getMedicationByNdcHash(ndcHash);
 
-    // Check current formulary state if available
-    const isStepRequired = this.currentFormularyEntries.length > 0
-      ? this.currentFormularyEntries[Number(this.getFormularyLeafIndex(ndcHash))]?.stepTherapyRequired
-      : medication.formularyEntry.stepTherapyRequired;
+    // Plan-bound formularies: the step rule is the one in the entry the member's proofs use. A member with a device
+    // takes it from its plan's formulary, so a console change to PLAN-GOLD-2026 cannot change it; a member served
+    // from the console's formulary takes the console's current state, as before.
+    const enrolled = entry ? undefined : this.enrolledMembers.get(memberWalletId);
+    let isStepRequired: boolean | undefined;
+    if (entry) {
+      isStepRequired = entry.stepTherapyRequired.toBigInt() === 1n;
+    } else if (enrolled && !this.onConsoleFormulary(enrolled)) {
+      isStepRequired = this.formularyEntryFor(enrolled, ndcHash).entry.stepTherapyRequired.toBigInt() === 1n;
+    } else {
+      isStepRequired = this.currentFormularyEntries.length > 0
+        ? this.currentFormularyEntries[Number(this.getFormularyLeafIndex(ndcHash))]?.stepTherapyRequired
+        : medication.formularyEntry.stepTherapyRequired;
+    }
 
     if (!isStepRequired) {
       return { allowed: true, message: 'Step therapy not required' };
@@ -2517,6 +2743,10 @@ export class AdjudicationService {
 
     // A-18: a terminated member is not billable. The ledger decides, and the engine's copy follows it.
     refuseUnlessLedgerBillable(this.l2Node.getSequencer().lifecycleStateOf(enrolled.walletId.toString()), enrolled, 'no prescription can be written');
+    // Plan-bound formularies: a member with a device is first brought onto its plan as the insurer last published it
+    // (copay, formulary, network), so the network and formulary checks below are the plan's. Synchronous: no await runs
+    // between the rxId check above and the pending entry below.
+    this.ensurePlanBinding(enrolled, 'prescribe');
     // B5: a member with a device is prescribed for by the primary-care prescriber it consented to, or by a
     // prescriber its device authorized for this visit. The console's fixture members have no device.
     if (enrolled.memberIndex < 0) {
@@ -2536,10 +2766,15 @@ export class AdjudicationService {
       }
     }
 
+    // Plan-bound formularies: the drug must be on the formulary this member's credential names (its plan's, every entry at
+    // the plan's copay, for a member with a device; PLAN-GOLD-2026 for a fixture member). One that is not is refused here,
+    // before any proof. B3 attaches the locked price here, beside the entry.
+    const coverage = this.formularyEntryFor(enrolled, opts.ndcHash);
+
     this.emit('phase', 'prescribe', `═══ Prescription: ${prescriberName} → ${enrolled.displayName} ═══`);
 
-    // PA enforcement: check if medication requires prior authorization
-    const requiresPa = medication.formularyEntry.requiresPriorAuth;
+    // PA enforcement: check if medication requires prior authorization (as the entry the proofs use says)
+    const requiresPa = coverage.entry.requiresPriorAuth.toBigInt() === 1n;
     let approvedPa: PriorAuthState | undefined;
     if (requiresPa) {
       approvedPa = this.findApprovedPa(opts.memberWalletId, opts.ndcHash);
@@ -2565,14 +2800,14 @@ export class AdjudicationService {
     }
 
     // Step therapy enforcement
-    const stepTherapyResult = this.checkStepTherapy(opts.memberWalletId, opts.ndcHash);
+    const stepTherapyResult = this.checkStepTherapy(opts.memberWalletId, opts.ndcHash, coverage.entry);
     if (!stepTherapyResult.allowed) {
       throw new Error(
         `Step therapy not met for ${medication.brandName}: ${stepTherapyResult.message}. ` +
         `Patient must first try: ${stepTherapyResult.prerequisiteMeds?.join(', ')}`,
       );
     }
-    if (medication.formularyEntry.stepTherapyRequired) {
+    if (coverage.entry.stepTherapyRequired.toBigInt() === 1n) {
       this.emit('info', 'prescribe', `  Step therapy: ${stepTherapyResult.message}`);
     }
 
@@ -2612,6 +2847,7 @@ export class AdjudicationService {
       quantity: opts.quantity,
       refills: effectiveRefills,
       startedAt: Date.now(),
+      copayAmountCents: coverage.copayAmountCents,
     });
 
     // Proving spinner — show visual feedback while generating proofs
@@ -2674,12 +2910,12 @@ export class AdjudicationService {
       revoked: Field(0),
     });
 
-    const formularyEntry = buildFormularyEntry(medication.formularyEntry);
+    const formularyEntry = coverage.entry;
 
     this.emit('info', 'prescribe', '');
     this.emit('info', 'prescribe', `  eScript: ${medication.brandName} ${medication.strength}`);
     this.emit('info', 'prescribe', `    NDC:     ${medication.ndcFormatted}`);
-    this.emit('info', 'prescribe', `    Tier:    ${medication.formularyEntry.tierLevel} — $${(medication.formularyEntry.copayAmount / 100).toFixed(2)} copay`);
+    this.emit('info', 'prescribe', `    Tier:    ${medication.formularyEntry.tierLevel} — $${(coverage.copayAmountCents / 100).toFixed(2)} copay (${enrolled.planId})`);
     this.emit('info', 'prescribe', `    Qty:     ${opts.quantity} ${medication.dosageForm.toLowerCase()}s, ${opts.refills} refills`);
     this.emit('info', 'prescribe', `    To:      ${pharmacyName}`);
     this.emit('info', 'prescribe', '');
@@ -2709,7 +2945,8 @@ export class AdjudicationService {
     const eligForest = enrolled.forest;
     const eligForestRoots = ForestRoots.fromForest(eligForest);
     const eligWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
-    const planWitness = this.benefitPlanRegistry.getPlanWitness(0n);
+    // Plan-bound formularies: the member's own EligibilityData leaf (index 0 is the console's PLAN-GOLD-2026)
+    const planWitness = this.benefitPlanRegistry.getPlanWitness(this.benefitPlanIndexOf(enrolled.eligibilityData));
     const planRoot = this.benefitPlanRegistry.getRoot();
 
     this.emit('proof', 'prescribe', `[2/${totalSteps}] Generating EligibilityProgram.proveEligibility proof...`, 'start');
@@ -2722,14 +2959,14 @@ export class AdjudicationService {
     );
     const elapsedElig = performance.now() - startElig;
     this.emit('proof', 'prescribe', `[2/${totalSteps}] EligibilityProgram.proveEligibility proof generated`, 'complete', elapsedElig);
-    this.emit('info', 'prescribe', `       ${enrolled.displayName} is ELIGIBLE under PLAN-GOLD-2026`);
+    this.emit('info', 'prescribe', `       ${enrolled.displayName} is ELIGIBLE under ${enrolled.planId}`);
 
     this.emitViz('viz:eligibility:verified', 'eligibility', {
       actor: enrolled.displayName,
       actorType: 'member',
       target: 'Insurer',
       targetType: 'insurer',
-      data: { planId: 'PLAN-GOLD-2026', status: 'ELIGIBLE' },
+      data: { planId: enrolled.planId, status: 'ELIGIBLE' },
     });
 
     // 3. AccessControl: Medication on formulary
@@ -2742,8 +2979,8 @@ export class AdjudicationService {
     });
 
     const formEligWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
-    const formIdx = this.getFormularyLeafIndex(opts.ndcHash);
-    const formWitness = this.formularyRegistry.getEntryWitness(formIdx);
+    const formIdx = coverage.leafIndex;
+    const formWitness = coverage.registry.getEntryWitness(formIdx);
 
     this.emit('proof', 'prescribe', `[3/${totalSteps}] Generating AccessControl.proveFormularyAccess proof...`, 'start');
     const startAC = performance.now();
@@ -2755,7 +2992,7 @@ export class AdjudicationService {
     );
     const elapsedAC = performance.now() - startAC;
     this.emit('proof', 'prescribe', `[3/${totalSteps}] AccessControl.proveFormularyAccess proof generated`, 'complete', elapsedAC);
-    this.emit('info', 'prescribe', `       ${medication.genericName}: ON FORMULARY, Tier ${medication.formularyEntry.tierLevel}, $${(medication.formularyEntry.copayAmount / 100).toFixed(2)} copay`);
+    this.emit('info', 'prescribe', `       ${medication.genericName}: ON FORMULARY (${enrolled.planId}), Tier ${medication.formularyEntry.tierLevel}, $${(coverage.copayAmountCents / 100).toFixed(2)} copay`);
 
     this.emitViz('viz:formulary:verified', 'eligibility', {
       actor: enrolled.displayName,
@@ -2765,7 +3002,7 @@ export class AdjudicationService {
       data: {
         medication: medication.brandName,
         tier: medication.formularyEntry.tierLevel,
-        copay: medication.formularyEntry.copayAmount,
+        copay: coverage.copayAmountCents,
         onFormulary: true,
       },
     });
@@ -2776,7 +3013,7 @@ export class AdjudicationService {
       const paForestRoots = ForestRoots.fromForest(eligForest);
       const paEligWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
       const paWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, approvedPa.paLeafIndex!);
-      const paFormWitness = this.formularyRegistry.getEntryWitness(formIdx);
+      const paFormWitness = coverage.registry.getEntryWitness(formIdx);
 
       this.emit('proof', 'prescribe', `[4/${totalSteps}] Generating AccessControl.provePriorAuth proof...`, 'start');
       const startPA = performance.now();
@@ -2896,7 +3133,8 @@ export class AdjudicationService {
       pharmacyIndex: opts.pharmacyIndex,
       memberWalletId: opts.memberWalletId,
       ndcHash: opts.ndcHash,
-      formularyLeafIndex: this.getFormularyLeafIndex(opts.ndcHash),
+      formularyLeafIndex: coverage.leafIndex, // the leaf in the formulary the member's credential names (its plan's, for a member with a device)
+      formularyRoot: coverage.registry.getRoot().toString(), // the root that entry was proven against at prescribing (B3 can honour it)
       quantity: opts.quantity,
       quantityDispensed: 0,
       refills: effectiveRefills,
@@ -2919,7 +3157,7 @@ export class AdjudicationService {
         dosageForm: medication.dosageForm,
         ndc: medication.ndcFormatted,
         tier: medication.formularyEntry.tierLevel,
-        copayAmountCents: medication.formularyEntry.copayAmount,
+        copayAmountCents: coverage.copayAmountCents,
         requiresPriorAuth: medication.formularyEntry.requiresPriorAuth,
         maxQuantityPerFill: medication.formularyEntry.maxQuantityPerFill,
         awpUnitPriceCents: medication.awpUnitPriceCents,
@@ -3066,8 +3304,10 @@ export class AdjudicationService {
     prescriptionId: string;
     credentialJson?: string;      // Optional: no longer required for fill (fills are reversible)
     quantityDispensed?: number;
-    ingredientCostCents?: number;
-    dispensingFeeCents?: number;
+    /** What the pharmacy says the fill costs, if it says. Never an input: the engine prices the fill (NADAC x quantity +
+     *  the plan's dispensing fee) and refuses a stated amount that differs, before any proof (owner decision 2026-10-18). */
+    statedIngredientCostCents?: unknown;
+    statedDispensingFeeCents?: unknown;
   }): Promise<Record<string, unknown>> {
     if (!this.compiled) throw new Error('Programs not compiled yet');
 
@@ -3103,6 +3343,15 @@ export class AdjudicationService {
     const enrolled = this.enrolledMembers.get(rxState.memberWalletId)!;
     // A-18: a terminated member is not billable; a reversal (which undoes a claim) stays open by design. The ledger decides.
     refuseUnlessLedgerBillable(this.l2Node.getSequencer().lifecycleStateOf(enrolled.walletId.toString()), enrolled, 'the prescription cannot be dispensed');
+    // Plan-bound formularies: the fill is adjudicated against the formulary the member's credential names now (a member
+    // with a device is first brought onto its plan as last published), so the copay the circuit takes from the entry is the
+    // plan's. A drug no longer on it is refused here, before any proof. The fill circuit takes the formulary root as a bare
+    // input; formularyEntryFor is what holds this fill to the root in the member's credential.
+    this.ensurePlanBinding(enrolled, 'fill');
+    const coverage = this.formularyEntryFor(enrolled, rxState.ndcHash);
+    if (!coverage.entry.commitment().equals(rxState.formularyEntry.commitment()).toBoolean()) {
+      this.emit('info', 'fill', `  The member's formulary entry for this drug changed since prescribing (the plan was republished or edited); the fill uses the current one`);
+    }
 
     const qtyDispensed = opts.quantityDispensed ?? rxState.quantity;
 
@@ -3133,13 +3382,17 @@ export class AdjudicationService {
     if (duplicateOf) {
       throw new RegistrationRefused(409, `Duplicate fill: ${medication.brandName} was already dispensed to this member by this pharmacy today (${duplicateOf}). Reverse that fill first if it was wrong.`);
     }
-    const ingredientCostCents = opts.ingredientCostCents ?? (medication.awpUnitPriceCents * qtyDispensed);
-    const dispensingFeeCents = opts.dispensingFeeCents ?? 200;
-    const totalCostCents = ingredientCostCents + dispensingFeeCents;
+    // Owner decision 2026-10-18: the price list is NADAC plus a dispensing fee and the engine prices the fill; the
+    // pharmacy sets neither amount. A cost the pharmacy states is only checked, and a different one is refused here,
+    // before any proof is made or any amount billed. (B3 will price at prescribing with this same quote and lock it.)
+    const fillPrice = priceDispense(this.quoteFill(rxState.memberWalletId, rxState.ndcHash), qtyDispensed);
+    const statedMismatch = statedCostMismatch(fillPrice, { ingredientCostCents: opts.statedIngredientCostCents, dispensingFeeCents: opts.statedDispensingFeeCents });
+    if (statedMismatch) throw new RegistrationRefused(409, statedMismatch);
+    const { ingredientCostCents, dispensingFeeCents, totalCostCents } = fillPrice;
 
     this.emit('phase', 'fill', `═══ Pharmacy Fill: ${pharmacy.storeName} ═══`);
     this.emit('info', 'fill', `  Filling ${medication.brandName} ${medication.strength} — qty ${qtyDispensed}`);
-    this.emit('info', 'fill', `  Cost: $${(ingredientCostCents / 100).toFixed(2)} ingredient + $${(dispensingFeeCents / 100).toFixed(2)} dispensing = $${(totalCostCents / 100).toFixed(2)} total`);
+    this.emit('info', 'fill', `  Cost: ${formatFillPrice(fillPrice)}`);
     this.emit('info', 'fill', '');
 
     // 1. ProofGate: Pharmacy identity
@@ -3260,7 +3513,7 @@ export class AdjudicationService {
     const fulfMedWitness = rxForest.getWitness(ForestDomain.MEDICATION, 0n);
     const fulfStatusWitness = rxForest.getWitness(ForestDomain.TRANSACTION, preDispenseLeaf);
     const fulfNewSlotWitness = rxForest.getWitness(ForestDomain.TRANSACTION, newStatusLeaf + 1n);
-    const fulfFormWitness = this.formularyRegistry.getEntryWitness(rxState.formularyLeafIndex);
+    const fulfFormWitness = coverage.registry.getEntryWitness(coverage.leafIndex);
     const eligForest = enrolled.forest;
     const eligForestRoots = ForestRoots.fromForest(eligForest);
     const accumWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX);
@@ -3276,7 +3529,8 @@ export class AdjudicationService {
     // the plan's family limits; the proof's amounts are what the member is billed and what the ledger records.
     // The family is the one the insurer's approval bound (A-34); a member with none pools with no one and
     // has no family limits.
-    const familyLimitsIn = familyLimitsFor(enrolled, this.l2Node.getSequencer().getPlan(enrolled.planId));
+    // Plan-bound formularies: the family limits of the plan as published (a draft the insurer is editing bills nothing)
+    const familyLimitsIn = familyLimitsFor(enrolled, planAsPublished(this.l2Node.getSequencer().getPlan(enrolled.planId)));
     const familyBefore: MemberAccumulator[] = familyMembersOf(enrolled, this.enrolledMembers.values()).map((m) => ({
       deductiblePaidCents: Number(m.accumulatorData.deductiblePaidCents.toBigInt()),
       oopPaidCents: Number(m.accumulatorData.oopPaidCents.toBigInt()),
@@ -3291,8 +3545,8 @@ export class AdjudicationService {
     const fulfillDispatch = await this.dispatchProof(
       'AccumulatorFulfillment', 'proveFulfillmentWithAccumulator',
       ['CredentialData', 'PrescriptionData', 'PrescriptionStatusData', 'FulfillmentData', 'FormularyEntry', 'ForestRoots', 'ForestMerkleWitness', 'ForestMerkleWitness', 'ForestMerkleWitness', 'FormularyMerkleWitness', 'Field', 'CredentialData', 'ForestRoots', 'AccumulatorData', 'ForestMerkleWitness', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field'],
-      [rxCredentialData, rxState.prescriptionData, preDispenseStatus, fulfillmentData, rxState.formularyEntry, rxForestRoots, fulfMedWitness, fulfStatusWitness, fulfNewSlotWitness, fulfFormWitness, enrolled.eligibilityData.formularyRoot, enrolled.credentialData, eligForestRoots, enrolled.accumulatorData, accumWitness, ...pharmacyPreimage, ...familyFields],
-      () => AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(rxCredentialData, rxState.prescriptionData, preDispenseStatus, fulfillmentData, rxState.formularyEntry, rxForestRoots, fulfMedWitness, fulfStatusWitness, fulfNewSlotWitness, fulfFormWitness, enrolled.eligibilityData.formularyRoot, enrolled.credentialData, eligForestRoots, enrolled.accumulatorData, accumWitness, ...pharmacyPreimage as [Field, Field, Field], ...familyFields as [Field, Field, Field, Field, Field, Field]),
+      [rxCredentialData, rxState.prescriptionData, preDispenseStatus, fulfillmentData, coverage.entry, rxForestRoots, fulfMedWitness, fulfStatusWitness, fulfNewSlotWitness, fulfFormWitness, enrolled.eligibilityData.formularyRoot, enrolled.credentialData, eligForestRoots, enrolled.accumulatorData, accumWitness, ...pharmacyPreimage, ...familyFields],
+      () => AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(rxCredentialData, rxState.prescriptionData, preDispenseStatus, fulfillmentData, coverage.entry, rxForestRoots, fulfMedWitness, fulfStatusWitness, fulfNewSlotWitness, fulfFormWitness, enrolled.eligibilityData.formularyRoot, enrolled.credentialData, eligForestRoots, enrolled.accumulatorData, accumWitness, ...pharmacyPreimage as [Field, Field, Field], ...familyFields as [Field, Field, Field, Field, Field, Field]),
     );
     const elapsedFulf = performance.now() - startFulf;
     this.emit('proof', 'fill', `[3/3] AccumulatorFulfillment proof generated`, 'complete', elapsedFulf);
@@ -3467,6 +3721,12 @@ export class AdjudicationService {
       ingredientCostCents,
       dispensingFeeCents,
       quantityDispensed: qtyDispensed,
+      // NADAC pricing: how the cost was made, so the claim shows NADAC per unit x quantity + fee
+      pricingBasis: 'NADAC',
+      nadacUnitPriceE5: fillPrice.nadacUnitPriceE5,
+      pricingUnit: fillPrice.pricingUnit,
+      nadacEffectiveDate: fillPrice.nadacEffectiveDate,
+      dispensingFeeSource: fillPrice.dispensingFeeSource,
       planIdHash: hashString(enrolled.planId).toString(),
     };
 
@@ -3514,6 +3774,7 @@ export class AdjudicationService {
       quantityDispensed: qtyDispensed,
       reversed: false,
       dateOfService: serviceDateStr,
+      pricing: fillPrice,
     };
     existingFills.push(fulfillment);
     this.fulfillments.set(opts.prescriptionId, existingFills);
@@ -3571,6 +3832,7 @@ export class AdjudicationService {
         totalCostCents,
         ingredientCostCents,
         dispensingFeeCents,
+        pricing: fillPrice,   // NADAC per unit x quantity + fee, and whether the fee is the plan's or the network default
         familyPoolingApplied,
         familyPoolingReason: familyPoolingApplied ? familyPoolingReason : undefined,
       },
@@ -4810,9 +5072,10 @@ export class AdjudicationService {
     // 4. Rebuild sharedEligibilityData with new formulary root (preserves networkRoot)
     this.sharedEligibilityData = this.rebuildSharedEligibilityData();
 
-    // 5. Rebuild BenefitPlanRegistry
+    // 5. Rebuild BenefitPlanRegistry (the console's plan at index 0; members with a device re-register theirs on use)
     this.benefitPlanRegistry = new BenefitPlanRegistry();
-    this.benefitPlanRegistry.addPlan(this.sharedEligibilityData);
+    this.benefitPlanIndexByCommitment = new Map();
+    this.benefitPlanIndexOf(this.sharedEligibilityData);
     this.emit('offchain', 'formulary', 'BenefitPlanRegistry updated with new plan data');
 
     // ─── Patent Evidence: Formulary Registry State Change ───────
@@ -4832,7 +5095,8 @@ export class AdjudicationService {
     const affectedMembers: string[] = [];
     let memberNum = 0;
     for (const [walletIdStr, enrolled] of this.enrolledMembers) {
-      if (enrolled.lifecycle === 'REVOKED') continue;
+      // Plan-bound formularies: a member with a device follows its own plan, not the console's PLAN-GOLD-2026 formulary
+      if (enrolled.lifecycle === 'REVOKED' || !this.onConsoleFormulary(enrolled)) continue;
       memberNum++;
 
       const oldEligCommitment = enrolled.eligibilityData.commitment();
@@ -4893,7 +5157,8 @@ export class AdjudicationService {
     const body = `${medication.brandName} (${medication.genericName}) has been ${pastVerb} your formulary. ${details ? `Changes: ${details}.` : ''} Your eligibility credential has been updated with the new formulary.`;
 
     for (const [, enrolled] of this.enrolledMembers) {
-      if (enrolled.lifecycle === 'REVOKED') continue;
+      // Plan-bound formularies: only the members the change reached (a member with a device follows its own plan)
+      if (enrolled.lifecycle === 'REVOKED' || !this.onConsoleFormulary(enrolled)) continue;
       this.sendInternalMessage(this.adminWalletId, enrolled.walletId, MSG_TYPE_NOTIFICATION, subject, body);
     }
     this.emit('info', 'formulary', `  ${affectedMembers.length} notification message(s) sent`);
@@ -4992,9 +5257,10 @@ export class AdjudicationService {
     // 4. Rebuild sharedEligibilityData with new network root (preserves formularyRoot)
     this.sharedEligibilityData = this.rebuildSharedEligibilityData();
 
-    // 5. Rebuild BenefitPlanRegistry
+    // 5. Rebuild BenefitPlanRegistry (the console's plan at index 0; members with a device re-register theirs on use)
     this.benefitPlanRegistry = new BenefitPlanRegistry();
-    this.benefitPlanRegistry.addPlan(this.sharedEligibilityData);
+    this.benefitPlanIndexByCommitment = new Map();
+    this.benefitPlanIndexOf(this.sharedEligibilityData);
     this.emit('offchain', 'network', 'BenefitPlanRegistry updated with new plan data');
 
     // ─── Patent Evidence: Provider Network State Change ─────────
@@ -5015,7 +5281,8 @@ export class AdjudicationService {
     const affectedMembers: string[] = [];
     let memberNum = 0;
     for (const [walletId, enrolled] of this.enrolledMembers) {
-      if (enrolled.lifecycle === 'REVOKED') continue;
+      // Plan-bound formularies: a member with a device follows its own plan's network, not the console's PLAN-GOLD-2026
+      if (enrolled.lifecycle === 'REVOKED' || !this.onConsoleFormulary(enrolled)) continue;
       memberNum++;
 
       const oldEligCommitment = enrolled.eligibilityData.commitment();
@@ -5083,7 +5350,8 @@ export class AdjudicationService {
     const body = `${prescriberName} has been ${pastVerb} your provider network. Your eligibility credential has been updated with the new network configuration.`;
 
     for (const [, enrolled] of this.enrolledMembers) {
-      if (enrolled.lifecycle === 'REVOKED') continue;
+      // Plan-bound formularies: only the members the change reached (a member with a device follows its own plan)
+      if (enrolled.lifecycle === 'REVOKED' || !this.onConsoleFormulary(enrolled)) continue;
       this.sendInternalMessage(this.adminWalletId, enrolled.walletId, MSG_TYPE_NOTIFICATION, subject, body);
     }
     this.emit('info', 'network', `  ${affectedMembers.length} notification message(s) sent`);
@@ -5501,7 +5769,7 @@ export class AdjudicationService {
     // Family totals
     const familyTotals = FamilyAccumulatorService.getFamilyTotals(familyAccumulators);
     // B8: the plan's family limits, the ones the fill proof uses, not constants.
-    const familyLimits: FamilyLimits = familyLimitsFor(enrolled, this.l2Node.getSequencer().getPlan(enrolled.planId));
+    const familyLimits: FamilyLimits = familyLimitsFor(enrolled, planAsPublished(this.l2Node.getSequencer().getPlan(enrolled.planId)));
 
     return {
       familyId: enrolled.familyId,
@@ -5716,7 +5984,7 @@ export class AdjudicationService {
         strength: med.strength,
         ndc: med.ndcFormatted,
         tierLevel: med.formularyEntry.tierLevel,
-        copayAmountCents: med.formularyEntry.copayAmount,
+        copayAmountCents: pending.copayAmountCents ?? med.formularyEntry.copayAmount, // the member's plan copay, from the entry being proven
         memberWalletId: pending.memberWalletId,
         prescriberWalletId: this.prescriberWalletIds.get(pending.prescriberIndex)?.toString() ?? '',
         pharmacyWalletId: this.pharmacyWalletIds.get(pending.pharmacyIndex)?.toString() ?? '',
@@ -5753,7 +6021,7 @@ export class AdjudicationService {
         strength: med.strength,
         ndc: med.ndcFormatted,
         tierLevel: med.formularyEntry.tierLevel,
-        copayAmountCents: med.formularyEntry.copayAmount,
+        copayAmountCents: Number(rx.formularyEntry.copayAmountCents.toBigInt()), // the member's plan copay, from the entry proven at prescribing
         memberWalletId: rx.memberWalletId,
         prescriberWalletId: this.prescriberWalletIds.get(rx.prescriberIndex)?.toString() ?? '',
         pharmacyWalletId: this.pharmacyWalletIds.get(rx.pharmacyIndex)?.toString() ?? '',
@@ -5765,7 +6033,12 @@ export class AdjudicationService {
         patientPayCents: totalPatientPay || null,
         planPayCents: totalPlanPay || null,
         deductibleCreditCents: totalDeductibleCredit || null,
-        adjudicationPhase: lastFill ? (lastFill.accumulatorBefore.deductiblePaid < 50000 ? 'DEDUCTIBLE' : 'NORMAL_COPAY') : null,
+        // NADAC pricing of the latest fill (NADAC x quantity + fee), for the pharmacy screen; null before the first fill
+        ingredientCostCents: lastFill ? Number(lastFill.fulfillmentData.ingredientCostCents.toBigInt()) : null,
+        dispensingFeeCents: lastFill ? Number(lastFill.fulfillmentData.dispensingFeeCents.toBigInt()) : null,
+        pricing: lastFill?.pricing ?? null,
+        // The claim's own numbers: a fill that credited the deductible was priced in the deductible phase (never a fixed $500).
+        adjudicationPhase: lastFill ? (lastFill.deductibleCreditField.toBigInt() > 0n ? 'DEDUCTIBLE' : 'NORMAL_COPAY') : null,
         memberVerified: false, // TODO: track on sequencer
         proofStatus: fills.length > 0 ? 'complete' : null,
         statusHistory: rx.statusHistory,
@@ -5824,8 +6097,9 @@ export class AdjudicationService {
           memberWalletId: rx.memberWalletId,
           prescriberWalletId: prescriberWid.toString(),
           ndcHash: hashString(med.ndc).toString(),
-          ingredientCostCents: fill.totalCostCents - 200, // dispensing fee = 200
-          dispensingFeeCents: 200,
+          // the fill's own costs as proved (NADAC x quantity + the plan's fee), not a fixed $2.00 fee
+          ingredientCostCents: Number(fill.fulfillmentData.ingredientCostCents.toBigInt()),
+          dispensingFeeCents: Number(fill.fulfillmentData.dispensingFeeCents.toBigInt()),
           quantityDispensed: (fill.quantityDispensed * 1000).toString(), // x1000 scaled
           dateOfService: 20260215, // seed date
         });
@@ -6284,6 +6558,7 @@ export class AdjudicationService {
         memberWalletId: rx.memberWalletId,
         ndcHash: rx.ndcHash,
         formularyLeafIndex: rx.formularyLeafIndex.toString(),
+        formularyRoot: rx.formularyRoot,
         quantity: rx.quantity,
         quantityDispensed: rx.quantityDispensed,
         refills: rx.refills,
@@ -6319,6 +6594,7 @@ export class AdjudicationService {
         quantityDispensed: f.quantityDispensed,
         reversed: f.reversed,
         dateOfService: f.dateOfService,
+        pricing: f.pricing,
       }));
     }
 
@@ -6498,7 +6774,9 @@ export class AdjudicationService {
         lastCredentialJson: sm.lastCredentialJson,
       };
 
-      this.enrolledMembers.set(sm.walletIdStr, enrolled);
+      // Keyed by the full wallet ID, as enrollMember and registerMemberFromEnrollment key it (walletIdStr is the
+      // truncated display form; a member keyed by it was unreachable after a restore)
+      this.enrolledMembers.set(sm.walletId, enrolled);
     }
 
     // --- Restore Prescriptions ---
@@ -6539,6 +6817,7 @@ export class AdjudicationService {
         memberWalletId: srx.memberWalletId,
         ndcHash: srx.ndcHash,
         formularyLeafIndex: BigInt(srx.formularyLeafIndex),
+        formularyRoot: srx.formularyRoot,
         quantity: srx.quantity,
         quantityDispensed: srx.quantityDispensed,
         refills: srx.refills,
@@ -6574,6 +6853,7 @@ export class AdjudicationService {
         quantityDispensed: sf.quantityDispensed,
         reversed: sf.reversed,
         dateOfService: sf.dateOfService ?? '',
+        pricing: sf.pricing,
       }));
       this.fulfillments.set(rxId, fills);
     }
@@ -6612,6 +6892,9 @@ export class AdjudicationService {
         displayName: m.displayName,
         planId: m.planId,
         groupId: m.groupId,
+        // Plan-bound formularies: what the member's credential names (its EligibilityData, leaf 0 of the ACCESS_CONTROL tree):
+        // plan and group hashes, copay, coverage type, formulary and network roots. Hashes and codes, no PHI.
+        eligibility: { ...(EligibilityData.toJSON(m.eligibilityData) as Record<string, string>), commitment: m.eligibilityData.commitment().toString() },
         familyId: m.familyId,
         relationship: m.relationship,
         employeeId: m.employeeId,
@@ -6804,7 +7087,9 @@ export class AdjudicationService {
           stepTherapyRequired: m.formularyEntry.stepTherapyRequired,
           maxQuantityPerFill: m.formularyEntry.maxQuantityPerFill,
           maxDaySupply: m.formularyEntry.maxDaySupply,
-          awpUnitPriceCents: m.awpUnitPriceCents,
+          awpUnitPriceCents: m.awpUnitPriceCents,   // display only: fills are priced from NADAC
+          nadacPerUnit: m.nadacPerUnit,
+          pricingUnit: m.pricingUnit,
           therapeuticClass: m.therapeuticClass,
           deaSchedule: m.deaSchedule,
           manufacturer: m.manufacturer,
@@ -6816,6 +7101,9 @@ export class AdjudicationService {
           currentRequiresPriorAuth: this.currentFormularyEntries[i]?.requiresPriorAuth ?? m.formularyEntry.requiresPriorAuth,
           currentStepTherapyRequired: this.currentFormularyEntries[i]?.stepTherapyRequired ?? m.formularyEntry.stepTherapyRequired,
         })),
+        // The console's PLAN-GOLD-2026 template, which only fixture members are bound to. Fixture exception (until phase
+        // F): a fixture pays the catalog's tier copays (currentCopayAmountCents above), not this copayAmountCents; a
+        // member with a device pays its own plan's copay (enrolledMembers[].eligibility.copayAmountCents).
         plan: {
           planId: 'PLAN-GOLD-2026',
           copayAmountCents: 3000,
@@ -6825,6 +7113,9 @@ export class AdjudicationService {
           familyDeductibleAmountCents: 100000,
           familyOopMaxCents: 1600000,
           familyAnnualBenefitMaxCents: 10000000,
+          // NADAC pricing: PLAN-GOLD-2026 has no plan record, so its fixture members pay the network-default fee
+          dispensingFeeCents: NETWORK_DEFAULT_DISPENSING_FEE_CENTS,
+          dispensingFeeSource: 'network-default',
           formularyCount: this.formularyActive.length > 0 ? this.formularyActive.filter(a => a).length : MEDICATIONS.length,
           formularyRoot: fieldToStr(this.formularyRegistry.getRoot()),
           networkRoot: this.providerNetwork.count > 0 ? fieldToStr(this.providerNetwork.getRoot()) : '0',

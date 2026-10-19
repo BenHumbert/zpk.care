@@ -16,6 +16,7 @@
 
 import { Field, MerkleTree, MerkleWitness } from 'o1js';
 import { FormularyEntry } from './formulary-entry.js';
+import { buildTreeBottomUp } from '../zkp/merkle-build.js';
 
 /**
  * Formulary tree height — supports up to 32,768 medications per plan.
@@ -56,6 +57,22 @@ export class FormularyRegistry {
     this.tree = new MerkleTree(FORMULARY_TREE_HEIGHT);
     this.entries = new Map();
     this.nextIndex = 0n;
+  }
+
+  /**
+   * A registry holding these entries at indices 0..n-1, built in one bottom-up pass: the same tree, root and witnesses as
+   * addEntry one at a time, with about fifteen times fewer hashes (see buildTreeBottomUp). Plan-bound formularies are
+   * built this way, by the insurer at publish and by the engine when it binds a member.
+   */
+  static fromEntries(entries: readonly FormularyEntry[]): FormularyRegistry {
+    if (entries.length > MAX_FORMULARY_ENTRIES) {
+      throw new Error(`Formulary full: cannot exceed ${MAX_FORMULARY_ENTRIES} entries`);
+    }
+    const registry = new FormularyRegistry();
+    entries.forEach((entry, i) => registry.entries.set(BigInt(i), entry));
+    registry.nextIndex = BigInt(entries.length);
+    buildTreeBottomUp(registry.tree, entries.map((entry) => entry.commitment()));
+    return registry;
   }
 
   /** Get the current formulary Merkle root */

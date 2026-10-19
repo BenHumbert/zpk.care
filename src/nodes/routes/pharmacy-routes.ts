@@ -544,11 +544,14 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       const node = server.getEntityNode() as PharmacyNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
 
+      // NADAC pricing (owner decision 2026-10-18): the pharmacy does not set the price. The engine charges NADAC x
+      // quantity + the plan's dispensing fee. A request normally carries no costs; any it carries are forwarded only
+      // so the engine can refuse a fill that states different ones, before any proof.
       const b = body as {
         prescriptionId?: string;
         quantityDispensed?: number;
-        ingredientCostCents?: number;
-        dispensingFeeCents?: number;
+        ingredientCostCents?: unknown;
+        dispensingFeeCents?: unknown;
       } | undefined;
 
       if (!b?.prescriptionId) {
@@ -646,8 +649,8 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
         daysSupply?: number;
         ndc?: string;
         fillNumber?: number;
-        ingredientCostCents?: number;
-        dispensingFeeCents?: number;
+        ingredientCostCents?: unknown;   // never an input: checked by the engine against its NADAC price (owner decision 2026-10-18)
+        dispensingFeeCents?: unknown;
         quantityDispensed?: number;
       } | undefined;
 
