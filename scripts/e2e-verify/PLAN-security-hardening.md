@@ -2916,3 +2916,20 @@ history still holds the old rows: rewriting it is the owner's call before the re
 fails 6 status-transition tests at HEAD as well (pre-existing, outside the regression list; to look at with B3). Verified:
 regression batch 57 suites plus the touched suites, 882 tests passing; typecheck src 20, scripts 2; single-member pipeline
 222 of 222; multi-member, concurrent, 201 of 201. The demo tooling is committed separately (tools/demo).
+
+**Addendum, 2026-10-19: screen correctness and six security gaps (A-41 to A-46).** The demo audit walked every screen
+from the insurer's plan to pickup. Fixed: the pharmacy can verify a member again (the key pin read the wrong field; the
+scan now carries the tap; a bare wallet ID verifies no one); the member node's /rpc proxy needs the device session; four
+insurer node routes need the insurer token; the engine console stream and /viz/history are gated; Restore no longer
+writes the enrollment key to browser storage; same-millisecond signed calls no longer collide. Also fixed on screen: the
+compile route has the proving budget and Retry resumes; the member dashboard shows the member's own limits and the
+attestation's real fields; the pharmacy only fills an adjudicated script and keeps a refused fill where it was; the
+insurer token is a password field, Review PDF fetches with the token, Force Batch is explained instead of failing; the
+employer roster sends its token and has no wallet column; the marketplace sends the activation secret, takes the IRS
+letter from submission, shows the activation code on the page and no longer claims an HR Tool; the prescriber's badge
+and proof list say what happened; the harness waits for the registration receipt instead of its 900 s limit. Left for
+the pricing commit: the pharmacy queue's phase and the member claim card's ingredient label. Scoreboard: 46 findings; 43
+fixed; 3 open (A-22, A-25, A-33 under the interim lease), none critical. Verified: the eight new suites, 188 tests with the affected existing suites, all passing; regression batch 65 suites, all passing;
+typecheck src 20, scripts 2; single-member pipeline 220 of 220; multi-member, concurrent, 201 of 201. Git: with this commit,
+63 commits on local `dev`, nothing pushed. **Next:** plan-bound formularies, then NADAC plus fee pricing, then the
+first video.

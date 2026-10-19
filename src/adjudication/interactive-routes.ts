@@ -126,6 +126,14 @@ export function registerInteractiveRoutes(
     '/interactive/save-checkpoint',
     '/interactive/retry-batch',
     '/interactive/simulate-batch-failure',
+
+    /*
+     * The engine's console stream. It prints display names beside wallet ID prefixes, and a delegation's
+     * names and relationship label, so it is the operator's log tail and nobody else's. The sequencer
+     * sends a stream through its stream gate, so a browser's EventSource may carry the operator's token
+     * in ?token=. No node role lists it.
+     */
+    '/interactive/console',
   ]);
 
   /** Routes that take only the signature of the wallet they name (B2), and where the request names it. */

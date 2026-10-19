@@ -73,6 +73,13 @@ export const DEFAULT_L2_CLIENT_OPTIONS: Omit<L2ClientOptions, 'sequencerUrl'> = 
 
 // ─── L2Client ───────────────────────────────────────────
 
+/** JSON-RPC ids: the time in ms times 1000 plus a rolling counter, so ids from one client never repeat within a millisecond. */
+let rpcSeq = 0;
+function nextRpcId(): number {
+  rpcSeq = (rpcSeq + 1) % 1000;
+  return Date.now() * 1000 + rpcSeq;
+}
+
 export class L2Client {
   private options: L2ClientOptions;
 
@@ -633,7 +640,7 @@ export class L2Client {
   ): Promise<T> {
     const rpcReq: RpcRequest = {
       jsonrpc: '2.0',
-      id: Date.now(),
+      id: nextRpcId(), // unique per call: the id is in the signed body, so two calls in one millisecond differ
       method,
       params,
     };

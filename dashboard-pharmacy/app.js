@@ -165,7 +165,7 @@
     if (w && w._transientStatus) return w._transientStatus;
     // Server-side status is the truth
     var s = (claim.status || 'ADJUDICATED').toLowerCase();
-    if (s === 'pending') return 'adjudicated'; // proofs generating
+    if (s === 'pending') return 'pending'; // the prescriber's proofs are still running: shown, not yet fillable
     if (s === 'adjudicated') return 'adjudicated';
     if (s === 'filled') return 'filled';
     if (s === 'dispensed') return 'dispensed';
@@ -523,8 +523,11 @@
 
       let actionsHtml = '';
       if (columnType === 'adjudicated') {
+        // A PENDING script is still being adjudicated (the prescriber's proofs): no Fill until the engine says ADJUDICATED.
         actionsHtml =
-          '<button class="btn btn-sm btn-primary" onclick="App.fillScript(\'' + escapeHtml(key) + '\')">Fill</button>' +
+          (currentClaimStatus === 'pending'
+            ? '<span class="btn btn-sm" style="background:#f59e0b;color:#fff;cursor:default;font-size:10px">Adjudicating…</span>'
+            : '<button class="btn btn-sm btn-primary" onclick="App.fillScript(\'' + escapeHtml(key) + '\')">Fill</button>') +
           '<button class="btn btn-sm btn-danger" onclick="App.rejectScript(\'' + escapeHtml(key) + '\')">Reject</button>' +
           '<button class="btn btn-sm" onclick="App.transferScript(\'' + escapeHtml(key) + '\')">Transfer</button>';
       } else if (columnType === 'filled') {
@@ -799,7 +802,11 @@
         ndcHash: claim.ndcHash || '',
       });
     } catch (err) {
-      console.warn('[Fill] mark-filled API call failed (continuing locally):', err.message);
+      // Only the engine's answer moves a script: a refused fill stays in Adjudicated and says why.
+      if (scriptWorkflow[key]) delete scriptWorkflow[key]._transientStatus;
+      renderWorkstationColumns();
+      toast('Fill failed: ' + (err.message || String(err)), 'error');
+      return;
     }
 
     // Transition to Filled column

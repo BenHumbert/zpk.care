@@ -163,6 +163,26 @@ describe('the sequencer', () => {
     }
   });
 
+  test('the engine console and the viz history answer a credential only; the console also takes the operator token in the query', async () => {
+    const streams: AbortController[] = [];
+    const openStream = async (p: string, headers: Record<string, string> = {}) => {
+      const ctl = new AbortController(); streams.push(ctl);
+      return (await fetch(url + p, { headers, signal: ctl.signal })).status;
+    };
+    try {
+      expect(await openStream('/interactive/console')).toBe(401);
+      expect(await openStream('/interactive/console?token=not-the-operator')).toBe(401);
+      expect(await openStream(`/interactive/console?token=${encodeURIComponent(OPERATOR)}`)).toBe(200);
+      expect(await openStream('/interactive/console', bearer)).toBe(200);
+      expect(await openStream('/interactive/console', byNode(pharmacyNode, 'GET', '/interactive/console'))).toBe(403); // no node role reads it
+    } finally {
+      for (const ctl of streams) ctl.abort();
+    }
+    expect((await fetch(`${url}/viz/history`)).status).toBe(401);
+    expect((await fetch(`${url}/viz/history`, { headers: bearer })).status).toBe(200);
+    expect((await fetch(`${url}/viz/history`, { headers: byNode(pharmacyNode, 'GET', '/viz/history') })).status).toBe(403); // the operator's and the plan's
+  });
+
   test('streams events to a credential only: a node\'s signature or the operator\'s token, in a header or in the query', async () => {
     expect((await fetch(`${url}/events`)).status).toBe(401);
     expect((await fetch(`${url}/viz/events`)).status).toBe(401);

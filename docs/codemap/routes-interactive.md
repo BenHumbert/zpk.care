@@ -76,7 +76,7 @@ Columns: Auth = OPEN (no check in handler or server) or ADMIN (above). Checks = 
 | Method | Path | Auth | Checks in order | Service method | Proofs made and fate | Writes | Source |
 |---|---|---|---|---|---|---|---|
 | GET | /interactive/state | OPEN. GAP: I1/I5/I6 — see field list below | — | getState | — | — | R:121-139; S:6031-6345 |
-| GET | /interactive/console | OPEN | — | SSE of ConsoleEvent (also printed to stdout) | — | — | R:85-119 |
+| GET | /interactive/console | operator only: bearer, or `?token=` for a browser EventSource (the sequencer's stream gate); no node role lists it. Was OPEN | — | SSE of ConsoleEvent (also printed to stdout) | — | — | R:203-217 |
 | GET | /interactive/l2-status | OPEN | — | seq.getAllReceipts / getAllBatches / getAuditLog; node.getStatus | — | — | R:1159-1198 |
 | GET | /node/state | credential (D2), was OPEN | — | getState + seed prescriber (NPI, DEA), pharmacy (NPI, NCPDP, address, phone), medication arrays | — | — | R:1303-1349 |
 | GET | /node/claims-by-member | credential (D2), was OPEN. GAP: I7 member claim history by walletId | walletId | seq.getClaimsByMember | — | — | R:1351-1374; SEQ:2107 |

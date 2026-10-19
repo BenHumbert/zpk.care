@@ -43,6 +43,7 @@ import type { PcpAssignmentLocalData } from '../../eligibility/pcp-assignment-da
 import { buildNfcIdentityRecord, fitsOnTag } from '../nfc-identity.js';
 import { deriveEncryptionKeyPair } from '../../messaging/encryption.js';
 import { deriveWalletSigningKey } from '../../security/wallet-key.js';
+import { signRequest } from '../../security/signed-request.js';
 import { rederiveInventoryRoot, rebuildCredential, type WalletUpdatePayload } from '../../credentials/wallet-update.js';
 import { MemberNode } from '../member-node.js';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
@@ -789,9 +790,16 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       let known = false;
       try {
         const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        // D1: a member's entry answers only that wallet's own signature. The recombined key signs as the
+        // wallet, which also proves the card and the PIN rebuilt the wallet's real key.
+        const rpcBody = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getEntity', params: { walletId } });
         const resp = await fetch(`${seqUrl}/rpc`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getEntity', params: { walletId } }),
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...signRequest({ signerId: walletId, privateKey: deriveWalletSigningKey(enrollmentKey).privateKey, method: 'POST', path: '/rpc', body: rpcBody }),
+          },
+          body: rpcBody,
         });
         const json = await resp.json() as { result?: unknown };
         known = Boolean(json.result);
@@ -874,6 +882,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
     method: 'POST',
     path: '/onboarding/compile',
     deviceOnly: true,
+    timeoutMs: PROVING_BUDGET_MS, // compiling took 26.6 s in the last live run, against the default 30 s budget
     handler: async (_req, res, _params, _query, _body) => {
       if (server.getOnboardingPhase() !== 'enrolled') {
         return server.sendResponse(res, 409, false, undefined, `Cannot compile in phase: ${server.getOnboardingPhase()}`);
@@ -885,7 +894,14 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       }
 
       server.setOnboardingPhase('compiling');
-      const results = await node.compilePrograms();
+      let results: Awaited<ReturnType<MemberNode['compilePrograms']>>;
+      try {
+        results = await node.compilePrograms();
+      } catch (err) {
+        // A failed compile hands the device back to 'enrolled'. Left at 'compiling', every retry got 409.
+        server.setOnboardingPhase('enrolled');
+        throw err;
+      }
 
       const state = server.getLocalState();
       const data = state.getState();
@@ -1366,6 +1382,49 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       } catch (err) {
         server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'PCP removal failed');
       }
+    },
+  });
+
+  // ── The member's own plan limits (the Dashboard and My Plan screens) ──
+  // The device knows its plan only as the hash the insurer answered at redemption (C2). Plans are
+  // published under their plain id, so the device finds its own by hashing each one, as the insurer
+  // matched it at /enrollment/complete; the engine binds that plan's limits at registration.
+  routes.push({
+    method: 'GET',
+    path: '/plan/limits',
+    deviceOnly: true,
+    handler: async (_req, res) => {
+      const planIdHash = server.getLocalState().getState()?.enrollment?.planIdHash;
+      if (!planIdHash || planIdHash === '0') {
+        return server.sendResponse(res, 404, false, undefined, 'This device holds no redeemed plan');
+      }
+      let plans: Array<Record<string, unknown>> = [];
+      try {
+        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+        const resp = await fetch(`${seqUrl}/rpc`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getPlans', params: {} }),
+        });
+        const json = await resp.json() as { result?: unknown };
+        if (Array.isArray(json.result)) {
+          plans = json.result.filter((p): p is Record<string, unknown> => p !== null && typeof p === 'object');
+        }
+      } catch {
+        return server.sendResponse(res, 502, false, undefined, 'Cannot reach the sequencer to read the plan');
+      }
+      const plan = plans.find((p) => typeof p.planId === 'string' && hashString(p.planId).toString() === planIdHash);
+      if (!plan) {
+        return server.sendResponse(res, 404, false, undefined, 'The plan this device enrolled into is not published on the sequencer');
+      }
+      server.sendResponse(res, 200, true, {
+        name: plan.name,
+        deductibleAmountCents: plan.deductibleAmountCents,
+        oopMaxCents: plan.oopMaxCents,
+        annualBenefitMaxCents: plan.annualBenefitMaxCents,
+        familyDeductibleAmountCents: plan.familyDeductibleAmountCents,
+        familyOopMaxCents: plan.familyOopMaxCents,
+      });
     },
   });
 

@@ -744,7 +744,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
   });
 
   test('P8c — insurer sees all 3 receipts', async () => {
-    const r = await get(insurerPort, '/receipts/all');
+    const r = await get(insurerPort, '/receipts/all', AUTH);
     expect(r.status).toBe(200);
     const receipts = (r.body as any).data;
     expect(receipts.length).toBe(3);
@@ -755,7 +755,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
 
   test('P8d — audit chain has 3 events and is valid', async () => {
     const [logR, intR] = await Promise.all([
-      get(insurerPort, '/audit/log'),
+      get(insurerPort, '/audit/log', AUTH),
       get(insurerPort, '/audit/chain-integrity'),
     ]);
     expect(logR.status).toBe(200);
@@ -906,7 +906,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
   // ══════════════════════════════════════════════════════════
 
   test('P12a — insurer sees member claims', async () => {
-    const r = await get(insurerPort, `/claims/member/${memberWalletId}`);
+    const r = await get(insurerPort, `/claims/member/${memberWalletId}`, AUTH);
     expect(r.status).toBe(200);
     const claims = (r.body as any).data;
     expect(claims.length).toBe(1);

@@ -613,6 +613,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'GET',
     path: '/roster',
+    adminOnly: true, // D1: every registered wallet, read with the insurer's role key (see /claims/member/:walletId)
     handler: async (_req, res, _params, query) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
@@ -625,8 +626,8 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         // Get entity metadata from sequencer (names, roles, specialties)
         let entities: any[] = [];
         try {
-          const seqUrl = (node as any).client?.baseUrl || 'http://localhost:3030';
-          const entityResp = await fetch(`${seqUrl}/viz/entities`);
+          const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, ''); // the configured sequencer, not a field the client never has
+          const entityResp = await server.signedFetch(`${seqUrl}/viz/entities`);
           if (entityResp.ok) entities = await entityResp.json() as any[];
         } catch { /* no entity data available */ }
 
@@ -723,6 +724,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'GET',
     path: '/receipts/all',
+    adminOnly: true, // D1: an enumeration the sequencer answers only the plan and the operator
     handler: async (_req, res, _params, query) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
@@ -757,6 +759,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'GET',
     path: '/audit/log',
+    adminOnly: true, // D1: an enumeration the sequencer answers only the plan and the operator
     handler: async (_req, res, _params, query) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
@@ -795,6 +798,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'GET',
     path: '/claims/member/:walletId',
+    /*
+     * D1: this node reads with the insurer's role key, which the sequencer lets read any member's
+     * claims. Open, the route handed them to anyone who could reach the port with a bare wallet ID.
+     */
+    adminOnly: true,
     handler: async (_req, res, params) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
@@ -1168,7 +1176,16 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         const batch = await node.forceBatch();
         server.sendResponse(res, 200, true, batch);
       } catch (err) {
-        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+        const msg = err instanceof Error ? err.message : 'Operation failed';
+        // A9: the insurer's node key does not carry l2_forceBatch (RPC_METHODS_BY_ROLE in
+        // node-roles.ts), and the sequencer refuses it with RPC_FORBIDDEN (-32004). Batches belong
+        // to the sequencer: they settle on its timer, and the operator can force one from the
+        // Leviathan dashboard. Say that with a 403 instead of passing the refusal on as a 500.
+        if (/^RPC error -32004:/.test(msg)) {
+          return server.sendResponse(res, 403, false, undefined,
+            'Forbidden: only the network operator can force a batch. Batches settle on the sequencer\'s timer.');
+        }
+        server.sendResponse(res, 500, false, undefined, msg);
       }
     },
   });

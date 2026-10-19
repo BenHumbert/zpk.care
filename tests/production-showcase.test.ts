@@ -481,7 +481,7 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
   });
 
   test('P8 — insurer sees 3 receipts', async () => {
-    const r = await get(insurerPort, '/receipts/all');
+    const r = await get(insurerPort, '/receipts/all', { Authorization: `Bearer ${TEST_ADMIN_TOKEN}` });
     expect(r.status).toBe(200);
     expect((r.body as any).data).toHaveLength(3);
   });
@@ -829,7 +829,7 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
   });
 
   test('P17 — insurer sees 4 total receipts', async () => {
-    const r = await get(insurerPort, '/receipts/all');
+    const r = await get(insurerPort, '/receipts/all', { Authorization: `Bearer ${TEST_ADMIN_TOKEN}` });
     expect(r.status).toBe(200);
     const receipts = (r.body as any).data;
     expect(receipts).toHaveLength(4);
@@ -851,7 +851,7 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
   });
 
   test('P18 — audit log has 4 events', async () => {
-    const r = await get(insurerPort, '/audit/log');
+    const r = await get(insurerPort, '/audit/log', { Authorization: `Bearer ${TEST_ADMIN_TOKEN}` });
     expect(r.status).toBe(200);
     const log = (r.body as any).data;
     expect(log.events).toHaveLength(4);

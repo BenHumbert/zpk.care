@@ -304,6 +304,7 @@ async function onDialog(dialog) {
   const code = msg.split(/\r?\n/).map((l) => l.trim()).find((l) => /^\S+\.\S+$/.test(l) && !/\s/.test(l));
   if (code) secrets.activationCode = code;
   if (dialog.type() === 'prompt' && /activation code/i.test(msg) && secrets.activationCode) await dialog.accept(secrets.activationCode).catch(() => {});
+  else if (dialog.type() === 'prompt' && /device PIN/i.test(msg)) await dialog.accept(secrets.devicePin).catch(() => {});
   else await dialog.accept().catch(() => {});
   log(`dialog (${dialog.type()}) accepted${code ? '; the activation code is kept in memory only' : ''}`);
 }
@@ -487,7 +488,7 @@ const SCENE_RUN = {
     // TODO(selector): 'Review PDF' (a.btn 'Review PDF' in this row) is a plain link to an admin-only route and answers
     // 401 until the screen fix "Insurer Review PDF: fetch with the token" lands; headless Chromium also has no PDF
     // viewer. The letter is therefore not opened on camera; the analyst's line covers the check.
-    await row.locator('a', { hasText: 'Review PDF' }).hover().catch(() => {});
+    await row.locator('button', { hasText: 'Review PDF' }).hover().catch(() => {});
     await speak('approve', 'check');
     await speak('approve', 'approve');
     await approve.click();
@@ -742,7 +743,8 @@ const SCENE_RUN = {
       await pg.locator('#ws-refresh-btn').click().catch(() => {});
       return false;
     }, { timeout: 180000, every: 5000 }), { factor: 4 });
-    // wait for the prescriber's proof to finish: a PENDING script shows Fill too, and the page moves it even if the call fails
+    // a PENDING script shows no Fill until the prescriber's proofs finish, and a refused fill no longer moves the card
+    await camera.speedWhile(() => script.first().locator('button', { hasText: 'Fill' }).waitFor({ timeout: 600000 }), { factor: 4 });
     await speak('fill', 'read');
     await script.first().locator('button', { hasText: 'Fill' }).click();
     await closeDetail(pg);

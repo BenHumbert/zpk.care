@@ -674,7 +674,7 @@
       <!-- Admin Token -->
       <div class="admin-token-bar">
         <label>Admin Token:</label>
-        <input type="text" class="form-input" id="admin-token-input" placeholder="Insurer admin token (ZKTRIDENT_INSURER_ADMIN_TOKEN; not the network operator token)" style="flex: 1;">
+        <input type="password" autocomplete="off" class="form-input" id="admin-token-input" placeholder="Insurer admin token (ZKTRIDENT_INSURER_ADMIN_TOKEN; not the network operator token)" style="flex: 1;">
         <button class="btn btn-sm" id="admin-set-token">Set</button>
       </div>
 
@@ -692,7 +692,7 @@
           <div class="panel-header"><h3>Actions</h3></div>
           <div class="panel-body">
             <div class="form-actions" style="flex-wrap: wrap;">
-              <button class="btn btn-primary" id="admin-force-batch">Force Batch</button>
+              <span class="form-hint">Batches settle on the sequencer's timer. Only the network operator can force one, from the Leviathan dashboard.</span>
             </div>
             <div id="admin-action-result"></div>
           </div>

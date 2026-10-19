@@ -22,6 +22,7 @@
  */
 
 import { API_BASE, fetchJson, truncHash } from './node-common.js';
+import { withOperatorToken } from './interactive/operator-auth.js';
 
 // ============================================================================
 // State
@@ -37,7 +38,7 @@ let refreshTimer = null;
 
 function connectConsole() {
   const output = document.getElementById('console-output');
-  const es = new EventSource(`${API_BASE}/interactive/console`);
+  const es = new EventSource(withOperatorToken(`${API_BASE}/interactive/console`));
 
   es.addEventListener('console', (e) => {
     const event = JSON.parse(e.data);

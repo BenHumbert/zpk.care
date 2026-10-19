@@ -707,6 +707,19 @@ export class NautilusAppServer {
       return;
     }
 
+    // A member node signs what it forwards as the wallet, so its proxy answers only the device itself:
+    // the session issued at unlock, or this node's own admin credential, as for every device-only route.
+    // Before this, any local process or allowed origin could read the member's claims and messages
+    // through this port for as long as the device's state stayed unlocked.
+    if (this.config.role === 'member' && !this.checkDeviceAuth(req)
+      && !(await this.checkNautilusAdminAuth(req, 'POST', '/rpc'))) {
+      this.sendJson(res, 401, {
+        jsonrpc: '2.0', id: null,
+        error: { code: -32001, message: 'This device is locked. Unlock with your PIN to obtain a device session.' },
+      });
+      return;
+    }
+
     try {
       const body = await this.readBody(req);
 

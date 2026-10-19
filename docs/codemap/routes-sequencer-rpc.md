@@ -238,7 +238,7 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 | POST | /viz/entities | ADMIN | JSON array; registry cap 1000 (429) | writes `entityRegistry` | RPC:468-475,2473-2500 |
 | GET | /viz/entities | OPEN (GAP I7) | — | full `VizEntity[]` incl. walletId, displayName, type, group, encryptionPublicKeyHex | RPC:477,2502-2509 |
 | GET | /viz/state | OPEN (GAP I7) | — | {events (whole buffer), entities, nodeRunning, client counts} | RPC:481,2512-2522 |
-| GET | /viz/history | OPEN (GAP I7); ACAO `*` | — | whole viz buffer | RPC:485,2454-2460 |
+| GET | /viz/history | operator or plan (bearer or insurer node key). Was OPEN | — | whole viz buffer (the events /viz/state also returns) | RPC:582-586,2629-2636 |
 | POST | /viz/clear | ADMIN | — | clears viz buffer, resets counter, **clears `entityRegistry`** | RPC:489-496,2463-2470 |
 | any | registered `METHOD:PATH` (engine `/interactive/*` etc.) | ADMIN only if registered with `adminOnly` | `checkAdminAuth` | handler-defined (mapped in the engine code map) | RPC:386-399,498-508 |
 | GET | /<static> | OPEN | `dashboardDir` set; path matches `^[/a-zA-Z0-9._-]+$`, no `..`, resolved path startsWith dashboardDir; `/`→`index.html`; mime by extension | file bytes (dashboard-leviathan/) | RPC:512-540; LEV:115-116 |

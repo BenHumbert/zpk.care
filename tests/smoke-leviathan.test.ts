@@ -493,7 +493,7 @@ describe('Smoke — L2Node + 4 Nautilus Apps (HTTP routes)', () => {
   // ── Phase 8: Insurer system queries ───────────────────
 
   test('P8 — insurer can query receipts', async () => {
-    const result = await get(insurerPort, '/receipts/all');
+    const result = await get(insurerPort, '/receipts/all', { Authorization: `Bearer ${TEST_ADMIN_TOKEN}` });
     expect(result.status).toBe(200);
     expect((result.body as any).ok).toBe(true);
     expect((result.body as any).data).toEqual([]);
@@ -506,7 +506,7 @@ describe('Smoke — L2Node + 4 Nautilus Apps (HTTP routes)', () => {
   });
 
   test('P8 — insurer can query audit log', async () => {
-    const result = await get(insurerPort, '/audit/log');
+    const result = await get(insurerPort, '/audit/log', { Authorization: `Bearer ${TEST_ADMIN_TOKEN}` });
     expect(result.status).toBe(200);
     expect((result.body as any).ok).toBe(true);
   });
@@ -669,7 +669,7 @@ describe('Smoke — L2Node + 4 Nautilus Apps (HTTP routes)', () => {
   });
 
   test('P16 — insurer can see all 3 receipts', async () => {
-    const result = await get(insurerPort, '/receipts/all');
+    const result = await get(insurerPort, '/receipts/all', { Authorization: `Bearer ${TEST_ADMIN_TOKEN}` });
     expect(result.status).toBe(200);
     const receipts = (result.body as any).data;
     expect(receipts).toHaveLength(3);
@@ -679,7 +679,7 @@ describe('Smoke — L2Node + 4 Nautilus Apps (HTTP routes)', () => {
   });
 
   test('P16 — audit log has 3 events', async () => {
-    const result = await get(insurerPort, '/audit/log');
+    const result = await get(insurerPort, '/audit/log', { Authorization: `Bearer ${TEST_ADMIN_TOKEN}` });
     expect(result.status).toBe(200);
     const log = (result.body as any).data;
     expect(log.events).toHaveLength(3);

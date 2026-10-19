@@ -55,3 +55,11 @@ tests/reversal-ledger.test.ts
 tests/ledger-lifecycle-gate.test.ts
 tests/provider-index-refusal.test.ts
 tests/fixture-identities.test.ts
+tests/nfc-scan-verify.test.ts
+tests/pharmacy-dur-tap.test.ts
+tests/pharmacy-fill-flow.test.ts
+tests/member-node-gates.test.ts
+tests/member-dashboard-screens.test.ts
+tests/screens-insurer-employer-marketplace.test.ts
+tests/prescriber-proof-labels.test.ts
+tests/l2-client-rpc-ids.test.ts

@@ -1109,7 +1109,7 @@
   function renderAppActions(a) {
     var id = a.applicationId;
     var hasDoc = !!a.cp575DocumentId;
-    var reviewLink = hasDoc ? '<a href="/marketplace/api/document/' + esc(id) + '" target="_blank" class="btn btn-sm" style="margin-right:4px" title="Review uploaded CP 575">Review PDF</a>' : '';
+    var reviewLink = hasDoc ? '<button class="btn btn-sm" style="margin-right:4px" title="Review uploaded CP 575" onclick="App.reviewDoc(\'' + esc(id) + '\')">Review PDF</button>' : '';
 
     if (a.status === 'submitted' || a.status === 'under_review' || a.status === 'needs_documents') {
       if (hasDoc) {
@@ -1160,6 +1160,20 @@
       toast('Documents requested from employer', 'success');
       loadMarketplaceApplications();
     } catch (e) { toast('Request failed: ' + e.message, 'error'); }
+  }
+
+  // The document route is admin-only, so the PDF is fetched with the token and opened from memory.
+  async function reviewDoc(appId) {
+    var win = window.open('', '_blank'); // opened inside the click, so the popup blocker allows it
+    try {
+      var blob = await API.getEmployerDocument(appId);
+      var url = URL.createObjectURL(blob);
+      if (win) win.location.href = url; else window.open(url, '_blank');
+      setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+    } catch (e) {
+      if (win) win.close();
+      toast('Could not open the CP 575: ' + e.message, 'error');
+    }
   }
 
   async function loadRosterData() {
@@ -2118,6 +2132,7 @@
     approveApp: approveApp,
     denyApp: denyApp,
     requestDocs: requestDocs,
+    reviewDoc: reviewDoc,
     suspendProvider: async function (wid) {
       if (!confirm('Suspend provider ' + wid.slice(0, 16) + '...?')) return;
       try { await API.suspendProvider(wid); toast('Provider suspended', 'success'); loadProviderRegistry(); }

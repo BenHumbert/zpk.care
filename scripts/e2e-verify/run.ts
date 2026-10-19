@@ -402,8 +402,12 @@ async function main() {
   if (reg.status === 504) trace.note('registration proof outlasted the 30 s HTTP timeout; polling receipts');
   const regDone = await poll(quiet, `${MEM}/onboarding/status`, () => true, 1, 1);
   for (let t = Date.now(); Date.now() - t < 900_000;) {
-    const rr = await quiet('POST', `${SEQ}/rpc`, { jsonrpc: '2.0', id: 1, method: 'l2_getReceiptsByWallet', params: { walletId } });
-    const lst = (l2Parse(rr.text) as any)?.result;
+    // D1: receipts are the member's data. The bare client was refused on every poll, so this loop always
+    // ran its full 900 s; the operator's token reads them, and a refusal ends the wait instead of hiding in it.
+    const rr = await quietAdmin('POST', `${SEQ}/rpc`, { jsonrpc: '2.0', id: 1, method: 'l2_getReceiptsByWallet', params: { walletId } });
+    const parsed = l2Parse(rr.text) as any;
+    if (parsed?.error?.code === -32003 || parsed?.error?.code === -32004) { trace.note(`receipt poll refused: ${parsed.error.message}`); break; }
+    const lst = parsed?.result;
     if ((lst?.receipts ?? lst ?? []).length > 0) break;
     await sleep(5000);
   }
@@ -977,7 +981,7 @@ async function main() {
   sources.push(['sequencer /interactive/state', (await http('GET', `${SEQ}/interactive/state`)).text]);
   for (const m of ['l2_getClaimsByMember', 'l2_getReceiptsByWallet', 'l2_getMessagesByWallet']) sources.push([`sequencer RPC ${m}`, jsonSafe((await rpc(m, { walletId }, false)).result ?? '')]);
   sources.push(['sequencer RPC l2_getAuditLog', jsonSafe((await rpc('l2_getAuditLog', {})).result ?? '')]);
-  sources.push(['insurer /claims/member', (await http('GET', `${INS}/claims/member/${walletId}`)).text]);
+  sources.push(['insurer /claims/member', (await insAdmin('GET', `/claims/member/${walletId}`)).text]);
   sources.push(['insurer /roster', (await insAdmin('GET', '/roster')).text]);
   const walk = (dir: string, label: string) => {
     if (!fs.existsSync(dir)) return;

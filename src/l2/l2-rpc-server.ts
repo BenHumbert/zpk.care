@@ -547,7 +547,7 @@ export class L2RpcServer {
 
     // ── Viz Endpoints ──
     // The writes need an admin credential (A9: operator bearer or a role that covers them); so do the entity list, the
-    // state and the event stream, which name wallets (D1, D2). The history stays open.
+    // state, the event stream and the history (the state's own event list), which name wallets (D1, D2).
     if (pathname === '/viz/emit' && req.method === 'POST') {
       const decision = await this.authorizeRoute(req, pathname);
       if (!decision.ok) return L2RpcServer.denyRoute(res, decision);
@@ -580,6 +580,8 @@ export class L2RpcServer {
     }
 
     if (pathname === '/viz/history' && req.method === 'GET') {
+      const decision = await this.authorizeRoute(req, pathname);
+      if (!decision.ok) return L2RpcServer.denyRoute(res, decision);
       return this.handleVizHistory(res);
     }
 
@@ -595,9 +597,10 @@ export class L2RpcServer {
     const routeBudget = customHandler ? this.routeBudgets.get(routeKey) : undefined;
     if (routeBudget && !isSSE) armBudget(routeBudget);
     if (customHandler) {
-      // Admin gate for routes registered with adminOnly (the engine's privileged routes)
+      // Admin gate for routes registered with adminOnly (the engine's privileged routes). A stream among them
+      // (the engine console) takes the stream gate, so a browser's EventSource may carry the token in ?token=.
       if (this.adminGatedRoutes.has(routeKey)) {
-        const decision = await this.authorizeRoute(req, pathname);
+        const decision = isSSE ? this.authorizeStream(req, url, pathname) : await this.authorizeRoute(req, pathname);
         if (!decision.ok) return L2RpcServer.denyRoute(res, decision);
       }
       // Wallet gate (B2): a route that acts for a wallet takes only that wallet's own signature

@@ -103,7 +103,7 @@ const API = (() => {
   // ---- Receipts ----
   function getReceipts(limit, offset) {
     const q = '?limit=' + (limit || 100) + '&offset=' + (offset || 0);
-    return request('GET', '/receipts/all' + q);
+    return request('GET', '/receipts/all' + q, undefined, true);
   }
 
   // ---- Batches ----
@@ -115,7 +115,7 @@ const API = (() => {
   // ---- Audit ----
   function getAuditLog(limit, offset) {
     const q = '?limit=' + (limit || 200) + '&offset=' + (offset || 0);
-    return request('GET', '/audit/log' + q);
+    return request('GET', '/audit/log' + q, undefined, true);
   }
 
   function getChainProof() { return request('GET', '/chain-proof'); }
@@ -125,7 +125,7 @@ const API = (() => {
   function detectDuplicateClaims() { return request('GET', '/audit/duplicate-claims'); }
 
   // ---- Entity-filtered claims ----
-  function getMemberClaims(walletId) { return request('GET', '/claims/member/' + encodeURIComponent(walletId)); }
+  function getMemberClaims(walletId) { return request('GET', '/claims/member/' + encodeURIComponent(walletId), undefined, true); }
   function getPrescriberClaims(walletId) { return request('GET', '/claims/prescriber/' + encodeURIComponent(walletId)); }
   function getPharmacyClaims(walletId) { return request('GET', '/claims/pharmacy/' + encodeURIComponent(walletId)); }
   function getDrugClaims(ndcHash) { return request('GET', '/claims/drug/' + encodeURIComponent(ndcHash)); }
@@ -139,7 +139,7 @@ const API = (() => {
     if (groupId) q.push('groupId=' + encodeURIComponent(groupId));
     if (role) q.push('role=' + encodeURIComponent(role));
     var qs = q.length ? '?' + q.join('&') : '';
-    return request('GET', '/roster' + qs);
+    return request('GET', '/roster' + qs, undefined, true);
   }
 
   function registerRoster(walletId, role, groupId, employerId) {
@@ -264,6 +264,22 @@ const API = (() => {
   async function denyEmployerApplication(appId, reason) {
     return request('POST', '/employer-applications/' + encodeURIComponent(appId) + '/deny', { reason: reason }, true);
   }
+  /*
+   * The uploaded CP 575 is served admin-only (marketplace-routes.ts), so a plain link gets a 401.
+   * Fetch it with the token. The type is fixed to PDF, so the browser can never render the
+   * employer's upload as a page of this origin.
+   */
+  async function getEmployerDocument(appId) {
+    const res = await fetch(baseUrl + '/marketplace/api/document/' + encodeURIComponent(appId), { headers: headers(true) });
+    if (!res.ok) {
+      let msg = 'HTTP ' + res.status;
+      try { const j = await res.json(); if (j && j.error != null) msg = errMsg(j.error); } catch (_) {}
+      const err = new Error(msg);
+      err.status = res.status;
+      throw err;
+    }
+    return new Blob([await res.arrayBuffer()], { type: 'application/pdf' });
+  }
   async function requestEmployerDocuments(appId) {
     return request('POST', '/employer-applications/' + encodeURIComponent(appId) + '/request-documents', {}, true);
   }
@@ -285,7 +301,7 @@ const API = (() => {
     getPlans, getPlan, createPlan, updatePlan, deletePlan, publishPlan,
     getFormulary, publishFormulary,
     getMessagesByWallet, getMessagesByThread, getMessageStoreStatus,
-    getEmployerApplications, approveEmployerApplication, denyEmployerApplication, requestEmployerDocuments,
+    getEmployerApplications, approveEmployerApplication, denyEmployerApplication, requestEmployerDocuments, getEmployerDocument,
     connectSSE, disconnectSSE, onConnectionChange, checkConnection,
   };
 })();

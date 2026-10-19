@@ -443,14 +443,13 @@
         return;
       }
       el.innerHTML = '<div class="table-wrap"><table class="data-table"><thead><tr>' +
-        '<th>Employee ID Hash</th><th>Group ID</th><th>Wallet ID</th><th>Status</th><th>Enrolled</th><th>Actions</th></tr></thead><tbody>' +
+        '<th>Employee ID Hash</th><th>Group Hash</th><th>Status</th><th>Enrolled</th><th>Actions</th></tr></thead><tbody>' +
         entries.map(r => {
           const eHash = r.employeeIdHash || r.id || '--';
           const st = r.status || r.state || 'pending';
           const bc = st === 'enrolled' ? 'green' : st === 'terminated' ? 'red' : 'yellow';
           return '<tr><td class="mono truncate" title="' + esc(eHash) + '">' + esc(truncHash(eHash, 16)) + '</td>' +
-            '<td class="mono">' + esc(r.groupId || '--') + '</td>' +
-            '<td class="mono truncate" title="' + esc(r.consumedByWalletId || r.walletId || '') + '">' + esc(truncHash(r.consumedByWalletId || r.walletId, 16)) + '</td>' +
+            '<td class="mono truncate" title="' + esc(r.groupIdHash || '') + '">' + esc(truncHash(r.groupIdHash, 16)) + '</td>' +
             '<td><span class="badge ' + bc + '">' + esc(st) + '</span></td>' +
             '<td>' + esc(fmtDateShort(r.enrolledAt || r.enrollmentDate || r.consumedAt || r.createdAt)) + '</td>' +
             '<td class="actions-cell">' +

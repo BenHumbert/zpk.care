@@ -17,7 +17,7 @@ const BLUR = 'filter:blur(6px)!important;';
 
 export const MASKS = Object.freeze({
   insurer: `#admin-token-input{${MASK}}`,
-  marketplace: `#activate-content code{${REDACT}} #sign-appid{${MASK}}`,
+  marketplace: `#activate-content code{${REDACT}} #activation-code{${REDACT}} #sign-appid{${MASK}}`,
   employer: `#admin-token-input{${MASK}}`,
   hrtool: `#setup-token,#setup-passphrase,#setup-confirm,#unlock-passphrase,#reveal-passphrase{${MASK}}`
     + ` #csv-results-panel .table-wrap td,#codes-table td,#pins-table td{${REDACT}}`,

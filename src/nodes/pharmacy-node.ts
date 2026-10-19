@@ -247,8 +247,14 @@ export class PharmacyNode extends EntityNodeBase {
     memberWalletId: string,
     memberAttestation?: Record<string, unknown>,
   ): Promise<EntityClaimView[]> {
-    const views = await this.getPatientFullDrugHistory(memberWalletId, memberAttestation);
+    return PharmacyNode.activeMedicationsOf(await this.getPatientFullDrugHistory(memberWalletId, memberAttestation));
+  }
 
+  /**
+   * The active medications in a history already read: the latest fill of each NDC with more fills than
+   * reversals. /nfc/scan reads the history once and derives these from the same rows.
+   */
+  static activeMedicationsOf(views: EntityClaimView[]): EntityClaimView[] {
     // Count fills and reversals per NDC
     const ndcCounts = new Map<string, { fills: number; reversals: number; latestFill: EntityClaimView | null }>();
     for (const v of views) {

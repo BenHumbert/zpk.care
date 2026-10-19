@@ -21,6 +21,8 @@
  * compilation progress, proof generation timing, and enrollment steps.
  */
 
+import { withOperatorToken } from './operator-auth.js';
+
 const API_BASE = 'http://127.0.0.1:3030';
 
 export class ConsolePanel {
@@ -63,7 +65,7 @@ export class ConsolePanel {
   }
 
   connect() {
-    this.eventSource = new EventSource(`${API_BASE}/interactive/console`);
+    this.eventSource = new EventSource(withOperatorToken(`${API_BASE}/interactive/console`));
 
     this.eventSource.addEventListener('console', (e) => {
       const event = JSON.parse(e.data);

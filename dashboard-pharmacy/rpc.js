@@ -31,10 +31,10 @@ function errMsg(e) {
   try { return JSON.stringify(e); } catch (_) { return String(e); }
 }
 
-async function request(method, path, body) {
+async function request(method, path, body, headers) {
   const opts = {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
   };
   if (body !== undefined && method !== 'GET') {
     opts.body = JSON.stringify(body);
@@ -77,7 +77,16 @@ function stripBigints(obj) {
   return obj;
 }
 
-function get(path) { return request('GET', path); }
+function get(path, headers) { return request('GET', path, undefined, headers); }
+
+// D1: the member's attestation from the last scan this node verified. Kept in memory only, never in
+// browser storage. The DUR reads present it as X-Member-Attestation, and only for the wallet it names.
+let lastTap = null;
+function tapHeader(memberWalletId) {
+  return lastTap && lastTap.w === memberWalletId
+    ? { 'X-Member-Attestation': btoa(JSON.stringify(lastTap)) }
+    : undefined;
+}
 function post(path, body) { return request('POST', path, body); }
 
 // ── SSE Connection ────────────────────────────────────────────
@@ -254,13 +263,13 @@ const API = {
   // ── DUR (Drug Utilization Review) ──────────────────────────
   dur: {
     fullHistory(memberWalletId) {
-      return get('/dur/patient/' + encodeURIComponent(memberWalletId) + '/full-history');
+      return get('/dur/patient/' + encodeURIComponent(memberWalletId) + '/full-history', tapHeader(memberWalletId));
     },
     activeMedications(memberWalletId) {
-      return get('/dur/patient/' + encodeURIComponent(memberWalletId) + '/active-medications');
+      return get('/dur/patient/' + encodeURIComponent(memberWalletId) + '/active-medications', tapHeader(memberWalletId));
     },
     checkDuplicate(memberWalletId, ndcHash) {
-      return get('/dur/patient/' + encodeURIComponent(memberWalletId) + '/check/' + encodeURIComponent(ndcHash));
+      return get('/dur/patient/' + encodeURIComponent(memberWalletId) + '/check/' + encodeURIComponent(ndcHash), tapHeader(memberWalletId));
     },
     claimDetail(leafIndex) {
       return get('/dur/claim/' + encodeURIComponent(leafIndex));
@@ -285,9 +294,15 @@ const API = {
 
   // ── NFC ────────────────────────────────────────────────────
   nfc: {
-    scan(params) {
-      // params: { walletId?, payload?, payloadObject?, payloadBase64? }
-      return post('/nfc/scan', params);
+    async scan(params) {
+      // params: { attestation?, walletId?, payload?, payloadObject?, payloadBase64? }
+      lastTap = null;
+      const result = await post('/nfc/scan', params);
+      // Keep the tap only once this node has verified it against the sequencer's pinned key.
+      if (result && result.attestationVerified && params && params.attestation && params.attestation.w === result.walletId) {
+        lastTap = params.attestation;
+      }
+      return result;
     },
   },
 

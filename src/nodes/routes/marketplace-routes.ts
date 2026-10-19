@@ -390,6 +390,8 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
         submittedAt: app.submittedAt,
         approvedAt: app.approvedAt || null,
         denialReason: app.denialReason || null,
+        // Whether an IRS letter is on file, so the employer's screen offers the upload only until one is.
+        documentUploaded: !!app.cp575DocumentId,
       });
     },
   });

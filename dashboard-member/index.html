@@ -54,15 +54,28 @@
        ═══════════════════════════════════════════════════════ -->
   <div id="restore-screen" class="screen hidden">
     <div class="restore-container">
-      <h2>Restore from Backup</h2>
-      <p class="text-muted">Paste your recovery card JSON or scan a QR code to restore your wallet.</p>
-      <textarea class="form-input mono" id="restore-json" rows="6" placeholder='{"version":2,"walletId":"...","salt":"...","iv":"...","encryptedKey":"..."}'></textarea>
-      <div class="form-group" style="margin-top:12px">
-        <label>PIN (used during backup)</label>
-        <input type="password" class="form-input" id="restore-pin" placeholder="Enter your backup PIN">
+      <h2>Recover with a Recovery Card</h2>
+      <p class="text-muted">A card holds half of your key. The insurer releases the other half only for your recovery PIN, and your details re-derive the same wallet on this device. Nothing is kept in this browser.</p>
+      <div class="form-group">
+        <label>Device PIN (choose one on a new device)</label>
+        <input type="password" class="form-input mono" id="restore-device-pin" placeholder="Protects this device">
       </div>
+      <div class="form-group">
+        <label>Confirm device PIN</label>
+        <input type="password" class="form-input mono" id="restore-device-pin-confirm" placeholder="Confirm device PIN">
+      </div>
+      <label>Recovery card (the text on one of your two cards)</label>
+      <textarea class="form-input mono" id="restore-json" rows="3" autocomplete="off" spellcheck="false" placeholder='{"v":3,"id":"...","s":"..."}'></textarea>
+      <div class="form-group" style="margin-top:12px">
+        <label>Recovery PIN (chosen when you enrolled)</label>
+        <input type="password" class="form-input" id="restore-pin" placeholder="Recovery PIN">
+      </div>
+      <div class="form-group"><label>Cardholder ID</label><input class="form-input" id="restore-cid" autocomplete="off"></div>
+      <div class="form-group"><label>First Name</label><input class="form-input" id="restore-fn" autocomplete="off"></div>
+      <div class="form-group"><label>Last Name</label><input class="form-input" id="restore-ln" autocomplete="off"></div>
+      <div class="form-group"><label>Date of Birth (CCYYMMDD)</label><input class="form-input" id="restore-dob" placeholder="19900115" autocomplete="off"></div>
       <div class="form-actions" style="margin-top:16px">
-        <button class="btn btn-primary" id="restore-submit-btn">Restore Wallet</button>
+        <button class="btn btn-primary" id="restore-submit-btn">Recover Wallet</button>
         <button class="btn" id="restore-back-btn">Back</button>
       </div>
       <div id="restore-result"></div>
@@ -264,26 +277,6 @@
       <!-- BACKUP -->
       <section id="page-backup" class="page hidden">
         <div class="panel">
-          <div class="panel-header"><span class="panel-title">Recovery Backup</span></div>
-          <div class="panel-body">
-            <p class="text-muted" style="margin-bottom:16px">
-              Create an encrypted backup of your enrollment key. You'll need the PIN to restore.
-              On Android, this can be written to an NFC tag. On web, export as JSON to print or save securely.
-            </p>
-            <div class="form-group">
-              <label>Create PIN (6+ digits)</label>
-              <input type="password" class="form-input" id="backup-pin" placeholder="Enter a PIN" minlength="6">
-            </div>
-            <div class="form-group">
-              <label>Confirm PIN</label>
-              <input type="password" class="form-input" id="backup-pin-confirm" placeholder="Confirm PIN">
-            </div>
-            <button class="btn btn-primary" id="backup-create-btn">Generate Backup</button>
-            <div id="backup-result" style="margin-top:16px"></div>
-          </div>
-        </div>
-
-        <div class="panel">
           <div class="panel-header"><span class="panel-title">NFC Credential</span></div>
           <div class="panel-body">
             <p class="text-muted" style="margin-bottom:12px">
@@ -292,7 +285,8 @@
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <button class="btn btn-primary" id="attestation-btn">Request Attestation</button>
               <button class="btn" id="credential-copy-btn" disabled title="Request attestation first">Copy Attestation</button>
-              <button class="btn" id="nfc-write-btn" disabled title="Request attestation first">Write to NFC</button>
+              <!-- Hidden: writing a tag needs the operator's NFC bridge route, which the member app cannot call. -->
+              <button class="btn" id="nfc-write-btn" style="display:none" disabled title="Request attestation first">Write to NFC</button>
               <button class="btn" id="credential-download-btn" disabled title="Request attestation first">Download Credential</button>
             </div>
             <div id="attestation-result" style="margin-top:12px"></div>

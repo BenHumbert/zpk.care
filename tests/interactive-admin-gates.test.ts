@@ -126,7 +126,7 @@ describe('the routes A11 closes are admin-gated', () => {
   });
 });
 
-describe('the routes that stay open are the ones a dashboard polls', () => {
+describe('the console stream is gated, and the set has not been emptied', () => {
   let src: string;
   let admin: Set<string>;
 
@@ -135,9 +135,13 @@ describe('the routes that stay open are the ones a dashboard polls', () => {
     admin = adminRouteSet(src);
   });
 
-  test('the console stream stays open, because it carries no member data', () => {
-    // Deliberately not gated: it is a log tail for the operator console.
-    expect(admin.has('/interactive/console')).toBe(false);
+  test('the console stream requires admin: it prints display names beside wallet ID prefixes', () => {
+    // The operator's log tail. The sequencer sends it through its stream gate, so a browser may use ?token=.
+    expect(admin.has('/interactive/console')).toBe(true);
+    // The visualizer opens it with the operator's token in the query, since an EventSource sends no header.
+    for (const f of ['visualizer/src/js/interactive/console-panel.js', 'visualizer/src/js/sequencer-dashboard.js']) {
+      expect([f, fs.readFileSync(f, 'utf-8').includes('new EventSource(withOperatorToken(`${API_BASE}/interactive/console`))')]).toEqual([f, true]);
+    }
   });
 
   test('a meaningful number of routes are gated, so the set has not been emptied', () => {
@@ -156,6 +160,18 @@ describe('the harness probes the dump unauthenticated on purpose', () => {
     expect(sweepLine).toBeDefined();
     expect(sweepLine).toContain("http('GET'");
     expect(sweepLine).not.toContain('httpAdmin');
+  });
+
+  test('the registration wait in run.ts reads receipts with the operator token, so it ends once the receipt exists (D1)', () => {
+    // Bookkeeping, like the reads A11 moved to the admin client. The bare client is refused on every
+    // poll since D1, which made this wait run its full 900 s.
+    const run = fs.readFileSync('scripts/e2e-verify/run.ts', 'utf-8');
+    const pollLine = run.split('\n').find((l) => l.includes("method: 'l2_getReceiptsByWallet', params: { walletId } }"));
+    expect(pollLine).toBeDefined();
+    expect(pollLine).toContain("quietAdmin('POST'");
+    // run-multi.ts already sends the token for the same wait (auth = true)
+    const multi = fs.readFileSync('scripts/e2e-verify/run-multi.ts', 'utf-8');
+    expect(multi).toContain("rpc('l2_getReceiptsByWallet', { walletId }, quiet, true)");
   });
 
   test('the containment check also probes it without credentials', () => {

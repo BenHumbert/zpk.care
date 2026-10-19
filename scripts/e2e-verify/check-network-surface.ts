@@ -214,6 +214,9 @@ async function main(): Promise<void> {
         record(port, 'proxy serves its page', 'fail', allowed.error.slice(0, 60));
       } else if (allowed.status === 200) {
         record(port, 'proxy serves its page', 'pass', 'l2_getStatus forwarded');
+      } else if (allowed.status === 401 && port === 4001) {
+        // The member node's proxy answers only its own device session, which this probe does not hold.
+        record(port, 'proxy serves its page', 'pass', 'member proxy refuses a caller with no device session');
       } else if (allowed.status === 404) {
         record(port, 'proxy serves its page', 'skip', 'proxy disabled on this node');
       } else {
@@ -225,7 +228,7 @@ async function main(): Promise<void> {
       const denied = await rpc('l2_deletePlan');
       if ('error' in denied) {
         record(port, 'proxy refuses the rest', 'pass', denied.error.slice(0, 60));
-      } else if (denied.status === 403 || denied.status === 404) {
+      } else if (denied.status === 403 || denied.status === 404 || (denied.status === 401 && port === 4001)) {
         record(port, 'proxy refuses the rest', 'pass',
           'l2_deletePlan refused with ' + denied.status);
       } else {

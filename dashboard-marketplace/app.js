@@ -45,6 +45,12 @@
   var claimSecret = sessionStorage.getItem('zkmp_claimSecret') || '';
   var keypair = null; // { publicKeyHex, privateKey (CryptoKey) } — NOT persisted (CryptoKey is non-exportable)
   var agreementData = null; // { terms, commitment, documentHash, canonicalMessage }
+  /*
+   * The activation code from submission, shown once on the Agreement screen (it was a native alert(),
+   * which a recording cannot show). Memory only: it goes when the employer says it is saved or the page
+   * reloads. The secret half is already kept in sessionStorage (claimSecret, above).
+   */
+  var pendingActivationCode = '';
 
   function persistState() {
     if (applicationId) {
@@ -399,15 +405,7 @@
       claimSecret = code.indexOf('.') >= 0 ? code.slice(code.indexOf('.') + 1) : '';
       persistState();
 
-      if (code) {
-        alert([
-          'Save your activation code now. It is shown once and cannot be recovered.',
-          '',
-          code,
-          '',
-          'You will need it to collect your administrator credentials after provisioning.',
-        ].join(String.fromCharCode(10)));
-      }
+      pendingActivationCode = code; // shown on the Agreement screen until saved (activationCodeCard)
       toast('Application submitted! ID: ' + applicationId, 'success');
       status.textContent = '';
       navigate('sign');
@@ -417,6 +415,30 @@
     } finally {
       btn.disabled = false;
     }
+  }
+
+  function activationCodeCard() {
+    if (!pendingActivationCode) return '';
+    return '<div class="card" id="activation-code-card" style="margin-bottom:20px"><div class="card-header"><div class="card-title">Save Your Activation Code</div></div><div class="card-body">' +
+      '<div>It is shown once and cannot be recovered. You will need it to collect your administrator credentials after provisioning.</div>' +
+      '<code id="activation-code" style="display:block;background:var(--bg-secondary);padding:12px;border-radius:4px;margin:12px 0;word-break:break-all;user-select:all">' + esc(pendingActivationCode) + '</code>' +
+      '<div class="form-actions"><button class="btn" id="btn-copy-code">Copy Code</button><button class="btn btn-primary" id="btn-code-saved">I Have Saved It</button></div>' +
+      '</div></div>';
+  }
+
+  function wireActivationCodeCard() {
+    var copyBtn = document.getElementById('btn-copy-code');
+    if (copyBtn) copyBtn.onclick = function() {
+      (navigator.clipboard ? navigator.clipboard.writeText(pendingActivationCode) : Promise.reject(new Error('no clipboard'))).then(
+        function() { toast('Activation code copied', 'success'); },
+        function() { toast('Copy failed. Select the code and copy it by hand.', 'error'); });
+    };
+    var savedBtn = document.getElementById('btn-code-saved');
+    if (savedBtn) savedBtn.onclick = function() {
+      pendingActivationCode = '';
+      var card = document.getElementById('activation-code-card');
+      if (card) card.remove();
+    };
   }
 
   function v(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; }
@@ -473,14 +495,15 @@
       return;
     }
 
-    app.innerHTML += '<div id="sign-content">' + loading() + '</div>';
+    app.innerHTML += activationCodeCard() + '<div id="sign-content">' + loading() + '</div>';
+    wireActivationCodeCard();
 
     try {
       var status = await api('GET', '/marketplace/api/status/' + encodeURIComponent(applicationId));
       applicationStatus = status.status;
       persistState();
 
-      if (status.status === 'submitted' || status.status === 'under_review') {
+      if ((status.status === 'submitted' || status.status === 'under_review') && status.documentUploaded) {
         document.getElementById('sign-content').innerHTML =
           '<div class="card"><div class="card-body" style="text-align:center;padding:48px">' +
           '<div class="badge badge-yellow" style="font-size:14px;padding:6px 16px;margin-bottom:16px">' + esc(status.status) + '</div>' +
@@ -491,7 +514,9 @@
         return;
       }
 
-      if (status.status === 'needs_documents') {
+      // The insurer cannot approve without the IRS letter, and the server takes it from submission on
+      // (upload-document accepts submitted, under_review and needs_documents), so ask until one is on file.
+      if (status.status === 'needs_documents' || status.status === 'submitted' || status.status === 'under_review') {
         document.getElementById('sign-content').innerHTML =
           '<div class="card"><div class="card-body" style="text-align:center;padding:48px">' +
           '<div class="badge badge-yellow" style="font-size:14px;padding:6px 16px;margin-bottom:16px">Documents Required</div>' +
@@ -652,17 +677,30 @@
     var regenBtn = document.getElementById('btn-regen-key');
     if (regenBtn) regenBtn.onclick = async function() {
       try {
+        // The rekey route needs the activation secret (A8). This tab keeps it in sessionStorage;
+        // if the tab was closed, ask for the code (the whole code or the part after the dot).
+        var secret = claimSecret;
+        if (!secret) {
+          secret = (prompt('Enter your activation code to register a new signing key:') || '').trim();
+          if (secret.indexOf('.') >= 0) secret = secret.slice(secret.indexOf('.') + 1);
+        }
+        if (!secret) throw new Error('An activation code is required to register a new key.');
         keypair = await regenerateKeypair();
         // Auto-rekey: update the public key on the application so signature verification works
         await api('POST', '/employer-applications/' + encodeURIComponent(applicationId) + '/rekey', {
           publicKeyHex: keypair.publicKeyHex,
+          claimSecret: secret,
         });
+        // The code worked: keep it for collecting the credentials after activation.
+        if (!claimSecret) { claimSecret = secret; persistState(); }
         toast('New key generated and registered.', 'success');
         // Phase 1.1: Call renderSign() (not renderAgreement()) so the agreement is refetched
         // from the server — this repopulates the backend agreementCache which /rekey deleted.
         renderSign();
       } catch (e) {
-        toast('Key regenerated but rekey failed: ' + e.message + '. Ask insurer admin to rekey manually.', 'error');
+        // The server still holds the old public key, so a key it never accepted must not enable Sign.
+        keypair = null;
+        toast('The new key was not registered: ' + e.message, 'error');
         renderSign();
       }
     };
@@ -731,10 +769,10 @@
       '<div id="activate-content">' + loading() + '</div>';
 
     // The activate screen may take 10-90 seconds (child process spawn + ZK
-    // attestation load + HR Tool boot). The backend returns 202 immediately
+    // attestation load; since A7 no HR Tool is started here). The backend returns 202 immediately
     // with a jobKey and we poll /activate-status/:jobKey every 2s until done.
     document.getElementById('activate-content').innerHTML =
-      '<div class="info-banner info" id="activate-progress">Provisioning your employer node and HR Tool... this takes up to a minute.</div>' +
+      '<div class="info-banner info" id="activate-progress">Provisioning your employer node... this takes up to a minute.</div>' +
       '<div class="spinner" style="margin:24px auto;width:40px;height:40px"></div>';
 
     try {
@@ -759,7 +797,7 @@
         // pending — update progress message
         if (progressEl) {
           var secs = Math.floor((status.elapsedMs || 0) / 1000);
-          progressEl.textContent = 'Provisioning your employer node and HR Tool... (' + secs + 's)';
+          progressEl.textContent = 'Provisioning your employer node... (' + secs + 's)';
         }
       }
       if (!config) throw new Error('Activation timed out after 120 seconds');
@@ -829,8 +867,9 @@
 
         '<div class="card" style="margin-bottom:20px"><div class="card-header"><div class="card-title">Next Steps</div></div><div class="card-body">' +
         '<ol style="padding-left:20px;line-height:2">' +
-          '<li>Click <strong>Open HR Tool</strong> above and enter the admin token</li>' +
-          '<li>Create a group for your first cohort of employees</li>' +
+          '<li>Click <strong>Open Employer Dashboard</strong> above and enter the admin token on its Admin tab</li>' +
+          '<li>Create a group for your first cohort of employees in the Employer Dashboard</li>' +
+          '<li>On your HR administrator\'s machine, start the HR Tool and set it up as described above</li>' +
           '<li>Import your employee roster via CSV (PII stays on your machine)</li>' +
           '<li>Download enrollment codes (portal) and PINs (SMS) as CSV files</li>' +
           '<li>Distribute codes and PINs to employees via separate channels</li>' +

@@ -86,9 +86,10 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
         signal: AbortSignal.timeout(10_000),
       });
       const json = await resp.json() as { result?: unknown };
-      const key = typeof json.result === 'string'
-        ? json.result
-        : (json.result as { publicKeyHex?: string } | null)?.publicKeyHex;
+      // The sequencer answers { publicKey } (l2_getAttestationPublicKey in l2-rpc-server.ts); a bare string or
+      // { publicKeyHex } is accepted too. Reading only publicKeyHex pinned nothing, so every scan was refused.
+      const r = json.result as { publicKey?: unknown; publicKeyHex?: unknown } | string | null | undefined;
+      const key = typeof r === 'string' ? r : (r?.publicKey ?? r?.publicKeyHex);
       if (typeof key === 'string' && key.length === 64) {
         trustedAttestationKey = key;
         console.log('  [pharmacy] pinned the sequencer attestation key %s…', key.slice(0, 12));
@@ -527,7 +528,8 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
           body: JSON.stringify({ prescriptionId: b.prescriptionId }),
         });
         const result = await resp.json();
-        server.sendResponse(res, resp.ok ? 200 : 400, resp.ok, result);
+        // A refused fill says why (the engine answers { error }), so the dashboard can show it and leave the script in place.
+        server.sendResponse(res, resp.ok ? 200 : 400, resp.ok, result, resp.ok ? undefined : String((result as { error?: unknown } | null)?.error ?? `HTTP ${resp.status}`));
       } catch (err: any) {
         server.sendResponse(res, 502, false, undefined, err.message);
       }
@@ -1043,26 +1045,36 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
           'Invalid or missing NFC payload. Provide attestation, payload (JSON string), payloadObject, payloadBase64, or walletId.');
       }
 
-      // One-shot patient lookup: active medications + claim count + latest claims
-      const [activeMeds, fullHistory] = await Promise.all([
-        node.getPatientActiveMedications(walletId),
-        node.getPatientFullDrugHistory(walletId),
-      ]);
+      // D1: a member's drug history answers the member's tapped attestation, verified above against the pinned
+      // key. A wallet ID alone (typed, a v1 member-id tag, or its QR) verifies no one, so it gets no history, not
+      // even this pharmacy's own rows: a 200 from this route is what "verified" means to the counter.
+      const tapped = attestationResult?.attestation;
+      if (!tapped) {
+        return server.sendResponse(res, 403, false, undefined,
+          "A wallet ID alone verifies no one: scan the member's attestation (the NFC tap, or the credential the member's app copies)");
+      }
 
-      server.sendResponse(res, 200, true, {
-        walletId,
-        activeMedications: activeMeds,
-        activeMedicationCount: Array.isArray(activeMeds) ? activeMeds.length : 0,
-        totalClaims: Array.isArray(fullHistory) ? fullHistory.length : 0,
-        fullHistory,
-        // Include attestation verification result when available
-        ...(attestationResult ? {
+      // One read, signed as this pharmacy and carrying the tap; the active medications come from the same rows.
+      // (Two parallel reads of one body can be signed in the same millisecond, and the sequencer's replay cache
+      // refuses the second of two identical signatures.)
+      try {
+        const fullHistory = await node.getPatientFullDrugHistory(walletId, tapped as unknown as Record<string, unknown>);
+        const activeMeds = PharmacyNode.activeMedicationsOf(fullHistory);
+        server.sendResponse(res, 200, true, {
+          walletId,
+          activeMedications: activeMeds,
+          activeMedicationCount: activeMeds.length,
+          totalClaims: fullHistory.length,
+          fullHistory,
           attestationVerified: true,
-          attestationExpiry: attestationResult.attestation?.exp,
-          attestationLifecycleState: attestationResult.attestation?.ls,
-          attestationExpired: attestationResult.expired,
-        } : {}),
-      });
+          attestationExpiry: tapped.exp,
+          attestationLifecycleState: tapped.ls,
+          attestationExpired: false, // a valid attestation is an unexpired one (verifyAttestation)
+        });
+      } catch (err) {
+        if (refusedUpstream(err)) return server.sendResponse(res, 403, false, undefined, err instanceof Error ? err.message : String(err));
+        throw err;
+      }
     },
   });
 

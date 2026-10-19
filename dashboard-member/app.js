@@ -43,7 +43,6 @@
   var planSpendCache = null;
   var systemLog = [];
   var pcpData = null;          // fetched from server, not localStorage
-  var planIdHash = '';          // fetched from server, not localStorage
   var pollTimer = null;
 
   // ── Helpers ──────────────────────────────────────────
@@ -170,7 +169,8 @@
 
     if (isEnrolled()) {
       walletId = lsGet(LS.WALLET_ID);
-      enrollmentKey = lsGet(LS.ENROLL_KEY);
+      // I3: the enrollment key never lives in browser storage. Purge what the old Restore screen wrote.
+      lsRemove(LS.ENROLL_KEY);
       /*
        * A5: an enrolled device still has to be unlocked before the app can do anything.
        *
@@ -230,23 +230,17 @@
 
     // Fetch PCP and plan info from server (not localStorage)
     RPC.getCurrentPcp().then(function (pcp) { pcpData = pcp; }).catch(function () {});
-    // Fetch onboarding status to get planIdHash
-    fetch(location.origin + '/onboarding/status', { headers: RPC.deviceHeaders() })
-      .then(function (r) { return r.json(); })
-      .then(function (j) {
-        var data = j.data || j;
-        if (data && data.onboarding && data.onboarding.tokenData && data.onboarding.tokenData.planId) {
-          planIdHash = data.onboarding.tokenData.planId;
-        }
-      }).catch(function () {});
-
     // Router
     var hash = location.hash.replace('#', '') || 'dashboard';
     navigate(hash);
 
     // A5: if the session expires mid-use, ask for the PIN rather than failing silently.
+    // One relock prompt at a time: parallel 401s would otherwise each ask, and each answer would void the last session.
+    var relockOpen = false;
     RPC.setDeviceLockedHandler(function () {
-      unlockThenEnter('Your device session expired.');
+      if (relockOpen) return;
+      relockOpen = true;
+      Promise.resolve(unlockThenEnter('Your device session expired.')).finally(function () { relockOpen = false; });
     });
 
     // SSE
@@ -533,8 +527,8 @@
           $('ob-retry').addEventListener('click', function () {
             onboardState.error = '';
             onboardState.statusMessage = '';
+            // Re-rendering step 5 without the error starts the one run. Starting it here as well ran two at once.
             renderOnboardStep();
-            completeEnrollment();
           });
         } else {
           completeEnrollment();
@@ -544,7 +538,7 @@
       case 6: // Complete
         body.innerHTML =
           '<div class="onboard-title">Enrollment Complete!</div>' +
-          '<div class="onboard-desc">Your wallet has been registered on the Adjuda-GATOR network.</div>' +
+          '<div class="onboard-desc">Your wallet is registered on the network. Your name and birth date stayed on this phone.</div>' +
           '<div style="margin:16px 0;padding:12px;background:var(--accent-dim);border-radius:var(--radius-sm);font-size:12px">' +
           '<div style="color:var(--text-secondary);margin-bottom:4px">Your Wallet ID</div>' +
           '<div class="mono" style="word-break:break-all;color:var(--accent)">' + esc(onboardState.walletId) + '</div></div>' +
@@ -555,7 +549,6 @@
           walletId = onboardState.walletId;
           enrollmentKey = onboardState.enrollmentKey;
           lsSet(LS.WALLET_ID, walletId);
-          lsSet(LS.ENROLL_KEY, 'server-managed');
           logSystem('enrollment', 'Wallet enrolled', 'Wallet ' + shortHash(walletId) + ' registered');
           enterApp();
         });
@@ -641,49 +634,99 @@
     }
   }
 
+  /** The device's onboarding phase. /onboarding/status is open; the session only adds identity to it. */
+  async function devicePhase() {
+    var j = await fetch(location.origin + '/onboarding/status', { headers: RPC.deviceHeaders() })
+      .then(function (r) { return r.json(); });
+    return (j && j.data && j.data.phase) || '';
+  }
+
+  /** Compiling can outlast its request. The device keeps compiling, so wait for the phase rather than ask again. */
+  async function waitUntilCompiled() {
+    var deadline = Date.now() + 10 * 60 * 1000;
+    for (;;) {
+      var phase = await devicePhase();
+      if (phase === 'ready') return;
+      if (phase !== 'compiling') throw new Error('Program compilation stopped (device phase: ' + (phase || 'unknown') + ')');
+      if (Date.now() > deadline) throw new Error('Program compilation is taking more than 10 minutes');
+      await new Promise(function (r) { setTimeout(r, 3000); });
+    }
+  }
+
+  /** The steps left from the device's phase. Retry resumes here: enroll answers 409 once it has run. */
+  function enrollmentStepsFrom(phase) {
+    if (phase === 'wallet_derived') return ['enroll', 'compile', 'register'];
+    if (phase === 'enrolled') return ['compile', 'register'];
+    if (phase === 'compiling') return ['wait-compile', 'register'];
+    if (phase === 'ready') return ['check-registered', 'register'];
+    return [];
+  }
+
   async function completeEnrollment() {
     try {
-      // Step 1: Enroll via server ceremony (server calls insurer + creates MemberNode)
-      onboardState.statusMessage = 'Enrolling with insurer...';
-      if ($('ob-enroll-msg')) $('ob-enroll-msg').textContent = onboardState.statusMessage;
-      var enrollRes = await fetch(location.origin + '/onboarding/enroll', {
-        method: 'POST', headers: RPC.deviceHeaders(),
-        body: JSON.stringify({ recoveryPin: onboardState.recoveryPin }),
-      }).then(function (r) { return r.json(); });
-      if (!enrollRes.ok) throw new Error(errMsg(enrollRes.error) || 'Enrollment failed');
-      // A12b: the two recovery cards, shown once on the completion screen and then dropped
-      onboardState.recoveryCards = (enrollRes.data && enrollRes.data.recoveryCards) || [];
-      onboardState.recoveryPin = '';
-
-      // Step 2: Compile programs (transitions phase: enrolled → ready)
-      // Must happen before proof generation since /proof/registration requires phase=ready
-      onboardState.statusMessage = 'Compiling ZK programs...';
-      if ($('ob-enroll-msg')) $('ob-enroll-msg').textContent = onboardState.statusMessage;
-      var compileRes = await fetch(location.origin + '/onboarding/compile', {
-        method: 'POST', headers: RPC.deviceHeaders(),
-        body: JSON.stringify({}),
-      }).then(function (r) { return r.json(); });
-      if (!compileRes.ok) {
-        console.error('Compile failed:', compileRes.error);
-        throw new Error('Program compilation failed: ' + (errMsg(compileRes.error) || 'unknown error'));
+      var steps = enrollmentStepsFrom(await devicePhase());
+      if (!steps.length) throw new Error('This device cannot continue enrollment from its current phase. Start over below.');
+      var registered = false;
+      for (var i = 0; i < steps.length; i++) {
+        var step = steps[i];
+        if (step === 'enroll') {
+          // Step 1: Enroll via server ceremony (server calls insurer + creates MemberNode)
+          onboardState.statusMessage = 'Enrolling with insurer...';
+          if ($('ob-enroll-msg')) $('ob-enroll-msg').textContent = onboardState.statusMessage;
+          var enrollRes = await fetch(location.origin + '/onboarding/enroll', {
+            method: 'POST', headers: RPC.deviceHeaders(),
+            body: JSON.stringify({ recoveryPin: onboardState.recoveryPin }),
+          }).then(function (r) { return r.json(); });
+          if (!enrollRes.ok) throw new Error(errMsg(enrollRes.error) || 'Enrollment failed');
+          // A12b: the two recovery cards, shown once on the completion screen and then dropped
+          onboardState.recoveryCards = (enrollRes.data && enrollRes.data.recoveryCards) || [];
+          onboardState.recoveryPin = '';
+        } else if (step === 'compile' || step === 'wait-compile') {
+          // Step 2: Compile programs (enrolled → ready); /proof/registration requires phase=ready
+          onboardState.statusMessage = 'Compiling ZK programs...';
+          if ($('ob-enroll-msg')) $('ob-enroll-msg').textContent = onboardState.statusMessage;
+          var compileStatus = 0;
+          if (step === 'compile') {
+            var compileResp = await fetch(location.origin + '/onboarding/compile', {
+              method: 'POST', headers: RPC.deviceHeaders(),
+              body: JSON.stringify({}),
+            });
+            compileStatus = compileResp.status;
+            if (compileStatus !== 504) {
+              var compileRes = await compileResp.json();
+              if (!compileRes.ok) {
+                console.error('Compile failed:', compileRes.error);
+                throw new Error('Program compilation failed: ' + (errMsg(compileRes.error) || 'unknown error'));
+              }
+            }
+          }
+          // A compile still running (its request answered 504, or Retry found it under way): wait for ready
+          if (step === 'wait-compile' || compileStatus === 504) await waitUntilCompiled();
+        } else if (step === 'check-registered') {
+          // A registration proof that outlasted its request may still have landed, and a second is refused
+          try {
+            var receipts = await RPC.getReceiptsByWallet(onboardState.walletId);
+            registered = Array.isArray(receipts) ? receipts.length > 0 : Boolean(receipts && receipts.receipts && receipts.receipts.length);
+          } catch (_) { /* cannot tell: prove again, and the sequencer says if it already has it */ }
+        } else if (step === 'register' && !registered) {
+          // Step 3: Generate + submit registration proof via member node
+          // The /proof/registration endpoint fetches witnesses from sequencer,
+          // generates a real ZK proof, and submits it — all server-side.
+          onboardState.statusMessage = 'Generating zero-knowledge registration proof (this may take 30-120s)...';
+          if ($('ob-enroll-msg')) $('ob-enroll-msg').textContent = onboardState.statusMessage;
+          var proofRes = await fetch(location.origin + '/proof/registration', {
+            method: 'POST', headers: RPC.deviceHeaders(),
+            body: JSON.stringify({}),
+          }).then(function (r) { return r.json(); });
+          if (!proofRes.ok) {
+            // Proof generation is critical — if it fails, enrollment is incomplete
+            console.error('Registration proof failed:', proofRes.error);
+            throw new Error('Registration proof failed: ' + (errMsg(proofRes.error) || 'unknown error'));
+          }
+          console.log('Registration proof submitted, receipt:', proofRes.data?.receiptId);
+          onProofSubmitted('Registration proof');
+        }
       }
-
-      // Step 3: Generate + submit registration proof via member node
-      // The /proof/registration endpoint fetches witnesses from sequencer,
-      // generates a real ZK proof, and submits it — all server-side.
-      onboardState.statusMessage = 'Generating zero-knowledge registration proof (this may take 30-120s)...';
-      if ($('ob-enroll-msg')) $('ob-enroll-msg').textContent = onboardState.statusMessage;
-      var proofRes = await fetch(location.origin + '/proof/registration', {
-        method: 'POST', headers: RPC.deviceHeaders(),
-        body: JSON.stringify({}),
-      }).then(function (r) { return r.json(); });
-      if (!proofRes.ok) {
-        // Proof generation is critical — if it fails, enrollment is incomplete
-        console.error('Registration proof failed:', proofRes.error);
-        throw new Error('Registration proof failed: ' + (errMsg(proofRes.error) || 'unknown error'));
-      }
-      console.log('Registration proof submitted, receipt:', proofRes.data?.receiptId);
-      onProofSubmitted('Registration proof');
 
       // Success
       onboardStep = 6;
@@ -699,68 +742,88 @@
   // ══════════════════════════════════════════════════════
   //  RESTORE
   // ══════════════════════════════════════════════════════
+  // A12b: recover the wallet onto this device with one recovery card. The card holds one share of the
+  // enrollment key; the insurer releases the other only for the recovery PIN, and the device re-derives
+  // the same wallet from the member's details. The key stays in the device's encrypted state and
+  // nothing of it is written to this browser (rule I3).
   function setupRestore() {
     $('restore-back-btn').addEventListener('click', function () {
       showScreen('landing-screen');
     });
 
+    var recoveredWalletId = ''; // set once /onboarding/recover succeeds; a retry after that only compiles
     $('restore-submit-btn').addEventListener('click', async function () {
-      var jsonText = $('restore-json').value.trim();
-      var pin = $('restore-pin').value;
-      if (!jsonText) { toast('Paste recovery card JSON', 'error'); return; }
-      if (!pin || pin.length < 6) { toast('PIN must be 6+ digits', 'error'); return; }
-
       var result = $('restore-result');
-      result.innerHTML = '<div class="loading">Decrypting...</div>';
-
       try {
-        var card = JSON.parse(jsonText);
-        if (!card.walletId || !card.encryptedKey || !card.salt || !card.iv) {
-          throw new Error('Invalid recovery card format — missing required fields');
+        if (!recoveredWalletId) {
+          var devicePin = $('restore-device-pin').value;
+          var recoveryPin = $('restore-pin').value;
+          var card = null;
+          try { card = JSON.parse($('restore-json').value.trim()); } catch (_) { /* checked below */ }
+          var details = {
+            cardholderId: $('restore-cid').value.trim(),
+            firstName: $('restore-fn').value.trim(),
+            lastName: $('restore-ln').value.trim(),
+            dateOfBirth: $('restore-dob').value.trim(),
+          };
+          if (!devicePin || devicePin.length < 4) { toast('Device PIN must be at least 4 characters', 'error'); return; }
+          if (devicePin !== $('restore-device-pin-confirm').value) { toast('Device PINs do not match', 'error'); return; }
+          if (!card || card.v !== 3 || typeof card.id !== 'string' || typeof card.s !== 'string') { toast('Paste the text from one of your recovery cards', 'error'); return; }
+          if (!recoveryPin || recoveryPin.length < 6) { toast('The recovery PIN has at least 6 characters', 'error'); return; }
+          if (!details.cardholderId || !details.firstName || !details.lastName || !/^\d{8}$/.test(details.dateOfBirth)) {
+            toast('Enter the cardholder ID, name and date of birth (CCYYMMDD) exactly as enrolled', 'error');
+            return;
+          }
+          result.innerHTML = '<div class="loading">Recovering...</div>';
+          // The device PIN opens (or, on a new device, creates) the encrypted state and issues the session
+          var unl = await fetch(location.origin + '/onboarding/unlock', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pin: devicePin }),
+          }).then(function (r) { return r.json(); });
+          if (!unl.ok) throw new Error(errMsg(unl.error) || 'Unlock failed');
+          RPC.setDeviceSession((unl.data && unl.data.deviceSession) || '');
+          var rec = await fetch(location.origin + '/onboarding/recover', {
+            method: 'POST', headers: RPC.deviceHeaders(),
+            body: JSON.stringify({
+              card: card, recoveryPin: recoveryPin,
+              cardholderId: details.cardholderId, firstName: details.firstName,
+              lastName: details.lastName, dateOfBirth: details.dateOfBirth,
+            }),
+          }).then(function (r) { return r.json(); });
+          if (!rec.ok) throw new Error(errMsg(rec.error) || 'Recovery failed');
+          recoveredWalletId = rec.data.walletId;
+          // The card, both PINs and the identity fields are done with
+          ['restore-json', 'restore-pin', 'restore-cid', 'restore-fn', 'restore-ln', 'restore-dob',
+            'restore-device-pin', 'restore-device-pin-confirm'].forEach(function (id) { $(id).value = ''; });
         }
-        if (card.version && card.version > 2) {
-          throw new Error('Recovery card version ' + card.version + ' is not supported by this app. Please update.');
+        // The recovered wallet is already registered; the device compiles so it can prove its updates
+        result.innerHTML = '<div class="loading">Compiling ZK programs...</div>';
+        var phase = await devicePhase();
+        if (phase === 'enrolled') {
+          var comp = await fetch(location.origin + '/onboarding/compile', {
+            method: 'POST', headers: RPC.deviceHeaders(), body: JSON.stringify({}),
+          });
+          if (comp.status === 504) {
+            await waitUntilCompiled();
+          } else {
+            var compJson = await comp.json();
+            if (!compJson.ok) throw new Error('Program compilation failed: ' + (errMsg(compJson.error) || 'unknown error'));
+          }
+        } else if (phase === 'compiling') {
+          await waitUntilCompiled();
         }
-
-        // Derive key from PIN using PBKDF2
-        var pinKey = await crypto.subtle.importKey(
-          'raw', new TextEncoder().encode(pin), 'PBKDF2', false, ['deriveKey']
-        );
-        var salt = hexToBytes(card.salt);
-        var aesKey = await crypto.subtle.deriveKey(
-          { name: 'PBKDF2', salt: salt, iterations: 100000, hash: 'SHA-256' },
-          pinKey, { name: 'AES-GCM', length: 256 }, false, ['decrypt']
-        );
-
-        // Decrypt enrollment key
-        var iv = hexToBytes(card.iv);
-        var ciphertext = hexToBytes(card.encryptedKey);
-        var decrypted = await crypto.subtle.decrypt(
-          { name: 'AES-GCM', iv: iv }, aesKey, ciphertext
-        );
-        var restoredKey = new TextDecoder().decode(decrypted);
-
-        // Restore state
-        walletId = card.walletId;
-        enrollmentKey = restoredKey;
+        walletId = recoveredWalletId;
         lsSet(LS.WALLET_ID, walletId);
-        lsSet(LS.ENROLL_KEY, enrollmentKey);
-        logSystem('restore', 'Wallet restored from backup', 'Wallet ' + shortHash(walletId));
-
-        toast('Wallet restored!', 'success');
+        logSystem('restore', 'Wallet recovered with a recovery card', 'Wallet ' + shortHash(walletId));
+        result.innerHTML = '';
+        toast('Wallet recovered', 'success');
         enterApp();
       } catch (e) {
-        result.innerHTML = '<div style="color:var(--red);margin-top:12px;font-size:12px">Decryption failed: ' + esc(e.message) + '. Check PIN and JSON.</div>';
+        result.innerHTML = '<div style="color:var(--red);margin-top:12px;font-size:12px">' +
+          (recoveredWalletId ? 'Your wallet was recovered, but this device could not finish setting up: ' : 'Recovery failed: ') +
+          esc(e.message) + (recoveredWalletId ? ' Press Recover Wallet to try again.' : '') + '</div>';
       }
     });
-  }
-
-  function hexToBytes(hex) {
-    var bytes = new Uint8Array(hex.length / 2);
-    for (var i = 0; i < hex.length; i += 2) {
-      bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
-    }
-    return bytes;
   }
 
   function bytesToHex(bytes) {
@@ -770,6 +833,21 @@
   // ══════════════════════════════════════════════════════
   //  DASHBOARD
   // ══════════════════════════════════════════════════════
+  /**
+   * The member's own plan limits. The device finds the plan its enrollment code was redeemed into
+   * among the published plans; the engine binds that plan's limits at registration. Null when the
+   * device cannot tell, and the screens then show no maximum rather than an invented one.
+   */
+  async function loadPlanLimits() {
+    try {
+      var r = await fetch(location.origin + '/plan/limits', { headers: RPC.deviceHeaders() });
+      var j = await r.json();
+      return r.ok && j && j.ok && j.data ? j.data : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   async function loadDashboard() {
     // Fetch PCP from server
     try { pcpData = await RPC.getCurrentPcp(); } catch (_) { /* server unavailable */ }
@@ -799,20 +877,11 @@
       var oopPaid = Number(acc.oopPaidCents || acc.patientPayCents || acc.totalPatientPay || 0);
       var planPaid = Number(acc.benefitUsedCents || acc.planPayCents || acc.totalPlanPay || 0);
 
-      // Fetch real plan limits from sequencer (falls back to defaults if unavailable)
-      var dedMax = 150000; // default $1500
-      var oopMax = 500000; // default $5000
-      var benefitMax = 0;  // default unlimited
-      if (planIdHash) {
-        try {
-          var limits = await RPC.getPlanLimits(planIdHash);
-          if (limits) {
-            dedMax = limits.deductibleAmountCents != null ? Number(limits.deductibleAmountCents) : dedMax;
-            oopMax = limits.oopMaxCents != null ? Number(limits.oopMaxCents) : oopMax;
-            benefitMax = limits.annualBenefitMaxCents != null ? Number(limits.annualBenefitMaxCents) : 0;
-          }
-        } catch { /* plan limits unavailable — use defaults */ }
-      }
+      // The member's own plan limits. No defaults: a maximum the device cannot read is not shown.
+      var limits = await loadPlanLimits();
+      var dedMax = limits ? Number(limits.deductibleAmountCents || 0) : 0;
+      var oopMax = limits ? Number(limits.oopMaxCents || 0) : 0;
+      var benefitMax = limits ? Number(limits.annualBenefitMaxCents || 0) : 0;
 
       var dedPct = dedMax > 0 ? Math.min(100, (dedPaid / dedMax * 100)) : 0;
       var oopPct = oopMax > 0 ? Math.min(100, (oopPaid / oopMax * 100)) : 0;
@@ -1126,19 +1195,15 @@
       var planPaid = Number(acc.benefitUsedCents || acc.planPayCents || acc.totalPlanPay || 0);
       var claimCount = acc.claimCount || acc.totalClaims || 0;
 
-      // Fetch plan limits for context
+      // The member's own plan limits, for context
       var dedLabel = fmtCents(dedPaid);
       var oopLabel = fmtCents(oopPaid);
       var benefitLabel = fmtCents(planPaid);
-      if (planIdHash) {
-        try {
-          var limits = await RPC.getPlanLimits(planIdHash);
-          if (limits) {
-            if (limits.deductibleAmountCents) dedLabel += ' of ' + fmtCents(limits.deductibleAmountCents);
-            if (limits.oopMaxCents) oopLabel += ' of ' + fmtCents(limits.oopMaxCents);
-            if (limits.annualBenefitMaxCents) benefitLabel += ' of ' + fmtCents(limits.annualBenefitMaxCents);
-          }
-        } catch { /* plan limits unavailable */ }
+      var limits = await loadPlanLimits();
+      if (limits) {
+        if (limits.deductibleAmountCents) dedLabel += ' of ' + fmtCents(limits.deductibleAmountCents);
+        if (limits.oopMaxCents) oopLabel += ' of ' + fmtCents(limits.oopMaxCents);
+        if (limits.annualBenefitMaxCents) benefitLabel += ' of ' + fmtCents(limits.annualBenefitMaxCents);
       }
 
       accEl.innerHTML =
@@ -1232,10 +1297,13 @@
 
   window._removePcp = async function () {
     try {
-      await fetch(location.origin + '/pcp/current', { method: 'DELETE' });
+      var resp = await fetch(location.origin + '/pcp/current', { method: 'DELETE', headers: RPC.deviceHeaders() });
+      var j = await resp.json().catch(function () { return {}; });
+      if (!resp.ok || !j.ok) throw new Error(errMsg(j.error) || ('HTTP ' + resp.status));
       pcpData = null;
-      logSystem('pcp_remove', 'PCP removed', '');
-      toast('PCP removed', 'info');
+      // Only this device's record goes. The engine's credential and the sequencer's PCP link are not revoked.
+      logSystem('pcp_remove', 'PCP removed on this device', '');
+      toast('PCP removed on this device. The network link to them is not revoked yet.', 'info');
     } catch (e) {
       console.warn('PCP removal failed:', e.message);
       toast('PCP removal failed: ' + (e.message || 'server error'), 'error');
@@ -1493,74 +1561,6 @@
   //  BACKUP
   // ══════════════════════════════════════════════════════
   function setupBackup() {
-    $('backup-create-btn').addEventListener('click', async function () {
-      var pin = $('backup-pin').value;
-      var confirm = $('backup-pin-confirm').value;
-      if (!pin || pin.length < 6) { toast('PIN must be 6+ digits', 'error'); return; }
-      if (pin !== confirm) { toast('PINs do not match', 'error'); return; }
-
-      var result = $('backup-result');
-      result.innerHTML = '<div class="loading">Generating backup...</div>';
-
-      try {
-        // Derive AES key from PIN via PBKDF2
-        var salt = crypto.getRandomValues(new Uint8Array(16));
-        var iv = crypto.getRandomValues(new Uint8Array(12));
-        var pinKey = await crypto.subtle.importKey(
-          'raw', new TextEncoder().encode(pin), 'PBKDF2', false, ['deriveKey']
-        );
-        var aesKey = await crypto.subtle.deriveKey(
-          { name: 'PBKDF2', salt: salt, iterations: 100000, hash: 'SHA-256' },
-          pinKey, { name: 'AES-GCM', length: 256 }, false, ['encrypt']
-        );
-
-        // Encrypt enrollment key
-        var plaintext = new TextEncoder().encode(enrollmentKey);
-        var encrypted = await crypto.subtle.encrypt(
-          { name: 'AES-GCM', iv: iv }, aesKey, plaintext
-        );
-
-        var card = {
-          version: 2,
-          walletId: walletId,
-          salt: bytesToHex(salt),
-          iv: bytesToHex(iv),
-          encryptedKey: bytesToHex(new Uint8Array(encrypted)),
-          createdAt: new Date().toISOString(),
-        };
-
-        var json = JSON.stringify(card, null, 2);
-        result.innerHTML =
-          '<div style="padding:12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-sm);margin-top:12px">' +
-            '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px">Recovery Card JSON — save this securely!</div>' +
-            '<textarea class="form-input mono" rows="8" readonly style="font-size:11px">' + esc(json) + '</textarea>' +
-            '<div class="form-actions" style="margin-top:8px">' +
-              '<button class="btn btn-sm" id="backup-copy-btn">Copy to Clipboard</button>' +
-              '<button class="btn btn-sm" id="backup-download-btn">Download</button>' +
-            '</div>' +
-          '</div>';
-
-        $('backup-copy-btn').addEventListener('click', function () {
-          navigator.clipboard.writeText(json).then(function () { toast('Copied!', 'success'); });
-        });
-        $('backup-download-btn').addEventListener('click', function () {
-          var blob = new Blob([json], { type: 'application/json' });
-          var a = document.createElement('a');
-          a.href = URL.createObjectURL(blob);
-          a.download = 'adjudagator-recovery-' + shortHash(walletId) + '.json';
-          a.click();
-          URL.revokeObjectURL(a.href);
-        });
-
-        logSystem('nfc_backup', 'Recovery card created', 'Encrypted backup generated');
-        toast('Backup created!', 'success');
-        $('backup-pin').value = '';
-        $('backup-pin-confirm').value = '';
-      } catch (e) {
-        result.innerHTML = '<div style="color:var(--red);font-size:12px">Backup failed: ' + esc(e.message) + '</div>';
-      }
-    });
-
     // NFC Attestation
     var lastAttestation = null;
 
@@ -1574,18 +1574,12 @@
         var att = await RPC.requestAttestation(walletId, 86400);
         if (att) {
           lastAttestation = att;
-          result.innerHTML =
-            '<div style="padding:12px;background:var(--accent-dim);border:1px solid rgba(139,92,246,0.2);border-radius:var(--radius-sm)">' +
-              '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">Attestation received</div>' +
-              '<div style="font-size:12px">Expires: ' + fmtDate(att.expiry || att.expiresAt) + '</div>' +
-              '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Signature: ' + shortHash(att.signature) + '</div>' +
-              '<div style="font-size:11px;color:var(--text-muted)">Nonce: ' + (att.nonce || '--') + '</div>' +
-            '</div>';
+          result.innerHTML = attestationCardHtml(att);
           // Enable NFC write, copy, and download buttons
           $('nfc-write-btn').disabled = false;
           $('credential-download-btn').disabled = false;
           $('credential-copy-btn').disabled = false;
-          logSystem('attestation', 'NFC attestation received', 'Expires ' + fmtDate(att.expiry || att.expiresAt));
+          logSystem('attestation', 'NFC attestation received', 'Expires ' + fmtDate(Number(att.exp) * 1000));
         } else {
           result.innerHTML = '<div class="empty-state">No attestation returned</div>';
         }
@@ -1683,6 +1677,17 @@
     }
   }
 
+  /** The attestation card. The sequencer signs v, t, w, cc, ls, fr, ts, exp, n, pk and sig; exp is Unix seconds. */
+  function attestationCardHtml(att) {
+    var expMs = Number(att.exp) * 1000;
+    return '<div style="padding:12px;background:var(--accent-dim);border:1px solid rgba(139,92,246,0.2);border-radius:var(--radius-sm)">' +
+        '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">Attestation received</div>' +
+        '<div style="font-size:12px">Expires: ' + esc(fmtDate(expMs) + ' ' + fmtTime(expMs)) + '</div>' +
+        '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Signature: ' + esc(shortHash(att.sig)) + '</div>' +
+        '<div style="font-size:11px;color:var(--text-muted)">Nonce: ' + esc(att.n || '--') + '</div>' +
+      '</div>';
+  }
+
   // ══════════════════════════════════════════════════════
   //  SETTINGS
   // ══════════════════════════════════════════════════════
@@ -1697,8 +1702,6 @@
       '<div style="font-size:12px">' +
         '<div style="margin-bottom:8px"><span class="stat-label">Wallet ID</span><br>' +
           '<span class="mono" style="word-break:break-all;font-size:11px;color:var(--accent)">' + esc(walletId) + '</span></div>' +
-        '<div style="margin-bottom:8px"><span class="stat-label">Enrollment Key</span><br>' +
-          '<span class="mono" style="font-size:11px;color:var(--text-muted)">' + esc(enrollmentKey.slice(0, 16) + '...(hidden)') + '</span></div>' +
         '<div><span class="stat-label">PCP</span><br>' +
           '<span style="font-size:12px">' + (pcpData && (pcpData.pcpWalletId || pcpData.walletId) ? shortHash(pcpData.pcpWalletId || pcpData.walletId) : 'Not assigned') + '</span></div>' +
       '</div>';

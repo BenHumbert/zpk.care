@@ -69,6 +69,7 @@ export const ROUTES_BY_ROLE: Readonly<Record<Exclude<NodeRole, 'operator'>, Read
   insurer: new Set([
     'GET:/viz/entities',
     'GET:/viz/state',
+    'GET:/viz/history',
     'GET:/events',
     'GET:/viz/events',
     'GET:/interactive/member-history',

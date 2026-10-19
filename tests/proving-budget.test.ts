@@ -96,6 +96,7 @@ describe('every route that proves in-request declares the proving budget', () =>
     ['src/nodes/routes/member-routes.ts', '/proof/wallet-updates'],
     ['src/nodes/routes/member-routes.ts', '/proof/pcp-assignment'],
     ['src/nodes/routes/member-routes.ts', '/credential/generate'],
+    ['src/nodes/routes/member-routes.ts', '/onboarding/compile'],
     ['src/nodes/routes/prescriber-routes.ts', '/proof/registration'],
     ['src/nodes/routes/pharmacy-routes.ts', '/proof/registration'],
   ])('%s %s', (file, routePath) => {

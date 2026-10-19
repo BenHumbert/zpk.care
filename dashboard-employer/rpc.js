@@ -128,11 +128,11 @@ const API = (() => {
   }
 
   function listGroups() {
-    return request('GET', '/groups');
+    return request('GET', '/groups', undefined, true);
   }
 
   function getGroup(groupId) {
-    return request('GET', '/groups/' + encodeURIComponent(groupId));
+    return request('GET', '/groups/' + encodeURIComponent(groupId), undefined, true);
   }
 
   function deleteGroup(groupId, terminationDate) {
@@ -147,11 +147,11 @@ const API = (() => {
   // ---- Roster ----
   function listRoster(status) {
     const q = status ? '?status=' + encodeURIComponent(status) : '';
-    return request('GET', '/roster' + q);
+    return request('GET', '/roster' + q, undefined, true);
   }
 
   function getRosterEntry(employeeIdHash) {
-    return request('GET', '/roster/' + encodeURIComponent(employeeIdHash));
+    return request('GET', '/roster/' + encodeURIComponent(employeeIdHash), undefined, true);
   }
 
   function terminateRosterEntry(employeeIdHash) {
