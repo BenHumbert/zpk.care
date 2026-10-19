@@ -20,7 +20,7 @@
 (function () {
   'use strict';
 
-  // ── Pharmacies (loaded from server — real NPPES data) ───────
+  // ── Pharmacies (loaded from the server: fictional seed pharmacies) ───────
   var PHARMACIES = [];
 
   const PHARMACY_KEY = 'zkp_pharmacy_selected';
@@ -1966,7 +1966,7 @@
     // Update badge card
     setText('#badge-card-name', pharmacy.name);
     setText('#badge-card-specialty', pharmacy.type);
-    setText('#badge-card-npi', 'NPI: ' + pharmacy.npi + ' | NCPDP: ' + pharmacy.ncpdp);
+    setText('#badge-card-npi', 'NPI: ' + pharmacy.npi + (pharmacy.ncpdp ? ' | NCPDP: ' + pharmacy.ncpdp : ''));
     setText('#badge-card-avatar', pharmacyInitials(pharmacy.name));
 
     // Reset steps (classes + remove accumulated timing/error spans)

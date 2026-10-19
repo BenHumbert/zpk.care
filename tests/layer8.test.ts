@@ -1416,7 +1416,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       const notification = JSON.stringify({
         status: 'FILLED',
         message: 'Your prescription is ready for pickup',
-        pharmacy: 'CVS #1234',
+        pharmacy: 'Pellam Apothecary',
         estimatedReadyTime: '2:30 PM',
         copay: '$10.00',
       });

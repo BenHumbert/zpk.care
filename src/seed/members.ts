@@ -18,7 +18,8 @@
  * Seed Member Data — Sample Beneficiaries
  *
  * Fictional members with realistic demographic fields.
- * All personal data is FICTIONAL — not real individuals.
+ * All personal data is FICTIONAL — not real individuals. Street names are
+ * invented, and phones use the 555-0100 to 555-0199 block kept for fiction.
  *
  * NCPDP fields mapped to our MemberLocalData:
  *   - cardholderId: 302-C2 (plan-assigned ID)
@@ -81,11 +82,11 @@ export const MEMBERS: SeedMember[] = [
     employeeId: 'EMP-10001',
     familyId: 'FAM-ACME-10001',
     relationship: 'SELF',
-    address: '742 Evergreen Terrace',
+    address: '742 Thistlewick Lane',
     city: 'Springfield',
     state: 'IL',
     zip: '62704',
-    phone: '217-555-1001',
+    phone: '217-555-0111',
     email: 'alice.johnson@example.com',
   },
   {
@@ -100,11 +101,11 @@ export const MEMBERS: SeedMember[] = [
     employeeId: 'EMP-10002',
     familyId: 'FAM-ACME-10002',
     relationship: 'SELF',
-    address: '1600 Pennsylvania Ave',
+    address: '1600 Brindlecombe Avenue',
     city: 'Dallas',
     state: 'TX',
     zip: '75201',
-    phone: '214-555-1002',
+    phone: '214-555-0112',
     email: 'bob.martinez@example.com',
   },
   {
@@ -119,11 +120,11 @@ export const MEMBERS: SeedMember[] = [
     employeeId: 'EMP-10003',
     familyId: 'FAM-ACME-10003',
     relationship: 'SELF',
-    address: '221B Baker Street',
+    address: '221 Wrenhollow Street',
     city: 'New York',
     state: 'NY',
     zip: '10001',
-    phone: '212-555-1003',
+    phone: '212-555-0113',
     email: 'carol.williams@example.com',
   },
   {
@@ -138,11 +139,11 @@ export const MEMBERS: SeedMember[] = [
     employeeId: 'EMP-10003',
     familyId: 'FAM-ACME-10003',
     relationship: 'SPOUSE',
-    address: '221B Baker Street',
+    address: '221 Wrenhollow Street',
     city: 'New York',
     state: 'NY',
     zip: '10001',
-    phone: '212-555-1004',
+    phone: '212-555-0114',
     email: 'daniel.williams@example.com',
   },
   {
@@ -157,11 +158,11 @@ export const MEMBERS: SeedMember[] = [
     employeeId: 'EMP-10003',
     familyId: 'FAM-ACME-10003',
     relationship: 'CHILD',
-    address: '221B Baker Street',
+    address: '221 Wrenhollow Street',
     city: 'New York',
     state: 'NY',
     zip: '10001',
-    phone: '212-555-1003',
+    phone: '212-555-0113',
     email: 'carol.williams@example.com',
   },
   {
@@ -176,11 +177,11 @@ export const MEMBERS: SeedMember[] = [
     employeeId: 'GX-50001',
     familyId: 'FAM-GX-50001',
     relationship: 'SELF',
-    address: '350 Fifth Avenue',
+    address: '350 Larkspindle Avenue',
     city: 'New York',
     state: 'NY',
-    zip: '10118',
-    phone: '212-555-1005',
+    zip: '10001',
+    phone: '212-555-0115',
     email: 'frank.lee@example.com',
   },
   {
@@ -195,11 +196,11 @@ export const MEMBERS: SeedMember[] = [
     employeeId: 'GX-50002',
     familyId: 'FAM-GX-50002',
     relationship: 'SELF',
-    address: '1000 Sunset Blvd',
+    address: '1000 Fernmarrow Boulevard',
     city: 'San Francisco',
     state: 'CA',
     zip: '94102',
-    phone: '415-555-1006',
+    phone: '415-555-0116',
     email: 'grace.nakamura@example.com',
   },
   {
@@ -214,11 +215,11 @@ export const MEMBERS: SeedMember[] = [
     employeeId: 'GX-50003',
     familyId: 'FAM-GX-50003',
     relationship: 'SELF',
-    address: '555 Collins Avenue',
+    address: '555 Ottervale Avenue',
     city: 'Miami',
     state: 'FL',
     zip: '33139',
-    phone: '305-555-1007',
+    phone: '305-555-0117',
     email: 'henry.okafor@example.com',
   },
 ];

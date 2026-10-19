@@ -1215,7 +1215,7 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
   });
 
   // ══════════════════════════════════════════════════════════
-  //  PHARMACY LIST — real NPPES data for dashboard dropdown
+  //  PHARMACY LIST — fictional seed pharmacies for the dashboard dropdown
   // ══════════════════════════════════════════════════════════
 
   routes.push({

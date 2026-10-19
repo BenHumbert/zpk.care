@@ -51,8 +51,8 @@
 
   const PHARMACIES = [
     { idx: 0, name: 'Main Street Pharm.' },
-    { idx: 1, name: 'WellCare Drugs #1042' },
-    { idx: 2, name: 'HealthMart #8871' },
+    { idx: 1, name: 'Marrowind Drugs #1042' },
+    { idx: 2, name: 'Quillfeather Pharmacy #8871' },
     { idx: 3, name: 'RxDirect Mail' },
     { idx: 4, name: 'BioSpecialty Pharm.' },
     { idx: 5, name: 'Precision Compound.' },
@@ -828,7 +828,7 @@
     if (type === 'pharmacy' || !type) {
       const exactPh = PHARMACIES.find(p => p.name.toLowerCase() === lowerName);
       if (exactPh) return `pharmacy-${exactPh.idx}`;
-      // "CVS Pharmacy #1001 (Downtown)" contains "CVS #1001"? No — try both directions
+      // "Main Pharmacy #1001 (Downtown)" contains "Main #1001"? No — try both directions
       const partialPh = PHARMACIES.find(p => lowerName.includes(p.name.toLowerCase()) || p.name.toLowerCase().includes(lowerName));
       if (partialPh) return `pharmacy-${partialPh.idx}`;
       // Chain-name match: extract chain prefix (letters before #)

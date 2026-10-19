@@ -55,8 +55,8 @@ const registry = () => node.getSequencer().getStateTrees().registry;
 
 describe('the engine\'s messaging keys', () => {
   test('the seed has more than ten prescribers', () => {
-    expect(PRESCRIBERS.length).toBe(16);
-    expect(PHARMACIES.length).toBe(15);
+    expect(PRESCRIBERS.length).toBe(12);
+    expect(PHARMACIES.length).toBe(8);
   });
 
   test('every seed prescriber and pharmacy has its own key at its own wallet-registry slot', () => {
@@ -72,7 +72,7 @@ describe('the engine\'s messaging keys', () => {
       expect(svc.keyRegistry.getKeyCommitment(slot).toString()).toBe(Poseidon.hash([wid, pubKeyX, pubKeyY]).toString());
       expect(svc.encryptionKeys.get(Number(slot)).publicKey.equals(kp.publicKey)).toBe(true);
     }
-    expect(svc.keyRegistry.count).toBe(31);
+    expect(svc.keyRegistry.count).toBe(20);
   });
 
   test('a message from prescriber 10 to pharmacy 1 is sealed with their keys, not pharmacy 0\'s', () => {

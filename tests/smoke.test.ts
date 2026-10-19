@@ -20,13 +20,14 @@ import {
   MEDICATIONS, TIER1_GENERICS, TIER2_PREFERRED, TIER3_NON_PREFERRED, TIER4_SPECIALTY,
   MEDICATION_BY_NDC, getAllFormularyEntries, getFormularyEntriesByTier,
   buildMedicationLocalData, buildMedicationPricingLocalData,
-  MEMBERS, MEMBER_BY_CARDHOLDER_ID, getMembersByEmployee, getSubscribers, getAcmeMembers, getGlobexMembers,
+  MEMBERS, MEMBER_BY_CARDHOLDER_ID, getMembersByEmployee, getSubscribers,
+  getFernhillMembers, getBaysideMembers, getAcmeMembers, getGlobexMembers,
 } from '../src/data/index.js';
 
-describe('Production Data — Smoke Tests', () => {
-  // ── Prescribers (NPPES — Madison, WI) ──
-  test('has 16 prescribers from NPPES', () => {
-    expect(PRESCRIBERS.length).toBeGreaterThanOrEqual(16);
+describe('Seed Data — Smoke Tests', () => {
+  // ── Prescribers (fictional fixtures; tests/fixture-identities.test.ts checks the identities) ──
+  test('has 12 prescribers', () => {
+    expect(PRESCRIBERS).toHaveLength(12);
   });
 
   test('all prescribers have NPI qualifier = 1', () => {
@@ -53,9 +54,9 @@ describe('Production Data — Smoke Tests', () => {
     expect(new Set(npis).size).toBe(npis.length);
   });
 
-  // ── Pharmacies (NPPES — Madison, WI) ──
-  test('has 15 pharmacies from NPPES', () => {
-    expect(PHARMACIES.length).toBeGreaterThanOrEqual(15);
+  // ── Pharmacies (fictional fixtures) ──
+  test('has 8 pharmacies', () => {
+    expect(PHARMACIES).toHaveLength(8);
   });
 
   test('all pharmacies have qualifier = 1', () => {
@@ -159,7 +160,7 @@ describe('Production Data — Smoke Tests', () => {
     expect(pricing.usualAndCustomaryCharge).toBe(med.awpUnitPriceCents * 30 + 200);
   });
 
-  // ── Members (POC — Madison, WI) ──
+  // ── Members (fictional fixtures — two invented employers) ──
   test('has 8 members', () => {
     expect(MEMBERS).toHaveLength(8);
   });
@@ -177,7 +178,7 @@ describe('Production Data — Smoke Tests', () => {
   });
 
   test('MEMBER_BY_CARDHOLDER_ID lookup works', () => {
-    const alice = MEMBER_BY_CARDHOLDER_ID.get('EPIC-EMP-001');
+    const alice = MEMBER_BY_CARDHOLDER_ID.get('FERN-EMP-001');
     expect(alice).toBeDefined();
     expect(alice!.localData.firstName).toBe('Alice');
     expect(alice!.localData.lastName).toBe('Johnson');
@@ -195,12 +196,21 @@ describe('Production Data — Smoke Tests', () => {
     expect(family.map((m) => m.relationship).sort()).toEqual(['CHILD', 'SELF', 'SPOUSE']);
   });
 
-  test('getAcmeMembers returns 5 Epic employer members', () => {
-    expect(getAcmeMembers()).toHaveLength(5);
+  test('getFernhillMembers returns the 5 Fernhill Instruments members', () => {
+    const fernhill = getFernhillMembers();
+    expect(fernhill).toHaveLength(5);
+    for (const m of fernhill) expect(m.familyId.startsWith('FAM-FERN-')).toBe(true);
   });
 
-  test('getGlobexMembers returns 3 Exact Sciences members', () => {
-    expect(getGlobexMembers()).toHaveLength(3);
+  test('getBaysideMembers returns the 3 Bayside Test Works members', () => {
+    const bayside = getBaysideMembers();
+    expect(bayside).toHaveLength(3);
+    for (const m of bayside) expect(m.familyId.startsWith('FAM-BAY-')).toBe(true);
+  });
+
+  test('the old helper names still answer, as the new ones', () => {
+    expect(getAcmeMembers).toBe(getFernhillMembers);
+    expect(getGlobexMembers).toBe(getBaysideMembers);
   });
 
   test('NDC uniqueness across all medications', () => {

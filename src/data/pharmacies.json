@@ -2,285 +2,152 @@
   {
     "localData": {
       "serviceProviderIdQualifier": 1,
-      "serviceProviderId": "1194759316"
+      "serviceProviderId": "2999000518"
     },
-    "enrollmentKey": "E945F51376337b114d79a41711a7d6!a",
-    "storeName": "AURORA PHARMACY INC",
+    "enrollmentKey": "u2BT_yustgSyYwK1NkkAp_xgO7yRPiYoN2ScJ9-4C14",
+    "storeName": "Kettleby Pharmacy",
     "chain": "Independent",
     "pharmacyType": "01",
     "pharmacyTypeDesc": "Community/Retail",
-    "address": "5718 RAYMOND RD",
-    "city": "MADISON",
+    "address": "214 Corran Avenue",
+    "city": "Sorrel Prairie",
     "state": "WI",
-    "zip": "53711",
-    "phone": "608-271-8772",
-    "npi": "1194759316",
+    "zip": "53519",
+    "phone": "608-555-0161",
+    "npi": "2999000518",
     "ncpdpProviderId": "",
     "taxonomyCode": "3336C0003X"
   },
   {
     "localData": {
       "serviceProviderIdQualifier": 1,
-      "serviceProviderId": "1699793380"
+      "serviceProviderId": "2999000526"
     },
-    "enrollmentKey": "2D5D342202ad8b0ee1128288c74d41!b",
-    "storeName": "COMMUNITY PHARMACY CO-OPERATIVE",
+    "enrollmentKey": "h90qZDAqcayxguyyJNGD0QUv5btVgVGbeWiRvbNpork",
+    "storeName": "Wexley Road Pharmacy",
     "chain": "Independent",
     "pharmacyType": "01",
     "pharmacyTypeDesc": "Community/Retail",
-    "address": "130 FAIROAKS AVE",
-    "city": "MADISON",
+    "address": "1180 Wexley Road, Suite 100",
+    "city": "Sorrel Prairie",
     "state": "WI",
-    "zip": "53704",
-    "phone": "608-251-4454",
-    "npi": "1699793380",
-    "ncpdpProviderId": "",
-    "taxonomyCode": "333600000X"
-  },
-  {
-    "localData": {
-      "serviceProviderIdQualifier": 1,
-      "serviceProviderId": "1164524567"
-    },
-    "enrollmentKey": "8F47375f71ec26a2f6a73f95fcb2a7!c",
-    "storeName": "DEAN RETAIL SERVICES INC",
-    "chain": "Independent",
-    "pharmacyType": "01",
-    "pharmacyTypeDesc": "Community/Retail",
-    "address": "700 S PARK ST",
-    "city": "MADISON",
-    "state": "WI",
-    "zip": "53715",
-    "phone": "608-256-6465",
-    "npi": "1164524567",
+    "zip": "53519",
+    "phone": "608-555-0162",
+    "npi": "2999000526",
     "ncpdpProviderId": "",
     "taxonomyCode": "3336C0003X"
   },
   {
     "localData": {
       "serviceProviderIdQualifier": 1,
-      "serviceProviderId": "1003926791"
+      "serviceProviderId": "2999000534"
     },
-    "enrollmentKey": "9BDA38990118fabb5ffdebcc874bd6!d",
-    "storeName": "DEAN RETAIL SERVICES INC",
+    "enrollmentKey": "21gwxhegfZxK-hH1AlDW3Xmg-f4xV-BbkXZ2zj6Cpeo",
+    "storeName": "Calder Street Pharmacy",
     "chain": "Independent",
     "pharmacyType": "01",
     "pharmacyTypeDesc": "Community/Retail",
-    "address": "1211 FISH HATCHERY RD STE 300",
-    "city": "MADISON",
+    "address": "431 Calder Street",
+    "city": "Sorrel Prairie",
     "state": "WI",
-    "zip": "53715",
-    "phone": "608-252-8044",
-    "npi": "1003926791",
+    "zip": "53519",
+    "phone": "608-555-0163",
+    "npi": "2999000534",
     "ncpdpProviderId": "",
     "taxonomyCode": "3336C0003X"
   },
   {
     "localData": {
       "serviceProviderIdQualifier": 1,
-      "serviceProviderId": "1396331401"
+      "serviceProviderId": "2999000542"
     },
-    "enrollmentKey": "044212002A638f42dcd39c5ff2b095!e",
-    "storeName": "DEAN RETAIL SERVICES, INC.",
+    "enrollmentKey": "Fdxf6bkNzR6gN0tsyJHB22_XvMTXDnMBH1g6dIkAKYA",
+    "storeName": "Tolliver Drug",
     "chain": "Independent",
     "pharmacyType": "01",
     "pharmacyTypeDesc": "Community/Retail",
-    "address": "130 CORPORATE DR STE 300",
-    "city": "BEAVER DAM",
+    "address": "3021 Quillan Avenue",
+    "city": "Sorrel Prairie",
     "state": "WI",
-    "zip": "53916",
-    "phone": "920-885-8510",
-    "npi": "1396331401",
+    "zip": "53524",
+    "phone": "608-555-0164",
+    "npi": "2999000542",
     "ncpdpProviderId": "",
     "taxonomyCode": "3336C0003X"
   },
   {
     "localData": {
       "serviceProviderIdQualifier": 1,
-      "serviceProviderId": "1265052211"
+      "serviceProviderId": "2999000559"
     },
-    "enrollmentKey": "3ACBf2df7e98f33498c5d4bb958b11!f",
-    "storeName": "DEAN RETAIL SERVICES, INC.",
+    "enrollmentKey": "UmZMsgze6bbM9FqrWhGYcLH-mVLuJTj3eOhFWpO_Th4",
+    "storeName": "Sorrel Prairie Pharmacy",
     "chain": "Independent",
     "pharmacyType": "01",
     "pharmacyTypeDesc": "Community/Retail",
-    "address": "310 INTEGRITY DR STE 103",
-    "city": "MADISON",
+    "address": "1502 Brannock Avenue",
+    "city": "Sorrel Prairie",
     "state": "WI",
-    "zip": "53717",
-    "phone": "833-354-2223",
-    "npi": "1265052211",
+    "zip": "53524",
+    "phone": "608-555-0165",
+    "npi": "2999000559",
     "ncpdpProviderId": "",
     "taxonomyCode": "3336C0003X"
   },
   {
     "localData": {
       "serviceProviderIdQualifier": 1,
-      "serviceProviderId": "1467562157"
+      "serviceProviderId": "2999000567"
     },
-    "enrollmentKey": "4A3507ef87240a96b09a0a927d97f1!g",
-    "storeName": "DEAN RETAIL SERVICES, INC.",
+    "enrollmentKey": "n-D-9ZoQ5_ZG1fEbNqLMXo1_qzYv-peIcKLXJXOEq_k",
+    "storeName": "Okeke Family Pharmacy",
     "chain": "Independent",
     "pharmacyType": "01",
     "pharmacyTypeDesc": "Community/Retail",
-    "address": "10 TOWER DR",
-    "city": "SUN PRAIRIE",
+    "address": "610 Carrow Street",
+    "city": "Sorrel Prairie",
     "state": "WI",
-    "zip": "53590",
-    "phone": "608-825-3690",
-    "npi": "1467562157",
+    "zip": "53519",
+    "phone": "608-555-0166",
+    "npi": "2999000567",
     "ncpdpProviderId": "",
     "taxonomyCode": "3336C0003X"
   },
   {
     "localData": {
       "serviceProviderIdQualifier": 1,
-      "serviceProviderId": "1407966195"
+      "serviceProviderId": "2999000575"
     },
-    "enrollmentKey": "CF160f545edeb9e16ac114560f2896!h",
-    "storeName": "DEAN RETAIL SERVICES, INC.",
+    "enrollmentKey": "o9ONo2rVN-kSeC6Ah3CLkjsIEjPdAWOs7mE5raO0ymI",
+    "storeName": "Brindlewick Pharmacy",
     "chain": "Independent",
     "pharmacyType": "01",
     "pharmacyTypeDesc": "Community/Retail",
-    "address": "1821 S. STOUGHTON RD.",
-    "city": "MADISON",
+    "address": "45 Ashmere Court",
+    "city": "Sorrel Prairie",
     "state": "WI",
-    "zip": "53716",
-    "phone": "608-260-6500",
-    "npi": "1407966195",
+    "zip": "53524",
+    "phone": "608-555-0167",
+    "npi": "2999000575",
     "ncpdpProviderId": "",
     "taxonomyCode": "3336C0003X"
   },
   {
     "localData": {
       "serviceProviderIdQualifier": 1,
-      "serviceProviderId": "1194227694"
+      "serviceProviderId": "2999000583"
     },
-    "enrollmentKey": "854F299cdc07d3d2219e7b65a3f75e!i",
-    "storeName": "DEAN RETAIL SERVICES, INC.",
+    "enrollmentKey": "RQYnXdmbyoApJsk0Y-ArgktCUoCYQdRcXHXX_stmUzs",
+    "storeName": "Pellam Apothecary",
     "chain": "Independent",
     "pharmacyType": "01",
     "pharmacyTypeDesc": "Community/Retail",
-    "address": "752 N HIGH POINT RD STE L701",
-    "city": "MADISON",
+    "address": "2756 Marchbank Drive",
+    "city": "Sorrel Prairie",
     "state": "WI",
-    "zip": "53717",
-    "phone": "608-824-4025",
-    "npi": "1194227694",
-    "ncpdpProviderId": "",
-    "taxonomyCode": "3336C0003X"
-  },
-  {
-    "localData": {
-      "serviceProviderIdQualifier": 1,
-      "serviceProviderId": "1780794479"
-    },
-    "enrollmentKey": "C34F6c4d1b44a2952c758cebf71583!j",
-    "storeName": "DEAN RETAIL SERVICES, INC.",
-    "chain": "Independent",
-    "pharmacyType": "01",
-    "pharmacyTypeDesc": "Community/Retail",
-    "address": "752 N. HIGH POINT RD",
-    "city": "MADISON",
-    "state": "WI",
-    "zip": "53717",
-    "phone": "608-824-4500",
-    "npi": "1780794479",
-    "ncpdpProviderId": "",
-    "taxonomyCode": "3336C0003X"
-  },
-  {
-    "localData": {
-      "serviceProviderIdQualifier": 1,
-      "serviceProviderId": "1992815682"
-    },
-    "enrollmentKey": "81E0F82f4e039b61fc7cbfe41fb647!k",
-    "storeName": "DEAN RETAIL SERVICES, INC.",
-    "chain": "Independent",
-    "pharmacyType": "01",
-    "pharmacyTypeDesc": "Community/Retail",
-    "address": "3200 EAST RACINE STREET",
-    "city": "JANESVILLE",
-    "state": "WI",
-    "zip": "53546",
-    "phone": "608-371-8100",
-    "npi": "1992815682",
-    "ncpdpProviderId": "",
-    "taxonomyCode": "3336C0003X"
-  },
-  {
-    "localData": {
-      "serviceProviderIdQualifier": 1,
-      "serviceProviderId": "1982943924"
-    },
-    "enrollmentKey": "7745013E6483d10a963952f4727e7b!l",
-    "storeName": "DISTRICT COUNCIL OF MADISON INC",
-    "chain": "Independent",
-    "pharmacyType": "01",
-    "pharmacyTypeDesc": "Community/Retail",
-    "address": "2033 FISH HATCHERY RD",
-    "city": "MADISON",
-    "state": "WI",
-    "zip": "53725",
-    "phone": "608-268-0355",
-    "npi": "1982943924",
-    "ncpdpProviderId": "",
-    "taxonomyCode": "3336C0003X"
-  },
-  {
-    "localData": {
-      "serviceProviderIdQualifier": 1,
-      "serviceProviderId": "1801028030"
-    },
-    "enrollmentKey": "35C07f529492f1b301d39b9430218a!m",
-    "storeName": "HY-VEE INC",
-    "chain": "HY-VEE",
-    "pharmacyType": "01",
-    "pharmacyTypeDesc": "Community/Retail",
-    "address": "3801 E WASHINGTON AVE",
-    "city": "MADISON",
-    "state": "WI",
-    "zip": "53704",
-    "phone": "608-244-4991",
-    "npi": "1801028030",
-    "ncpdpProviderId": "",
-    "taxonomyCode": "3336C0003X"
-  },
-  {
-    "localData": {
-      "serviceProviderIdQualifier": 1,
-      "serviceProviderId": "1376885152"
-    },
-    "enrollmentKey": "C6CC6375a6005729f98ed135e90112!n",
-    "storeName": "HY-VEE INC",
-    "chain": "HY-VEE",
-    "pharmacyType": "01",
-    "pharmacyTypeDesc": "Community/Retail",
-    "address": "675 S WHITNEY WAY",
-    "city": "MADISON",
-    "state": "WI",
-    "zip": "53711",
-    "phone": "608-277-6731",
-    "npi": "1376885152",
-    "ncpdpProviderId": "",
-    "taxonomyCode": "3336C0003X"
-  },
-  {
-    "localData": {
-      "serviceProviderIdQualifier": 1,
-      "serviceProviderId": "1093408767"
-    },
-    "enrollmentKey": "BF6B7dd68a0d6339857fa5bad42a23!o",
-    "storeName": "IMAGEMOVERMD",
-    "chain": "Independent",
-    "pharmacyType": "01",
-    "pharmacyTypeDesc": "Community/Retail",
-    "address": "25 W MAIN ST STE 500",
-    "city": "MADISON",
-    "state": "WI",
-    "zip": "53703",
-    "phone": "608-620-4980",
-    "npi": "1093408767",
+    "zip": "53524",
+    "phone": "608-555-0168",
+    "npi": "2999000583",
     "ncpdpProviderId": "",
     "taxonomyCode": "3336C0003X"
   }

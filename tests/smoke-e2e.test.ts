@@ -35,7 +35,7 @@
  *   Phase 13: Employer views roster + plan selection
  *   Phase 14: Pharmacy DUR — cross-pharmacy drug history
  *
- * Uses real seed data (NPPES prescribers/pharmacies, NADAC formulary, POC members).
+ * Uses the seed data: the fictional fixture prescribers, pharmacies and members, and the NADAC formulary.
  *
  * Run:
  *   npx jest tests/smoke-e2e.test.ts --verbose --testTimeout=600000
@@ -75,11 +75,11 @@ const emptyTree = new MerkleTree(WALLET_TREE_HEIGHT);
 const INITIAL_ROOT = emptyTree.getRoot();
 
 // Seed data — use first prescriber, first pharmacy, first member
-// (Alice Johnson from Epic Systems, Madison WI)
-const PRESCRIBER_NPI = '1679576722'; // First NPPES prescriber
-const PHARMACY_NPI = '1023011178';   // First NPPES pharmacy
+// (Alice Johnson of Fernhill Instruments; every fixture person and business is fictional)
+const PRESCRIBER_NPI = '2999000013'; // fixture prescriber 0 (src/data/prescribers.json)
+const PHARMACY_NPI = '2999000518';   // fixture pharmacy 0 (src/data/pharmacies.json)
 const MEMBER = {
-  cardholderId: 'EPIC-EMP-001',
+  cardholderId: 'FERN-EMP-001',
   firstName: 'Alice',
   lastName: 'Johnson',
   dateOfBirth: '19850315',
@@ -268,8 +268,8 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
 
     // 2. Create all 5 Nautilus Apps
     const [insurer, employer, member, prescriber, pharmacy] = await Promise.all([
-      createNautilusApp('insurer', sequencerUrl, 'UW Health Plan'),
-      createNautilusApp('employer', sequencerUrl, 'Epic Systems'),
+      createNautilusApp('insurer', sequencerUrl, 'Test Insurer'),
+      createNautilusApp('employer', sequencerUrl, 'Fernhill Instruments'),
       createNautilusApp('member', sequencerUrl, 'Alice Johnson'),
       createNautilusApp('prescriber', sequencerUrl, 'Dr. Test Prescriber'),
       createNautilusApp('pharmacy', sequencerUrl, 'Test Pharmacy'),
@@ -392,7 +392,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
   test('P1c — insurer creates benefit plan', async () => {
     const r = await post(insurerPort, '/plans', {
       planId: 'PLAN-GOLD-001',
-      name: 'Epic Gold PPO',
+      name: 'Fernhill Gold PPO',
       coverageType: 1,
       copayAmountCents: 1000,       // $10 copay
       deductibleAmountCents: 50000,  // $500 deductible
@@ -442,7 +442,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
 
   test('P2a — employer configures', async () => {
     const r = await post(employerPort, '/onboarding/configure', {
-      employerId: 'EPIC-SYSTEMS',
+      employerId: 'FERNHILL-INSTRUMENTS',
       insurerUrl: `http://127.0.0.1:${insurerPort}`,
     });
     expect(r.status).toBe(200);
@@ -457,18 +457,18 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
     const gold = plans.find((p: any) => p.planId === 'PLAN-GOLD-001');
     expect(gold).toBeDefined();
     expect(gold.published).toBe(true);
-    expect(gold.name).toBe('Epic Gold PPO');
+    expect(gold.name).toBe('Fernhill Gold PPO');
   });
 
   test('P2c — employer creates enrollment group', async () => {
     const r = await post(employerPort, '/groups', {
-      groupId: 'GRP-EPIC-2026',
+      groupId: 'GRP-FERN-2026',
       planId: 'PLAN-GOLD-001',
       effectiveDate: '20260101',
       enrollmentCap: 100,
     }, AUTH);
     expect(r.status).toBe(201);
-    expect((r.body as any).data.groupId).toBe('GRP-EPIC-2026');
+    expect((r.body as any).data.groupId).toBe('GRP-FERN-2026');
     expect((r.body as any).data.planId).toBe('PLAN-GOLD-001');
   });
 
@@ -476,7 +476,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
     const CODE = /^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){4}$/;
     // Token for Alice (member)
     const r1 = await post(employerPort, '/tokens/generate', {
-      groupId: 'GRP-EPIC-2026',
+      groupId: 'GRP-FERN-2026',
       employeeIdHash: 'EMP-10001',
       validUntil: '20261231',
     }, AUTH);
@@ -486,7 +486,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
 
     // Token for prescriber
     const r2 = await post(employerPort, '/tokens/generate', {
-      groupId: 'GRP-EPIC-2026',
+      groupId: 'GRP-FERN-2026',
       employeeIdHash: 'PROV-RX-001',
       validUntil: '20261231',
     }, AUTH);
@@ -495,7 +495,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
 
     // Token for pharmacy
     const r3 = await post(employerPort, '/tokens/generate', {
-      groupId: 'GRP-EPIC-2026',
+      groupId: 'GRP-FERN-2026',
       employeeIdHash: 'PROV-PH-001',
       validUntil: '20261231',
     }, AUTH);
@@ -504,7 +504,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
 
     // A6: a caller-chosen code is refused.
     const r4 = await post(employerPort, '/tokens/generate', {
-      groupId: 'GRP-EPIC-2026',
+      groupId: 'GRP-FERN-2026',
       employeeIdHash: 'EMP-10002',
       validUntil: '20261231',
       tokenId: 'TKN-CHOSEN-001',
@@ -527,7 +527,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
     expect(r.status).toBe(200);
     const groups = (r.body as any).data;
     expect(groups.length).toBe(1);
-    expect(groups[0].groupId).toBe('GRP-EPIC-2026');
+    expect(groups[0].groupId).toBe('GRP-FERN-2026');
     expect(groups[0].status).toBe('active');
   });
 
@@ -538,7 +538,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
   test('P3a — prescriber accepts token', async () => {
     const r = await post(prescriberPort, '/onboarding/accept-token', {
       tokenId: prescriberCode,
-      groupId: 'GRP-EPIC-2026',
+      groupId: 'GRP-FERN-2026',
       planId: 'PLAN-GOLD-001',
     });
     expect(r.status).toBe(200);
@@ -577,7 +577,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
   test('P4a — pharmacy accepts token', async () => {
     const r = await post(pharmacyPort, '/onboarding/accept-token', {
       tokenId: pharmacyCode,
-      groupId: 'GRP-EPIC-2026',
+      groupId: 'GRP-FERN-2026',
       planId: 'PLAN-GOLD-001',
     });
     expect(r.status).toBe(200);
@@ -615,7 +615,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
   test('P5a — member accepts token from employer', async () => {
     const r = await post(memberPort, '/onboarding/accept-token', {
       tokenId: aliceCode,
-      groupId: 'GRP-EPIC-2026',
+      groupId: 'GRP-FERN-2026',
       planId: 'PLAN-GOLD-001',
     });
     expect(r.status).toBe(200);
@@ -950,10 +950,10 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
   // ══════════════════════════════════════════════════════════
 
   test('P13a — employer views groups', async () => {
-    const r = await get(employerPort, '/groups/GRP-EPIC-2026', AUTH);
+    const r = await get(employerPort, '/groups/GRP-FERN-2026', AUTH);
     expect(r.status).toBe(200);
     const group = (r.body as any).data;
-    expect(group.groupId).toBe('GRP-EPIC-2026');
+    expect(group.groupId).toBe('GRP-FERN-2026');
     expect(group.planId).toBe('PLAN-GOLD-001');
     expect(group.status).toBe('active');
   });

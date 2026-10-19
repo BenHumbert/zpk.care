@@ -129,7 +129,7 @@ import { OpaqueRoster, buildRosterEntry } from '../onboarding/opaque-roster.js';
 import { PlanTemplate } from '../onboarding/plan-template.js';
 import { EnrollmentService } from '../onboarding/enrollment-service.js';
 
-// Production data (NPPES + NADAC)
+// Fixture data: fictional seed providers and members, plus the NADAC formulary
 import {
   PRESCRIBERS,
   PHARMACIES,
@@ -138,6 +138,7 @@ import {
   getAllFormularyEntries,
   getMembersByFamily,
   fixtureIdentitySalt,
+  prescriberDisplayName,
 } from '../data/index.js';
 
 // Full NADAC formulary (always 32K, ignores FORMULARY_LIMIT env var)
@@ -183,7 +184,7 @@ interface ProviderNetwork {
 
 const PLAN_NETWORKS: Record<string, ProviderNetwork> = {
   'PLAN-GOLD-2026': {
-    // 7 of 10 prescribers in-network
+    // 7 of 12 prescribers in-network (5, 6, 8, 10 and 11 are out)
     prescriberIndices: [0, 1, 2, 3, 4, 7, 9],
     // 5 of 8 pharmacies in-network
     pharmacyIndices: [0, 1, 2, 3, 4],
@@ -1509,11 +1510,11 @@ export class AdjudicationService {
     this.emit('info', 'enroll', `         ${network.prescriberIndices.length} prescribers + ${network.pharmacyIndices.length} pharmacies in ${planId} network`);
     for (const idx of network.prescriberIndices) {
       const p = PRESCRIBERS[idx];
-      this.emit('info', 'enroll', `    → Dr. ${p.firstName} ${p.lastName}, ${p.credential} (${p.specialty}) — CREDENTIALED`);
+      this.emit('info', 'enroll', `    → ${prescriberDisplayName(p)}, ${p.credential} (${p.specialty}) — CREDENTIALED`);
       this.emitViz('viz:enrollment:provider_notify', 'enrollment', {
         actor: 'Insurer',
         actorType: 'insurer',
-        target: `Dr. ${p.firstName} ${p.lastName}`,
+        target: `${prescriberDisplayName(p)}`,
         targetType: 'prescriber',
         data: { providerType: 'prescriber', providerIndex: idx, step: 'provider_notify' },
       });
@@ -1662,7 +1663,7 @@ export class AdjudicationService {
         pharmacyCount: network.pharmacyIndices.length,
         prescribers: network.prescriberIndices.map(i => {
           const p = PRESCRIBERS[i];
-          return { index: i, name: `Dr. ${p.firstName} ${p.lastName}`, credential: p.credential, specialty: p.specialty };
+          return { index: i, name: `${prescriberDisplayName(p)}`, credential: p.credential, specialty: p.specialty };
         }),
         pharmacies: network.pharmacyIndices.map(i => {
           const p = PHARMACIES[i];
@@ -2163,7 +2164,7 @@ export class AdjudicationService {
     };
     this.priorAuths.set(paId, paState);
 
-    const prescriberName = `Dr. ${prescriber.firstName} ${prescriber.lastName}`;
+    const prescriberName = `${prescriberDisplayName(prescriber)}`;
     this.emit('phase', 'prior-auth', `═══ Prior Auth Request: ${medication.brandName} ═══`);
     this.emit('offchain', 'prior-auth', `${prescriberName} requests PA for ${enrolled.displayName}`);
     this.emit('info', 'prior-auth', `  Medication: ${medication.brandName} ${medication.strength} (Tier ${medication.formularyEntry.tierLevel})`);
@@ -2313,7 +2314,7 @@ export class AdjudicationService {
         tier: medication.formularyEntry.tierLevel,
       },
       member: { name: enrolled.displayName, walletId: enrolled.walletIdStr },
-      prescriber: { name: `Dr. ${prescriber.firstName} ${prescriber.lastName}` },
+      prescriber: { name: `${prescriberDisplayName(prescriber)}` },
       paLeafIndex: Number(paLeafIndex),
       proofTimeMs: elapsedProof,
       forestRoot: truncField(enrolled.forest.getForestRoot()),
@@ -2452,7 +2453,7 @@ export class AdjudicationService {
     if (!prescriber.deaNumber) {
       return {
         allowed: false,
-        warnings: [`DEA Schedule ${medication.deaSchedule}: Prescriber Dr. ${prescriber.firstName} ${prescriber.lastName} does not have a DEA number`],
+        warnings: [`DEA Schedule ${medication.deaSchedule}: Prescriber ${prescriberDisplayName(prescriber)} does not have a DEA number`],
       };
     }
 
@@ -2511,7 +2512,7 @@ export class AdjudicationService {
     const prescriberWalletId = this.prescriberWalletIds.get(opts.prescriberIndex)!;
     const prescriberPreimage = this.prescriberPreimages.get(opts.prescriberIndex)!;
     const pharmacyWalletId = this.pharmacyWalletIds.get(opts.pharmacyIndex)!;
-    const prescriberName = `Dr. ${prescriber.firstName} ${prescriber.lastName}`;
+    const prescriberName = `${prescriberDisplayName(prescriber)}`;
     const pharmacyName = pharmacy.storeName;
 
     // A-18: a terminated member is not billable. The ledger decides, and the engine's copy follows it.
@@ -3683,7 +3684,7 @@ export class AdjudicationService {
     }
 
     const actorName = opts.role === 'prescriber'
-      ? `Dr. ${PRESCRIBERS[opts.actorIndex].firstName} ${PRESCRIBERS[opts.actorIndex].lastName}`
+      ? `${prescriberDisplayName(PRESCRIBERS[opts.actorIndex])}`
       : PHARMACIES[opts.actorIndex].storeName;
     const enrolled = this.enrolledMembers.get(rxState.memberWalletId);
     const medication = this.getMedicationByNdcHash(rxState.ndcHash);
@@ -4125,7 +4126,7 @@ export class AdjudicationService {
       return {
         walletId: this.prescriberWalletIds.get(index)!,
         keyIndex: this.providerKeyIndex(this.prescriberWalletIds.get(index)!),
-        displayName: `Dr. ${p.firstName} ${p.lastName}`,
+        displayName: `${prescriberDisplayName(p)}`,
       };
     }
     if (type === 'pharmacy') {
@@ -4943,7 +4944,7 @@ export class AdjudicationService {
     for (const [i, wid] of this.prescriberWalletIds) {
       if (wid.toString() === walletIdStr) {
         const p = PRESCRIBERS[i];
-        prescriberName = `Dr. ${p.firstName} ${p.lastName}`;
+        prescriberName = `${prescriberDisplayName(p)}`;
         prescriberIdx = i;
         break;
       }
@@ -5203,7 +5204,7 @@ export class AdjudicationService {
 
     const prescriberWalletId = this.prescriberWalletIds.get(opts.prescriberIndex)!;
     const prescriberPreimage = this.prescriberPreimages.get(opts.prescriberIndex)!;
-    const prescriberName = `Dr. ${prescriber.firstName} ${prescriber.lastName}`;
+    const prescriberName = `${prescriberDisplayName(prescriber)}`;
 
     this.emit('phase', 'pcp', `═══ PCP Assignment: ${enrolled.displayName} → ${prescriberName} ═══`);
 
@@ -5394,7 +5395,7 @@ export class AdjudicationService {
         strength: med.strength,
         ndc: med.ndcFormatted,
         tier: med.formularyEntry.tierLevel,
-        prescriber: `Dr. ${prescriberData.firstName} ${prescriberData.lastName}`,
+        prescriber: `${prescriberDisplayName(prescriberData)}`,
         pharmacy: pharmacyData.storeName,
         quantity: rx.quantity,
         refills: rx.refills,
@@ -5464,7 +5465,7 @@ export class AdjudicationService {
           strength: med.strength,
           ndc: med.ndcFormatted,
           tier: med.formularyEntry.tierLevel,
-          prescriber: `Dr. ${prescriberData.firstName} ${prescriberData.lastName}`,
+          prescriber: `${prescriberDisplayName(prescriberData)}`,
           pharmacy: pharmacyData.storeName,
           quantity: rx.quantity,
           status: rx.status,
@@ -6600,7 +6601,7 @@ export class AdjudicationService {
     for (const [_, m] of this.enrolledMembers) {
       const pcpInfo = m.pcpPrescriberIndex !== undefined ? {
         prescriberIndex: m.pcpPrescriberIndex,
-        prescriberName: `Dr. ${PRESCRIBERS[m.pcpPrescriberIndex].firstName} ${PRESCRIBERS[m.pcpPrescriberIndex].lastName}`,
+        prescriberName: `${prescriberDisplayName(PRESCRIBERS[m.pcpPrescriberIndex])}`,
         specialty: PRESCRIBERS[m.pcpPrescriberIndex].specialty,
       } : null;
 
@@ -6702,7 +6703,7 @@ export class AdjudicationService {
         memberName: enrolled?.displayName ?? 'Unknown',
         memberWalletIdDisplay: enrolled?.walletIdStr ?? pa.memberWalletId,
         prescriberIndex: pa.prescriberIndex,
-        prescriberName: `Dr. ${prescriber.firstName} ${prescriber.lastName}`,
+        prescriberName: `${prescriberDisplayName(prescriber)}`,
         ndcHash: pa.ndcHash,
         medicationName: med.brandName,
         medicationStrength: med.strength,
@@ -6890,7 +6891,7 @@ export class AdjudicationService {
     // Prescribers
     for (const [i, wid] of this.prescriberWalletIds) {
       const p = PRESCRIBERS[i];
-      dir[wid.toString()] = { displayName: `Dr. ${p.firstName} ${p.lastName}`, type: 'prescriber', index: i };
+      dir[wid.toString()] = { displayName: `${prescriberDisplayName(p)}`, type: 'prescriber', index: i };
     }
     // Pharmacies
     for (const [i, wid] of this.pharmacyWalletIds) {

@@ -131,7 +131,9 @@ async function main(): Promise<void> {
   //
   //  In production: insurer verifies NPI/NCPDP credentials via NPPES/PECOS,
   //  then registers them in the sequencer's entity registry.
-  //  Here: loads seed prescribers + pharmacies and registers via RPC.
+  //  Here: loads the fictional seed prescribers + pharmacies and registers
+  //  them via RPC. Nothing is looked up in NPPES, so the registry records
+  //  verificationMethod 'manual'.
   // ══════════════════════════════════════════════════════════
 
   const seqUrl = config.sequencerUrl.replace(/\/+$/, '');
@@ -159,7 +161,7 @@ async function main(): Promise<void> {
 
   if (seqReady) {
     // ── Credential Prescribers (via provider registry) ──
-    const { PRESCRIBERS } = await import('../data/index.js');
+    const { PRESCRIBERS, prescriberDisplayName } = await import('../data/index.js');
     const { derivePrescriberWalletId } = await import('../wallets/wallet-derivation.js');
 
     let prescriberCount = 0;
@@ -168,13 +170,13 @@ async function main(): Promise<void> {
       try {
         await rpcCall('l2_credentialProvider', {
           walletId,
-          displayName: `Dr. ${p.firstName} ${p.lastName}, ${p.credential}`,
+          displayName: `${prescriberDisplayName(p)}, ${p.credential}`,
           providerType: 'prescriber',
           npi: p.localData.prescriberId,
           specialty: p.specialty,
           stateOfLicense: p.state,
           deaNumber: p.deaNumber,
-          verificationMethod: 'nppes',
+          verificationMethod: 'manual',
         });
         prescriberCount++;
       } catch (err: unknown) {
@@ -203,7 +205,7 @@ async function main(): Promise<void> {
           npi: p.localData.serviceProviderId,
           pharmacyType: p.pharmacyTypeDesc,
           stateOfLicense: p.state,
-          verificationMethod: 'nppes',
+          verificationMethod: 'manual',
         });
         pharmacyCount++;
       } catch (err: unknown) {

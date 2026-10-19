@@ -439,7 +439,7 @@ export type {
   SelectiveWitnessResult,
 } from './audit/index.js';
 
-// ── Production Data (NPPES + NADAC) ─────────────────────────
+// ── Fixture Data (fictional providers + members, NADAC formulary) ──
 export {
   PRESCRIBERS, PRESCRIBER_BY_NPI,
   PHARMACIES, PHARMACY_BY_NPI, PHARMACY_BY_NCPDP,

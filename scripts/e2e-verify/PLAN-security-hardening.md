@@ -2906,3 +2906,13 @@ findings; 37 fixed; 3 open (A-22, A-25, A-33 under the interim lease with D8 pen
 concurrent, 201 of 201. Git: with this commit, 60 commits on local `dev`, nothing pushed. **Next:** the owner's
 first video (one claim through every real screen, narrated, with a whiteboard), which needs fictional providers and
 the screen fixes the demo-prep audit lists; then D8 and B3.
+
+**Addendum, 2026-10-19: fictional providers and employers (ahead of F1).** The seed prescribers and pharmacies were real NPPES
+records and the member fixtures pointed at two real employers; they are replaced in place by 12 fictional prescribers and 8
+fictional pharmacies (NPIs that start with 2 with a valid 80840 check digit, each NPI and name checked against the NPPES API)
+and two invented employers, and the NPPES importer is deleted. "Dr." is shown only for MDs and DOs. Docs and deliverables that
+quoted real names, NPIs or wallet IDs are redacted, and a search of every tracked file for the old values finds none. Git
+history still holds the old rows: rewriting it is the owner's call before the repository is shared. tests/layer8.test.ts
+fails 6 status-transition tests at HEAD as well (pre-existing, outside the regression list; to look at with B3). Verified:
+regression batch 57 suites plus the touched suites, 882 tests passing; typecheck src 20, scripts 2; single-member pipeline
+222 of 222; multi-member, concurrent, 201 of 201. The demo tooling is committed separately (tools/demo).

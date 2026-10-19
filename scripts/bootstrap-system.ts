@@ -348,8 +348,8 @@ function printSummary(tokens: string[]): void {
   console.log('  Sequencer:     http://localhost:%d/rpc', PORTS.sequencer);
   console.log('  Replicas:      http://localhost:%d, %d', PORTS.replica1, PORTS.replica2);
   console.log('  Insurer:       http://localhost:%d   (providers credentialed, formulary published)', PORTS.insurer);
-  console.log('  Prescriber:    http://localhost:%d   (Dr. Sarah Chen, credentialed)', PORTS.prescriber);
-  console.log('  Pharmacy:      http://localhost:%d   (Main Street Pharmacy, credentialed)', PORTS.pharmacy);
+  console.log('  Prescriber:    http://localhost:%d   (seed prescriber 0, credentialed)', PORTS.prescriber);
+  console.log('  Pharmacy:      http://localhost:%d   (seed pharmacy 0, credentialed)', PORTS.pharmacy);
   console.log('  Employer:      http://localhost:%d   (ACME-001, group + tokens ready)', PORTS.employer);
   console.log('  Member:        http://localhost:%d   (awaiting enrollment)', PORTS.member);
   console.log('  Explorer:      http://localhost:%d', PORTS.explorer);

@@ -21,7 +21,10 @@
 //   - NCPDP (National Council for Prescription Drug Programs) — pharmacy data
 //   - Medispan (NDC/GPI drug database) — medication data
 //
-// ALL data is FICTIONAL. No real NPIs, NDCs, or individuals.
+// ALL provider and member data is FICTIONAL: the people and pharmacies are
+// invented, and no NPI or DEA number here is an issued one (the file headers say
+// why). nadac-formulary.ts, not re-exported here, holds real public NDCs and
+// prices from CMS NADAC: drug products, not people.
 
 // Prescribers (NPPES-style)
 export { PRESCRIBERS, PRESCRIBER_BY_NPI } from './prescribers.js';

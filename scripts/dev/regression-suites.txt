@@ -54,3 +54,4 @@ tests/messaging-key-slots.test.ts
 tests/reversal-ledger.test.ts
 tests/ledger-lifecycle-gate.test.ts
 tests/provider-index-refusal.test.ts
+tests/fixture-identities.test.ts

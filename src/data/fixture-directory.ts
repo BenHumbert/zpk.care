@@ -27,7 +27,7 @@
  * Nothing here is runtime state. The formulary's live flags (active, current tier and copay) and
  * the plan block remain with the engine, because they are its state and carry no identity.
  */
-import { MEMBERS, PRESCRIBERS, PHARMACIES } from './index.js';
+import { MEMBERS, PRESCRIBERS, PHARMACIES, prescriberDisplayName } from './index.js';
 
 export interface FixtureMember {
   index: number;
@@ -76,7 +76,11 @@ export interface FixtureDirectory {
   pharmacies: FixturePharmacy[];
 }
 
-/** The same projection the engine used to embed, moved here unchanged so the visualizer's reads still fit. */
+/**
+ * The same projection the engine used to embed, moved here so the visualizer's reads still fit. One change since:
+ * `name` carries "Dr." only for a physician (MD, DO), because the fixture prescribers include nurse practitioners
+ * and a physician assistant.
+ */
 export function fixtureDirectory(): FixtureDirectory {
   return {
     members: MEMBERS.map((m, i) => ({
@@ -98,7 +102,7 @@ export function fixtureDirectory(): FixtureDirectory {
       index: i,
       firstName: p.firstName,
       lastName: p.lastName,
-      name: `Dr. ${p.firstName} ${p.lastName}`,
+      name: prescriberDisplayName(p),
       credential: p.credential,
       specialty: p.specialty,
       npi: p.localData.prescriberId,

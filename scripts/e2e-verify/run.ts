@@ -257,7 +257,7 @@ async function main() {
   const employerId = `E2E-EMP-${RUN}`;
   const apply = await http('POST', `${INS}/marketplace/api/apply`, {
     companyName: 'Fernhill Test Works LLC', employerId, contactName: 'Jordan Testcase', contactEmail: 'hr@fernhill.example.test',
-    ein: '12-3456789', state: 'WI', selectedPlanIds: [planId], effectiveDate: new Date().toISOString().slice(0, 10), enrollmentCap: 10, publicKeyHex,
+    ein: '00-0000001', state: 'WI', selectedPlanIds: [planId], effectiveDate: new Date().toISOString().slice(0, 10), enrollmentCap: 10, publicKeyHex,
   });
   const appId = unwrap(apply.json)?.applicationId;
   // A8: the activation code is shown once at submission and is what collects the admin
@@ -554,7 +554,7 @@ async function main() {
 
   // ── 7b. Primary care, from the device (B1 step two, commit three; B5 put it before the claims) ──
   trace.begin('member', 'The member names the prescriber node as primary care; the engine queues it, the device proves it');
-  const pcpPick = await mem('POST', '/pcp/assign', { pcpWalletId: String(results.prescriberWalletId), effectiveDate: '20261018', specialty: 'Internal Medicine' });
+  const pcpPick = await mem('POST', '/pcp/assign', { pcpWalletId: String(results.prescriberWalletId), effectiveDate: '20261018', specialty: 'Family Medicine' });
   trace.check('The device records the choice locally', pcpPick.status === 200, 200, pcpPick.status);
   const pcpProve = await mem('POST', '/proof/pcp-assignment', {});
   const pcpOut = unwrap(pcpProve.json) ?? pcpProve.json;

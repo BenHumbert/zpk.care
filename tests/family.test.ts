@@ -207,25 +207,25 @@ describe('Seed Data — familyId', () => {
   });
 
   test('familyId is consistent within families', () => {
-    // Carol, Daniel, Emma Williams share FAM-EPIC-10003
+    // Carol, Daniel, Emma Williams share FAM-FERN-10003
     const carol = MEMBERS.find(m => m.localData.firstName === 'Carol')!;
     const daniel = MEMBERS.find(m => m.localData.firstName === 'Daniel')!;
     const emma = MEMBERS.find(m => m.localData.firstName === 'Emma')!;
-    expect(carol.familyId).toBe('FAM-EPIC-10003');
-    expect(daniel.familyId).toBe('FAM-EPIC-10003');
-    expect(emma.familyId).toBe('FAM-EPIC-10003');
+    expect(carol.familyId).toBe('FAM-FERN-10003');
+    expect(daniel.familyId).toBe('FAM-FERN-10003');
+    expect(emma.familyId).toBe('FAM-FERN-10003');
   });
 
   test('single members have unique familyIds', () => {
     const alice = MEMBERS.find(m => m.localData.firstName === 'Alice')!;
     const bob = MEMBERS.find(m => m.localData.firstName === 'Bob')!;
     expect(alice.familyId).not.toBe(bob.familyId);
-    expect(alice.familyId).toBe('FAM-EPIC-10001');
-    expect(bob.familyId).toBe('FAM-EPIC-10002');
+    expect(alice.familyId).toBe('FAM-FERN-10001');
+    expect(bob.familyId).toBe('FAM-FERN-10002');
   });
 
   test('Williams family has 3 members', () => {
-    const family = getMembersByFamily('FAM-EPIC-10003');
+    const family = getMembersByFamily('FAM-FERN-10003');
     expect(family.length).toBe(3);
 
     const relationships = family.map(m => m.relationship).sort();
@@ -234,7 +234,7 @@ describe('Seed Data — familyId', () => {
 
   test('getMembersByFamily returns correct members', () => {
     // Single-person family
-    const aliceFamily = getMembersByFamily('FAM-EPIC-10001');
+    const aliceFamily = getMembersByFamily('FAM-FERN-10001');
     expect(aliceFamily.length).toBe(1);
     expect(aliceFamily[0]!.localData.firstName).toBe('Alice');
 
@@ -242,8 +242,8 @@ describe('Seed Data — familyId', () => {
     const none = getMembersByFamily('FAM-NONEXISTENT');
     expect(none.length).toBe(0);
 
-    // Globex single
-    const frank = getMembersByFamily('FAM-EX-50001');
+    // Bayside single
+    const frank = getMembersByFamily('FAM-BAY-50001');
     expect(frank.length).toBe(1);
     expect(frank[0]!.localData.firstName).toBe('Frank');
   });
@@ -253,7 +253,7 @@ describe('Seed Data — familyId', () => {
     const emp10003 = getMembersByEmployee('EMP-10003');
     const familyIds = new Set(emp10003.map(m => m.familyId));
     expect(familyIds.size).toBe(1);
-    expect(familyIds.has('FAM-EPIC-10003')).toBe(true);
+    expect(familyIds.has('FAM-FERN-10003')).toBe(true);
   });
 });
 
@@ -264,13 +264,13 @@ describe('GroupEnrollmentToken — familyIdHash', () => {
       groupId: 'ACME-CORP',
       planId: 'PLAN-GOLD',
       employeeId: 'EMP-10003',
-      familyId: 'FAM-EPIC-10003',
+      familyId: 'FAM-FERN-10003',
       validUntil: '20261231',
       issuer: 'ACME Corp',
       nonce: 0,
     };
     const token = buildGroupEnrollmentToken(local);
-    expect(token.familyIdHash.toString()).toBe(hashString('FAM-EPIC-10003').toString());
+    expect(token.familyIdHash.toString()).toBe(hashString('FAM-FERN-10003').toString());
   });
 
   test('different familyIds produce different commitments', () => {

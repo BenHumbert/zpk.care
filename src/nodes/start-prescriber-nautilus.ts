@@ -108,7 +108,7 @@ async function main(): Promise<void> {
 
   const seedPrescriberId = env.ZKTRIDENT_SEED_PRESCRIBER;
   if (seedPrescriberId) {
-    const { PRESCRIBERS } = await import('../data/index.js');
+    const { PRESCRIBERS, prescriberDisplayName } = await import('../data/index.js');
     const { derivePrescriberWalletId } = await import('../wallets/wallet-derivation.js');
 
     const idx = parseInt(seedPrescriberId, 10);
@@ -140,7 +140,7 @@ async function main(): Promise<void> {
      * works. A really enrolled node is in the same position after unlocking.
      */
     server.getLocalState().setEnrollmentKey(prescriber.enrollmentKey);
-    const displayName = `Dr. ${prescriber.firstName} ${prescriber.lastName}, ${prescriber.credential}`;
+    const displayName = `${prescriberDisplayName(prescriber)}, ${prescriber.credential}`;
 
     console.log('  [seed] Prescriber: %s', displayName);
     console.log('  [seed] Specialty:  %s', prescriber.specialty);

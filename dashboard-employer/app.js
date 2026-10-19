@@ -301,7 +301,7 @@
 
       el.innerHTML = '<div class="panel"><div class="panel-header"><span class="panel-title">Create New Group</span></div><div class="panel-body">' +
         '<div class="form-grid">' +
-          formField('cg-groupId', 'Group ID', 'text', 'e.g. GRP-EPIC-ENG') +
+          formField('cg-groupId', 'Group ID', 'text', 'e.g. GRP-ENG') +
           '<div class="form-group"><label for="cg-planId">Benefit Plan</label>' +
             '<select id="cg-planId" style="width:100%;padding:8px;border:1px solid var(--border-color,#ccc);border-radius:4px;font-size:13px">' + planOptions + '</select>' +
             '<span class="field-error" id="cg-planId-err"></span></div>' +

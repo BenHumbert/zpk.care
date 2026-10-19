@@ -1339,7 +1339,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
               pharmacyType: app.pharmacyType,
               deaNumber: app.deaNumber,
               stateOfLicense: app.stateOfLicense,
-              verificationMethod: app.verifiedAt ? 'manual' : 'nppes',
+              verificationMethod: 'manual',
               applicationId: app.applicationId,
             },
           }),

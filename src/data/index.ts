@@ -15,16 +15,21 @@
  */
 
 /**
- * Production Data — Real CMS/NPPES provider and drug data for Madison, WI
+ * Seed data — the fixture providers and members, and the NADAC formulary.
  *
- * Data sources (all PUBLIC RECORD):
- *   - NPPES (NPI Registry) — prescribers and pharmacies
- *   - NADAC (CMS Medicaid drug pricing) — formulary with 32,768 medications
+ * The people and businesses are fictional:
+ *   - prescribers.json, pharmacies.json — invented providers in an invented town (Sorrel Prairie, WI).
+ *     Every NPI starts with 2, which NPPES has never issued, and carries a valid check digit. Names,
+ *     streets and phone numbers (608-555-01xx, the block reserved for fiction) are made up, and each
+ *     NPI and name returned no match from the NPPES registry. There are no DEA numbers or NCPDP IDs,
+ *     because a well-formed one cannot be shown to be unassigned.
+ *   - MEMBERS — eight test beneficiaries working for two invented employers (FIXTURE_EMPLOYERS).
+ *   tests/fixture-identities.test.ts holds these rules.
+ *
+ * The drug data is public record: NADAC (CMS Medicaid drug pricing), a formulary of 32,768 medications.
  *
  * This module exports the same interfaces and constants as src/seed/index.ts
  * so existing code can swap imports with minimal changes.
- *
- * Members remain POC-specific (configurable test beneficiaries).
  */
 
 import * as fs from 'fs';
@@ -47,7 +52,7 @@ const _dataDir = path.resolve(
 // ── Types (re-export compatible interfaces) ─────────────────
 
 /**
- * Prescriber record — real NPPES data.
+ * Prescriber record — a fictional fixture provider from prescribers.json.
  * Compatible with SeedPrescriber interface from src/seed/.
  */
 export interface SeedPrescriber {
@@ -64,7 +69,7 @@ export interface SeedPrescriber {
 }
 
 /**
- * Pharmacy record — real NPPES data.
+ * Pharmacy record — a fictional fixture pharmacy from pharmacies.json.
  * Compatible with SeedPharmacy interface from src/seed/.
  */
 export interface SeedPharmacy {
@@ -131,7 +136,7 @@ function loadJson<T>(filename: string): T {
   return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
 }
 
-// Raw JSON shapes from import scripts
+// Raw JSON shapes of prescribers.json and pharmacies.json
 interface PrescriberJson {
   localData: { prescriberIdQualifier: number; prescriberId: string };
   enrollmentKey: string;
@@ -293,6 +298,15 @@ export const PRESCRIBER_BY_NPI = new Map<string, SeedPrescriber>(
   PRESCRIBERS.map((p) => [p.localData.prescriberId, p]),
 );
 
+/** Credentials that carry the title "Dr." on screen: physicians. Nurse practitioners and physician assistants do not. */
+const PHYSICIAN_CREDENTIALS = new Set(['MD', 'DO']);
+
+/** How a fixture prescriber is named on screen: "Dr. First Last" for an MD or DO, "First Last" for an NP or PA-C. */
+export function prescriberDisplayName(p: Pick<SeedPrescriber, 'firstName' | 'lastName' | 'credential'>): string {
+  const name = `${p.firstName} ${p.lastName}`;
+  return PHYSICIAN_CREDENTIALS.has(p.credential.replace(/\./g, '').toUpperCase()) ? `Dr. ${name}` : name;
+}
+
 // ── Pharmacies ──────────────────────────────────────────────
 
 export const PHARMACIES: SeedPharmacy[] = pharmaciesRaw.map((p) => ({
@@ -308,7 +322,7 @@ export const PHARMACIES: SeedPharmacy[] = pharmaciesRaw.map((p) => ({
   state: p.state,
   zip: p.zip,
   phone: p.phone,
-  deaNumber: '', // DEA not available from NPPES
+  deaNumber: '', // fixtures carry no DEA number: a well-formed one cannot be shown to be unassigned
 }));
 
 export const PHARMACY_BY_NPI = new Map<string, SeedPharmacy>(
@@ -417,12 +431,21 @@ export function buildMedicationPricingLocalData(
   };
 }
 
-// ── Members (POC beneficiaries — Madison, WI) ───────────────
+// ── Members (fictional beneficiaries — Sorrel Prairie, WI) ──
+
+/**
+ * The two invented employers the member fixtures work for; a web search finds no company by either
+ * name. A member's employer is the one whose prefix starts its cardholder ID.
+ */
+export const FIXTURE_EMPLOYERS = [
+  { name: 'Fernhill Instruments', cardholderPrefix: 'FERN-', familyPrefix: 'FAM-FERN-' },
+  { name: 'Bayside Test Works', cardholderPrefix: 'BAY-', familyPrefix: 'FAM-BAY-' },
+] as const;
 
 export const MEMBERS: SeedMember[] = [
   {
     localData: {
-      cardholderId: 'EPIC-EMP-001',
+      cardholderId: 'FERN-EMP-001',
       dateOfBirth: '19850315',
       genderCode: 2,
       firstName: 'Alice',
@@ -430,18 +453,18 @@ export const MEMBERS: SeedMember[] = [
     },
     enrollmentKey: 'JQPHJGskGApMqdkhO54jBMMHkt-X7F9qtzL1-XWcLgg',
     employeeId: 'EMP-10001',
-    familyId: 'FAM-EPIC-10001',
+    familyId: 'FAM-FERN-10001',
     relationship: 'SELF',
-    address: '742 Regent Street',
-    city: 'Madison',
+    address: '316 Fenmoor Avenue',
+    city: 'Sorrel Prairie',
     state: 'WI',
-    zip: '53715',
-    phone: '608-555-1001',
-    email: 'alice.johnson@epicmail.com',
+    zip: '53519',
+    phone: '608-555-0101',
+    email: 'alice.johnson@example.test',
   },
   {
     localData: {
-      cardholderId: 'EPIC-EMP-002',
+      cardholderId: 'FERN-EMP-002',
       dateOfBirth: '19780622',
       genderCode: 1,
       firstName: 'Bob',
@@ -449,18 +472,18 @@ export const MEMBERS: SeedMember[] = [
     },
     enrollmentKey: 'Hi-q1tOsEq4wQyZbjFH3RGVpOTFpEx6jHmfVVeavJLM',
     employeeId: 'EMP-10002',
-    familyId: 'FAM-EPIC-10002',
+    familyId: 'FAM-FERN-10002',
     relationship: 'SELF',
-    address: '400 University Ave',
-    city: 'Madison',
+    address: '1209 Coburn Way, Apt 4',
+    city: 'Sorrel Prairie',
     state: 'WI',
-    zip: '53703',
-    phone: '608-555-1002',
-    email: 'bob.martinez@epicmail.com',
+    zip: '53519',
+    phone: '608-555-0102',
+    email: 'bob.martinez@example.test',
   },
   {
     localData: {
-      cardholderId: 'EPIC-EMP-003',
+      cardholderId: 'FERN-EMP-003',
       dateOfBirth: '19920108',
       genderCode: 2,
       firstName: 'Carol',
@@ -468,18 +491,18 @@ export const MEMBERS: SeedMember[] = [
     },
     enrollmentKey: 'TIWNbqbc3A0plIcxHaambI39sR2U_Eai3StqyAoX6yk',
     employeeId: 'EMP-10003',
-    familyId: 'FAM-EPIC-10003',
+    familyId: 'FAM-FERN-10003',
     relationship: 'SELF',
-    address: '2001 Monroe St',
-    city: 'Madison',
+    address: '2207 Hollis Ridge Drive',
+    city: 'Sorrel Prairie',
     state: 'WI',
-    zip: '53711',
-    phone: '608-555-1003',
-    email: 'carol.williams@epicmail.com',
+    zip: '53524',
+    phone: '608-555-0103',
+    email: 'carol.williams@example.test',
   },
   {
     localData: {
-      cardholderId: 'EPIC-DEP-003A',
+      cardholderId: 'FERN-DEP-003A',
       dateOfBirth: '19940715',
       genderCode: 1,
       firstName: 'Daniel',
@@ -487,18 +510,18 @@ export const MEMBERS: SeedMember[] = [
     },
     enrollmentKey: 'YBPTaHEaJhkZ6OlmQKnM9YF0ab8NNK71X_wFXOFd3QE',
     employeeId: 'EMP-10003',
-    familyId: 'FAM-EPIC-10003',
+    familyId: 'FAM-FERN-10003',
     relationship: 'SPOUSE',
-    address: '2001 Monroe St',
-    city: 'Madison',
+    address: '2207 Hollis Ridge Drive',
+    city: 'Sorrel Prairie',
     state: 'WI',
-    zip: '53711',
-    phone: '608-555-1004',
-    email: 'daniel.williams@epicmail.com',
+    zip: '53524',
+    phone: '608-555-0104',
+    email: 'daniel.williams@example.test',
   },
   {
     localData: {
-      cardholderId: 'EPIC-DEP-003B',
+      cardholderId: 'FERN-DEP-003B',
       dateOfBirth: '20150420',
       genderCode: 2,
       firstName: 'Emma',
@@ -506,71 +529,71 @@ export const MEMBERS: SeedMember[] = [
     },
     enrollmentKey: '6iWfcfRkeTzvMcWWL2ZnDAHaCExfA1adtMSdT9hbt8o',
     employeeId: 'EMP-10003',
-    familyId: 'FAM-EPIC-10003',
+    familyId: 'FAM-FERN-10003',
     relationship: 'CHILD',
-    address: '2001 Monroe St',
-    city: 'Madison',
+    address: '2207 Hollis Ridge Drive',
+    city: 'Sorrel Prairie',
     state: 'WI',
-    zip: '53711',
-    phone: '608-555-1003',
-    email: 'carol.williams@epicmail.com',
+    zip: '53524',
+    phone: '608-555-0103',
+    email: 'carol.williams@example.test',
   },
   {
     localData: {
-      cardholderId: 'EXACT-EMP-001',
+      cardholderId: 'BAY-EMP-001',
       dateOfBirth: '19700101',
       genderCode: 1,
       firstName: 'Frank',
       lastName: 'Lee',
     },
     enrollmentKey: 'C_7-Nfw7z_SXsgaIh4eNoMVW3Tlsh_xMIFkfcHy0S5Q',
-    employeeId: 'EX-50001',
-    familyId: 'FAM-EX-50001',
+    employeeId: 'BAY-50001',
+    familyId: 'FAM-BAY-50001',
     relationship: 'SELF',
-    address: '5775 Verona Rd',
-    city: 'Madison',
+    address: '58 Stanwick Lane',
+    city: 'Sorrel Prairie',
     state: 'WI',
-    zip: '53711',
-    phone: '608-555-1005',
-    email: 'frank.lee@exactsciences.com',
+    zip: '53524',
+    phone: '608-555-0105',
+    email: 'frank.lee@example.test',
   },
   {
     localData: {
-      cardholderId: 'EXACT-EMP-002',
+      cardholderId: 'BAY-EMP-002',
       dateOfBirth: '19880930',
       genderCode: 2,
       firstName: 'Grace',
       lastName: 'Nakamura',
     },
     enrollmentKey: 'SpTd-J0WgzvQg2Y-5iGcHPZ5XDOvl3KoFK_0xXpWZNY',
-    employeeId: 'EX-50002',
-    familyId: 'FAM-EX-50002',
+    employeeId: 'BAY-50002',
+    familyId: 'FAM-BAY-50002',
     relationship: 'SELF',
-    address: '441 Charmany Dr',
-    city: 'Madison',
+    address: '4410 Kestrel Run',
+    city: 'Sorrel Prairie',
     state: 'WI',
-    zip: '53719',
-    phone: '608-555-1006',
-    email: 'grace.nakamura@exactsciences.com',
+    zip: '53519',
+    phone: '608-555-0106',
+    email: 'grace.nakamura@example.test',
   },
   {
     localData: {
-      cardholderId: 'EXACT-EMP-003',
+      cardholderId: 'BAY-EMP-003',
       dateOfBirth: '19950212',
       genderCode: 1,
       firstName: 'Henry',
       lastName: 'Okafor',
     },
     enrollmentKey: 'u1so1epbAeoqZleQMbKYfXNQ9-hzZfbEvrEn78ymyrU',
-    employeeId: 'EX-50003',
-    familyId: 'FAM-EX-50003',
+    employeeId: 'BAY-50003',
+    familyId: 'FAM-BAY-50003',
     relationship: 'SELF',
-    address: '1 Science Dr',
-    city: 'Madison',
+    address: '903 Dunmore Court',
+    city: 'Sorrel Prairie',
     state: 'WI',
-    zip: '53711',
-    phone: '608-555-1007',
-    email: 'henry.okafor@exactsciences.com',
+    zip: '53524',
+    phone: '608-555-0107',
+    email: 'henry.okafor@example.test',
   },
 ];
 
@@ -590,19 +613,19 @@ export function getSubscribers(): SeedMember[] {
   return MEMBERS.filter((m) => m.relationship === 'SELF');
 }
 
-/** Get Epic Systems employer members */
-export function getEpicMembers(): SeedMember[] {
-  return MEMBERS.filter((m) => m.localData.cardholderId.startsWith('EPIC'));
+/** Members who work for Fernhill Instruments (cardholder IDs FERN-*) */
+export function getFernhillMembers(): SeedMember[] {
+  return MEMBERS.filter((m) => m.localData.cardholderId.startsWith('FERN-'));
 }
 
-/** Get Exact Sciences employer members */
-export function getExactMembers(): SeedMember[] {
-  return MEMBERS.filter((m) => m.localData.cardholderId.startsWith('EXACT'));
+/** Members who work for Bayside Test Works (cardholder IDs BAY-*) */
+export function getBaysideMembers(): SeedMember[] {
+  return MEMBERS.filter((m) => m.localData.cardholderId.startsWith('BAY-'));
 }
 
-// Backward-compatible aliases
-export const getAcmeMembers = getEpicMembers;
-export const getGlobexMembers = getExactMembers;
+// Backward-compatible aliases (src/index.ts re-exports these names)
+export const getAcmeMembers = getFernhillMembers;
+export const getGlobexMembers = getBaysideMembers;
 
 /**
  * A fixture person's identity salt — plan item C1. Real members generate theirs on the device; the

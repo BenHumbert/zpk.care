@@ -28,23 +28,6 @@
   var employerData = [];         // employers/groups
   var priceHistory = [];         // recent pricing estimates
 
-  // ── Employer defaults (fallback — live data comes from sequencer roster) ──
-  var EMPLOYERS = [
-    {
-      id: 'EMP-10001', name: 'Epic Systems Corporation', industry: 'Healthcare IT', state: 'WI',
-      groups: [
-        { id: 'GRP-EPIC-ENG', name: 'Epic Engineering', planId: 'PLAN-GOLD-001', members: [] },
-        { id: 'GRP-EPIC-OPS', name: 'Epic Operations', planId: 'PLAN-SILVER-002', members: [] },
-      ]
-    },
-    {
-      id: 'EMP-10002', name: 'Exact Sciences Corporation', industry: 'Diagnostics', state: 'WI',
-      groups: [
-        { id: 'GRP-EXACT-RD', name: 'Exact Sciences R&D', planId: 'PLAN-PLATINUM-003', members: [] },
-      ]
-    },
-  ];
-
   // ── Formulary fallback (live data loaded from sequencer) ──
   var DEFAULT_FORMULARY = [
     { ndcHash: '2819374650192837465019283746', brandName: 'Lisinopril 10mg', tierLevel: 1, copayAmountCents: 500, requiresPriorAuth: false },

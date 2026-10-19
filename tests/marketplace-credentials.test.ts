@@ -147,7 +147,7 @@ const APPLY_BODY = {
   employerId: 'FERNHILL-TEST',
   contactName: 'Jordan Testcase',
   contactEmail: 'hr@fernhill.example.test',
-  ein: '12-3456789',
+  ein: '00-0000003',
   state: 'WI',
   selectedPlanIds: ['PLAN-TEST-1'],
   effectiveDate: '2027-01-01',

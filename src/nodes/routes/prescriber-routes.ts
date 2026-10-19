@@ -1151,7 +1151,7 @@ export function buildPrescriberRoutes(
     method: 'GET',
     path: '/prescribers/list',
     handler: async (_req, res) => {
-      const { PRESCRIBERS } = await import('../../data/index.js');
+      const { PRESCRIBERS, prescriberDisplayName } = await import('../../data/index.js');
       // Also load raw JSON for extra fields (city, address) not on SeedPrescriber type
       const fs = await import('fs');
       const path = await import('path');
@@ -1166,7 +1166,7 @@ export function buildPrescriberRoutes(
         npi: p.localData.prescriberId,
         name: (p.credential === 'NP' || p.credential === 'PA')
           ? `${p.firstName} ${p.lastName}`
-          : `Dr. ${p.firstName} ${p.lastName}`,
+          : `${prescriberDisplayName(p)}`,
         firstName: p.firstName,
         lastName: p.lastName,
         credential: p.credential,
@@ -1199,7 +1199,7 @@ export function buildPrescriberRoutes(
 
       try {
         // Load seed prescriber data
-        const { PRESCRIBERS } = await import('../../data/index.js');
+        const { PRESCRIBERS, prescriberDisplayName } = await import('../../data/index.js');
         const { derivePrescriberWalletId } = await import('../../wallets/wallet-derivation.js');
 
         if (providerIndex < 0 || providerIndex >= PRESCRIBERS.length) {
@@ -1207,7 +1207,7 @@ export function buildPrescriberRoutes(
         }
 
         const prescriber = PRESCRIBERS[providerIndex];
-        const displayName = `Dr. ${prescriber.firstName} ${prescriber.lastName}, ${prescriber.credential}`;
+        const displayName = `${prescriberDisplayName(prescriber)}, ${prescriber.credential}`;
 
         // Step 1: badge:tap
         events.push({ type: 'badge:tap', providerIndex, providerType, displayName, timestamp: Date.now() });

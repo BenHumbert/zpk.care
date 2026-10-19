@@ -15,11 +15,12 @@
  */
 
 /**
- * Seed Prescriber Data — NPPES-based
+ * Seed Prescriber Data — NPPES-style, fictional
  *
- * Fictional prescribers with realistic NPPES-style identifiers.
- * NPI numbers are 10-digit, starting with 1 (individual) or 2 (organization).
- * All NPIs here are FICTIONAL — not real providers.
+ * Fictional prescribers with NPPES-style identifiers.
+ * An NPI is 10 digits; the last is a Luhn check digit over 80840 plus the first nine.
+ * All NPIs here are FICTIONAL: each one fails that check digit, so none can be an
+ * issued NPI. Each DEA number here also fails the DEA check digit.
  *
  * NPPES fields mapped to our PrescriberLocalData:
  *   - prescriberIdQualifier: 01 (NPI)
@@ -60,7 +61,7 @@ export interface SeedPrescriber {
 /**
  * 10 fictional prescribers across various specialties and states.
  *
- * NPI format: 1XXXXXXXXX (individual providers)
+ * NPI format: 1XXXXXXXXX with a deliberately invalid check digit.
  * Taxonomy codes from NUCC Health Care Provider Taxonomy Code Set.
  */
 export const PRESCRIBERS: SeedPrescriber[] = [
@@ -122,10 +123,10 @@ export const PRESCRIBERS: SeedPrescriber[] = [
     taxonomyCode: '363LF0000X',
     stateLicense: 'FL-77889',
     state: 'FL',
-    deaNumber: 'MG9012345',
+    deaNumber: 'MG9012346',
   },
   {
-    localData: { prescriberIdQualifier: 1, prescriberId: '1789012345' },
+    localData: { prescriberIdQualifier: 1, prescriberId: '1789012346' },
     enrollmentKey: 'VxwuV-VrkPAxoWRDK5fLhVVS_bDuQvSnYuIiPO0KInc',
     firstName: 'David',
     lastName: 'Thompson',
@@ -161,7 +162,7 @@ export const PRESCRIBERS: SeedPrescriber[] = [
     deaNumber: 'AN3456789',
   },
   {
-    localData: { prescriberIdQualifier: 1, prescriberId: '1012345678' },
+    localData: { prescriberIdQualifier: 1, prescriberId: '1012345679' },
     enrollmentKey: '3RMBQoAYuzb6CoD6oepLsSBN5ojn6_QnbFptjfE0ffg',
     firstName: 'Robert',
     lastName: 'Smith',
@@ -170,7 +171,7 @@ export const PRESCRIBERS: SeedPrescriber[] = [
     taxonomyCode: '207RX0202X',
     stateLicense: 'MA-88990',
     state: 'MA',
-    deaNumber: 'AS4567890',
+    deaNumber: 'AS4567891',
   },
   {
     localData: { prescriberIdQualifier: 1, prescriberId: '1123456789' },

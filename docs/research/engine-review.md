@@ -173,7 +173,7 @@ Sources:
 - A provider's Ed25519 signing key (HKDF) and X25519 encryption key (SHA-256) are both derived from its enrollment key, and both public halves are registered with the sequencer. (src/security/wallet-key.ts:48-66; src/messaging/encryption.ts:45-50; src/nodes/provider-registration.ts:49-82)
 - l2_registerEntity sets a wallet's signing key on first registration with no proof of wallet ownership, and the operator can replace it. (src/l2/l2-rpc-server.ts:2008-2017)
 - Provider nodes have no unlock route and no device session. The pharmacy and prescriber route files mark no route device-only (the member file marks 34). (src/nodes/nautilus-app-server.ts:625-639; grep 'deviceOnly: true' in src/nodes/routes/*.ts)
-- Seed provider keys are sha256('zkpcare-<role>-<npi>'), so anyone with the public NPI can derive them. (src/data/import-nppes.ts:159)
+- Seed provider keys were sha256('zkpcare-<role>-<npi>'), so anyone with the public NPI could derive them. Since 2026-10-19 the seed providers are fictional with random keys, and the importer is deleted; the engine still holds those keys until provider keys move to providers.
 - Provider onboarding already generates a random enrollment key on the node. (src/wallets/wallet-derivation.ts:63-64; src/nodes/routes/pharmacy-routes.ts:159; src/nodes/routes/prescriber-routes.ts:222)
 - Members already use the pattern 'device proves, engine verifies': register-member takes the device's ProofGate proof, which the engine checks with o1js verify(). (scripts/e2e-verify/PLAN-security-hardening.md:1659-1690)
 - WalletMigrationProgram exists but is dead code. The plan names it as the second recovery route for providers. (src/wallets/wallet-migration-program.ts:75; scripts/e2e-verify/PLAN-security-hardening.md:2076)

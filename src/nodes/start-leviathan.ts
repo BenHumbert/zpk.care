@@ -804,7 +804,7 @@ async function main(): Promise<void> {
   console.log('');
   console.log('  ── Boot Phase 2: Provider nodes + member ──');
 
-  // Prescriber (port 4002) — uses seed identity index 0 (Dr. Sarah Chen)
+  // Prescriber (port 4002) — uses seed identity index 0 (row 0 of src/data/prescribers.json)
   // Will poll l2_getProvider to confirm credentialing before ready
   spawnEntity('prescriber', 'start-prescriber-nautilus.ts', 4002, {
     ZKTRIDENT_SEED_PRESCRIBER: '0',

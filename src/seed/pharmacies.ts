@@ -18,7 +18,9 @@
  * Seed Pharmacy Data — NCPDP-based
  *
  * Fictional pharmacies with realistic NCPDP-style identifiers.
- * All NPI and NCPDP Provider IDs are FICTIONAL — not real pharmacies.
+ * All NPI and NCPDP Provider IDs are FICTIONAL — not real pharmacies. Every NPI
+ * starts with 2, a prefix NPPES has not issued yet, every DEA number fails the DEA
+ * check digit, and phones use the 555-0100 to 555-0199 block kept for fiction.
  *
  * NCPDP fields mapped to our PharmacyLocalData:
  *   - serviceProviderIdQualifier: 1 (NPI) — NCPDP 201-B1
@@ -73,7 +75,7 @@ export interface SeedPharmacy {
 /**
  * 8 fictional pharmacies across various types and locations.
  *
- * NPI format: 2XXXXXXXXX (organizational providers)
+ * NPI format: 2XXXXXXXXX (a prefix NPPES has not issued yet)
  * NCPDP Provider ID: 7-digit unique identifier
  */
 export const PHARMACIES: SeedPharmacy[] = [
@@ -96,31 +98,31 @@ export const PHARMACIES: SeedPharmacy[] = [
     localData: { serviceProviderIdQualifier: 1, serviceProviderId: '2456789012' },
     enrollmentKey: 'flh-P_pasPQJYzMDtt3pI46hP1lRiQinsA2l3WDBN3I',
     ncpdpProviderId: '5902345',
-    storeName: 'WellCare Drugs #1042',
-    chain: 'WellCare Drugs',
+    storeName: 'Marrowind Drugs #1042',
+    chain: 'Marrowind Drugs',
     pharmacyType: '01',
     pharmacyTypeDesc: 'Community/Retail',
     address: '2500 Oak Avenue',
     city: 'Dallas',
     state: 'TX',
     zip: '75201',
-    phone: '214-555-0200',
-    deaNumber: 'BW2345678',
+    phone: '214-555-0101',
+    deaNumber: 'BM2345678',
   },
   {
     localData: { serviceProviderIdQualifier: 1, serviceProviderId: '2567890123' },
     enrollmentKey: 'KEgaiKG6VDsjhVexjx4EkGyoB9gx6az_NmdEQqXGY58',
     ncpdpProviderId: '5903456',
-    storeName: 'HealthMart Pharmacy #8871',
-    chain: 'HealthMart',
+    storeName: 'Quillfeather Pharmacy #8871',
+    chain: 'Quillfeather',
     pharmacyType: '01',
     pharmacyTypeDesc: 'Community/Retail',
-    address: '750 Broadway',
+    address: '750 Copperfen Street',
     city: 'New York',
     state: 'NY',
     zip: '10003',
-    phone: '212-555-0300',
-    deaNumber: 'BH3456789',
+    phone: '212-555-0102',
+    deaNumber: 'BQ3456789',
   },
   {
     localData: { serviceProviderIdQualifier: 1, serviceProviderId: '2678901234' },
@@ -134,8 +136,8 @@ export const PHARMACIES: SeedPharmacy[] = [
     city: 'Memphis',
     state: 'TN',
     zip: '38118',
-    phone: '800-555-0400',
-    deaNumber: 'BR4567890',
+    phone: '901-555-0103',
+    deaNumber: 'BR4567891',
   },
   {
     localData: { serviceProviderIdQualifier: 1, serviceProviderId: '2789012345' },
@@ -149,7 +151,7 @@ export const PHARMACIES: SeedPharmacy[] = [
     city: 'Boston',
     state: 'MA',
     zip: '02210',
-    phone: '617-555-0500',
+    phone: '617-555-0104',
     deaNumber: 'BB5678901',
   },
   {
@@ -164,7 +166,7 @@ export const PHARMACIES: SeedPharmacy[] = [
     city: 'San Francisco',
     state: 'CA',
     zip: '94102',
-    phone: '415-555-0600',
+    phone: '415-555-0105',
     deaNumber: 'BP6789012',
   },
   {
@@ -179,7 +181,7 @@ export const PHARMACIES: SeedPharmacy[] = [
     city: 'Miami',
     state: 'FL',
     zip: '33130',
-    phone: '305-555-0700',
+    phone: '305-555-0106',
     deaNumber: 'BS7890123',
   },
   {
@@ -194,7 +196,7 @@ export const PHARMACIES: SeedPharmacy[] = [
     city: 'Ann Arbor',
     state: 'MI',
     zip: '48109',
-    phone: '734-555-0800',
+    phone: '734-555-0107',
     deaNumber: 'BC8901234',
   },
 ];

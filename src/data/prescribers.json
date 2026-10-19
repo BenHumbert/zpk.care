@@ -2,321 +2,241 @@
   {
     "localData": {
       "prescriberIdQualifier": 1,
-      "prescriberId": "1659002566"
+      "prescriberId": "2999000013"
     },
-    "enrollmentKey": "51B1bae44c47192121ab2e0604397c!A",
-    "firstName": "ANAS",
-    "lastName": "ABED",
+    "enrollmentKey": "C-4V8jyblXgFvt4-D4gdyZSDA11rk2iOQq1Umj8mzus",
+    "firstName": "Miriam",
+    "lastName": "Fallowmere",
+    "credential": "MD",
+    "specialty": "Family Medicine",
+    "taxonomyCode": "207Q00000X",
+    "stateLicense": "FX-0001",
+    "state": "WI",
+    "deaNumber": "",
+    "npi": "2999000013",
+    "address": "1180 Wexley Road, Suite 200",
+    "city": "Sorrel Prairie",
+    "zip": "53519",
+    "phone": "608-555-0110"
+  },
+  {
+    "localData": {
+      "prescriberIdQualifier": 1,
+      "prescriberId": "2999000021"
+    },
+    "enrollmentKey": "yeryIJHieFXBQxpupFl78GYA_8wlHuJyskP3bT-3tIY",
+    "firstName": "Desmond",
+    "lastName": "Achterberg",
     "credential": "MD",
     "specialty": "Internal Medicine",
     "taxonomyCode": "207R00000X",
-    "stateLicense": "8362120",
+    "stateLicense": "FX-0002",
     "state": "WI",
     "deaNumber": "",
-    "npi": "1659002566",
-    "address": "749 UNIVERSITY ROW STE 200",
-    "city": "MADISON",
-    "zip": "53705",
-    "phone": "608-263-6400"
+    "npi": "2999000021",
+    "address": "425 Calder Street, Suite 310",
+    "city": "Sorrel Prairie",
+    "zip": "53519",
+    "phone": "608-555-0120"
   },
   {
     "localData": {
       "prescriberIdQualifier": 1,
-      "prescriberId": "1861836058"
+      "prescriberId": "2999000039"
     },
-    "enrollmentKey": "4544BC347165724eea5feb86764e0a!B",
-    "firstName": "VIDTHYA",
-    "lastName": "ABRAHAM",
-    "credential": "M.D.",
-    "specialty": "Internal Medicine",
-    "taxonomyCode": "207R00000X",
-    "stateLicense": "63657",
-    "state": "WI",
-    "deaNumber": "",
-    "npi": "1861836058",
-    "address": "2880 UNIVERSITY AVE",
-    "city": "MADISON",
-    "zip": "53705",
-    "phone": "608-263-7500"
-  },
-  {
-    "localData": {
-      "prescriberIdQualifier": 1,
-      "prescriberId": "1437788478"
-    },
-    "enrollmentKey": "4AA1de3869151c60232dd3bb2fbd2e!C",
-    "firstName": "YUSUF",
-    "lastName": "ABDULLAH",
+    "enrollmentKey": "UqsMhNWV8DQZbWgxScxPk_Z0GauZcbkN9FzzC5gP9M8",
+    "firstName": "Celeste",
+    "lastName": "Nakashima",
     "credential": "DO",
-    "specialty": "Family Medicine",
-    "taxonomyCode": "207Q00000X",
-    "stateLicense": "76462-21",
+    "specialty": "Pediatrics",
+    "taxonomyCode": "208000000X",
+    "stateLicense": "FX-0003",
     "state": "WI",
     "deaNumber": "",
-    "npi": "1437788478",
-    "address": "10 TOWER DR",
-    "city": "SUN PRAIRIE",
-    "zip": "53590",
-    "phone": "608-825-3500"
+    "npi": "2999000039",
+    "address": "2310 Marchbank Drive",
+    "city": "Sorrel Prairie",
+    "zip": "53524",
+    "phone": "608-555-0130"
   },
   {
     "localData": {
       "prescriberIdQualifier": 1,
-      "prescriberId": "1417909979"
+      "prescriberId": "2999000047"
     },
-    "enrollmentKey": "74EFdac703fca777ba33871247c69e!D",
-    "firstName": "KIRSTEN",
-    "lastName": "ABRAMSON",
+    "enrollmentKey": "ZpH7lHR9R5XIjXWIejlvocQDWz3vo2-UgLwvgbSQlO4",
+    "firstName": "Marcus",
+    "lastName": "Oyelaran",
     "credential": "MD",
-    "specialty": "Family Medicine",
-    "taxonomyCode": "207Q00000X",
-    "stateLicense": "43672",
+    "specialty": "Cardiology",
+    "taxonomyCode": "207RC0000X",
+    "stateLicense": "FX-0004",
     "state": "WI",
     "deaNumber": "",
-    "npi": "1417909979",
-    "address": "701 DANE STREET",
-    "city": "MADISON",
-    "zip": "53713",
-    "phone": "608-263-3111"
+    "npi": "2999000047",
+    "address": "425 Calder Street, Suite 310",
+    "city": "Sorrel Prairie",
+    "zip": "53519",
+    "phone": "608-555-0120"
   },
   {
     "localData": {
       "prescriberIdQualifier": 1,
-      "prescriberId": "1831462746"
+      "prescriberId": "2999000054"
     },
-    "enrollmentKey": "7AB639049e9c43c0a64c5af7a4cf61!E",
-    "firstName": "KAREN",
-    "lastName": "ALLAIRE",
-    "credential": "MD",
-    "specialty": "Registered Nurse, General Practice",
-    "taxonomyCode": "163WG0000X",
-    "stateLicense": "82171-30",
-    "state": "WI",
-    "deaNumber": "",
-    "npi": "1831462746",
-    "address": "600 HIGHLAND AVE",
-    "city": "MADISON",
-    "zip": "53792",
-    "phone": "608-662-0817"
-  },
-  {
-    "localData": {
-      "prescriberIdQualifier": 1,
-      "prescriberId": "1598087447"
-    },
-    "enrollmentKey": "E5B399b85b6b4e15a12b1adc11ce22!F",
-    "firstName": "KATE",
-    "lastName": "AMOND",
+    "enrollmentKey": "aV1VX2B4doOLLa35rWMPJ_Mr_579xcZL57lDxdjfdbI",
+    "firstName": "Graciela",
+    "lastName": "Olmedo",
     "credential": "NP",
-    "specialty": "Nurse Practitioner",
-    "taxonomyCode": "363L00000X",
-    "stateLicense": "4012",
+    "specialty": "Nurse Practitioner - Family",
+    "taxonomyCode": "363LF0000X",
+    "stateLicense": "FX-0005",
     "state": "WI",
     "deaNumber": "",
-    "npi": "1598087447",
-    "address": "600 HIGHLAND AVE",
-    "city": "MADISON",
-    "zip": "53792",
-    "phone": "608-263-1530"
+    "npi": "2999000054",
+    "address": "1180 Wexley Road, Suite 200",
+    "city": "Sorrel Prairie",
+    "zip": "53519",
+    "phone": "608-555-0110"
   },
   {
     "localData": {
       "prescriberIdQualifier": 1,
-      "prescriberId": "1225415011"
+      "prescriberId": "2999000062"
     },
-    "enrollmentKey": "FB4A3b7bfda348579ef3cb063a8727!G",
-    "firstName": "AMANDA",
-    "lastName": "ABUAF",
-    "credential": "MD",
-    "specialty": "Psychiatry & Neurology, Neurology",
-    "taxonomyCode": "2084N0400X",
-    "stateLicense": "75751",
-    "state": "WI",
-    "deaNumber": "",
-    "npi": "1225415011",
-    "address": "600 HIGHLAND AVE",
-    "city": "MADISON",
-    "zip": "53792",
-    "phone": "608-263-5442"
-  },
-  {
-    "localData": {
-      "prescriberIdQualifier": 1,
-      "prescriberId": "1578192589"
-    },
-    "enrollmentKey": "651CD258170ae8c4a4f19e6d96dcc9!H",
-    "firstName": "JAEGER",
-    "lastName": "ACKERMAN",
-    "credential": "MD",
-    "specialty": "Psychiatry & Neurology, Psychiatry",
-    "taxonomyCode": "2084P0800X",
-    "stateLicense": "76587-20",
-    "state": "WI",
-    "deaNumber": "",
-    "npi": "1578192589",
-    "address": "UW HOSPITALS & CLINICS 600 HIGHLAND AVE",
-    "city": "MADISON",
-    "zip": "53792",
-    "phone": "608-263-6400"
-  },
-  {
-    "localData": {
-      "prescriberIdQualifier": 1,
-      "prescriberId": "1144923632"
-    },
-    "enrollmentKey": "4D5E1c9780cd493579ec9cd727f101!I",
-    "firstName": "YASMINE",
-    "lastName": "ABUSHUKUR",
+    "enrollmentKey": "3KYfUJcy-yqSdkSpHGWIluKBxDSg2BiiHskYDx3zDFk",
+    "firstName": "Rogelio",
+    "lastName": "Dimaculangan",
     "credential": "MD",
     "specialty": "Dermatology",
     "taxonomyCode": "207N00000X",
-    "stateLicense": "100700-851",
+    "stateLicense": "FX-0006",
     "state": "WI",
     "deaNumber": "",
-    "npi": "1144923632",
-    "address": "600 HIGHLAND AVE",
-    "city": "MADISON",
-    "zip": "53792",
-    "phone": "608-263-6400"
+    "npi": "2999000062",
+    "address": "77 Heddon Way, Suite B",
+    "city": "Sorrel Prairie",
+    "zip": "53524",
+    "phone": "608-555-0140"
   },
   {
     "localData": {
       "prescriberIdQualifier": 1,
-      "prescriberId": "1396107579"
+      "prescriberId": "2999000070"
     },
-    "enrollmentKey": "E09DA75f38d3ed45b59d4a3a9b4578!J",
-    "firstName": "HAGGER",
-    "lastName": "ALI",
-    "credential": "MD",
-    "specialty": "Dermatology",
-    "taxonomyCode": "207N00000X",
-    "stateLicense": "20385",
-    "state": "NH",
-    "deaNumber": "",
-    "npi": "1396107579",
-    "address": "330 BORTHWICK AVE STE 303",
-    "city": "PORTSMOUTH",
-    "zip": "03801",
-    "phone": "603-431-5205"
-  },
-  {
-    "localData": {
-      "prescriberIdQualifier": 1,
-      "prescriberId": "1811330376"
-    },
-    "enrollmentKey": "6D2403f7c468a84767f1d41557eac2!K",
-    "firstName": "JACQUELYN",
-    "lastName": "ADAMS",
-    "credential": "M.D.",
-    "specialty": "Obstetrics & Gynecology, Maternal & Fetal Medicine",
-    "taxonomyCode": "207VM0101X",
-    "stateLicense": "67387",
+    "enrollmentKey": "5knWasuOsU0cmRx1Wai5AZAFCMg0Uv9oghZ32tP32bA",
+    "firstName": "Yolanda",
+    "lastName": "Prewitt",
+    "credential": "PA-C",
+    "specialty": "Physician Assistant - Medical",
+    "taxonomyCode": "363AM0700X",
+    "stateLicense": "FX-0007",
     "state": "WI",
     "deaNumber": "",
-    "npi": "1811330376",
-    "address": "202 S PARK ST",
-    "city": "MADISON",
-    "zip": "53715",
-    "phone": "608-417-6667"
+    "npi": "2999000070",
+    "address": "1180 Wexley Road, Suite 200",
+    "city": "Sorrel Prairie",
+    "zip": "53519",
+    "phone": "608-555-0110"
   },
   {
     "localData": {
       "prescriberIdQualifier": 1,
-      "prescriberId": "1003958539"
+      "prescriberId": "2999000088"
     },
-    "enrollmentKey": "E71069e719099b9a417bdebb8f0601!L",
-    "firstName": "AHMED",
-    "lastName": "AL-NIAIMI",
+    "enrollmentKey": "6mD3yZ1pbHUcHyTBRhA4-eNvUVKzj-xl4JEuIqx2v0Y",
+    "firstName": "Nalini",
+    "lastName": "Suryanarayan",
     "credential": "MD",
-    "specialty": "Obstetrics & Gynecology, Gynecologic Oncology",
-    "taxonomyCode": "207VX0201X",
-    "stateLicense": "67450",
-    "state": "AZ",
-    "deaNumber": "",
-    "npi": "1003958539",
-    "address": "2946 E BANNER GATEWAY DRIVE",
-    "city": "GILBERT",
-    "zip": "85234",
-    "phone": "480-256-6444"
-  },
-  {
-    "localData": {
-      "prescriberIdQualifier": 1,
-      "prescriberId": "1346945722"
-    },
-    "enrollmentKey": "43847D6a3ee482bd16666f3a3e2056!M",
-    "firstName": "SHERIKA",
-    "lastName": "ADAMS",
-    "credential": "MD",
-    "specialty": "Psychiatry & Neurology, Neurology",
-    "taxonomyCode": "2084N0400X",
-    "stateLicense": "100071",
+    "specialty": "Endocrinology",
+    "taxonomyCode": "207RE0101X",
+    "stateLicense": "FX-0008",
     "state": "WI",
     "deaNumber": "",
-    "npi": "1346945722",
-    "address": "UW HOSPITALS AND CLINICS 600 HIGHLAND AVE",
-    "city": "MADISON",
-    "zip": "53792",
-    "phone": "608-263-6400"
+    "npi": "2999000088",
+    "address": "425 Calder Street, Suite 310",
+    "city": "Sorrel Prairie",
+    "zip": "53519",
+    "phone": "608-555-0120"
   },
   {
     "localData": {
       "prescriberIdQualifier": 1,
-      "prescriberId": "1801913322"
+      "prescriberId": "2999000096"
     },
-    "enrollmentKey": "69D702f2a729ec545c907ca2f56e3c!N",
-    "firstName": "ERIC",
-    "lastName": "ADELMAN",
-    "credential": "MD",
-    "specialty": "Psychiatry & Neurology, Neurology",
-    "taxonomyCode": "2084N0400X",
-    "stateLicense": "67138-20",
-    "state": "WI",
-    "deaNumber": "",
-    "npi": "1801913322",
-    "address": "600 HIGHLAND AVE",
-    "city": "MADISON",
-    "zip": "53792",
-    "phone": "608-263-5442"
-  },
-  {
-    "localData": {
-      "prescriberIdQualifier": 1,
-      "prescriberId": "1598394595"
-    },
-    "enrollmentKey": "B4B1807ec89fadd263f58d8e4ebdf6!O",
-    "firstName": "JACOB",
-    "lastName": "ABOU-HANNA",
-    "credential": "MD",
-    "specialty": "Ophthalmology",
-    "taxonomyCode": "207W00000X",
-    "stateLicense": "77031-20",
-    "state": "WI",
-    "deaNumber": "",
-    "npi": "1598394595",
-    "address": "600 HIGHLAND AVE",
-    "city": "MADISON",
-    "zip": "53792",
-    "phone": "608-263-6400"
-  },
-  {
-    "localData": {
-      "prescriberIdQualifier": 1,
-      "prescriberId": "1861428153"
-    },
-    "enrollmentKey": "5505ECb039f8f4b47db6874dcb7d78!P",
-    "firstName": "JULIA",
-    "lastName": "AGAPOV",
+    "enrollmentKey": "SPWxODxwyKgr1IUHGAVZ2ccDpHrqQkyBAMmmmMd7oqY",
+    "firstName": "Emilio",
+    "lastName": "Zavaleta",
     "credential": "DO",
-    "specialty": "Ophthalmology",
-    "taxonomyCode": "207W00000X",
-    "stateLicense": "50769-021",
+    "specialty": "Psychiatry",
+    "taxonomyCode": "2084P0800X",
+    "stateLicense": "FX-0009",
     "state": "WI",
     "deaNumber": "",
-    "npi": "1861428153",
-    "address": "1025 REGENT ST",
-    "city": "MADISON",
-    "zip": "53715",
-    "phone": "608-282-2000"
+    "npi": "2999000096",
+    "address": "908 Linwell Drive",
+    "city": "Sorrel Prairie",
+    "zip": "53519",
+    "phone": "608-555-0150"
+  },
+  {
+    "localData": {
+      "prescriberIdQualifier": 1,
+      "prescriberId": "2999000104"
+    },
+    "enrollmentKey": "HlRftSPZiYhWO1OJZf_q7L-9C1yzhERp4bBElPbiX9Y",
+    "firstName": "Signe",
+    "lastName": "Torvik",
+    "credential": "MD",
+    "specialty": "Obstetrics & Gynecology",
+    "taxonomyCode": "207V00000X",
+    "stateLicense": "FX-0010",
+    "state": "WI",
+    "deaNumber": "",
+    "npi": "2999000104",
+    "address": "2310 Marchbank Drive",
+    "city": "Sorrel Prairie",
+    "zip": "53524",
+    "phone": "608-555-0130"
+  },
+  {
+    "localData": {
+      "prescriberIdQualifier": 1,
+      "prescriberId": "2999000112"
+    },
+    "enrollmentKey": "-QYOp9DDCrcS3T3n2Y8kVEZM4x_bTaBZ7v2NyAFyiBg",
+    "firstName": "Callum",
+    "lastName": "Rhee",
+    "credential": "NP",
+    "specialty": "Nurse Practitioner - Psych/Mental Health",
+    "taxonomyCode": "363LP0808X",
+    "stateLicense": "FX-0011",
+    "state": "WI",
+    "deaNumber": "",
+    "npi": "2999000112",
+    "address": "908 Linwell Drive",
+    "city": "Sorrel Prairie",
+    "zip": "53519",
+    "phone": "608-555-0150"
+  },
+  {
+    "localData": {
+      "prescriberIdQualifier": 1,
+      "prescriberId": "2999000120"
+    },
+    "enrollmentKey": "XB4S2suji8c5pYC0XFk1_crn5gt7WnkgYT7ZamFuzSo",
+    "firstName": "Tobias",
+    "lastName": "Mwangi",
+    "credential": "MD",
+    "specialty": "Rheumatology",
+    "taxonomyCode": "207RR0500X",
+    "stateLicense": "FX-0012",
+    "state": "WI",
+    "deaNumber": "",
+    "npi": "2999000120",
+    "address": "425 Calder Street, Suite 310",
+    "city": "Sorrel Prairie",
+    "zip": "53519",
+    "phone": "608-555-0120"
   }
 ]

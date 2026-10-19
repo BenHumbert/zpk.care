@@ -151,7 +151,7 @@ async function onboardEmployer(label: string, planId: string, people: Array<{ em
   t.secret(`employer ${label} Ed25519 private key`, (privateKey.export({ type: 'pkcs8', format: 'der' }) as Buffer).toString('hex'));
   const apply = await http('POST', `${INS}/marketplace/api/apply`, {
     companyName: `${label === 'A' ? 'Fernhill' : 'Bayside'} Test Works LLC`, employerId, contactName: `HR ${label}`, contactEmail: `hr-${label.toLowerCase()}@example.test`,
-    ein: label === 'A' ? '12-3456789' : '98-7654321', state: 'WI', selectedPlanIds: [planId], effectiveDate: new Date().toISOString().slice(0, 10), enrollmentCap: 10, publicKeyHex,
+    ein: label === 'A' ? '00-0000001' : '00-0000002', state: 'WI', selectedPlanIds: [planId], effectiveDate: new Date().toISOString().slice(0, 10), enrollmentCap: 10, publicKeyHex,
   });
   const appId = unwrap(apply.json)?.applicationId;
   // A8: the activation code, shown once at submission, is what collects the credentials.
@@ -277,7 +277,7 @@ async function enrollMember(p: Person, token: { tokenId: string; tokenPIN: strin
   t.check('The device proved the credential mint it was handed', Number(mintRun?.pending) === 0 && (mintRun?.errors ?? []).length === 0 && (mintRun?.refused ?? []).length === 0, 'pending 0, no errors', mintRun);
   // B5: the member names the prescriber node as primary care from the device; the engine queues it, the device proves it
   const pcpWallet = await prescriberWallet();
-  const pcpPick = await mem('POST', '/pcp/assign', { pcpWalletId: pcpWallet, effectiveDate: today.replace(/-/g, ''), specialty: 'Internal Medicine' });
+  const pcpPick = await mem('POST', '/pcp/assign', { pcpWalletId: pcpWallet, effectiveDate: today.replace(/-/g, ''), specialty: 'Family Medicine' });
   const pcpProve = await mem('POST', '/proof/pcp-assignment', {});
   const pcpOut = unwrap(pcpProve.json) ?? pcpProve.json;
   const pcpRun = pcpOut?.walletUpdates ?? {};
