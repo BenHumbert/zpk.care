@@ -7,6 +7,8 @@
  *
  *   const reads = makeReads({ seqUrl: 'http://127.0.0.1:3030', memberUrl: 'http://127.0.0.1:4001', operatorToken, log });
  *   await reads.compiled();                       // GET /interactive/state -> compiled (operator read)
+ *   await reads.engineReady();                    // GET /interactive/ready (open): { ready, compiled, prover }
+ *   await waitForEngineReady(reads, { log });     // until the engine can prove; throws after 15 min
  *   await reads.member(walletId);                 // that member's allowlisted summary (no name, no employee ID)
  *   await reads.receiptsByWallet(walletId);       // l2_getReceiptsByWallet (operator read)
  *   await reads.walletState(walletId);            // l2_getWalletState (operator read)
@@ -28,6 +30,12 @@ export function deriveNodeAdminToken(operatorToken, nodeId) {
 export function insurerAdminToken(env = process.env) {
   if (env.ZKTRIDENT_INSURER_ADMIN_TOKEN) return env.ZKTRIDENT_INSURER_ADMIN_TOKEN;
   return env.ZKTRIDENT_ADMIN_TOKEN ? deriveNodeAdminToken(env.ZKTRIDENT_ADMIN_TOKEN, 'insurer') : '';
+}
+
+/** The prescriber node's admin token, as the launcher sets it: ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN, else derived. */
+export function prescriberAdminToken(env = process.env) {
+  if (env.ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN) return env.ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN;
+  return env.ZKTRIDENT_ADMIN_TOKEN ? deriveNodeAdminToken(env.ZKTRIDENT_ADMIN_TOKEN, 'prescriber') : '';
 }
 
 /** Keeps only the allowlisted fields of `obj` ({ field: true } or a nested spec; arrays are mapped). */
@@ -65,8 +73,35 @@ export const EVENT_FIELDS = Object.freeze({
   data: { receiptId: true, sequenceNumber: true, batchIndex: true, batchNumber: true, transitionCount: true, proofCount: true, claimLeafIndex: true, status: true }
 });
 
+/** GET /interactive/ready: whether the engine is ready to prove, whether its circuits are compiled, where proofs go. */
+export const READY_FIELDS = Object.freeze({ ready: true, compiled: true, prover: true });
+
 /** The only JSON-RPC methods this module will send. */
 const READ_METHODS = new Set(['l2_getStatus', 'l2_getReceiptsByWallet', 'l2_getWalletState']);
+
+/**
+ * Waits until the claims engine is ready to prove (reads.engineReady), reading it every `everyMs`, and resolves with its
+ * answer and how long the wait took (`waitedMs`). The engine refuses work that makes proofs until its proof pool runs,
+ * and the pool's workers compile for minutes after boot. A read that fails counts as not ready yet; each change in the
+ * engine's answer is logged. Throws once `timeoutMs` (15 minutes) has passed without it: a take does not start on an
+ * engine that would refuse its proofs.
+ */
+export async function waitForEngineReady(reads, { timeoutMs = 15 * 60000, everyMs = 5000, log = () => {}, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  const started = Date.now();
+  let last = null;
+  let said = '';
+  for (;;) {
+    last = await reads.engineReady().catch(() => null);
+    if (last && last.ready === true) return { ...last, waitedMs: Date.now() - started };
+    const now = last ? `compiled ${last.compiled === true ? 'yes' : 'no'}, prover ${last.prover}` : 'no answer';
+    if (now !== said) { log(`the claims engine is not ready to prove yet (${now})`); said = now; }
+    if (Date.now() - started >= timeoutMs) {
+      const within = timeoutMs >= 60000 ? `${Math.round(timeoutMs / 60000)} min` : `${Math.round(timeoutMs / 1000)} s`;
+      throw new Error(`the claims engine did not become ready to prove within ${within} (${now}): a take does not start on an engine that would refuse its proofs`);
+    }
+    await sleep(everyMs);
+  }
+}
 
 export function makeReads({ seqUrl = 'http://127.0.0.1:3030', memberUrl = 'http://127.0.0.1:4001', operatorToken = '', log = () => {}, timeoutMs = 20000 } = {}) {
   const seq = String(seqUrl).replace(/\/+$/, '');
@@ -102,6 +137,17 @@ export function makeReads({ seqUrl = 'http://127.0.0.1:3030', memberUrl = 'http:
     async compiled() {
       const s = await getJson(`${seq}/interactive/state`, { authed: true });
       return pick(s, { compiled: true, ready: true });
+    },
+    /**
+     * Whether the engine is ready to prove (GET /interactive/ready, an open read that names nothing about members): 200
+     * once its circuits are compiled and its proof pool runs, 503 while its provers start. Both answers are read.
+     */
+    async engineReady() {
+      const res = await fetch(`${seq}/interactive/ready`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) });
+      const text = await res.text();
+      log(`read GET /interactive/ready ${res.status}`);
+      if (res.status !== 200 && res.status !== 503) throw new Error(`GET /interactive/ready answered ${res.status}`);
+      return pick(JSON.parse(text, unBig), READY_FIELDS);
     },
     /** One enrolled member's allowlisted summary, found by wallet ID; null when not enrolled yet. */
     async member(walletId) {

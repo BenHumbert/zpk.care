@@ -56,7 +56,7 @@ import { openStatusCard } from './lib/status-card.mjs';
 import { makeBoardRunner, checkBoardAction } from './lib/board-beats.mjs';
 import { Camera } from './lib/camera.mjs';
 import { assemble } from './lib/post.mjs';
-import { makeReads, insurerAdminToken } from './lib/reads.mjs';
+import { makeReads, insurerAdminToken, prescriberAdminToken, waitForEngineReady } from './lib/reads.mjs';
 import { Sniffer, SNIFF_RULES } from './lib/sniff.mjs';
 import { applyMasks } from './lib/masks.mjs';
 import { writeTakeAssets } from './lib/assets.mjs';
@@ -178,6 +178,7 @@ const URLS = Object.freeze({
 const secrets = {
   operator: process.env.ZKTRIDENT_ADMIN_TOKEN || '',
   insurer: insurerAdminToken(),
+  prescriber: prescriberAdminToken(),
   devicePin: String(crypto.randomInt(100000, 999999)),
   recoveryPin: crypto.randomBytes(6).toString('base64url'),
   hrPassphrase: crypto.randomBytes(12).toString('base64url'),
@@ -188,6 +189,7 @@ const secrets = {
 };
 if (!secrets.operator) throw new Error('ZKTRIDENT_ADMIN_TOKEN is not set: source ../../scripts/dev/live-env.sh (the token the network booted with)');
 if (!secrets.insurer) throw new Error('no insurer admin token: set ZKTRIDENT_INSURER_ADMIN_TOKEN as the network was booted');
+if (!secrets.prescriber) throw new Error('no prescriber admin token: set ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN, or the operator token it is derived from');
 /** What the take learns that is not secret (written to take.json). */
 const take = { walletId: null, employerNodeUrl: null, hrToolUrl: null, applicationId: null, claim: null, timings: {} };
 
@@ -263,6 +265,12 @@ if (!REHEARSAL) {
 // ------------------------------------------------------------------ pre-roll 2: the network
 log('network: waiting until the engine has compiled every circuit');
 await timed('network-ready', () => until('the network compiling its circuits', async () => (await reads.compiled()).compiled === true, { timeout: 1800000, every: 10000 }));
+// the engine refuses work that makes proofs until its proof pool runs (the pool's workers compile for minutes after
+// boot): no scene starts before GET /interactive/ready says it can prove, and the take does not start at all if the
+// engine is not ready within 15 minutes (waitForEngineReady throws)
+log('network: waiting until the claims engine is ready to prove');
+const provers = await timed('engine-ready', () => waitForEngineReady(reads, { timeoutMs: 15 * 60000, log: (m) => log(`network: ${m}`) }));
+log(`network: the claims engine is ready to prove (prover: ${provers.prover}; waited ${(provers.waitedMs / 1000).toFixed(1)} s)`);
 const phase = await reads.memberPhase();
 if (phase !== 'awaiting_token') throw new Error(`the member device is in phase "${phase}", not awaiting_token: boot from genesis (README: genesis boot) before a take`);
 
@@ -933,6 +941,9 @@ const SCENE_RUN = {
 
   async prescribe() {
     const { page: pg, st } = shot('prescriber');
+    // the node's token lives in page memory only (never browser storage); it opens the member quote and the
+    // prior-authorization routes until provider sign-in (B4)
+    await pg.evaluate((t) => { if (typeof API !== 'undefined' && API.setAdminToken) API.setAdminToken(t); }, secrets.prescriber);
     await camera.cut('prescriber');
     await pg.locator('.nav-tab[data-tab="prescriptions"]').click();
     await pg.locator('#rx-write-toggle').click(); // opening the form loads the patient, pharmacy and drug lists
@@ -954,6 +965,13 @@ const SCENE_RUN = {
     await speak('prescribe', 'drug');
     await pg.locator('#rx-quantity').fill(String(c.drug.quantity));
     await pg.locator('#rx-days-supply').fill(String(c.drug.daysSupply));
+    // the card shows Avery's own price and the drug's coverage before the script is written (owner decision 2026-10-19):
+    // she may read it because Avery named her as primary care. The line says the amount, so the card must agree.
+    const quote = pg.locator('#rx-cost-estimate[data-state="member"]');
+    await until('the member quote on the prescriber card', async () => (await quote.count()) > 0, { timeout: 60000, every: 500 }).catch(() => {});
+    const quoted = Number(await pg.locator('#rx-est-member-pays').getAttribute('data-cents').catch(() => null));
+    if (quoted !== c.claim.P) mustHold(`the prescriber card shows the member paying ${quoted} cents; the claim says ${c.claim.P}`);
+    await speak('prescribe', 'quote');
     await Promise.all([speak('prescribe', 'directions'), pg.locator('#rx-directions').fill(c.drug.directions)]);
     await Promise.all([speak('prescribe', 'refills'), pg.locator('#rx-refills').fill(String(c.drug.refills))]);
     await pg.locator('#rx-diagnosis').fill(c.drug.diagnosis);

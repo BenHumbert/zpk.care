@@ -28,7 +28,7 @@ export const MASKS = Object.freeze({
     // renderRecoveryCards: the yellow box; each card is a 'margin:6px 0' block holding its id line and its JSON
     + ` #onboard-body div[style*="var(--yellow)"] div[style*="margin:6px 0"] > div{${REDACT}}`
     + ` #restore-json{${BLUR}}`,
-  prescriber: '',
+  prescriber: `#admin-token-input{${MASK}}`,
   pharmacy: '',
   network: `#admin-token-input{${MASK}}`
 });
