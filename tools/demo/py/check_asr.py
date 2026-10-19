@@ -39,21 +39,88 @@ SPOKEN = [
     (r"\bpo sigh don\b", "poseidon"), (r"\bposeidon's\b", "poseidon"),
     (r"\boop\b", "out of pocket"), (r"\be scripts?\b", "escript"), (r"\bescripts\b", "escript"),
     (r"\blayer two\b", "l2"), (r"\blayer 2\b", "l2"),
+    (r"\bposidon\b", "poseidon"), (r"\bassault\b", "a salt"), (r"\benk\b", "enc"), (r"\bkai\b", "chi"),
+    # "root" and "route" sound alike in American English; whisper writes either, so a listen decides, not the score
+    (r"\broutes\b", "roots"), (r"\broute\b", "root"),
 ]
+NUM_UNITS = {w: i for i, w in enumerate(
+    "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen "
+    "eighteen nineteen".split())}
+NUM_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90}
+NUM_SCALES = {"thousand": 1000, "million": 1000000, "billion": 1000000000}
+
+
+def numbers_as_digits(tokens):
+    """Runs of number words become one digit string, so the script's "seventy eight hundred" and whisper's "7800"
+    compare equal. Two numbers said back to back ("fourteen eighteen") stay two numbers, as whisper writes them."""
+    out, i, n = [], 0, len(tokens)
+    while i < n:
+        t = tokens[i]
+        starts = t in NUM_UNITS or t in NUM_TENS or t == "hundred" or (
+            t == "a" and i + 1 < n and (tokens[i + 1] == "hundred" or tokens[i + 1] in NUM_SCALES))
+        if not starts:
+            out.append(t)
+            i += 1
+            continue
+        total, current, last, j = 0, 0, None, i
+        while j < n:
+            w = tokens[j]
+            if w == "a" and last is None:
+                current, last = 1, "unit"
+            elif w in NUM_UNITS:
+                if last in ("unit", "teen") or (last == "tens" and NUM_UNITS[w] >= 10):
+                    break
+                current += NUM_UNITS[w]
+                last = "teen" if NUM_UNITS[w] >= 10 else "unit"
+            elif w in NUM_TENS:
+                if last in ("unit", "teen", "tens"):
+                    break
+                current += NUM_TENS[w]
+                last = "tens"
+            elif w == "hundred":
+                if last == "hundred":
+                    break
+                current = (current or 1) * 100
+                last = "hundred"
+            elif w in NUM_SCALES:
+                if last is None:
+                    break
+                total += (current or 1) * NUM_SCALES[w]
+                current, last = 0, "scale"
+            elif not (w == "and" and last in ("hundred", "scale") and j + 1 < n
+                      and (tokens[j + 1] in NUM_UNITS or tokens[j + 1] in NUM_TENS)):
+                break
+            j += 1
+        out.append(str(total + current))
+        i = j
+    return out
 
 
 def norm(s):
-    s = SOUND.sub(" ", TAG.sub(" ", s.lower())).replace("$", " ").replace("-", " ")
-    s = " ".join(re.findall(r"[a-z0-9']+", s))
+    s = SOUND.sub(" ", TAG.sub(" ", s.lower()))
+    s = re.sub(r"(?<=\d),(?=\d{3}\b)", "", s)            # 1,418 -> 1418
+    s = re.sub(r"\$(\d+(?:\.\d+)?)", r"\1 dollars", s)   # whisper's $10 -> 10 dollars
+    s = s.replace("%", " percent")
+    s = re.sub(r"\b([a-z])-([a-z])\b", r"\1\2", s)       # r-D -> rd, as whisper writes it
+    s = s.replace("-", " ").replace("'", "")
+    s = re.sub(r"\b([a-z])(\d+)\b", r"\1 \2", s)         # f0 -> f 0
+    s = " ".join(re.findall(r"[a-z0-9]+", s))
     for pat, rep in SPOKEN:
         s = re.sub(pat, rep, s)
-    return s.split()
+    return ["dollar" if t == "dollars" else t for t in numbers_as_digits(s.split())]
+
+
+def ending_missing(heard, meant):
+    """True when most of the script's last three words are not among the last eight heard: a clip cut off early."""
+    if len(meant) < 6:
+        return False
+    return sum(1 for t in meant[-3:] if t in heard[-8:]) < 2
 
 
 def repeats(heard, meant):
-    """Word runs (2+ words) said twice in a row that the script does not repeat."""
+    """Words or word runs said twice in a row that the script does not repeat (\"million million\")."""
     out = []
-    for n in (4, 3, 2):
+    for n in (4, 3, 2, 1):
         for i in range(len(heard) - 2 * n + 1):
             run = heard[i:i + n]
             if run == heard[i + n:i + 2 * n] and " ".join(run * 2) not in " ".join(meant):
@@ -95,12 +162,12 @@ def main(dirs):
                  "match": round(SequenceMatcher(None, meant, heard).ratio(), 3) if meant else None,
                  "words_per_s": round(len(heard) / dur, 2) if dur else None,
                  "sound_notes": SOUND.findall(heard_text), "tags_maybe_read_aloud": spoken_tags,
-                 "repeats": repeats(heard, meant),
+                 "repeats": repeats(heard, meant), "ending_missing": ending_missing(heard, meant),
                  "unclear_words": [f"{w.word.strip()} ({w.probability:.2f})" for w in ws if w.probability < 0.4]}
             results.append(r)
             print(f"{d.name}/{wav.name}  {dur:.2f}s  match {r['match']}  {r['words_per_s']} words/s")
             print(f"   meant: {meant_text}\n   heard: {heard_text}")
-            for k in ("tags_maybe_read_aloud", "repeats", "unclear_words", "sound_notes"):
+            for k in ("ending_missing", "tags_maybe_read_aloud", "repeats", "unclear_words", "sound_notes"):
                 if r[k]:
                     print(f"   {k}: {r[k]}")
         (d / "asr.json").write_text(json.dumps(results, indent=2), encoding="utf-8")

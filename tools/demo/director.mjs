@@ -35,7 +35,7 @@
  * Amounts: every line that says one is filled from the claim (lib/claim-script.mjs). Lines are rendered before T0 from
  * castOf's prediction; once the fill proof is done the director reads the engine's own answer (learnClaim) and speaks
  * every later line from it, and a take stops there if the claim breaks what the lines say or needs a voice that was not
- * rendered. Lines marked PRICING wait on the pricing commit.
+ * rendered. Lines marked PRICING say where a price comes from; recheck them whenever pricing changes.
  *
  * Selectors come from the screen audit (prepare:screens), checked against the dashboard sources at 9f5099d (the
  * screens fixed for this film); the ones that still depend on a rehearsal or on the pricing commit are marked
@@ -151,7 +151,7 @@ if (args.plan) {
   console.log(`Cast: ${cast.plan.id} (${cast.say.deductible} deductible, ${cast.say.copay} copay), ${cast.employer.company}, ${cast.drug.name} x${cast.drug.quantity}`);
   console.log(`Claim (${cast.claim.source}, said from the engine's answer in a take): ingredient ${cast.say.ingredient} + fee ${cast.say.fee} = ${cast.say.total}; patient ${cast.say.patientPay}, plan ${cast.say.planPay}, deductible credit ${cast.say.credit}`);
   const priced = all.filter((l) => l.pricing);
-  if (priced.length) console.log(`\nLines marked PRICING (confirm after the pricing commit): ${priced.length}\n  ${priced.map((l) => `${l.scene}.${l.beat} (${l.who}): ${l.text.length > 96 ? l.text.slice(0, 95) + '…' : l.text}`).join('\n  ')}`);
+  if (priced.length) console.log(`\nLines marked PRICING (recheck whenever pricing changes): ${priced.length}\n  ${priced.map((l) => `${l.scene}.${l.beat} (${l.who}): ${l.text.length > 96 ? l.text.slice(0, 95) + '…' : l.text}`).join('\n  ')}`);
   if (gaps.length) console.log(`\nBeats the director calls that the script leaves out (skipped): ${gaps.join(', ')}`);
   if (problems.length) { console.log(`\nPROBLEMS:\n  ${problems.join('\n  ')}`); process.exit(1); }
   console.log('\nThe script checks out.');
@@ -604,11 +604,10 @@ const SCENE_RUN = {
       await pg.locator('#plan-fam-ded').fill(String(c.plan.famDedCents));
       await pg.locator('#plan-fam-oop').fill(String(c.plan.famOopCents));
     })()]);
-    // PRICING: confirm after the pricing commit. The plan's dispensing fee is typed when the form has a field for it.
-    // TODO(selector): the field's id is a guess until the pricing commit lands; without the field nothing is typed.
+    // the plan's dispensing fee (e2f0864): the insurer form's #plan-dispensing-fee; a blank field means the network default
     const fee = pg.locator('#plan-dispensing-fee');
     if (await fee.count()) await fee.fill(String(c.plan.dispensingFeeCents));
-    else log('plan: the form has no dispensing-fee field; the plan keeps its default (PRICING: confirm after the pricing commit)');
+    else mustHold('the plan form has no dispensing-fee field (#plan-dispensing-fee)');
     await pg.locator('#plan-coverage').selectOption(c.plan.coverage);
     await speak('plan', 'create');
     await pg.locator('#plan-create-btn').click();
@@ -1048,7 +1047,7 @@ const SCENE_RUN = {
     take.dispenseAt = Date.now();
     await dispense.click();
     await closeDetail(pg);
-    await st.card(CARDS.dispenseBehind.title, CARDS.dispenseBehind.lines, { ms: 14000 }); // PRICING: confirm after the pricing commit
+    await st.card(CARDS.dispenseBehind.title, CARDS.dispenseBehind.lines, { ms: 14000 });
     await speak('verify-dispense', 'proving');
     await speak('verify-dispense', 'checks');
     // no amount is said before the engine has priced the claim: wait for the fill proof here (sped up) and take the
@@ -1156,8 +1155,8 @@ const SCENE_RUN = {
       await pg.locator('a.nav-link[data-tab="claims"]').click().catch(() => {}); // the tab reads the claims when it opens
       return false;
     }, { timeout: 300000, every: 8000 }), { factor: 6 });
-    // PRICING: confirm after the pricing commit. The card prints "Drug Cost: <total> (NADAC <ingredient> + Fee <fee>)";
-    // the NADAC label is true once the engine prices the fill from NADAC (today the pharmacy page sends a cost of 0).
+    // the card prints "Drug Cost: <total>" with "NADAC <unit price>/<unit> x <quantity> = <ingredient>" and the fee, as the
+    // engine priced the fill (e2f0864)
     await claim.first().scrollIntoViewIfNeeded();
     await speak('pickup', 'claim');
     await show('member', CARDS.learnsLedger, 14000);
@@ -1188,7 +1187,7 @@ if (c.altPlan) {
     await pg.locator('#plan-create-toggle').click();
     for (const [sel, v] of [['#plan-name', c.altPlan.name], ['#plan-id', c.altPlan.id], ['#plan-copay', c.altPlan.copayCents], ['#plan-deductible', c.altPlan.deductibleCents],
       ['#plan-oop', c.altPlan.oopCents], ['#plan-annual', c.altPlan.annualCents], ['#plan-fam-ded', c.altPlan.famDedCents], ['#plan-fam-oop', c.altPlan.famOopCents]]) await pg.locator(sel).fill(String(v));
-    // PRICING: confirm after the pricing commit (the dispensing-fee field, when the form has one; see the plan scene)
+    // the second plan's dispensing fee, in the same field as the plan scene
     if (await pg.locator('#plan-dispensing-fee').count()) await pg.locator('#plan-dispensing-fee').fill(String(c.altPlan.dispensingFeeCents));
     await pg.locator('#plan-create-btn').click();
     await pg.locator('#plan-create-result .form-result').waitFor({ timeout: 60000 });

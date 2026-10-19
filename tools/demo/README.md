@@ -31,7 +31,7 @@ Nothing here is part of the product build: this folder has its own `package.json
 | `lib/sniff.mjs` | Learns from dashboard responses (allowlisted paths and fields: application ID, activation credentials, the HR import's codes and PINs, the derived wallet ID, the attestation); never touches request bodies. |
 | `lib/masks.mjs` | Per-dashboard styles: token/PIN inputs masked, the activation token, HR codes/PINs and the recovery cards redacted, identity fields blurred; plus the page zoom (below). |
 | `lib/assets.mjs` | Per-take files made from the cast: the fictional roster CSV and a one-page sample EIN letter PDF (labelled fictional; it imitates no government notice). |
-| `lib/claim-script.mjs` | The final script ("One Claim, End to End") and its cast: `PEOPLE` (the voice roles), `ACTS`, `SCENES` (order, camera, the script's scene number), `BEATS` (what the director calls), `storyLines()` (every spoken line, character and narrator, with the board actions), `screenCards()` (the lower-thirds, including the seven LEARNS / NEVER LEARNS cards, never spoken), `castOf()` (names, the plan the analyst types, the drug, and the predicted claim: `predictPrice()` and the fill circuit's own arithmetic, `priceFill()`), `withClaim()` (the engine's answer becomes the claim), `storyChecks()` (what the lines assume: first fill, inside the deductible, above the copay), `allLines()`. A claim amount is never written into a line: it is a `{slot}` (`CLAIM_SLOTS`) filled from the claim. Lines that say where the copay, the ingredient cost or the fee come from, or say a claim amount, carry `pricing: true` and the comment `// PRICING: confirm after the pricing commit`. |
+| `lib/claim-script.mjs` | The final script ("One Claim, End to End") and its cast: `PEOPLE` (the voice roles), `ACTS`, `SCENES` (order, camera, the script's scene number), `BEATS` (what the director calls), `storyLines()` (every spoken line, character and narrator, with the board actions), `screenCards()` (the lower-thirds, including the seven LEARNS / NEVER LEARNS cards, never spoken), `castOf()` (names, the plan the analyst types, the drug, and the predicted claim: `predictPrice()` and the fill circuit's own arithmetic, `priceFill()`), `withClaim()` (the engine's answer becomes the claim), `storyChecks()` (what the lines assume: first fill, inside the deductible, above the copay), `allLines()`. A claim amount is never written into a line: it is a `{slot}` (`CLAIM_SLOTS`) filled from the claim. Lines that say where the copay, the ingredient cost or the fee come from, or say a claim amount, carry `pricing: true` (checked against the pricing commit, e2f0864; `node director.mjs --plan` lists them). |
 | `lib/equations.mjs` | All 32 whiteboard cards from the math preparation, verbatim (LaTeX, terms, plain words, who computes, who sees, `file:line` source), generated, never retyped. `eq('2b')`. |
 | `lib/args.mjs`, `lib/browser.mjs` | Argument parsing; `chromiumPath()` (pinned chromium-1200). |
 
@@ -168,14 +168,8 @@ asks for the letter (the script's scene 3 is gone), HR uploads it right after Su
 
 Still open:
 
-1. **The pricing commit.** Each phone member bound to her plan's formulary and copay, and every fill priced at NADAC x
-   quantity + the plan's dispensing fee, the pharmacy sending no cost. The lines that depend on it are marked
-   `// PRICING: confirm after the pricing commit` in `lib/claim-script.mjs` and `director.mjs` (`node director.mjs
-   --plan` lists them). When it lands: check each against the code, set `predictPrice()` (rounding, where the fee
-   comes from) and `plan.dispensingFeeCents` in `castOf()` so the prediction matches the engine, give the plan scene
-   the form's fee field if there is one (`#plan-dispensing-fee` is a guess), set `PRICING_STATUS = 'final'`, and
-   rerun voice-check. Until then a take stops at the fill (the engine still prices it from the page's cost of 0); a
-   rehearsal says what it found and carries on.
+1. **Pricing is in** (e2f0864): `PRICING_STATUS = 'final'`, `predictPrice()` rounds exactly as the engine does,
+   the plan scene types `#plan-dispensing-fee`, and every line marked PRICING was checked against the code.
 2. The equation cards are being updated for the pricing change in `lib/equations.mjs`; recheck the board targets of
    cards 7b and 7c (`find: 'T='`, `'rD='`, `'pD='`, `'a=T'`, `'a<c'`, `'crem='`, `'pD+crem'`) with
    `node whiteboard-preview.mjs --texts` once they land, and every other `{ find }` / `{ findRe }` target in the

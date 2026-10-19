@@ -20,7 +20,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, parseVoices } from './lib/args.mjs';
-import { synth, stopEngines, stripCues, engineVoice, knownVoice, TOOLS, OUT_ROOT, VOICE_CACHE } from './lib/narrate.mjs';
+import { synth, stopEngines, stripCues, engineVoice, knownVoice, speechChunks, toSpeech, TOOLS, OUT_ROOT, VOICE_CACHE } from './lib/narrate.mjs';
 import { PEOPLE, castOf, allLines } from './lib/claim-script.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -67,10 +67,16 @@ for (const dir of dirs) {
   const a = JSON.parse(fs.readFileSync(path.join(dir, 'asr.json'), 'utf8'));
   const list = Array.isArray(a) ? a : (a.results || a.lines || []);
   console.log(`\n${path.basename(dir)} (${voices[path.basename(dir)]})`);
+  // a clip rendered whole at its engine's token cap (Maya1 about 25 s, Orpheus about 14 s) was probably cut off; a
+  // line spoken in pieces (lib/narrate.mjs speechChunks) is longer than one piece by design
+  const engine = String(voices[path.basename(dir)]).split(':')[0];
+  const capS = { maya: 24.3, orpheus: 14.2 }[engine];
   for (const x of list) {
     const m = Number(x.match);
-    if (m < 0.85) weak += 1;
-    console.log(`  ${x.file} ${m.toFixed(2)}  ${m < 0.85 ? `meant "${x.meant}" | heard "${x.heard}"` : String(x.meant).slice(0, 70)}`);
+    const whole = speechChunks(engine, toSpeech(String(x.meant))).length === 1;
+    const flags = [m < 0.85 ? 'low match' : '', x.ending_missing ? 'ending missing' : '', x.repeats && x.repeats.length ? `repeated: ${x.repeats.join(', ')}` : '', capS && whole && x.audio_s >= capS ? 'at the length cap' : ''].filter(Boolean);
+    if (flags.length) weak += 1;
+    console.log(`  ${x.file} ${m.toFixed(2)}  ${flags.length ? `[${flags.join(', ')}] meant "${x.meant}" | heard "${x.heard}"` : String(x.meant).slice(0, 70)}`);
   }
 }
-console.log(`\n${weak} lines below 0.85${weak ? ' (rework them: reword, or add a toSpeech rule in lib/narrate.mjs)' : ''}`);
+console.log(`\n${weak} lines flagged${weak ? ' (rework them: reword, or add a toSpeech rule in lib/narrate.mjs)' : ''}`);

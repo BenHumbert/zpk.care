@@ -21,10 +21,9 @@
  *               target / near / from / to: { card: '2b', find: 'f5' } | { card, findRe: '...' } | { card, line: 2 } | 'eq-2b' | { x, y, w, h },
  *               text, color: 'ink' | 'blue' | 'red' | 'green', size, side, ms, keepTitle, ... }
  *     pricing true on a line that says where the copay, the ingredient cost or the fee come from, or says a claim
- *             amount. The pricing change (each phone member bound to her plan's formulary and copay; every fill priced
- *             at NADAC x quantity + the plan's dispensing fee, the pharmacy sending no cost) is not committed yet, so
- *             each such line, and each line of code that carries the rule, is marked
- *             "// PRICING: confirm after the pricing commit".
+ *             amount. Each was checked against the pricing commit (e2f0864: each phone member bound to her plan's
+ *             formulary and copay; every fill priced at NADAC x quantity + the plan's dispensing fee, the pharmacy
+ *             sending no cost); `node director.mjs --plan` lists them, to recheck whenever pricing changes.
  *
  * Amounts. No line holds a claim amount in its source: it holds a {slot} (CLAIM_SLOTS) that storyLines() fills from
  * c.claim. castOf() predicts the claim with the fill circuit's own arithmetic (priceFill, lib/equations.mjs cards 7b
@@ -196,7 +195,7 @@ export function nadacIngredientCents(nadacPerUnit, quantity) {
 }
 
 /** The claim amounts a line may say; storyLines() fills each {slot} from c.claim. */
-export const CLAIM_SLOTS = Object.freeze(['totalCents', 'total', 'patientPay', 'planPay', 'ingredient', 'fee', 'remainingCents', 'kappaCents']);
+export const CLAIM_SLOTS = Object.freeze(['totalCents', 'total', 'patientPay', 'planPay', 'ingredient', 'fee', 'remainingCents', 'remaining', 'kappaCents']);
 
 /**
  * The claim as the lines tell it: the fill circuit's split of T = ing + fee against her plan and her totals before
@@ -216,7 +215,7 @@ function claimOf(plan, { ingredientCents, feeCents, copayCents, before = {}, ans
   }
   k.slots = Object.freeze({
     totalCents: grouped(k.T), total: cents(k.T), patientPay: cents(k.P), planPay: cents(k.Q),
-    ingredient: cents(k.ingredientCents), fee: cents(k.feeCents), remainingCents: grouped(k.rD), kappaCents: grouped(k.kappa)
+    ingredient: cents(k.ingredientCents), fee: cents(k.feeCents), remainingCents: grouped(k.rD), remaining: cents(k.rD), kappaCents: grouped(k.kappa)
   });
   return Object.freeze(k);
 }
@@ -361,8 +360,8 @@ export function screenCards(c) {
     dispenseBehind: {
       title: 'Behind this click',
       lines: [
-        `The pharmacy node sends the prescription and quantity ${c.drug.quantity}, and no cost.`, // PRICING: confirm after the pricing commit
-        'The engine prices the fill (NADAC × quantity + the plan’s dispensing fee) and makes three proofs.' // PRICING: confirm after the pricing commit
+        `The pharmacy node sends the prescription and quantity ${c.drug.quantity}, and no cost.`,
+        'The engine prices the fill (NADAC × quantity + the plan’s dispensing fee) and makes three proofs.'
       ]
     },
     learnsPharmacy: { title: 'The pharmacy learns', color: learns, lines: ['What Avery pays, what the plan pays, and her running totals.', 'Never learns: her name.'] },
@@ -401,11 +400,11 @@ export function storyLines(c) {
       cents: [N('Amounts on this form are in cents.')],
       limits: [L('analyst', `${capital(dollarWords(D))} deductible. ${capital(dollarWords(c.plan.oopCents))} out-of-pocket. ${capital(dollarWords(c.plan.famOopCents))} for a family.`)],
       create: [L('analyst', 'Create.')],
-      after: [N("His node stores the plan on the sequencer, the network's ledger, and publishes it with a signed request. When a member enrolls, the claims engine copies her limits from this copy and binds her to this plan's formulary, copay and dispensing fee.", { pricing: true })] // PRICING: confirm after the pricing commit
+      after: [N("His node stores the plan on the sequencer, the network's ledger, and publishes it with a signed request. When a member enrolls, the claims engine copies her limits from this copy and binds her to this plan's formulary, copay and dispensing fee.", { pricing: true })]
     },
     apply: {
       plans: [L('hr', c.altPlan ? 'Two plans.' : 'One plan.')],
-      choose: [L('hr', `${planWord}. ${capital(dollarWords(D))} deductible, ${dollarWords(c.plan.oopCents)} out-of-pocket, ${dollarWords(c.plan.copayCents)}-dollar base copay. That's the one we budgeted.`, { pricing: true })], // PRICING: confirm after the pricing commit
+      choose: [L('hr', `${planWord}. ${capital(dollarWords(D))} deductible, ${dollarWords(c.plan.oopCents)} out-of-pocket, ${dollarWords(c.plan.copayCents)}-dollar base copay. That's the one we budgeted.`, { pricing: true })],
       details: [L('hr', `Effective today. Cap of ${sayNumber(c.employer.cap)}.`)],
       submit: [L('hr', 'Submit.')],
       after: [N("When she submitted, her browser made an Ed25519 key pair and kept the private half in page memory. The insurer got the public half with the application. That key will sign Fernhill's agreement later.")]
@@ -491,7 +490,7 @@ export function storyLines(c) {
             { do: 'annotate', text: 'which side? the bit decides', near: { card: '5', find: 'bi=1' }, side: 'right', color: 'blue', when: { word: 'side', at: 0.5 } }
           ]
         }),
-        N("Now the proof. t is the domain tag; zero means member, so the circuit rebuilds W from the six private values. The wallet registry and the lifecycle tree each have height eleven, a thousand and twenty-four slots. Line two: a zero at W's slot hashes up to today's roots, so the slot is empty. Line three writes W with an empty inventory and nonce zero, and W with state one, registered. Only x is public: W and four roots.", {
+        N("Now the proof. t is the domain tag; zero means member, so the circuit rebuilds W from the six private values. The wallet registry and the lifecycle tree each have height eleven, a thousand and twenty-four slots. Line two: a zero at W's slot hashes up to today's roots, so the slot is empty. Line three writes W with an empty inventory and a nonce of zero, and W with state one, registered. Only x is public: W and four roots.", {
           board: [
             { do: 'write', card: '4b', size: 34 },
             { do: 'annotate', text: 'private: f0..f5', near: { card: '4b', line: 1 }, side: 'right', color: 'blue', when: 0.2 },
@@ -538,11 +537,11 @@ export function storyLines(c) {
             { do: 'value', target: { card: '5b', find: 'B', nth: 0 }, text: grouped(c.plan.annualCents), when: 0.8 }
           ]
         }),
-        N('A credential carries one number for its data, a forest root: the hash of six tree roots, each of height eight. At registration only access control has leaves. Leaf zero is her eligibility record, which binds her to her plan: its copay and the root of its formulary. Leaf one twenty-seven is A. The other trees are empty: z-seven.', { // PRICING: confirm after the pricing commit
+        N('A credential carries one number for its data, a forest root: the hash of six tree roots, each of height eight. At registration only access control has leaves. Leaf zero is her eligibility record, which binds her to her plan: its copay and the root of its formulary. Leaf one twenty-seven is A. The other trees are empty: z-seven.', {
           pricing: true,
           board: [
             { do: 'write', card: '5c', size: 36 },
-            { do: 'annotate', text: 'her plan: copay, formulary', near: { card: '5c', find: 'Eelig' }, side: 'below', color: 'blue', when: 0.62 }, // PRICING: confirm after the pricing commit
+            { do: 'annotate', text: 'her plan: copay, formulary', near: { card: '5c', find: 'Eelig' }, side: 'below', color: 'blue', when: 0.62 },
             { do: 'circle', target: { card: '5c', findRe: '127[^A,]*A' }, color: 'blue', when: 0.8 },
             { do: 'annotate', text: 'her accumulator', near: { card: '5c', findRe: '127[^A,]*A' }, side: 'below', color: 'blue' }
           ]
@@ -581,13 +580,13 @@ export function storyLines(c) {
       verified: [L('pharmacist', 'There you are. One ready to go.')],
       gate: [N("The node checked the sequencer's signature against a key it already holds, and the expiry. With that attestation, not a bare wallet ID, it may read her claim history, which is empty. Dispense unlocks, but that gate lives in this page; the server doesn't ask for the tap.")],
       dispense: [L('pharmacist', 'Running it through.')],
-      proving: [N("Dispense sends the engine the prescription and the quantity, and no price. The engine prices the fill itself: the drug's NADAC price times the quantity, plus her plan's dispensing fee. It refuses a terminated member or a same-day repeat of this drug at this pharmacy, then makes three proofs: the pharmacy's identity, the script's move to dispensed, and the fill.", { pricing: true })], // PRICING: confirm after the pricing commit
+      proving: [N("Dispense sends the engine the prescription and the quantity, and no price. The engine prices the fill itself: the drug's NADAC price times the quantity, plus her plan's dispensing fee. It refuses a terminated member or a same-day repeat of this drug at this pharmacy, then makes three proofs: one for the pharmacy's identity, one for the script's move to dispensed, and one for the fill.", { pricing: true })],
       checks: [N("Before any money, the fill circuit checks the pharmacy, finds the prescription and its filled status, matches the drug to the script and formulary, checks the quantity and that the accumulator is Avery's. For now, the engine still holds the pharmacy's key for that first check.")]
     },
     'board-deductible': {
       lines: [
         N('Inside that proof, the money starts from her record, A.', { board: [{ do: 'clear' }, { do: 'title', text: 'Inside the fill proof: deductible and copay' }] }),
-        N("T is the total: the drug's NADAC price times the quantity, plus her plan's dispensing fee. Here, {totalCents} cents. inDed is true while a deductible is unmet. r-D is what is left of it, all {remainingCents} cents. p-D, this fill's deductible portion, is the smaller of T and r-D. The whole total fits, so a, the rest, is zero.", { // PRICING: confirm after the pricing commit
+        N("T is the total: the drug's NADAC price times the quantity, plus her plan's dispensing fee. Here, {total}, so on the board T is {totalCents}. inDed, the in-deductible flag, is true while a deductible is unmet. r-D is what is left of it: all of it, {remaining}. p-D, this fill's deductible portion, is T or r-D, whichever is smaller. The whole total fits, so the rest, a, is zero.", {
           pricing: true,
           board: [
             { do: 'write', card: '7b', size: 34 },
@@ -597,26 +596,26 @@ export function storyLines(c) {
             { do: 'value', target: { card: '7b', find: 'a=T' }, text: grouped(k.a), when: 0.88 }
           ]
         }),
-        N(`c is the copay, and it comes from her plan: ${dollarWords(k.copayCents)} dollars. c-rem is the copay on what remains, so zero. p-norm is the usual copay, after the deductible. She is still in it, so her base pay is p-D plus zero: the whole total.`, { // PRICING: confirm after the pricing commit
+        N(`c is the copay, and it comes from her plan: ${dollarWords(k.copayCents)} dollars. c-rem is the copay on what remains, so zero. p-norm is the usual copay, after the deductible. She is still in it, so her base pay is p-D plus zero: the whole total.`, {
           pricing: true,
           board: [
             { do: 'write', card: '7c', size: 34 },
-            { do: 'annotate', text: `c = ${grouped(k.copayCents)}, her plan's copay`, near: { card: '7c', find: 'a<c' }, side: 'above', color: 'blue', when: 0.2 }, // PRICING: confirm after the pricing commit
+            { do: 'annotate', text: `c = ${grouped(k.copayCents)}, her plan's copay`, near: { card: '7c', find: 'a<c' }, side: 'above', color: 'blue', when: 0.2 },
             { do: 'value', target: { card: '7c', find: 'crem=', nth: 0 }, text: grouped(k.cRem), when: 0.45 },
             { do: 'circle', target: { card: '7c', find: 'pD+crem' }, color: 'red', when: 0.85 },
             { do: 'value', target: { card: '7c', find: 'pD+crem' }, text: grouped(k.pBase), color: 'red' }
           ]
         }),
-        N('Then the benefit cap, the out-of-pocket cap and the family rules. None binds today. So P, what she pays, is the total; Q, what the plan pays, is zero.', { // PRICING: confirm after the pricing commit
+        N('Then the benefit cap, the out-of-pocket cap and the family rules. None binds today. So P, what she pays, is the total; Q, what the plan pays, is zero.', {
           pricing: true,
           board: [{ do: 'annotate', text: 'caps: benefit, out-of-pocket, family. None binds.', color: 'blue', size: 26 }]
         })
       ]
     },
     pay: {
-      price: [L('pharmacist', "That's {patientPay} today.", { pricing: true })], // PRICING: confirm after the pricing commit
-      question: [L('member', `Oh. I thought it was a ${dollarWords(k.copayCents)}-dollar copay.`, { mood: MOOD.anxious, pricing: true })], // PRICING: confirm after the pricing commit
-      answer: [L('pharmacist', `It will be, once you've met your deductible. Until then you pay what the drug costs, and this one's a generic. All of it counts toward your ${dollarWords(D)}.`, { pricing: true })], // PRICING: confirm after the pricing commit
+      price: [L('pharmacist', "That's {patientPay} today.", { pricing: true })],
+      question: [L('member', `Oh. I thought it was a ${dollarWords(k.copayCents)}-dollar copay.`, { mood: MOOD.anxious, pricing: true })],
+      answer: [L('pharmacist', `It will be, once you've met your deductible. Until then you pay what the drug costs, and this one's a generic. All of it counts toward your ${dollarWords(D)}.`, { pricing: true })],
       card: [L('member', 'Okay. Here you go.', { mood: MOOD.relieved })],
       counsel: [L('pharmacist', 'Take it after a meal, with plenty of water.', { mood: MOOD.kind })],
       after: [N("The badge says Settlement Complete and the toast says a settlement proof was submitted. More exactly: the fill proof stayed in the engine, and the claim is parked on the sequencer, waiting for one more proof, from Avery's phone. Payment Received is the pharmacy's own note that she paid; it changes nothing on the network.")]
@@ -624,7 +623,7 @@ export function storyLines(c) {
     'board-settlement': {
       lines: [
         N('Walt was right about the deductible. Here is where the proof says so.', { board: [{ do: 'clear' }, { do: 'title', text: "Credit, settlement, and the engine's check" }] }),
-        N('Kappa, the deductible credit, is the smaller of what she pays and the deductible portion. Both are the whole total, so all of it counts.', { // PRICING: confirm after the pricing commit
+        N('Kappa, the deductible credit, is the smaller of what she pays and the deductible portion. Both are the whole total, so all of it counts.', {
           pricing: true,
           board: [
             { do: 'write', card: '7g', size: 40 },
@@ -685,7 +684,7 @@ export function storyLines(c) {
             { do: 'arrow', from: { card: '9', find: 'χprev' }, to: { card: '9', find: 'χk=' }, color: 'blue', bend: -0.35, when: 0.75 }
           ]
         }),
-        N("Second, the claim leaf. L-j hashes nine values: Avery's wallet, the drug-code hash, both providers' wallets, the hashed date, P, Q, op and kappa. It is appended at the next free leaf of a tree of height twenty-four, room for about eight million claims, whose root is stored with every batch.", {
+        N("Second, the claim leaf. L-j hashes nine values: Avery's wallet, the drug-code hash, both providers' wallets, the hashed date, P, Q, op and kappa. It is appended at the next free leaf of a tree twenty-four levels deep, with room for more than eight million claims, whose root is stored with every batch.", {
           board: [
             { do: 'write', card: '10', size: 34 },
             { do: 'circle', target: { card: '10', find: 'H(dos)' }, color: 'red', when: 0.5 },

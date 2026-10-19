@@ -153,6 +153,8 @@ export function toSpeech(text) {
     .replace(/\bCSV\b/g, 'C S V')
     .replace(/\bPDF\b/g, 'P D F')
     .replace(/\bJSON\b/g, 'jason')
+    .replace(/\benc\b/g, 'enk')
+    .replace(/\bChi\b/g, 'Kai')
     .replace(/\bA-(\d+)\b/g, (m, n) => `A ${sayNumber(Number(n))}`)
     // money: $12.40 -> twelve dollars and forty cents (before the decimal rule)
     .replace(/\$(\d{1,3}(?:,\d{3})+|\d+)\.(\d{1,2})\b/g, (m, a, b) => sayDollars(a, b))
@@ -376,13 +378,74 @@ async function normaliseTo24k(raw, file) {
   fs.renameSync(tmp, file);
 }
 
+/**
+ * Maya1 and Orpheus stop at their workers' token cap (max_tokens 2048 is about 25 s of Maya1 speech, 1200 about 14 s
+ * of Orpheus), so a long line came back cut off; a long generation also drifts (one line came back with "like and
+ * subscribe" in place of its words). A line longer than its engine's limit is spoken in pieces, split at sentence
+ * breaks (then commas, then words), each piece rendered with the same voice and seed, and the pieces are joined with a
+ * short pause into one clip. A line within the limit is rendered whole, under the cache key it always had.
+ */
+const CHUNK_WORDS = Object.freeze({ maya: 32, orpheus: 22 });
+const CHUNK_PAUSE_MS = 180;
+const CHUNK_VERSION = 1;
+
+/** The pieces a line is spoken in: [spoken] when it fits its engine's limit. */
+export function speechChunks(engine, spoken) {
+  const limit = CHUNK_WORDS[engine];
+  const count = (s) => s.split(/\s+/).filter(Boolean).length;
+  if (!limit || count(spoken) <= limit) return [spoken];
+  const split = (s, re) => s.split(re).map((x) => x.trim()).filter(Boolean);
+  const pieces = [];
+  for (const sentence of split(spoken, /(?<=[.!?;:])\s+/)) {
+    if (count(sentence) <= limit) { pieces.push(sentence); continue; }
+    for (const clause of split(sentence, /(?<=,)\s+/)) {
+      if (count(clause) <= limit) { pieces.push(clause); continue; }
+      const words = clause.split(/\s+/).filter(Boolean);
+      for (let i = 0; i < words.length; i += limit) pieces.push(words.slice(i, i + limit).join(' '));
+    }
+  }
+  const chunks = [];
+  for (const piece of pieces) {
+    const last = chunks.length - 1;
+    if (last >= 0 && count(chunks[last]) + count(piece) <= limit) chunks[last] = `${chunks[last]} ${piece}`;
+    else chunks.push(piece);
+  }
+  return chunks;
+}
+
+/** Joins same-format PCM WAV files into one, with pauseMs of silence between them. */
+function joinWavs(files, out, pauseMs) {
+  const infos = files.map((f) => ({ f, ...wavInfo(f) }));
+  const { channels, rate, bits } = infos[0];
+  if (infos.some((x) => x.channels !== channels || x.rate !== rate || x.bits !== bits)) throw new Error(`pieces of ${path.basename(out)} differ in format`);
+  const blockAlign = channels * (bits / 8);
+  const gap = Buffer.alloc(Math.round((rate * pauseMs) / 1000) * blockAlign);
+  const parts = [];
+  infos.forEach((x, i) => {
+    const b = fs.readFileSync(x.f);
+    parts.push(b.subarray(x.dataOffset, x.dataOffset + x.dataSize));
+    if (i < infos.length - 1) parts.push(gap);
+  });
+  const data = Buffer.concat(parts);
+  const h = Buffer.alloc(44);
+  h.write('RIFF', 0, 'ascii'); h.writeUInt32LE(36 + data.length, 4); h.write('WAVE', 8, 'ascii');
+  h.write('fmt ', 12, 'ascii'); h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(channels, 22);
+  h.writeUInt32LE(rate, 24); h.writeUInt32LE(rate * blockAlign, 28); h.writeUInt16LE(blockAlign, 32); h.writeUInt16LE(bits, 34);
+  h.write('data', 36, 'ascii'); h.writeUInt32LE(data.length, 40);
+  const tmp = `${out}.part.wav`;
+  fs.writeFileSync(tmp, Buffer.concat([h, data]));
+  fs.renameSync(tmp, out);
+}
+
 /** Where a line's clip would be cached, without making it. */
 export function clipPath(text, { voice, mood = 'warm', lengthScale = 1, sentenceSilence = 0.25, cacheDir = VOICE_CACHE }) {
   const ev = engineVoice(voice);
   if (ev) {
     const spoken = withCues(ev.engine, toSpeech(text));
     const params = engineParams(ev, mood);
-    return { file: path.join(cacheDir, `${ev.engine}-${ev.name}-${cacheKey(ev, params, spoken)}.wav`), spoken, ev, params };
+    const parts = speechChunks(ev.engine, spoken);
+    const key = parts.length > 1 ? cacheKey(ev, params, `chunked${CHUNK_VERSION}|${parts.join(' | ')}`) : cacheKey(ev, params, spoken);
+    return { file: path.join(cacheDir, `${ev.engine}-${ev.name}-${key}.wav`), spoken, parts, ev, params };
   }
   if (!VOICES[voice]) throw new Error(`voice ${voice} is not on the list cleared for posted videos`);
   const spoken = stripCues(toSpeech(text));
@@ -409,7 +472,22 @@ export async function synth(text, { voice, mood = 'warm', lengthScale = 1, sente
   const c = clipPath(text, { voice, mood, lengthScale, sentenceSilence, cacheDir });
   if (!fs.existsSync(c.file)) {
     if (cacheOnly) throw new Error(`not pre-rendered (cacheOnly): ${voice} "${stripCues(text).slice(0, 60)}"`);
-    if (c.ev) {
+    if (c.ev && c.parts.length > 1) {
+      const pieces = [];
+      try {
+        for (const [i, part] of c.parts.entries()) {
+          const raw = `${c.file}.p${i}.raw.wav`;
+          const piece = `${c.file}.p${i}.wav`;
+          const r = await worker(c.ev.engine).request({ text: part, out: raw, ...c.params });
+          if (!r.ok) throw new Error(`${c.ev.engine}: ${r.error}`);
+          await normaliseTo24k(raw, piece);
+          pieces.push(piece);
+        }
+        joinWavs(pieces, c.file, CHUNK_PAUSE_MS);
+      } finally {
+        for (const p of pieces) fs.rmSync(p, { force: true });
+      }
+    } else if (c.ev) {
       const raw = `${c.file}.raw.wav`;
       const r = await worker(c.ev.engine).request({ text: c.spoken, out: raw, ...c.params });
       if (!r.ok) throw new Error(`${c.ev.engine}: ${r.error}`);
