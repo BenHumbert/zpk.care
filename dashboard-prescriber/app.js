@@ -600,8 +600,8 @@
     if (el) el.textContent = unit ? '(' + unit + ')' : '(pricing unit)';
   }
 
-  // What decided the member's share, as the engine's quote names it. A fixture member's copay is its drug's tier
-  // copay; a member with a device pays its plan's copay whatever the tier.
+  // What decided the patient's share, as the engine's quote names it (the fill circuit's phases). A fixture member's
+  // copay is its drug's tier copay; a member with a device pays its plan's copay whatever the tier.
   var PHASE_LABELS = {
     'deductible': 'Deductible phase',
     'copay': 'Plan copay',
@@ -613,6 +613,121 @@
     if (est.phase === 'copay' && est.copayBasis === 'tier') return 'Tier ' + esc(est.tierLevel) + ' copay';
     return esc(PHASE_LABELS[est.phase] || est.phase || '');
   }
+
+  // A prior authorization's status on the patient's plan, as the engine records it.
+  var PA_LABELS = {
+    'none': 'Not requested',
+    'pending': 'Pending with the insurer',
+    'approved': 'Approved',
+    'denied': 'Denied',
+  };
+
+  /**
+   * The drug's availability on the patient's plan, from her quote: covered, prior authorization, step therapy and the
+   * limit per fill (in the pricing unit), with the quantity typed held against the limit.
+   */
+  function coverageLine(est, quantity) {
+    var unit = est.pricingUnit || 'unit';
+    var over = est.maxQuantityPerFill != null && quantity > est.maxQuantityPerFill;
+    // a quote that does not report the plan's rules says only that the drug is covered, never "no prior authorization"
+    var rulesKnown = typeof est.priorAuthRequired === 'boolean';
+    var items = ['<span class="rx-coverage-item ok">Covered on the patient\'s plan</span>'];
+    if (rulesKnown) {
+      items.push(est.priorAuthRequired
+        ? '<span class="rx-coverage-item warn">Prior authorization required</span>'
+        : '<span class="rx-coverage-item ok">No prior authorization</span>');
+      items.push(est.stepTherapyRequired
+        ? '<span class="rx-coverage-item warn">Step therapy required</span>'
+        : '<span class="rx-coverage-item ok">No step therapy</span>');
+    }
+    if (est.maxQuantityPerFill != null) {
+      items.push('<span class="rx-coverage-item ' + (over ? 'bad' : 'ok') + '" id="rx-est-limit">Limit ' + esc(est.maxQuantityPerFill) + ' ' + esc(unit) + ' per fill' +
+        (over ? ': ' + esc(quantity) + ' ' + esc(unit) + ' is over it' : '') + '</span>');
+    }
+    return '<div id="rx-est-coverage" class="rx-coverage" data-covered="true"' +
+      ' data-prior-auth="' + (!rulesKnown ? 'unknown' : est.priorAuthRequired ? 'required' : 'not-required') + '"' +
+      ' data-step-therapy="' + (!rulesKnown ? 'unknown' : est.stepTherapyRequired ? 'required' : 'not-required') + '">' + items.join('') + '</div>';
+  }
+
+  /** The prior-authorization row: the patient's status for this drug, and the request button while none is pending or in force. */
+  function priorAuthBlock(pa) {
+    var status = (pa && pa.status) || 'none';
+    var text = PA_LABELS[status] || status;
+    if (status === 'approved' && pa.expiresOn) text += ' through ' + pa.expiresOn;
+    var canRequest = status === 'none' || status === 'denied';
+    return '<div id="rx-pa" class="rx-pa" data-pa-status="' + esc(status) + '">' +
+      '<span class="rx-pa-label">Prior authorization:</span> ' +
+      '<span id="rx-pa-status" class="rx-pa-status ' + esc(status) + '">' + esc(text) + '</span>' +
+      (canRequest
+        ? '<input type="text" class="form-input rx-pa-reason" id="rx-pa-reason" maxlength="500" placeholder="Reason for the request (optional)">' +
+          '<button class="btn btn-sm btn-primary" id="rx-pa-request-btn">Request prior authorization</button>'
+        : '<button class="btn btn-sm" id="rx-pa-refresh-btn">Refresh status</button>') +
+      '</div>';
+  }
+
+  /**
+   * The estimate card for one quote. refusal: null for the patient's own quote (or no patient selected), 'token' when
+   * this node's admin token is missing or wrong, 'consent' when the network refused the patient's price to this
+   * prescriber; then est is the price with no patient, and the card shows its ingredient and says why. Returns the
+   * card's state (the data-state the page shows) and its HTML.
+   */
+  function estimateCardHtml(est, memberWalletId, refusal, quantity) {
+    var title = '<div style="font-size:13px;font-weight:600;margin-bottom:8px">Cost Estimate — ' + esc(est ? est.drugName : '') + '</div>';
+    var forMember = !!memberWalletId && !refusal;
+    if (!est || !est.covered) {
+      return {
+        state: 'not-covered',
+        html: title + '<div id="rx-est-coverage" class="rx-coverage" data-covered="false"><span class="rx-coverage-item bad">' +
+          (forMember ? 'Not covered on the patient\'s plan' : 'Not covered') + ': ' + esc(est && est.reason ? est.reason : 'Drug not found') + '</span></div>',
+      };
+    }
+    var unit = est.pricingUnit || 'unit';
+    var money = function (cents) { return '$' + (Number(cents) / 100).toFixed(2); };
+    var box = 'padding:8px;background:var(--bg-surface,#222);border-radius:6px;text-align:center';
+    var why = refusal === 'token'
+      ? ['Needs this node\'s admin token', 'Set it on the Onboarding tab to see the patient\'s own price']
+      : refusal === 'consent'
+        ? ['Needs the patient\'s consent', 'Her primary-care prescriber, or a prescriber her phone authorized for this visit, sees her price']
+        : ['Select a patient', 'The share depends on the patient\'s plan'];
+    var memberBox = forMember
+      ? '<div id="rx-est-member-pays" data-cents="' + esc(est.memberPayCents) + '" style="font-size:16px;font-weight:700;color:var(--accent-blue,#58a6ff);font-family:var(--font-mono)">' + money(est.memberPayCents) + '</div>' +
+        '<div id="rx-est-phase" data-phase="' + esc(est.phase) + '" style="color:var(--text-muted);margin-top:2px">' + memberPaysLabel(est) + '</div>'
+      : '<div style="font-size:13px;font-weight:600;color:var(--text-muted)">' + esc(why[0]) + '</div>' +
+        '<div style="color:var(--text-muted);margin-top:2px">' + esc(why[1]) + '</div>';
+    var planBox = forMember
+      ? '<div id="rx-est-plan-pays" data-cents="' + esc(est.employerPayCents) + '" style="font-size:16px;font-weight:700;color:var(--green,#3fb950);font-family:var(--font-mono)">' + money(est.employerPayCents) + '</div>' +
+        '<div style="color:var(--text-muted);margin-top:2px">Plan covers remainder</div>'
+      : '<div style="font-size:13px;font-weight:600;color:var(--text-muted)">&mdash;</div>';
+    var html = title +
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px">' +
+        '<div style="' + box + '">' +
+          '<div style="color:var(--text-muted);margin-bottom:4px">Ingredient (NADAC)</div>' +
+          '<div id="rx-est-ingredient" data-cents="' + esc(est.ingredientCostCents) + '" style="font-size:16px;font-weight:700;font-family:var(--font-mono)">' + money(est.ingredientCostCents) + '</div>' +
+          '<div style="color:var(--text-muted);margin-top:2px">$' + Number(est.nadacPerUnit).toFixed(5) + '/' + esc(unit) + ' x ' + esc(est.quantity) + ' ' + esc(unit) + '</div>' +
+        '</div>' +
+        '<div style="' + box + '">' +
+          '<div style="color:var(--text-muted);margin-bottom:4px">Patient Pays</div>' + memberBox +
+        '</div>' +
+        '<div style="' + box + '">' +
+          '<div style="color:var(--text-muted);margin-bottom:4px">Plan Pays</div>' + planBox +
+        '</div>' +
+      '</div>' +
+      '<div id="rx-est-total" style="margin-top:8px;font-size:11px;color:var(--text-muted)">' +
+        (forMember
+          ? 'Total: ' + money(est.totalCostCents) + ' (ingredient ' + money(est.ingredientCostCents) + ' + dispensing fee <span id="rx-est-fee" data-cents="' + esc(est.dispensingFeeCents) + '">' + money(est.dispensingFeeCents) + '</span>' +
+            (est.dispensingFeeSource === 'plan' ? ', the plan\'s' : est.dispensingFeeSource === 'network-default' ? ', the network default' : '') + ')'
+          : 'The dispensing fee and the patient\'s share come from the patient\'s plan') +
+      '</div>' +
+      (forMember ? coverageLine(est, quantity) : '') +
+      (forMember && est.priorAuthRequired ? priorAuthBlock(est.priorAuth) : '');
+    var state = forMember ? 'member' : refusal === 'token' ? 'token-needed' : refusal === 'consent' ? 'consent-needed' : 'list-price';
+    return { state: state, html: html };
+  }
+
+  // What the card shows: the patient, drug and quantity it was asked for (the prior-authorization row acts on these),
+  // and a counter so an answer to an older selection never replaces a newer one.
+  var estimateContext = null;
+  var estimateSeq = 0;
 
   async function updateCostEstimate() {
     var el = document.getElementById('rx-cost-estimate');
@@ -628,71 +743,111 @@
       } else return;
     }
 
+    var seq = ++estimateSeq;
+    estimateContext = null;
     var ndcHash = $('#rx-med-select').value || ($('#rx-ndc-manual') ? $('#rx-ndc-manual').value.trim() : '');
     var memberWalletId = $('#rx-patient-select') ? $('#rx-patient-select').value : '';
     showQuantityUnit(selectedPricingUnit(ndcHash));
 
-    if (!ndcHash) { el.innerHTML = ''; return; }
+    if (!ndcHash) { el.dataset.state = 'empty'; el.innerHTML = ''; return; }
     var quantity = parseQuantity($('#rx-quantity') ? $('#rx-quantity').value : '30');
-    if (isNaN(quantity)) { el.innerHTML = '<div style="color:var(--red,#f85149);font-size:12px">' + esc(QUANTITY_RULE) + '</div>'; return; }
+    if (isNaN(quantity)) { el.dataset.state = 'error'; el.innerHTML = '<div style="color:var(--red,#f85149);font-size:12px">' + esc(QUANTITY_RULE) + '</div>'; return; }
 
+    el.dataset.state = 'loading';
     el.innerHTML = '<div style="color:var(--text-muted);font-size:12px">Estimating cost...</div>';
 
     try {
-      // The engine's quote for the selected member, the price the fill would charge that member today. The
-      // sequencer answers it only with the member's tapped attestation (or to the member itself); refused, the card shows
-      // the drug's ingredient cost and says the member's price needs the tap, never another price list as the member's.
+      // The engine's quote for the selected patient: the price the fill would charge her today, the drug's availability
+      // on her plan and her prior-authorization status. This node asks the network signed as the prescriber, and the
+      // network answers her primary-care prescriber or a prescriber her phone authorized for this visit; the node itself
+      // answers only its administrator (the token set on the Onboarding tab). Refused, the card shows the drug's
+      // ingredient cost with no patient and says why, never another price list as hers.
       var est;
-      var tapNeeded = false;
+      var refusal = null;
       try {
         est = await API.estimateCost({ ndcHash: ndcHash, walletId: memberWalletId || undefined, quantity: quantity });
-      } catch (refusal) {
-        if (!memberWalletId || !refusal || refusal.status !== 403) throw refusal;
-        tapNeeded = true;
+      } catch (err) {
+        if (!memberWalletId || !err || (err.status !== 401 && err.status !== 403)) throw err;
+        refusal = err.status === 401 ? 'token' : 'consent';
         est = await API.estimateCost({ ndcHash: ndcHash, quantity: quantity });
       }
+      if (seq !== estimateSeq) return;   // a newer selection is being estimated
       if (est && est.pricingUnit) showQuantityUnit(est.pricingUnit);
-
-      if (!est || !est.covered) {
-        el.innerHTML = '<div style="color:var(--red,#f85149)">Not covered: ' + esc(est ? est.reason : 'Drug not found') + '</div>';
-        return;
+      var card = estimateCardHtml(est, memberWalletId, refusal, quantity);
+      el.dataset.state = card.state;
+      el.innerHTML = card.html;
+      if (card.state === 'member') {
+        estimateContext = { walletId: memberWalletId, ndcHash: ndcHash, quantity: quantity };
+        bindPriorAuthControls();
       }
-
-      var unit = est.pricingUnit || 'unit';
-      var forMember = !!memberWalletId && !tapNeeded;
-      var box = 'padding:8px;background:var(--bg-surface,#222);border-radius:6px;text-align:center';
-      var memberBox = forMember
-        ? '<div style="font-size:16px;font-weight:700;color:var(--accent-blue,#58a6ff);font-family:var(--font-mono)">$' + (est.memberPayCents / 100).toFixed(2) + '</div>' +
-          '<div style="color:var(--text-muted);margin-top:2px">' + memberPaysLabel(est) + '</div>'
-        : '<div style="font-size:13px;font-weight:600;color:var(--text-muted)">' + (tapNeeded ? 'Needs the member\'s tap' : 'Select a patient') + '</div>' +
-          '<div style="color:var(--text-muted);margin-top:2px">' + (tapNeeded ? 'The member\'s attestation opens the member\'s own price' : 'The share depends on the member\'s plan') + '</div>';
-      var employerBox = forMember
-        ? '<div style="font-size:16px;font-weight:700;color:var(--green,#3fb950);font-family:var(--font-mono)">$' + (est.employerPayCents / 100).toFixed(2) + '</div>' +
-          '<div style="color:var(--text-muted);margin-top:2px">Plan covers remainder</div>'
-        : '<div style="font-size:13px;font-weight:600;color:var(--text-muted)">&mdash;</div>';
-      el.innerHTML =
-        '<div style="font-size:13px;font-weight:600;margin-bottom:8px">Cost Estimate — ' + esc(est.drugName) + '</div>' +
-        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px">' +
-          '<div style="' + box + '">' +
-            '<div style="color:var(--text-muted);margin-bottom:4px">Ingredient (NADAC)</div>' +
-            '<div style="font-size:16px;font-weight:700;font-family:var(--font-mono)">$' + (est.ingredientCostCents / 100).toFixed(2) + '</div>' +
-            '<div style="color:var(--text-muted);margin-top:2px">$' + Number(est.nadacPerUnit).toFixed(5) + '/' + esc(unit) + ' x ' + esc(est.quantity) + ' ' + esc(unit) + '</div>' +
-          '</div>' +
-          '<div style="' + box + '">' +
-            '<div style="color:var(--text-muted);margin-bottom:4px">Member Pays</div>' + memberBox +
-          '</div>' +
-          '<div style="' + box + '">' +
-            '<div style="color:var(--text-muted);margin-bottom:4px">Employer Pays</div>' + employerBox +
-          '</div>' +
-        '</div>' +
-        '<div style="margin-top:8px;font-size:11px;color:var(--text-muted)">' +
-          (forMember
-            ? 'Total: $' + (est.totalCostCents / 100).toFixed(2) + ' (ingredient $' + (est.ingredientCostCents / 100).toFixed(2) + ' + dispensing fee $' + (est.dispensingFeeCents / 100).toFixed(2) + ')'
-            : 'The dispensing fee and the member\'s share come from the member\'s plan') +
-        '</div>';
     } catch (err) {
+      if (seq !== estimateSeq) return;
+      el.dataset.state = 'error';
       el.innerHTML = '<div style="color:var(--text-muted);font-size:12px">Cost estimate unavailable' + (err && err.message ? ': ' + esc(err.message) : '') + '</div>';
     }
+  }
+
+  /** The prior-authorization row's buttons act on the patient and drug the card shows. */
+  function bindPriorAuthControls() {
+    var requestBtn = document.getElementById('rx-pa-request-btn');
+    if (requestBtn) requestBtn.addEventListener('click', requestPriorAuthFromCard);
+    var refreshBtn = document.getElementById('rx-pa-refresh-btn');
+    if (refreshBtn) refreshBtn.addEventListener('click', refreshPriorAuthStatus);
+  }
+
+  /** Redraws the prior-authorization row, if the card still shows the patient and drug the status is about. */
+  function showPriorAuthStatus(pa, ctx) {
+    if (!estimateContext || estimateContext !== ctx) return;
+    var row = document.getElementById('rx-pa');
+    if (!row) return;
+    row.outerHTML = priorAuthBlock(pa);
+    bindPriorAuthControls();
+  }
+
+  async function requestPriorAuthFromCard() {
+    var ctx = estimateContext;
+    if (!ctx) return;
+    var btn = document.getElementById('rx-pa-request-btn');
+    var reasonEl = document.getElementById('rx-pa-reason');
+    if (btn) { btn.disabled = true; btn.textContent = 'Requesting...'; }
+    try {
+      var body = { walletId: ctx.walletId, ndcHash: ctx.ndcHash, quantity: ctx.quantity };
+      var reason = reasonEl ? reasonEl.value.trim() : '';
+      if (reason) body.reason = reason;
+      var answer = await API.requestPriorAuth(body);
+      toast('Prior authorization requested: pending with the insurer', 'success');
+      showPriorAuthStatus({ status: (answer && answer.status) || 'pending', requestedAt: answer && answer.requestedAt }, ctx);
+    } catch (err) {
+      toast('Prior authorization not requested: ' + errMsg(err), 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Request prior authorization'; }
+    }
+  }
+
+  async function refreshPriorAuthStatus() {
+    var ctx = estimateContext;
+    if (!ctx) return;
+    try {
+      showPriorAuthStatus(await API.getPriorAuthStatus(ctx.walletId, ctx.ndcHash), ctx);
+    } catch (err) {
+      toast('Prior authorization status unavailable: ' + errMsg(err), 'error');
+    }
+  }
+
+  /**
+   * This node's admin token, typed on the Onboarding tab. The page holds it in memory only (rpc.js), and the field is
+   * cleared once it is set, so the token is never written into the page or into browser storage.
+   */
+  function initAdminTokenBar() {
+    var setBtn = $('#admin-set-token');
+    var input = $('#admin-token-input');
+    if (!setBtn || !input) return;
+    setBtn.addEventListener('click', function () {
+      var token = input.value.trim();
+      API.setAdminToken(token);
+      input.value = '';
+      toast(token ? 'Node admin token set for this page' : 'Node admin token cleared', 'info');
+      updateCostEstimate();
+    });
   }
 
   async function loadPrescriptionHistory() {
@@ -1805,6 +1960,7 @@
     initPrescriberSelector();
     initBadgeTap();
     bindEvents();
+    initAdminTokenBar();
 
     // Initial health + status
     try {

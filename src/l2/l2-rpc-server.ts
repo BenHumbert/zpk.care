@@ -235,9 +235,15 @@ export interface WalletRouteSpec {
   param: string;
 }
 
+/** Who a gate admitted: the operator's credential, a registered node key with its role, or a registered wallet's own key. */
+export type AuthPrincipal = { kind: 'operator' } | { kind: 'node'; nodeId: string; role: NodeRole } | { kind: 'wallet'; walletId: string };
+
 export type AuthDecision =
-  | { ok: true; principal: { kind: 'operator' } | { kind: 'node'; nodeId: string; role: NodeRole } | { kind: 'wallet'; walletId: string } }
+  | { ok: true; principal: AuthPrincipal }
   | { ok: false; status: 401 | 403 | 413; message: string };
+
+/** The kinds of provider a provider-signed route takes the signature of (registerRoute's providerSigned). */
+export type ProviderSignerType = 'prescriber' | 'pharmacy';
 
 // ─── The engine's pre-script quote ──────────────────────
 
@@ -249,7 +255,32 @@ export interface MemberCostQuoteRequest {
   quantity: number;
 }
 
-/** The engine's answer: not covered, with a reason that names no plan; or the fill's price and the member's share. */
+/**
+ * A member's prior-authorization status for one drug, from the engine's records. 'pending': a request awaits the
+ * insurer; 'approved': an approval in force, which holds through expiresOn; 'denied': the latest request was denied;
+ * 'none': no request, or only an approval past its last day. No request ID and nothing about another member.
+ */
+export interface PriorAuthStatus {
+  status: 'none' | 'pending' | 'approved' | 'denied';
+  /** When the request this status is about was made (ms); absent for 'none' */
+  requestedAt?: number;
+  /** When the insurer approved or denied it (ms) */
+  resolvedAt?: number;
+  /** For 'approved': the last day the authorization holds, CCYY-MM-DD (the circuit's currentDate <= expirationDate) */
+  expiresOn?: string;
+}
+
+/** The drug's availability on the member's plan as published: the rules of the formulary entry its fill is held to. */
+export interface FormularyAvailability {
+  priorAuthRequired: boolean;
+  stepTherapyRequired: boolean;
+  /** The plan's limit per fill, in the drug's NADAC pricing unit (EA, ML or GM), to thousandths */
+  maxQuantityPerFill: number;
+  /** This member's prior-authorization status for this drug; present only when the plan requires one */
+  priorAuth?: PriorAuthStatus;
+}
+
+/** The engine's answer: not covered, with a reason that names no plan; or the fill's price, the member's share and the drug's availability. */
 export type MemberCostQuote =
   | { covered: false; reason: string }
   | {
@@ -262,6 +293,8 @@ export type MemberCostQuote =
     tierLevel: number;
     /** The fill circuit's split over the member's and its family's accumulators */
     split: ClaimSplit;
+    /** Prior authorization, step therapy and the quantity limit, as the member's plan publishes them */
+    availability: FormularyAvailability;
   };
 
 /**
@@ -270,6 +303,23 @@ export type MemberCostQuote =
  * Null for a wallet the engine has not enrolled.
  */
 export type MemberCostQuoteProvider = (request: MemberCostQuoteRequest) => MemberCostQuote | null;
+
+/** Whether this prescriber may prescribe this drug for this member now. */
+export interface PrescribingConsentRequest {
+  prescriberWalletId: string;
+  memberWalletId: string;
+  ndcHash: string;
+}
+
+/**
+ * What the engine registers for the quote: the quote itself and, for the read gate, the member's consent to a
+ * prescriber (B5), which the engine holds: the primary-care prescriber the member named, or one its device authorized
+ * for the visit, still within the window. Plain JSON in and out, like the quote.
+ */
+export interface MemberQuoteEngine {
+  quote: MemberCostQuoteProvider;
+  mayPrescribe?: (request: PrescribingConsentRequest) => boolean;
+}
 
 // ─── L2RpcServer ────────────────────────────────────────
 
@@ -289,12 +339,15 @@ export class L2RpcServer {
     this.entityProofPoolStatusFn = fn;
   }
 
-  /** The engine's pre-script quote for a member (l2_estimateCost with a walletId); null until an engine registers one. */
-  private memberCostQuoteProvider: MemberCostQuoteProvider | null = null;
+  /** The engine's pre-script quote for a member (l2_estimateCost with a walletId) and its consent check; null until an engine registers one. */
+  private memberQuoteEngine: MemberQuoteEngine | null = null;
 
-  /** The engine registers its pre-script quote here when it starts in this process (registerInteractiveRoutes). */
-  setMemberCostQuoteProvider(provider: MemberCostQuoteProvider | null): void {
-    this.memberCostQuoteProvider = provider;
+  /**
+   * The engine registers its pre-script quote here when it starts in this process (registerInteractiveRoutes): the
+   * quote alone, or the quote with the consent check that lets a prescriber read it.
+   */
+  setMemberCostQuoteProvider(provider: MemberCostQuoteProvider | MemberQuoteEngine | null): void {
+    this.memberQuoteEngine = provider === null ? null : typeof provider === 'function' ? { quote: provider } : provider;
   }
 
   /** Admin-only RPC methods that require authentication (Ed25519 signature or Bearer token) */
@@ -491,7 +544,7 @@ export class L2RpcServer {
     method: string,
     path: string,
     handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>,
-    options?: { adminOnly?: boolean; walletSigned?: WalletRouteSpec; timeoutMs?: number },
+    options?: { adminOnly?: boolean; walletSigned?: WalletRouteSpec; providerSigned?: ProviderSignerType; timeoutMs?: number },
   ): void {
     this.additionalRoutes.set(`${method.toUpperCase()}:${path}`, handler);
     if (options?.timeoutMs) {
@@ -504,6 +557,9 @@ export class L2RpcServer {
     if (options?.walletSigned) {
       this.walletSignedRoutes.set(`${method.toUpperCase()}:${path}`, options.walletSigned);
     }
+    if (options?.providerSigned) {
+      this.providerSignedRoutes.set(`${method.toUpperCase()}:${path}`, options.providerSigned);
+    }
   }
 
   /** Routes registered via registerRoute that require admin auth */
@@ -511,6 +567,21 @@ export class L2RpcServer {
 
   /** Routes that take only the signature of the wallet they name (B2): where the request names it. */
   private walletSignedRoutes: Map<string, WalletRouteSpec> = new Map();
+
+  /** Routes a provider calls as its own wallet, by the kind of provider; the operator's credential opens them too. */
+  private providerSignedRoutes: Map<string, ProviderSignerType> = new Map();
+
+  /** Who each gated custom route admitted, for its handler (principalOf). Weak: an answered request takes its entry with it. */
+  private routePrincipals: WeakMap<IncomingMessage, AuthPrincipal> = new WeakMap();
+
+  /**
+   * Who the gate admitted for this request to a custom route: the operator, a node key with its role, or a wallet by
+   * its own key. Null for a route registered without a gate. A handler that acts as a caller takes the caller from here,
+   * never from the request body.
+   */
+  principalOf(req: IncomingMessage): AuthPrincipal | null {
+    return this.routePrincipals.get(req) ?? null;
+  }
 
   /** Set the peer network for gossip relay and peer queries */
   setPeerNetwork(network: L2PeerNetwork): void {
@@ -639,12 +710,21 @@ export class L2RpcServer {
       if (this.adminGatedRoutes.has(routeKey)) {
         const decision = isSSE ? this.authorizeStream(req, url, pathname) : await this.authorizeRoute(req, pathname);
         if (!decision.ok) return L2RpcServer.denyRoute(res, decision);
+        this.routePrincipals.set(req, decision.principal);
       }
       // Wallet gate (B2): a route that acts for a wallet takes only that wallet's own signature
       const walletSpec = this.walletSignedRoutes.get(routeKey);
       if (walletSpec) {
         const decision = await this.authorizeWalletRoute(req, pathname, walletSpec);
         if (!decision.ok) return L2RpcServer.denyRoute(res, decision);
+        this.routePrincipals.set(req, decision.principal);
+      }
+      // Provider gate: a route a provider calls as itself takes that provider's own wallet signature, or the operator
+      const providerType = this.providerSignedRoutes.get(routeKey);
+      if (providerType) {
+        const decision = await this.authorizeProviderRoute(req, pathname, providerType);
+        if (!decision.ok) return L2RpcServer.denyRoute(res, decision);
+        this.routePrincipals.set(req, decision.principal);
       }
       return customHandler(req, res);
     }
@@ -1689,13 +1769,16 @@ export class L2RpcServer {
 
       case 'l2_estimateCost': {
         // The pre-script quote, the price the fill would charge that day. With a walletId (the read gate admits the
-        // wallet itself, a caller presenting the member's attestation, the plan or the operator) the engine quotes that
-        // member: its own plan as published, the fill's price, and the fill circuit's split over the member's and its
-        // family's accumulators; a planId the caller sends is never used for a member. With no walletId: the named plan
-        // as last published (its drug list, copay and fee: the formulary its members are bound to, not the formulary
-        // service's overlay lists), or, for no plan or one the sequencer does not hold (the fixture plan PLAN-GOLD-2026),
-        // the list price: the drug's catalog tier copay and the network default fee, as a fixture member pays. A fee the
-        // caller sends is not used. Nothing about the member is returned beyond its own share and the rule that set it.
+        // wallet itself, a prescriber who may prescribe for the member, a caller presenting the member's attestation,
+        // the plan or the operator) the engine quotes that member: its own plan as published, the fill's price, the
+        // fill circuit's split over the member's and its family's accumulators, and the drug's availability on the plan
+        // (prior authorization with the member's own status, step therapy, the limit per fill), so a prescriber can
+        // start a prior authorization before writing; a planId the caller sends is never used for a member. With no
+        // walletId: the named plan as last published (its drug list, copay and fee: the formulary its members are bound
+        // to, not the formulary service's overlay lists), or, for no plan or one the sequencer does not hold (the fixture
+        // plan PLAN-GOLD-2026), the list price: the drug's catalog tier copay and the network default fee, as a fixture
+        // member pays. A fee the caller sends is not used. Nothing about the member is returned beyond its own share, the
+        // rule that set it and its own prior-authorization status for this drug; no balances, nothing about another member.
         const estNdcHash = params.ndcHash;
         if (typeof estNdcHash !== 'string') throw new Error('Missing ndcHash parameter');
         const estQuantity = params.quantity === undefined ? 30 : params.quantity;
@@ -1717,12 +1800,13 @@ export class L2RpcServer {
 
         const estWalletId = params.walletId;
         if (typeof estWalletId === 'string' && estWalletId.length > 0) {
-          if (!this.memberCostQuoteProvider) {
+          if (!this.memberQuoteEngine) {
             throw new RequestRefused("A member's estimate is made by the engine, and no engine runs beside this sequencer", RPC_INVALID_PARAMS);
           }
-          const quote = this.memberCostQuoteProvider({ walletId: estWalletId, ndcHash: estNdcHash, quantity });
+          const quote = this.memberQuoteEngine.quote({ walletId: estWalletId, ndcHash: estNdcHash, quantity });
           if (!quote) throw new RequestRefused('This wallet is not a member enrolled with the engine', RPC_INVALID_PARAMS);
           if (!quote.covered) return { covered: false, ...about, phase: 'not-covered', reason: quote.reason };
+          const availability = quote.availability;
           return {
             covered: true,
             ...about,
@@ -1736,6 +1820,13 @@ export class L2RpcServer {
             phase: quote.split.phase,
             memberPayCents: quote.split.patientPayCents,
             employerPayCents: quote.split.planPayCents,
+            // the drug's availability on the member's plan; an engine that does not report it adds nothing
+            ...(availability ? {
+              priorAuthRequired: availability.priorAuthRequired,
+              stepTherapyRequired: availability.stepTherapyRequired,
+              maxQuantityPerFill: availability.maxQuantityPerFill,
+              ...(availability.priorAuth ? { priorAuth: availability.priorAuth } : {}),
+            } : {}),
           };
         }
 
@@ -3046,11 +3137,13 @@ export class L2RpcServer {
     if (p.kind === 'wallet') {
       if (spec.readers.includes('self') && (p.walletId === subject || parties.includes(p.walletId))) return who;
       if (spec.readers.includes('pcp') && this.isPrimaryCareOf(p.walletId, subject!)) return who;
+      if (spec.readers.includes('prescriber') && this.consentLetsPrescribe(p.walletId, subject!, params)) return who;
     }
     if (spec.readers.includes('attestation') && this.attestationCovers(params, subject!)) return who;
     if (spec.readers.includes('signed')) return who;
     const also = [
       spec.readers.includes('pcp') ? 'its primary-care prescriber' : '',
+      spec.readers.includes('prescriber') ? 'a prescriber it consented to (its primary-care prescriber, or one its device authorized for this visit)' : '',
       spec.readers.includes('attestation') ? "a caller presenting the member's attestation" : '',
     ].filter(Boolean);
     return { ok: false, status: 403, message: `Forbidden — ${method} for wallet ${short(subject!)} answers that wallet, the plan or the operator${also.length ? ', or ' + also.join(', or ') : ''}` };
@@ -3058,6 +3151,23 @@ export class L2RpcServer {
 
   private isPrimaryCareOf(prescriberWalletId: string, memberWalletId: string): boolean {
     return (this.pcpAssignments.get(prescriberWalletId) ?? []).some((a) => a.memberWalletId === memberWalletId);
+  }
+
+  /**
+   * Whether the member's consent lets this prescriber prescribe the drug the call names (B5), as the engine holds it:
+   * the primary-care prescriber the member named, or one its device authorized for this visit, within the window and
+   * for that drug or any. Asked through the call the engine registered with its quote; no engine, or no drug named,
+   * is no consent.
+   */
+  private consentLetsPrescribe(prescriberWalletId: string, memberWalletId: string, params: Record<string, unknown>): boolean {
+    const mayPrescribe = this.memberQuoteEngine?.mayPrescribe;
+    const ndcHash = params.ndcHash;
+    if (!mayPrescribe || typeof ndcHash !== 'string' || ndcHash.length === 0) return false;
+    try {
+      return mayPrescribe({ prescriberWalletId, memberWalletId, ndcHash }) === true;
+    } catch {
+      return false;
+    }
   }
 
   /** The member's own unexpired attestation, issued by this network and naming the wallet read: the tap at a counter. */
@@ -3111,6 +3221,41 @@ export class L2RpcServer {
       return { ok: false, status: 403, message: `Forbidden — role ${role} may not call ${what}` };
     }
     return { ok: true, principal: { kind: 'node', nodeId: signerId, role } };
+  }
+
+  /**
+   * The gate for a route a provider calls as itself (registerRoute's providerSigned): the operator's credential, a node
+   * key whose role may call the route (the ordinary route gate), or the signature of a wallet registered as a provider
+   * of this kind, verified against that wallet's own signing key over the exact method, path and body, inside the
+   * window and not replayed. The handler reads who it was (principalOf); a provider's own request names no provider.
+   */
+  private async authorizeProviderRoute(req: IncomingMessage, pathname: string, providerType: ProviderSignerType): Promise<AuthDecision> {
+    const signerId = signerIdFromHeaders(req.headers);
+    const bearer = typeof req.headers['authorization'] === 'string' && req.headers['authorization'].length > 0;
+    if (bearer || signerId === undefined || this.adminKeyRegistry.has(signerId)) return this.authorizeRoute(req, pathname);
+    if (this.blacklistedNodes.has(signerId)) return { ok: false, status: 401, message: 'Unauthorized — unknown signer' };
+    const entity = this.entityRegistry.get(signerId);
+    if (!entity?.signingPublicKeyHex) return { ok: false, status: 401, message: 'Unauthorized — unknown signer' };
+    if (entity.type !== providerType) {
+      return { ok: false, status: 403, message: `Forbidden — ${req.method ?? 'GET'} ${pathname} takes a ${providerType}'s own signature, and the signer is registered as a ${entity.type}` };
+    }
+    let body: string | undefined;
+    try {
+      body = await readRequestBody(req, this.options.maxBodyBytes);
+    } catch (err) {
+      return { ok: false, status: 413, message: err instanceof Error ? err.message : 'Request body too large' };
+    }
+    const outcome = verifySignedRequest({
+      method: req.method ?? 'GET',
+      path: pathname,
+      headers: req.headers,
+      expectedSignerId: signerId,
+      publicKeyHex: entity.signingPublicKeyHex,
+      body,
+      replayCache: this.replayCache,
+    });
+    if (!outcome.ok) return { ok: false, status: 401, message: `Unauthorized — ${outcome.reason}` };
+    return { ok: true, principal: { kind: 'wallet', walletId: signerId } };
   }
 
   /**

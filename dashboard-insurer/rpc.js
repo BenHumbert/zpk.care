@@ -198,19 +198,28 @@ const API = (() => {
   }
 
   /**
-   * The engine's price of a fill (l2_estimateCost, through this node's /rpc proxy): NADAC x quantity plus the plan's fee,
-   * split as the fill would split it today. With a walletId it is that member's own quote, which the proxy forwards
-   * only for this node's administrator, so the request carries the admin token; with a planId, the plan's list price.
+   * The engine's price of a fill (POST /pricing/estimate, which reads l2_estimateCost as the plan): NADAC x quantity plus
+   * the plan's fee, split as the fill would split it today. With a walletId it is that member's own quote; with a planId,
+   * the plan's published price; with neither, the list price. The route needs this node's admin token, and this node's
+   * /rpc proxy does not forward l2_estimateCost.
    */
-  async function estimateCost(params) {
-    var res = await fetch(baseUrl + '/rpc', {
-      method: 'POST',
-      headers: headers(true),
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_estimateCost', params: params }),
-    });
-    var json = await res.json();
-    if (json.error) throw new Error(json.error.message || 'RPC error');
-    return stripBigints(json.result);
+  function estimateCost(params) {
+    return request('POST', '/pricing/estimate', params, true);
+  }
+
+  // ---- Prior authorization ----
+  /** The requests waiting for the insurer's decision: { requests: [...] }, oldest first. */
+  function getPendingPriorAuths() { return request('GET', '/prior-auth/pending', undefined, true); }
+  /** The latest decisions: { decisions: [...] }, newest first. */
+  function getPriorAuthDecisions(limit) {
+    return request('GET', '/prior-auth/decisions' + (limit ? '?limit=' + encodeURIComponent(limit) : ''), undefined, true);
+  }
+  function approvePriorAuth(id) {
+    return request('POST', '/prior-auth/' + encodeURIComponent(id) + '/approve', {}, true);
+  }
+  /** A denial carries its reason, which the prescriber is told. */
+  function denyPriorAuth(id, reason) {
+    return request('POST', '/prior-auth/' + encodeURIComponent(id) + '/deny', { reason: reason }, true);
   }
 
   function publishFormulary(planIdHash, formularyRoot, entriesJson) {
@@ -316,6 +325,7 @@ const API = (() => {
     getProviderRegistry,
     getPlans, getPlan, createPlan, updatePlan, deletePlan, publishPlan,
     getFormulary, publishFormulary, estimateCost,
+    getPendingPriorAuths, getPriorAuthDecisions, approvePriorAuth, denyPriorAuth,
     getMessagesByWallet, getMessagesByThread, getMessageStoreStatus,
     getEmployerApplications, approveEmployerApplication, denyEmployerApplication, requestEmployerDocuments, getEmployerDocument,
     connectSSE, disconnectSSE, onConnectionChange, checkConnection,

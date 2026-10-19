@@ -87,3 +87,16 @@ tests/insurer-boot-republish-report.test.ts
 tests/console-fill-units-and-terms.test.ts
 tests/insurer-cost-estimator.test.ts
 tests/proof-pool-startup-wait.test.ts
+tests/prior-auth-review-fixes.test.ts
+tests/pa-review-screens.test.ts
+tests/prescriber-quote-prior-auth.test.ts
+tests/prescriber-node-prior-auth.test.ts
+tests/prescriber-estimate-card.test.ts
+tests/insurer-prior-auth-queue.test.ts
+tests/insurer-pricing-route.test.ts
+tests/employer-attestation-notice.test.ts
+tests/insurer-screens-leftovers.test.ts
+tests/engine-proving-readiness.test.ts
+tests/engine-ready-route.test.ts
+tests/engine-starting-retry.test.ts
+tests/engine-ready-harness.test.ts

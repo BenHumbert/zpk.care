@@ -2992,3 +2992,102 @@ Verified: regression batch 89 suites, 1086 tests, all passing; slow suites plan-
 accumulator 59 of 59; typecheck src 18, scripts 2; live runs: single-member 245 of 245 and four-member concurrent
 220 of 220, each on a clean secured boot. Git: with this commit, 66 commits on local `dev`, nothing pushed. **Next:**
 decision (a), and the proxy catalogs in (c), with the leftovers above.
+
+**Addendum, 2026-10-19: the prescriber sees the patient's price and starts prior authorization; quotes leave the
+provider proxies.** Two agents built the owner's decisions (a) and (c) of this evening; (b), the family limits, waits.
+A three-lens review (money and coverage, security, regressions and screens) returned 19 findings, 12 distinct defects.
+All were addressed before this commit except one, left for the owner (the PA dates, below).
+
+Decision (a). `l2_estimateCost` gains the reader 'prescriber', the engine's live consent record
+(`AdjudicationService.prescribingConsentFor`, registered with the quote as `mayPrescribe`). It admits the member's
+current PCP or a prescriber with a live B5 grant for the drug, and only a credentialed prescriber that the provider
+registry shows ACTIVE. Any other prescriber gets 403, the same answer as for a wallet that is not enrolled. The stale
+'pcp' link no longer admits a former or suspended PCP for the quote: its readers are the member, that prescriber, a
+caller with the member's attestation, the plan and the operator. A member's quote now carries the drug's availability
+on her plan as published: prior authorization required, step therapy required, the limit per fill in the pricing unit,
+and for a PA drug her PA status (none, pending, approved through a date, or denied), with no request ID.
+
+The prescriber node has its own admin token. The launcher derives it from the operator's token
+(`deriveNodeAdminToken(operator, 'prescriber')`) unless `ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN` is set; that variable is in
+`SECRET_ENV_KEYS`, and the boot summary names the source. The dashboard holds the token in page memory only. Until
+provider sign-in (B4) the token guards the node's routes that return or start member data: `/estimate-cost` with a
+walletId (401 without it) and the adminOnly `POST /prior-auth/request` and `GET /prior-auth/status`. The node signs
+each call to the sequencer as the prescriber's own wallet. The card shows the patient's share and phase, NADAC times
+quantity with the unit, the total with the fee and its source, and a coverage line; for a PA drug it adds a reason
+box, "Request prior authorization" and the status.
+
+The engine takes the prescriber from the signature, never from the request: `L2RpcServer` gains `providerSigned`
+routes and `principalOf(req)`. `POST /interactive/request-prior-auth` from a prescriber wallet refuses, before
+anything is recorded: no consent (403); a prescriber the engine cannot name (409); a member the ledger does not show
+billable (409); a drug not in the catalog (404) or off her plan (403); a drug her plan does not require PA for (409);
+a quantity over the plan's limit per fill (409); a request already pending or an approval in force (409). The
+prescriber node key no longer opens the route, and the console keeps its operator path.
+`GET /interactive/prior-auth-status` answers the prescriber with consent, or the operator.
+
+The insurer reviews requests in a queue. The node's adminOnly `GET /prior-auth/pending`, `GET /prior-auth/decisions`,
+`POST /prior-auth/:id/approve` and `POST /prior-auth/:id/deny` (a denial needs a reason) call the engine with the
+insurer node key and read the new `GET /interactive/prior-auths`. Answers carry no member name, and the wallet is cut
+to its first 8 and last 4 digits. The insurer dashboard has a Prior Auth tab. An approval holds the quantity
+requested, capped at the plan's limit (a console request with no quantity gets the limit), and prescribing refuses a
+larger quantity with 409 before any proof. A request is held while its approval proves, so a deny or a second approve
+gets 409; before, a deny that landed in that window was overwritten by the approval. Approve and deny map refusals to
+404, 409 or 400 instead of 500.
+
+Decision (c). `l2_estimateCost` is out of the insurer, pharmacy and prescriber proxy catalogs: it moved to
+`PROXY_QUOTE` in `network-policy.ts`, which only the member node and the explorer list. Those three proxies answer it
+403 -32601, with or without a credential. The insurer's estimator posts to the node's adminOnly
+`POST /pricing/estimate`, which sends only the drug, the quantity and the walletId or planId.
+
+The leftovers listed at A-58 are done. `planStoreError` holds the six live limits to whole cents, 0 or more. The
+insurer's Formulary page keeps a typed 0 copay, by hand and in CSV. The pharmacy console's AWP column is NADAC per
+unit, and `/node/state` now sends the `nadacPerUnit` and `pricingUnit` it reads. The employer dashboard shows an
+"ACTION NEEDED: SIGN THE NEW TERMS" notice that names changed terms, signing before full terms and plans to add; the
+plans come from the insurer's new `GET /employer-agreements/:applicationId/plans-to-add`. The insurer's Employers &
+Groups poll now runs (it threw every 10 s) and no longer blanks the applications table, and Deny on an employer
+application no longer calls the credentialing deny. The `L2Client.estimateCost` type matches the RPC.
+
+The review's high findings were fixed before commit. The prescriber's PA reason and the insurer's denial reason
+reached engine messages that the operator console renders as HTML, and the console holds the operator token. The
+console's four message views now use one escaping renderer (`visualizer/src/js/interactive/message-thread.js`). A
+reason must be plain text (`plainTextError` in `src/security/free-text.ts`: no "<" or ">", no control character other
+than a line break, else 400), checked in the engine and in both nodes before anything is recorded or sent. Reasons
+stay in engine memory, the PA messages and the insurer's queue; they are never written to `adjudication-state.json` or
+a log, and an engine restart loses them. The other high finding: the launcher started the prescriber node with no
+token, so every patient quote and PA call answered 401. The derived token above fixes it.
+
+Three defects in code committed before this one are entered as open findings. A-59 (medium): the 'pcp' reader on the
+D1 claim, receipt, accumulator and directory reads still admits a former or suspended PCP. A-60 (low): a failed PA
+approval proof leaves its leaf in the member's forest and credential while the request stays pending, and a retry
+takes a new leaf. A-61 (medium, console only): the console's thread lists and other tables put display names into
+innerHTML unescaped.
+
+*Owner decisions open, from this round.* (1) The PA approval term, and the date PA proofs run at. Approvals carry
+fixed dates, 2026-02-01 to 2027-02-01, and the proofs run at a fixed 2026-02-02. From 2027-02-02 the status and the
+quote would report none while prescribing still honours the approval, and a duplicate request would be accepted. A fix
+needs a term counted from the approval date and real dates in the PA proofs (proven timestamps, future work). (2)
+Whether a reason may contain "<" or ">". Today "eGFR < 30" must be written out; the rule can relax once every screen
+that shows reasons is known to escape them. (3) Whether free-text PA reasons stay. A reason can carry clinical detail
+or a name (I1); the alternatives are coded reasons or no reason field.
+
+*Open, from the reports.* The console's prescriber tab posts `medicationIndex` to request-prior-auth and gets 400, as
+it did before this commit. The prescriber node's other routes that return member data stay open until B4.
+`GET /employer-agreements/:applicationId/plans-to-add` is open: it is keyed by an application ID that
+`l2_verifyEmployer` makes public, answers plan IDs only and allows 30 calls a minute per caller.
+`tests/formulary-update.test.ts` fails to load (no identity salt); it is outside the regression list.
+
+The single-member live run of this work went end to end and failed one check, which became A-62: the engine took
+proof-making requests before its prover was ready, so the first prescription after boot waited 148.87 s for the
+proof pool and outlasted the prescriber node's 180 s budget. Fixed in the same commit: `isProvingReady()`, an open
+`GET /interactive/ready`, a 503 with Retry-After on the 16 routes that make proofs until the prover is ready, the
+provider job runners retrying that 503 within 10 minutes, and both harnesses and the walkthrough director waiting for
+readiness. On the owner's direction of the same evening ("bank these as wins", then the walkthrough and the video),
+this commit lands before its live runs; the walkthrough rehearsal is its first end-to-end run, and the two harness
+runs follow it.
+
+The regression list grows from 89 to 102 suites: this commit's thirteen suites are added. Scoreboard: 62 findings; 56
+fixed; 6 open (A-22, A-25, A-33 under the interim lease, A-59, A-60, A-61), none critical. Verified: regression batch
+102 suites, 1237 tests, all passing; typecheck src 18, scripts 2; the single-member run before the A-62 fix, end to
+end with the one A-62 failure. Git: with this commit, 68 commits on local `dev`, nothing pushed.
+**Next:** the three open findings (A-59 first: the D1 reads decided by the engine's consent record, as the quote now
+is), then B4, which replaces the prescriber node's token with provider sign-in, then D8 before any exposure, and B3 on
+the decisions above.

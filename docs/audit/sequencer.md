@@ -85,6 +85,7 @@ Severity counts: CRITICAL 1 · HIGH 10 · MEDIUM 17 · LOW 5 (33 total).
 **Evidence.** OPEN handler appends `{memberWalletId, prescriberWalletId, effectiveDate}` to in-memory `pcpAssignments` with no proof and no caller auth (rpc:2117-2131).
 **Impact.** Anyone forges or enumerates member→PCP relationships (member-linked data write + read via `l2_getPcpAssignments`).
 **Fix sketch.** Require the member's wallet-update proof (the device path already produces one) before recording a PCP link.
+**Still open (A-59, 2026-10-19).** The links only grow: nothing removes one when the member names another PCP, and nothing checks the provider's status. The D1 'pcp' reader (claims, receipts, the rebuilt accumulator, the directory entry) reads them, so a former or suspended PCP still reads the member's data. The pre-script quote no longer takes 'pcp'. See `docs/AUDIT.md` A-59.
 
 ### PRX-01 — HIGH — Proof delegate takes the wallet preimage off-device
 **Evidence.** `POST :4040/prove` consumes `params.preimage[0..6]` — the 7-Field wallet preimage (domain tag + hashed identity fields + `hash(enrollmentKey)`) — and runs `StateTransitionProgram.proveRegistration/proveWalletUpdate` (pd:331-366). Auth is `X-Api-Key !== apiKey` (non-constant-time, pd:280-284) and absent entirely when `apiKey` is unset; `start-leviathan` spawns it with the demo default `dev-key` (start:520). Server binds 0.0.0.0, no CORS/TLS (pd:305).

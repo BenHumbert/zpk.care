@@ -23,9 +23,16 @@
 const API = (() => {
   let baseUrl = location.origin;
   let eventSource = null;
+  // This node's admin token: a patient's own price and prior authorization answer only this node's administrator until
+  // provider sign-in (B4). Held in this page's memory only, never in browser storage, so it does not outlive the page
+  // on a shared workstation and no other page or later user of the browser profile can read it back; it is typed
+  // again after a reload.
+  let adminToken = '';
 
   function setBaseUrl(url) { baseUrl = url.replace(/\/$/, ''); }
   function getBaseUrl() { return baseUrl; }
+  function setAdminToken(token) { adminToken = token || ''; }
+  function getAdminToken() { return adminToken; }
 
   // Strip __bigint__:NNN prefixes from serialized BigInt values
   function stripBigints(obj) {
@@ -57,11 +64,12 @@ const API = (() => {
 
   // ── Core request helper ────────────────────────────────────
 
-  async function request(method, path, body) {
+  async function request(method, path, body, admin) {
     const opts = {
       method,
       headers: {},
     };
+    if (admin && adminToken) opts.headers['Authorization'] = 'Bearer ' + adminToken;
     if (body !== undefined) {
       opts.headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(body);
@@ -71,7 +79,7 @@ const API = (() => {
       let msg = 'HTTP ' + res.status;
       try { const j = await res.json(); msg = j.error != null ? errMsg(j.error) : (typeof j.message === 'string' ? j.message : msg); } catch { /* use status */ }
       const err = new Error(msg);
-      err.status = res.status;   // a refusal the page answers differently (403: the member's tap is needed)
+      err.status = res.status;   // a refusal the page answers differently (401: this node's admin token; 403: the patient's consent)
       throw err;
     }
     const json = await res.json();
@@ -258,13 +266,22 @@ const API = (() => {
   function getThread(threadIdHash) { return get(`/messaging/thread/${encodeURIComponent(threadIdHash)}`); }
 
   // ── Cost Estimation (proxied through Nautilus → sequencer RPC) ──
-  function estimateCost(params) { return post('/estimate-cost', params); }
+  // A patient's own price answers this node's administrator: the token goes with every quote
+  function estimateCost(params) { return request('POST', '/estimate-cost', params || {}, true); }
+
+  // ── Prior authorization (this node's administrator; the node asks the engine as the prescriber) ──
+  function requestPriorAuth(params) { return request('POST', '/prior-auth/request', params || {}, true); }
+  function getPriorAuthStatus(walletId, ndcHash) {
+    return request('GET', '/prior-auth/status?walletId=' + encodeURIComponent(walletId) + '&ndcHash=' + encodeURIComponent(ndcHash), undefined, true);
+  }
 
   // ── Public API ─────────────────────────────────────────────
 
   return {
     setBaseUrl,
     getBaseUrl,
+    setAdminToken,
+    getAdminToken,
     health,
     connectSSE,
     disconnectSSE,
@@ -326,5 +343,9 @@ const API = (() => {
 
     // Cost estimation
     estimateCost,
+
+    // Prior authorization
+    requestPriorAuth,
+    getPriorAuthStatus,
   };
 })();

@@ -27,7 +27,9 @@
  * off it is not covered, as prescribing refuses it with 403), the fill's own price (NADAC x quantity + the plan's
  * fee), and the fill circuit's split over the member's and its family's accumulators. With no walletId, a planId reads
  * that plan's published drug list and copay. A fixture member keeps its tier copay and the network default fee. The
- * read rule is unchanged: the wallet itself, a caller with the member's attestation, the plan or the operator.
+ * readers: the wallet itself, a caller with the member's attestation, the plan or the operator, and since the owner's
+ * decision of 2026-10-19 a prescriber the member consents to (tests/prescriber-quote-prior-auth.test.ts). The quote
+ * also carries the drug's availability on the member's plan: prior authorization, step therapy, the limit per fill.
  *
  * A real L2Node sequencer and RPC server, and a real AdjudicationService with the engine's routes registered; programs
  * not compiled. The fill proof is AccumulatorFulfillmentProgram's own method run on constants (every constraint
@@ -187,7 +189,8 @@ describe('with a walletId, the estimate is the fill the member would get today',
     const quote = (await rpc('l2_estimateCost', { walletId: W, ndcHash: ndcHashOf(ABACAVIR), quantity: 30 })).result;
     expect(Object.keys(quote).sort()).toEqual([
       'classification', 'copayAmountCents', 'copayBasis', 'covered', 'dispensingFeeCents', 'dispensingFeeSource', 'drugName', 'employerPayCents',
-      'ingredientCostCents', 'memberPayCents', 'nadacPerUnit', 'ndcHash', 'phase', 'pricingUnit', 'quantity', 'tierLevel', 'totalCostCents',
+      'ingredientCostCents', 'maxQuantityPerFill', 'memberPayCents', 'nadacPerUnit', 'ndcHash', 'phase', 'pricingUnit', 'priorAuthRequired', 'quantity',
+      'stepTherapyRequired', 'tierLevel', 'totalCostCents',
     ]);
   });
 
@@ -221,7 +224,7 @@ describe('with a walletId, the estimate is the fill the member would get today',
   });
 });
 
-describe('the read rule is unchanged', () => {
+describe('a prescriber node\'s key is no consent of the member\'s', () => {
   const envelopeFor = (params: Record<string, unknown>) => JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'l2_estimateCost', params });
   const asPrescriberNode = (body: string) => signRequest({ signerId: prescriberNode.nodeId, privateKey: privateKeyFromSeedHex(prescriberNode.seedHex), method: 'POST', path: '/rpc', body });
   async function signed(body: string): Promise<any> {
@@ -279,8 +282,9 @@ describe('the prescriber node\'s /estimate-cost route', () => {
     const asked: any[] = [];
     const sent: Array<{ status: number; data?: unknown; error?: string }> = [];
     const fakeServer = {
-      getEntityNode: () => ({ getWalletId: () => '5001', getClient: () => ({ estimateCost: (p: any) => { asked.push(p); return answer(p); } }) }),
-      getConfig: () => ({ sequencerUrl: 'http://seq.test' }),
+      getEntityNode: () => ({ getWalletId: () => '5001', walletSigner: () => null, getClient: () => ({ estimateCost: (p: any) => { asked.push(p); return answer(p); } }) }),
+      // a patient's own price answers this node's administrator, until provider sign-in
+      getConfig: () => ({ sequencerUrl: 'http://seq.test', adminToken: 'node-admin' }),
       getLocalState: () => ({ hasEnrollmentKey: () => false }),
       signedFetch: () => Promise.resolve(new Response('{}', { status: 500 })),
       sendResponse(_res: unknown, status: number, _ok: boolean, data?: unknown, error?: string) { sent.push({ status, data, error }); },
@@ -291,7 +295,7 @@ describe('the prescriber node\'s /estimate-cost route', () => {
     const route = routes.find((r) => r.method === 'POST' && r.path === '/estimate-cost');
     return {
       asked, sent,
-      call: (body: unknown, headers: Record<string, string> = {}) => route.handler({ headers }, {}, {}, new URLSearchParams(), body),
+      call: (body: unknown, headers: Record<string, string> = {}) => route.handler({ headers: { authorization: 'Bearer node-admin', ...headers } }, {}, {}, new URLSearchParams(), body),
     };
   }
 

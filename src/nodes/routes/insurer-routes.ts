@@ -26,24 +26,29 @@
  *   - Full audit suite (chain integrity, financial balance, duplicates)
  *   - 12 report types (claims register, pharmacy/prescriber/member activity, etc.)
  *   - Admin operations (formulary publish, force batch, enrollment processing)
+ *   - The prior-authorization queue: the engine's pending requests, approved or denied by the insurer
+ *   - The Cost Estimator's price of a fill (l2_estimateCost, read as the plan)
+ *   - The plans an employer can add to its signed agreement
  */
 import { InsurerNode } from '../insurer-node.js';
 import type { BenefitPlanConfig } from '../insurer-node.js';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
-import type { RouteRegistration } from '../nautilus-app-types.js';
+import { PROVING_BUDGET_MS, type RouteRegistration } from '../nautilus-app-types.js';
 import type { KeyObject } from 'crypto';
 import { signRequest } from '../../security/signed-request.js';
 import { timingSafeEqual } from 'crypto';
 import { hashString } from '../../zkp/hash-utils.js';
 import { buildPlanFormulary, planNetworkRoot, type PlanFormulary } from '../../onboarding/plan-formulary.js';
 import { publishedTermsOf } from '../../l2/plan-terms.js';
-import { dispensingFeeError } from '../../fulfillment/nadac-pricing.js';
+import { dispensingFeeError, quantityError } from '../../fulfillment/nadac-pricing.js';
+import { plainTextError } from '../../security/free-text.js';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { join } from 'path';
 import { PersistedAttemptLimiter } from '../../security/attempt-limiter.js';
 import { SlidingWindowLimiter } from '../../security/rate-limit.js';
 import type { RecoveryDeposit } from '../../security/recovery-card.js';
-import { deriveInsurerKeypair } from '../../onboarding/employer-attestation.js';
+import { deriveInsurerKeypair, buildAgreementTerms } from '../../onboarding/employer-attestation.js';
+import { getApplicationStore } from './marketplace-routes.js';
 import {
   canonicalizeEnrollmentCode,
   enrollmentCodeRoutingPrefix,
@@ -316,6 +321,145 @@ async function publishedFormularyOf(plan: BenefitPlanConfig): Promise<PlanFormul
 function planCopayDefaults(plan: BenefitPlanConfig): { tier1Copay: number; tier2Copay: number; tier3Copay: number; tier4Copay: number } {
   const copay = plan.copayAmountCents ?? 0;
   return { tier1Copay: copay, tier2Copay: copay, tier3Copay: copay, tier4Copay: copay };
+}
+
+// ─── Prior authorization (owner decision 2026-10-19) ──────────────────────────────────────────
+// A prescriber who may prescribe for a member starts a prior-authorization request at the engine when the member's
+// plan requires one for the drug. The engine keeps the requests and does the work of a decision; this node reads the
+// engine's queue and decides, calling the engine signed with this node's own key, which the engine authorises by the
+// insurer role (src/security/node-roles.ts). What reaches the insurer's screen is the request as PriorAuthView states
+// it: the member by a cut of the wallet ID, the drug, the quantity, the prescriber's display name, the dates and the
+// reasons. Nothing else the engine sends (a member's name, the full wallet ID) is passed on.
+
+/** An engine prior-authorization request ID as this node accepts one: letters, digits, '-' and '_', at most 64. */
+const PRIOR_AUTH_ID = /^[A-Za-z0-9_-]{1,64}$/;
+/** The longest reason this node sends to the engine or passes to the screen, in characters. */
+const PRIOR_AUTH_REASON_MAX = 500;
+
+/** One prior-authorization request as the insurer's screen shows it. */
+export interface PriorAuthView {
+  id: string;
+  status: 'PENDING' | 'APPROVED' | 'DENIED';
+  /** The member's wallet ID cut to its first 8 and last 4 digits (shortWalletId); the full ID stays on this node */
+  member: string | null;
+  drugName: string | null;
+  ndc: string | null;
+  /** In the drug's NADAC pricing unit (pricingUnit), to thousandths */
+  quantity: number | null;
+  pricingUnit: string | null;
+  prescriberName: string | null;
+  /** Milliseconds since the epoch */
+  requestedAt: number | null;
+  /** The prescriber's reason for the request */
+  reason: string | null;
+  /** When the insurer decided, in milliseconds since the epoch */
+  resolvedAt: number | null;
+  /** The insurer's reason for its decision */
+  decisionReason: string | null;
+}
+
+/** A member's wallet ID cut for a screen: its first 8 and last 4 digits. */
+export function shortWalletId(walletId: unknown): string | null {
+  if (typeof walletId !== 'string' || walletId.length === 0) return null;
+  return walletId.length > 12 ? `${walletId.slice(0, 8)}…${walletId.slice(-4)}` : walletId;
+}
+
+/** A display string from the engine: trimmed, on one line, at most `max` characters; null when there is none. */
+function displayText(v: unknown, max: number): string | null {
+  if (typeof v !== 'string') return null;
+  const s = v.replace(/[\r\n\t]+/g, ' ').trim();
+  return s === '' ? null : s.slice(0, max);
+}
+
+/** A time from the engine, as milliseconds since the epoch (a number, or a date string); null when there is none. */
+function displayTime(v: unknown): number | null {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string' && v !== '' && Number.isFinite(Date.parse(v))) return Date.parse(v);
+  return null;
+}
+
+/**
+ * One request of the engine's list as the screen shows it, or null when it has no usable ID or status. Only the fields
+ * named here are read, so whatever else the engine sends stops at this node. The drug's name is read as drugName, or as
+ * medicationName, the name the engine's state dump gives it.
+ */
+export function priorAuthView(raw: unknown): PriorAuthView | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const id = typeof r.id === 'string' ? r.id : typeof r.paId === 'string' ? r.paId : '';
+  if (!PRIOR_AUTH_ID.test(id)) return null;
+  if (r.status !== 'PENDING' && r.status !== 'APPROVED' && r.status !== 'DENIED') return null;
+  return {
+    id,
+    status: r.status,
+    member: shortWalletId(r.memberWalletId),
+    drugName: displayText(r.drugName, 200) ?? displayText(r.medicationName, 200),
+    ndc: displayText(r.ndc, 20),
+    quantity: typeof r.quantity === 'number' && Number.isFinite(r.quantity) && r.quantity > 0 ? r.quantity : null,
+    pricingUnit: displayText(r.pricingUnit, 8),
+    prescriberName: displayText(r.prescriberName, 200),
+    requestedAt: displayTime(r.requestedAt),
+    reason: displayText(r.reason, PRIOR_AUTH_REASON_MAX),
+    resolvedAt: displayTime(r.resolvedAt),
+    decisionReason: displayText(r.decisionReason, PRIOR_AUTH_REASON_MAX),
+  };
+}
+
+/** What the engine answered a call: the HTTP status, the JSON body, and its error or message text. */
+interface EngineAnswer { status: number; json: Record<string, unknown> | null; message: string }
+
+/** A call to an engine route, signed with this node's key (A9) over the exact request sent. */
+async function callEngine(server: NautilusAppServer, method: 'GET' | 'POST', pathAndQuery: string, body?: Record<string, unknown>): Promise<EngineAnswer> {
+  const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+  const resp = await server.signedFetch(seqUrl + pathAndQuery, method === 'POST'
+    ? { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) }
+    : { method });
+  const text = await resp.text();
+  let json: Record<string, unknown> | null = null;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    json = parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null;
+  } catch {
+    json = null;
+  }
+  const message = typeof json?.error === 'string' ? json.error : typeof json?.message === 'string' ? json.message : text.slice(0, 300);
+  return { status: resp.status, json, message };
+}
+
+/**
+ * How this node answers when the engine refuses or fails a prior-authorization call. The engine's own refusals keep
+ * their status and words: a request that does not exist (404), one no longer pending (409), a refusal of the request
+ * itself (400, 403); the engine's older handlers answer the first two as 500 with those words, which are read the same.
+ * The sequencer's gate refusing this node's credential (401, or 403 "Forbidden — role ..."), a route the engine does not
+ * have (404 "Not found", the route table's answer) and any other failure are this node's 502, with the engine's words.
+ */
+function priorAuthRefusal(answer: EngineAnswer, what: string): { status: number; error: string } {
+  const msg = answer.message || `HTTP ${answer.status}`;
+  if (answer.status === 401 || (answer.status === 403 && /^Forbidden — role /.test(msg))) {
+    return { status: 502, error: `The engine refused this insurer node's credential to ${what}: ${msg}` };
+  }
+  if (answer.status === 404 && msg === 'Not found') return { status: 502, error: `The engine has no route to ${what}` };
+  if (answer.status === 404 || /prior auth(orization)? not found/i.test(msg)) return { status: 404, error: msg };
+  if (answer.status === 409 || /already (approved|denied)/i.test(msg)) return { status: 409, error: msg };
+  if (answer.status === 400 || answer.status === 403) return { status: answer.status, error: msg };
+  return { status: 502, error: `The engine could not ${what}: ${msg}` };
+}
+
+/** The engine's prior-authorization requests, pending or resolved, as the screen shows them. */
+async function engineListPriorAuths(
+  server: NautilusAppServer,
+  status: 'PENDING' | 'RESOLVED',
+): Promise<{ items: PriorAuthView[] } | { status: number; error: string }> {
+  let answer: EngineAnswer;
+  try {
+    answer = await callEngine(server, 'GET', `/interactive/prior-auths?status=${status}`);
+  } catch {
+    return { status: 502, error: 'Cannot reach the engine to read prior-authorization requests. Try again later.' };
+  }
+  if (answer.status !== 200) return priorAuthRefusal(answer, 'read its prior-authorization requests (GET /interactive/prior-auths)');
+  const list = answer.json?.priorAuths;
+  if (!Array.isArray(list)) return { status: 502, error: 'The engine answered without a list of prior-authorization requests' };
+  return { items: list.map(priorAuthView).filter((v): v is PriorAuthView => v !== null) };
 }
 
 /**
@@ -1825,6 +1969,215 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       } catch (err: any) {
         server.sendResponse(res, 502, false, undefined, `Publish failed: ${err.message}`);
       }
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  PRIOR AUTHORIZATION QUEUE (owner decision 2026-10-19)
+  //
+  //  The engine's requests, and the insurer's decision on each. Every route needs this node's admin credential: a
+  //  request names a member and a drug, and a decision changes the member's credential.
+  // ══════════════════════════════════════════════════════════
+
+  /** The requests a decision is being sent for, so a second click cannot send another. */
+  const priorAuthDecisionsInFlight = new Set<string>();
+
+  // GET /prior-auth/pending — the requests waiting for a decision, oldest first, the order prescribers asked in
+  routes.push({
+    method: 'GET',
+    path: '/prior-auth/pending',
+    adminOnly: true,
+    handler: async (_req, res) => {
+      const listed = await engineListPriorAuths(server, 'PENDING');
+      if ('error' in listed) return server.sendResponse(res, listed.status, false, undefined, listed.error);
+      const requests = listed.items
+        .filter((p) => p.status === 'PENDING')
+        .sort((a, b) => (a.requestedAt ?? 0) - (b.requestedAt ?? 0));
+      server.sendResponse(res, 200, true, { requests });
+    },
+  });
+
+  // GET /prior-auth/decisions?limit — the latest decisions, newest first (20 by default, at most 100)
+  routes.push({
+    method: 'GET',
+    path: '/prior-auth/decisions',
+    adminOnly: true,
+    handler: async (_req, res, _params, query) => {
+      const limit = Math.min(Math.max(parseInt(query?.get('limit') ?? '20', 10) || 20, 1), 100);
+      const listed = await engineListPriorAuths(server, 'RESOLVED');
+      if ('error' in listed) return server.sendResponse(res, listed.status, false, undefined, listed.error);
+      const decisions = listed.items
+        .filter((p) => p.status !== 'PENDING')
+        .sort((a, b) => (b.resolvedAt ?? 0) - (a.resolvedAt ?? 0))
+        .slice(0, limit);
+      server.sendResponse(res, 200, true, { decisions });
+    },
+  });
+
+  /**
+   * Send the insurer's decision on one request to the engine's approve-prior-auth or deny-prior-auth, as this node. A
+   * denial carries its reason, which the engine passes to the prescriber. The answer names the request, the decision
+   * and the drug, and for an approval whether the member's wallet update is applied or waits for the member's device
+   * (walletUpdate); nothing about the member.
+   */
+  async function decidePriorAuth(res: ServerResponse, id: string, decision: 'approve' | 'deny', body: unknown): Promise<void> {
+    if (!PRIOR_AUTH_ID.test(id)) {
+      return server.sendResponse(res, 400, false, undefined, 'A prior-authorization request ID is letters, digits, "-" and "_", at most 64 characters');
+    }
+    let reason: string | undefined;
+    if (decision === 'deny') {
+      const raw = (body as { reason?: unknown } | undefined)?.reason;
+      reason = typeof raw === 'string' ? raw.trim() : '';
+      if (reason === '') return server.sendResponse(res, 400, false, undefined, 'A denial needs a reason: the prescriber is told it');
+      if (reason.length > PRIOR_AUTH_REASON_MAX) {
+        return server.sendResponse(res, 400, false, undefined, `The reason is at most ${PRIOR_AUTH_REASON_MAX} characters`);
+      }
+      // plain text only, the engine's own rule: the reason reaches the prescriber's screens and the operator console
+      const reasonProblem = plainTextError(reason);
+      if (reasonProblem) return server.sendResponse(res, 400, false, undefined, reasonProblem);
+    }
+    if (priorAuthDecisionsInFlight.has(id)) {
+      return server.sendResponse(res, 409, false, undefined, `A decision on ${id} is already being sent`);
+    }
+    priorAuthDecisionsInFlight.add(id);
+    try {
+      const answer = decision === 'approve'
+        ? await callEngine(server, 'POST', '/interactive/approve-prior-auth', { priorAuthId: id })
+        : await callEngine(server, 'POST', '/interactive/deny-prior-auth', { priorAuthId: id, reason });
+      if (answer.status !== 200) {
+        const refusal = priorAuthRefusal(answer, `${decision} prior authorization ${id}`);
+        return server.sendResponse(res, refusal.status, false, undefined, refusal.error);
+      }
+      const result = answer.json ?? {};
+      const medication = (result.medication && typeof result.medication === 'object' ? result.medication : {}) as Record<string, unknown>;
+      const update = (result.l2Receipt as { walletUpdate?: { status?: unknown } } | undefined)?.walletUpdate?.status;
+      console.log('[prior-auth] %s %s', id, decision === 'approve' ? 'approved' : 'denied');
+      server.sendResponse(res, 200, true, {
+        id,
+        status: decision === 'approve' ? 'APPROVED' : 'DENIED',
+        drugName: displayText(medication.brandName, 200),
+        ...(decision === 'approve'
+          ? { walletUpdate: update === 'pending' || update === 'applied' ? update : null }
+          : { reason }),
+      });
+    } catch {
+      server.sendResponse(res, 502, false, undefined, 'Cannot reach the engine to send the decision. Try again later.');
+    } finally {
+      priorAuthDecisionsInFlight.delete(id);
+    }
+  }
+
+  // POST /prior-auth/:id/approve — the engine writes the authorization into the member's forest and proves it
+  routes.push({
+    method: 'POST',
+    path: '/prior-auth/:id/approve',
+    adminOnly: true,
+    // approving proves the authorization (AccessControl.provePriorAuth) and the member's wallet update
+    timeoutMs: PROVING_BUDGET_MS,
+    handler: async (_req, res, params, _query, body) => decidePriorAuth(res, params.id, 'approve', body),
+  });
+
+  // POST /prior-auth/:id/deny {reason} — the reason is required, at most 500 characters
+  routes.push({
+    method: 'POST',
+    path: '/prior-auth/:id/deny',
+    adminOnly: true,
+    handler: async (_req, res, params, _query, body) => decidePriorAuth(res, params.id, 'deny', body),
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  PRICING
+  // ══════════════════════════════════════════════════════════
+
+  /*
+   * POST /pricing/estimate {ndcHash, quantity, walletId? | planId?} — the Cost Estimator's price of a fill, l2_estimateCost
+   * read as the plan (this node's key, the insurer role). Owner decision 2026-10-19: this node's /rpc proxy does not
+   * forward l2_estimateCost, so a member's quote is reached only here, behind this node's admin credential. With a
+   * walletId it is that member's own quote; with a planId, the plan's published price; with neither, the list price.
+   * The quantity is in the drug's NADAC pricing unit, to thousandths (quantityError); nothing else in the body is sent on.
+   */
+  routes.push({
+    method: 'POST',
+    path: '/pricing/estimate',
+    adminOnly: true,
+    handler: async (_req, res, _params, _query, body) => {
+      const node = server.getEntityNode() as InsurerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+      if (typeof b.ndcHash !== 'string' || !DECIMAL.test(b.ndcHash)) {
+        return server.sendResponse(res, 400, false, undefined, 'ndcHash, the drug\'s NDC hash in decimal, is required');
+      }
+      const quantityProblem = quantityError(b.quantity);
+      if (quantityProblem) return server.sendResponse(res, 400, false, undefined, quantityProblem);
+      const given = (v: unknown): boolean => v !== undefined && v !== null && v !== '';
+      if (given(b.walletId) && (typeof b.walletId !== 'string' || !DECIMAL.test(b.walletId))) {
+        return server.sendResponse(res, 400, false, undefined, 'walletId must be a member wallet ID in decimal');
+      }
+      if (given(b.planId) && (typeof b.planId !== 'string' || b.planId.length > 128)) {
+        return server.sendResponse(res, 400, false, undefined, 'planId must be a plan ID');
+      }
+      const walletId = given(b.walletId) ? b.walletId as string : undefined;
+      const planId = !walletId && given(b.planId) ? b.planId as string : undefined;
+      try {
+        server.sendResponse(res, 200, true, await node.estimateCost({ ndcHash: b.ndcHash, quantity: b.quantity as number, walletId, planId }));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const rpc = /^RPC error (-?\d+): ([\s\S]*)$/.exec(msg);
+        const code = rpc ? Number(rpc[1]) : null;
+        const text = rpc ? rpc[2] : msg;
+        // -32602: the sequencer refused the request itself (a wallet that is not a member, a bad quantity)
+        if (code === -32602) return server.sendResponse(res, 400, false, undefined, text);
+        if (/^Drug not found/.test(text)) return server.sendResponse(res, 404, false, undefined, text);
+        if (code === -32003 || code === -32004) {
+          return server.sendResponse(res, 502, false, undefined, `The sequencer refused this insurer node's credential for the estimate: ${text}`);
+        }
+        server.sendResponse(res, 502, false, undefined, `The estimate failed: ${text}`);
+      }
+    },
+  });
+
+  // ══════════════════════════════════════════════════════════
+  //  EMPLOYER AGREEMENTS
+  // ══════════════════════════════════════════════════════════
+
+  /*
+   * GET /employer-agreements/:applicationId/plans-to-add — the plans an employer selected on the marketplace that are
+   * published now and that its signed agreement does not cover. It adds them by signing the new terms on the
+   * marketplace, whose agreement route offers the same list (signedAttestation.plansToAdd). The employer's node asks for
+   * its own application, by the ID its attestation carries, to tell the employer what to do; only this node holds the
+   * plans an employer selected. Open, like the marketplace's other per-application reads: it answers plan IDs and nothing
+   * about the employer or any member, and unlike the agreement route it leaves the agreement being signed untouched.
+   * Rate-limited per caller, because each answer reads the plans from the sequencer.
+   */
+  const plansToAddPerCaller = new SlidingWindowLimiter(30, 60_000);
+  routes.push({
+    method: 'GET',
+    path: '/employer-agreements/:applicationId/plans-to-add',
+    handler: async (req, res, params) => {
+      if (!plansToAddPerCaller.allow(req.socket?.remoteAddress ?? 'unknown')) {
+        res.setHeader('Retry-After', '60');
+        return server.sendResponse(res, 429, false, undefined, 'Too many requests. Try again in a minute.');
+      }
+      const node = server.getEntityNode() as InsurerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      const app = getApplicationStore().get(params.applicationId);
+      if (!app) return server.sendResponse(res, 404, false, undefined, 'Application not found');
+      // Only a signed agreement has plans to add; before signing, the agreement offered covers every published plan selected.
+      if (app.status !== 'signed' && app.status !== 'active') {
+        return server.sendResponse(res, 200, true, { applicationId: app.applicationId, plansToAdd: [] });
+      }
+      let plans: BenefitPlanConfig[];
+      try {
+        const listed = await node.listPlans();
+        plans = Array.isArray(listed) ? listed : [];
+      } catch {
+        return server.sendResponse(res, 502, false, undefined, 'Cannot read the plans from the sequencer. Try again later.');
+      }
+      // The plans an agreement signed now would cover (each selected plan with published terms), less those the latest
+      // attestation authorizes; an application signed before authorizedPlanIds was kept authorized every plan it selected.
+      const authorized = new Set(app.authorizedPlanIds ?? app.selectedPlanIds);
+      const plansToAdd = buildAgreementTerms(app, plans).selectedPlans.map((p) => p.planId).filter((planId) => !authorized.has(planId));
+      server.sendResponse(res, 200, true, { applicationId: app.applicationId, plansToAdd });
     },
   });
 

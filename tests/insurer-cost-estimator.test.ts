@@ -23,9 +23,10 @@
  * member of a plan with a $15 copay, a $12.50 fee and a $500 deductible showed $10.00 / $40.00 of $50.00, while the
  * fill charges $30.51, all of it the member's in the deductible phase.
  *
- * Now there is no price input: the estimator asks the engine (l2_estimateCost through the insurer node's /rpc proxy)
- * for a member's own quote, a plan's published price, or the list price, and shows its ingredient, fee, phase and
- * split. A member's quote carries the node's admin token, which the proxy requires for a member's data.
+ * Now there is no price input: the estimator asks the engine for a member's own quote, a plan's published price, or the
+ * list price, and shows its ingredient, fee, phase and split. Since the owner's decision of 2026-10-19 the insurer
+ * node's /rpc proxy does not forward l2_estimateCost; the page posts to the node's own POST /pricing/estimate, which
+ * needs the node's admin token and reads l2_estimateCost as the plan (tests/insurer-pricing-route.test.ts).
  *
  * The dashboard is a plain browser script: functions are lifted out of app.js and run with stubs, and rpc.js is run
  * with a stand-in fetch, as in tests/plan-terms-screens.test.ts.
@@ -127,21 +128,22 @@ describe('the Cost Estimator shows the engine\'s price', () => {
   });
 });
 
-describe('the insurer page asks the engine through its node, with the admin token for a member\'s quote', () => {
-  test('API.estimateCost posts l2_estimateCost to the node\'s /rpc with the node\'s admin token', async () => {
+describe('the insurer page asks the engine through its node\'s own pricing route, with the admin token', () => {
+  test('API.estimateCost posts the drug, quantity and member to /pricing/estimate with the node\'s admin token, never to the /rpc proxy', async () => {
     const sent: Array<{ url: string; init: any }> = [];
     const API = new Function('location', 'localStorage', 'fetch', 'EventSource', `${INSURER_RPC}\nreturn API;`)(
       { origin: 'http://127.0.0.1:4004' },
       { getItem: () => 'insurer-admin-token', setItem: () => undefined },
-      async (url: string, init: any) => { sent.push({ url, init }); return { json: async () => ({ jsonrpc: '2.0', id: 1, result: MEMBER_QUOTE }) }; },
+      async (url: string, init: any) => { sent.push({ url, init }); return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true, data: MEMBER_QUOTE }) }; },
       undefined,
     );
-    expect(typeof API.estimateCost).toBe('function');                             // before: no such call
+    expect(typeof API.estimateCost).toBe('function');
     const q = await API.estimateCost({ ndcHash: ABACAVIR_HASH, quantity: 30, walletId: '79000000000000000001' });
     expect(q.memberPayCents).toBe(3051);
     expect(sent).toHaveLength(1);
-    expect(sent[0].url).toBe('http://127.0.0.1:4004/rpc');
+    expect(sent[0].url).toBe('http://127.0.0.1:4004/pricing/estimate');          // before: the node's /rpc proxy
+    expect(sent[0].init.method).toBe('POST');
     expect(sent[0].init.headers.Authorization).toBe('Bearer insurer-admin-token');
-    expect(JSON.parse(sent[0].init.body)).toMatchObject({ method: 'l2_estimateCost', params: { walletId: '79000000000000000001', quantity: 30 } });
+    expect(JSON.parse(sent[0].init.body)).toEqual({ ndcHash: ABACAVIR_HASH, quantity: 30, walletId: '79000000000000000001' });   // no JSON-RPC envelope
   });
 });

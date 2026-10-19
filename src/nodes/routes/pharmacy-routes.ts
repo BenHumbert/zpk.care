@@ -44,6 +44,7 @@ import type { NautilusAppServer } from '../nautilus-app-server.js';
 import { PROVING_BUDGET_MS, type RouteRegistration } from '../nautilus-app-types.js';
 import type { PharmacyLocalData } from '../../models/pharmacy.js';
 import { quantityError } from '../../fulfillment/nadac-pricing.js';
+import { sendWhileEngineStarts } from '../sequencer-fetch.js';
 
 const DOMAIN_TAG_PHARMACY = 2;
 
@@ -466,6 +467,10 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
     job.error = error;
     job.completedAt = Date.now();
   }
+  /** The log line of a job waiting for the engine to start its provers (sendWhileEngineStarts); it names no one. */
+  function engineStartingLog(job: string): (waitMs: number, nextTry: number) => void {
+    return (waitMs, nextTry) => console.log('  [pharmacy] the claims engine is still starting its provers; the %s job waits %d s before try %d', job, Math.round(waitMs / 1000), nextTry);
+  }
   function pruneStaleJobs(jobs: Map<string, ProofJob>): void {
     const now = Date.now();
     for (const [k, j] of jobs) {
@@ -570,19 +575,21 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
 
       const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
 
-      // Fire-and-forget: call sequencer's /interactive/fill (which calls dispensePrescription)
+      // Fire-and-forget: call sequencer's /interactive/fill (which calls dispensePrescription). While the engine is still
+      // starting its provers it answers 503 with Retry-After: the job stays pending and sends the request again.
       (async () => {
         try {
-          const resp = await server.signedFetch(`${seqUrl}/interactive/fill`, {
+          const fillBody = JSON.stringify({
+            prescriptionId: b!.prescriptionId,
+            quantityDispensed: b!.quantityDispensed,
+            ingredientCostCents: b!.ingredientCostCents,
+            dispensingFeeCents: b!.dispensingFeeCents,
+          });
+          const resp = await sendWhileEngineStarts(() => server.signedFetch(`${seqUrl}/interactive/fill`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              prescriptionId: b!.prescriptionId,
-              quantityDispensed: b!.quantityDispensed,
-              ingredientCostCents: b!.ingredientCostCents,
-              dispensingFeeCents: b!.dispensingFeeCents,
-            }),
-          });
+            body: fillBody,
+          }), { onWait: engineStartingLog('dispense') });
 
           if (!resp.ok) {
             const err = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` })) as Record<string, unknown>;
@@ -702,20 +709,22 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       // Fire-and-forget: call the sequencer proof pipeline
       (async () => {
         try {
-          // Call prescribe-and-fill on sequencer (creates prescription + fills with 5+ ZK proofs)
-          const proveResp = await server.signedFetch(`${seqUrl}/interactive/prescribe-and-fill`, {
+          // Call prescribe-and-fill on sequencer (creates prescription + fills with 5+ ZK proofs); a 503 while the engine
+          // starts its provers is waited out and the request sent again, the job pending meanwhile
+          const proveBody = JSON.stringify({
+            memberWalletId: b!.memberWalletId,
+            ndcHash: b!.ndcHash,
+            prescriberWalletId: b!.prescriberWalletId,
+            pharmacyIndex,
+            quantity: fillQuantity,
+            ingredientCostCents: b!.ingredientCostCents,
+            dispensingFeeCents: b!.dispensingFeeCents,
+          });
+          const proveResp = await sendWhileEngineStarts(() => server.signedFetch(`${seqUrl}/interactive/prescribe-and-fill`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              memberWalletId: b!.memberWalletId,
-              ndcHash: b!.ndcHash,
-              prescriberWalletId: b!.prescriberWalletId,
-              pharmacyIndex,
-              quantity: fillQuantity,
-              ingredientCostCents: b!.ingredientCostCents,
-              dispensingFeeCents: b!.dispensingFeeCents,
-            }),
-          });
+            body: proveBody,
+          }), { onWait: engineStartingLog('fill') });
 
           const proveResult = await proveResp.json() as Record<string, unknown>;
 
@@ -809,14 +818,16 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       // Fire-and-forget: call sequencer reversal proof
       (async () => {
         try {
-          const reverseResp = await server.signedFetch(`${seqUrl}/interactive/reverse`, {
+          const reverseBody = JSON.stringify({
+            prescriptionId: b!.prescriptionId,
+            reason: b!.reason ?? 'Pharmacy reversal',
+          });
+          // the reversal proves too: a 503 while the engine starts its provers is waited out like a dispense's
+          const reverseResp = await sendWhileEngineStarts(() => server.signedFetch(`${seqUrl}/interactive/reverse`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              prescriptionId: b!.prescriptionId,
-              reason: b!.reason ?? 'Pharmacy reversal',
-            }),
-          });
+            body: reverseBody,
+          }), { onWait: engineStartingLog('reversal') });
 
           const reverseResult = await reverseResp.json() as Record<string, unknown>;
 

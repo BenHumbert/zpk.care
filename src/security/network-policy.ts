@@ -146,7 +146,7 @@ const PROXY_BASE: readonly string[] = [
   'l2_getChainState',
 ];
 
-/** Formulary, pricing and plan reads: the pharmacy, insurer and member pages. */
+/** Formulary and plan reads: the pharmacy, prescriber, insurer and member pages. */
 const PROXY_CATALOG: readonly string[] = [
   'l2_getFormulary',
   'l2_getFormularyPage',
@@ -156,11 +156,21 @@ const PROXY_CATALOG: readonly string[] = [
   'l2_getFormularyRoot',
   'l2_getDrugDetail',
   'l2_checkCoverage',
-  'l2_estimateCost',
   'l2_getPlans',
   'l2_getPlan',
   'l2_getPlanLimits',
 ];
+
+/**
+ * The pre-script quote. With a walletId it is a member's own price and the drug's availability on its plan, and a
+ * proxy would read it with the node's rights for whoever reached the port: the insurer node's key reads every member as
+ * the plan. Owner decision 2026-10-19: the insurer, pharmacy and prescriber nodes do not forward it; their pages reach
+ * a quote only through a route of the node itself, behind that node's admin credential (the prescriber node's
+ * /estimate-cost). The member node forwards it for the member's own quote (its proxy answers only the device session
+ * and signs as the wallet); the explorer relays only its page's own credential, so through it a member's quote answers
+ * the operator alone.
+ */
+const PROXY_QUOTE: readonly string[] = ['l2_estimateCost'];
 
 /**
  * What the member app needs on top of the catalog. The one write at the end is the member's own
@@ -229,8 +239,8 @@ const PROXY_EXPLORER: readonly string[] = [
 
 /** The methods each role's own dashboard calls. Any other method is refused by the node. */
 const PROXY_METHODS_BY_ROLE: Record<string, readonly string[]> = {
-  member: [...PROXY_BASE, ...PROXY_CATALOG, ...PROXY_MEMBER],
-  explorer: [...PROXY_BASE, ...PROXY_CATALOG, ...PROXY_EXPLORER],
+  member: [...PROXY_BASE, ...PROXY_CATALOG, ...PROXY_QUOTE, ...PROXY_MEMBER],
+  explorer: [...PROXY_BASE, ...PROXY_CATALOG, ...PROXY_QUOTE, ...PROXY_EXPLORER],
   pharmacy: [...PROXY_BASE, ...PROXY_CATALOG],
   prescriber: [...PROXY_BASE, ...PROXY_CATALOG],
   insurer: [...PROXY_BASE, ...PROXY_CATALOG],

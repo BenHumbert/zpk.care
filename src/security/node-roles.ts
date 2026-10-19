@@ -80,6 +80,8 @@ export const ROUTES_BY_ROLE: Readonly<Record<Exclude<NodeRole, 'operator'>, Read
     'GET:/interactive/step-therapy-check',
     'POST:/interactive/approve-prior-auth',
     'POST:/interactive/deny-prior-auth',
+    // the plan reviews its members' prior-authorization requests (the insurer node's queue)
+    'GET:/interactive/prior-auths',
     'POST:/interactive/terminate-member',
     'POST:/interactive/terminate-group',
     'POST:/interactive/update-formulary',
@@ -87,13 +89,14 @@ export const ROUTES_BY_ROLE: Readonly<Record<Exclude<NodeRole, 'operator'>, Read
     'POST:/interactive/approve-member',
   ]),
   // D2: a node subscribes to the event stream and calls the engine routes its work needs. The employer
-  // has neither: the stream names wallets, which an employer never learns (I6).
+  // has neither: the stream names wallets, which an employer never learns (I6). A prior authorization is
+  // not here: the prescriber requests it and reads its status signed as its own wallet, which names the
+  // prescriber (the engine's provider-signed routes), where a node key would name only a role.
   member: new Set(['GET:/events']),
   prescriber: new Set([
     'GET:/events',
     'POST:/interactive/prescribe',
     'POST:/interactive/resolve-indices',
-    'POST:/interactive/request-prior-auth',
     'GET:/interactive/step-therapy-check',
   ]),
   pharmacy: new Set([
@@ -176,6 +179,7 @@ export const NODE_KEY_SEED_ENV = 'ZKTRIDENT_NODE_KEY_SEED';
 export const SECRET_ENV_KEYS: readonly string[] = [
   'ZKTRIDENT_ADMIN_TOKEN',
   'ZKTRIDENT_INSURER_ADMIN_TOKEN',
+  'ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN',
   'ZKTRIDENT_GOSSIP_SECRET',
   'ZKTRIDENT_INSURER_SIGNING_SEED',
   'ZKTRIDENT_GENESIS_ADMIN_KEY',

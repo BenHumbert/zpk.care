@@ -25,6 +25,8 @@
  *   - Formulary queries (plan drug lists)
  *   - PCP patient queries (assignment is on the member node — consent-based)
  */
+import { timingSafeEqual } from 'crypto';
+import type { IncomingMessage } from 'http';
 import { Field, Poseidon } from 'o1js';
 import { generateEnrollmentKey } from '../../wallets/wallet-derivation.js';
 import { hashString } from '../../zkp/hash-utils.js';
@@ -38,6 +40,8 @@ import { PROVING_BUDGET_MS, type RouteRegistration } from '../nautilus-app-types
 import type { PrescriberLocalData } from '../../models/prescriber.js';
 import { ProviderNetworkRegistry } from '../../eligibility/provider-network-registry.js';
 import { quantityError } from '../../fulfillment/nadac-pricing.js';
+import { plainTextError } from '../../security/free-text.js';
+import { sendWhileEngineStarts } from '../sequencer-fetch.js';
 
 const DOMAIN_TAG_PRESCRIBER = 1;
 
@@ -625,23 +629,27 @@ export function buildPrescriberRoutes(
           'Failed to send eScript: ' + (err instanceof Error ? err.message : String(err)));
       }
 
-      // 2. Fire-and-forget: call sequencer /interactive/prescribe for ZK proofs
+      // 2. Fire-and-forget: call sequencer /interactive/prescribe for ZK proofs. While the engine is still starting its
+      // provers it answers 503 with Retry-After: the job stays pending and sends the request again, for up to 10 minutes.
       prescribeJobs.set(jobKey, { status: 'pending', rxId, createdAt: Date.now() });
 
       (async () => {
         try {
-          const proveResp = await server.signedFetch(`${seqUrl}/interactive/prescribe`, {
+          const proveBody = JSON.stringify({
+            prescriberIndex,
+            memberWalletId: b!.memberWalletId,
+            ndcHash: b!.ndcHash,
+            pharmacyIndex,
+            quantity,
+            refills: b!.refills ?? 0,
+            rxId,  // pass prescriber-generated ID so both sides use the same prescription ID
+          });
+          const proveResp = await sendWhileEngineStarts(() => server.signedFetch(`${seqUrl}/interactive/prescribe`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              prescriberIndex,
-              memberWalletId: b!.memberWalletId,
-              ndcHash: b!.ndcHash,
-              pharmacyIndex,
-              quantity,
-              refills: b!.refills ?? 0,
-              rxId,  // pass prescriber-generated ID so both sides use the same prescription ID
-            }),
+            body: proveBody,
+          }), {
+            onWait: (ms, next) => console.log('  [prescriber] the claims engine is still starting its provers; the prescription job waits %d s before try %d', Math.round(ms / 1000), next),
           });
 
           const proveResult = await proveResp.json() as Record<string, unknown>;
@@ -1137,11 +1145,30 @@ export function buildPrescriberRoutes(
 
   // ── Cost Estimation (proxy to sequencer l2_estimateCost) ──
   //
-  // The pre-script quote. With a member's walletId the sequencer answers only a caller that presents the member's own
-  // attestation (or the member, the plan, the operator): a caller holding the member's tap sends it, base64 JSON in
-  // X-Member-Attestation as the pharmacy's DUR routes take it, and this node passes it on. Without one the sequencer
-  // refuses and so does this route (403), saying why; the quote with no member stays open. Only the fields the quote
-  // reads are forwarded: a planId never overrides a member's own plan (the sequencer ignores it when a walletId is sent).
+  // The pre-script quote (owner decision 2026-10-19). With a member's walletId it returns that member's data: her price,
+  // the drug's availability on her plan and her prior-authorization status for it. Until provider sign-in (B4) a route
+  // here that returns a member's data answers only this node's own administrator, the rule the /rpc proxy applies to
+  // member reads (A-49), and this node asks the sequencer signed as the prescriber's own wallet, so the read gate can
+  // admit the prescriber the member named as primary care or one her device authorized for the visit. A caller holding
+  // the member's tap may also send it, base64 JSON in X-Member-Attestation as the pharmacy's DUR routes take it. A
+  // refusal is a 403 that says why, bad input a 400; the quote with no member stays open. Only the fields the quote reads
+  // are forwarded: a planId never overrides a member's own plan (the sequencer ignores it when a walletId is sent).
+
+  /**
+   * Whether the request carries this node's own admin credential, the bearer token the node was started with. The rule
+   * NautilusAppServer applies to its adminOnly routes and to a non-member node's proxy reads of member data (A-49); used
+   * where a route answers member data for some requests only, so the route cannot be adminOnly as a whole. A node with
+   * no token configured has no administrator, and nobody holds the credential. A prescriber node registers no client
+   * keys, so the bearer is the whole of the rule here.
+   */
+  const carriesNodeAdminCredential = (req: IncomingMessage): boolean => {
+    const token = server.getConfig().adminToken;
+    const header = req.headers['authorization'];
+    if (!token || typeof header !== 'string') return false;
+    const presented = Buffer.from(header);
+    const expected = Buffer.from(`Bearer ${token}`);
+    return presented.length === expected.length && timingSafeEqual(presented, expected);
+  };
 
   const estimateAttestationOf = (req: import('http').IncomingMessage): Record<string, unknown> | null => {
     const raw = req.headers['x-member-attestation'];
@@ -1166,25 +1193,110 @@ export function buildPrescriberRoutes(
         const quantityProblem = quantityError(b.quantity);
         if (quantityProblem) return server.sendResponse(res, 400, false, undefined, quantityProblem);
       }
-      const params: Record<string, unknown> = { ndcHash: b.ndcHash };
-      if (b.quantity !== undefined) params.quantity = b.quantity;
-      if (typeof b.walletId === 'string' && b.walletId.length > 0) {
-        params.walletId = b.walletId;
+      const params: { ndcHash: string; quantity?: number; walletId?: string; memberAttestation?: Record<string, unknown>; planId?: string } = { ndcHash: b.ndcHash };
+      if (b.quantity !== undefined) params.quantity = b.quantity as number;
+      const forMember = typeof b.walletId === 'string' && b.walletId.length > 0;
+      if (forMember) {
+        if (!carriesNodeAdminCredential(req)) {
+          return server.sendResponse(res, 401, false, undefined, "A patient's own price answers this node's administrator: send this node's admin token");
+        }
+        params.walletId = b.walletId as string;
         const attestation = estimateAttestationOf(req);
         if (attestation) params.memberAttestation = attestation;
       } else if (typeof b.planId === 'string') {
         params.planId = b.planId;
       }
       try {
-        const result = await node.getClient().estimateCost(params as unknown as { ndcHash: string });
+        // signed as the prescriber's wallet: the read gate decides by the member's consent to this prescriber
+        const result = await node.getClient().estimateCost(params, forMember ? node.walletSigner() ?? undefined : undefined);
         server.sendResponse(res, 200, true, result);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         if (/Unauthorized|Forbidden/.test(message)) {
-          return server.sendResponse(res, 403, false, undefined, "The member's own price needs the member's tapped attestation (X-Member-Attestation): " + message);
+          return server.sendResponse(res, 403, false, undefined,
+            "The patient's own price answers her primary-care prescriber, a prescriber her phone authorized for this visit, or a caller with the member's tapped attestation (X-Member-Attestation): " + message);
         }
         server.sendResponse(res, /RPC error -32602/.test(message) ? 400 : 502, false, undefined, message);
       }
+    },
+  });
+
+  // ── Prior authorization (owner decision 2026-10-19) ──
+  //
+  // A prescriber who may prescribe for a member (her named primary-care prescriber, or one her phone authorized for
+  // the visit) starts the prior authorization her plan requires before writing the script, and reads its status. Both
+  // routes return or start a member's data, so until provider sign-in (B4) they answer only this node's administrator.
+  // This node calls the engine signed as the prescriber's own wallet: the engine takes the prescriber from that
+  // signature and from nothing in the request, and refuses a prescriber without the member's consent.
+
+  /** The engine's answer, passed on with its status: refusals as 403, bad input as 400, the rest as the engine said. */
+  async function relayEngine(res: import('http').ServerResponse, call: () => Promise<Response>): Promise<void> {
+    let upstream: Response;
+    try {
+      upstream = await call();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // walletSignedFetch rejects when the node cannot sign as its wallet (no wallet yet, or the key is locked)
+      if (/cannot sign as its wallet/.test(message)) return server.sendResponse(res, 503, false, undefined, message);
+      return server.sendResponse(res, 502, false, undefined, 'The engine could not be reached: ' + message);
+    }
+    const text = await upstream.text();
+    let json: Record<string, unknown> = {};
+    try { json = JSON.parse(text) as Record<string, unknown>; } catch { /* not JSON */ }
+    if (upstream.ok) return server.sendResponse(res, 200, true, json);
+    const error = typeof json.error === 'string' ? json.error : `The engine answered HTTP ${upstream.status}`;
+    const status = upstream.status === 401 || upstream.status === 403 ? 403
+      : upstream.status === 400 || upstream.status === 404 || upstream.status === 409 ? upstream.status
+        : 502;
+    server.sendResponse(res, status, false, undefined, error);
+  }
+
+  routes.push({
+    method: 'POST',
+    path: '/prior-auth/request',
+    adminOnly: true,
+    handler: async (_req, res, _params, _query, body) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      const b = (body ?? {}) as { walletId?: unknown; ndcHash?: unknown; quantity?: unknown; reason?: unknown; prescriberIndex?: unknown; prescriberWalletId?: unknown };
+      if (b.prescriberIndex !== undefined || b.prescriberWalletId !== undefined) {
+        return server.sendResponse(res, 400, false, undefined, 'The prescriber is this node; the request names none');
+      }
+      if (typeof b.walletId !== 'string' || !/^\d+$/.test(b.walletId)) return server.sendResponse(res, 400, false, undefined, "Missing walletId: the member's wallet ID, decimal");
+      if (typeof b.ndcHash !== 'string' || !/^\d+$/.test(b.ndcHash)) return server.sendResponse(res, 400, false, undefined, "Missing ndcHash: the drug's NDC hash, decimal");
+      const quantityProblem = quantityError(b.quantity);
+      if (quantityProblem) return server.sendResponse(res, 400, false, undefined, quantityProblem);
+      if (b.reason !== undefined && (typeof b.reason !== 'string' || b.reason.length > 500)) {
+        return server.sendResponse(res, 400, false, undefined, 'reason is optional text of at most 500 characters');
+      }
+      const reason = typeof b.reason === 'string' && b.reason.trim().length > 0 ? b.reason.trim() : undefined;
+      // plain text only, the engine's own rule: the reason reaches the insurer's screens and the operator console
+      const reasonProblem = reason === undefined ? null : plainTextError(reason);
+      if (reasonProblem) return server.sendResponse(res, 400, false, undefined, reasonProblem);
+      const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+      await relayEngine(res, () => server.walletSignedFetch(`${seqUrl}/interactive/request-prior-auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ memberWalletId: b.walletId, ndcHash: b.ndcHash, quantity: b.quantity, ...(reason ? { reason } : {}) }),
+      }));
+    },
+  });
+
+  routes.push({
+    method: 'GET',
+    path: '/prior-auth/status',
+    adminOnly: true,
+    handler: async (_req, res, _params, query) => {
+      const node = server.getEntityNode() as PrescriberNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
+      const walletId = query?.get('walletId') ?? '';
+      const ndcHash = query?.get('ndcHash') ?? '';
+      if (!/^\d+$/.test(walletId) || !/^\d+$/.test(ndcHash)) {
+        return server.sendResponse(res, 400, false, undefined, "walletId (the member's) and ndcHash, decimal, are required");
+      }
+      const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+      const qs = `memberWalletId=${encodeURIComponent(walletId)}&ndcHash=${encodeURIComponent(ndcHash)}`;
+      await relayEngine(res, () => server.walletSignedFetch(`${seqUrl}/interactive/prior-auth-status?${qs}`, { method: 'GET' }));
     },
   });
 

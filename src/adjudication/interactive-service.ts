@@ -156,7 +156,8 @@ import type { FamilyLimits, FamilyTotals, MemberAccumulator } from '../onboardin
 import { ReportingService } from '../reporting/reporting-service.js';
 import type { VerifiedClaim, PriorAuthContext } from '../reporting/report-types.js';
 
-import type { VizEvent, MemberCostQuote } from '../l2/l2-rpc-server.js';
+import type { VizEvent, MemberCostQuote, FormularyAvailability, PriorAuthStatus } from '../l2/l2-rpc-server.js';
+import { plainTextError } from '../security/free-text.js';
 
 // ─── Console Event Types ────────────────────────────────
 
@@ -194,6 +195,24 @@ const PLAN_NETWORKS: Record<string, ProviderNetwork> = {
     pharmacyIndices: [0, 1, 2, 3, 4],
   },
 };
+
+// ─── Prior authorization: the reason and the days ───────
+
+/**
+ * The longest reason a prescriber may give with a prior-authorization request. It reaches the insurer in its PA_REQUEST
+ * message and its review list, and is kept in memory only.
+ */
+const PRIOR_AUTH_REASON_MAX = 500;
+
+/** A day as the circuits take it, CCYYMMDD (UTC). */
+function ccyymmddOf(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+/** CCYYMMDD as CCYY-MM-DD. */
+function isoDayOf(ccyymmdd: string): string {
+  return `${ccyymmdd.slice(0, 4)}-${ccyymmdd.slice(4, 6)}-${ccyymmdd.slice(6, 8)}`;
+}
 
 // ─── Step Therapy Prerequisites ─────────────────────────
 // Maps therapeutic class → required prerequisite classes patient must have tried first
@@ -321,6 +340,29 @@ interface PriorAuthState {
   paLeafIndex?: bigint;
   /** PriorAuthData (set on approval) */
   priorAuthData?: PriorAuthData;
+  /** The quantity the prescriber asked for, in the drug's pricing unit; absent for a request the console made */
+  requestedQuantity?: number;
+  /** The prescriber's reason, for the insurer's review: held in memory only, never written to the checkpoint */
+  reason?: string;
+  /** The insurer's reason for a denial: held in memory only, never written to the checkpoint */
+  decisionReason?: string;
+}
+
+/** One prior-authorization request as the plan reviews it (listPriorAuths): no member name. */
+export interface PriorAuthListing {
+  id: string;
+  status: 'PENDING' | 'APPROVED' | 'DENIED';
+  memberWalletId: string;
+  ndcHash: string;
+  ndc: string | null;
+  drugName: string | null;
+  quantity: number | null;
+  pricingUnit: string | null;
+  prescriberName: string | null;
+  requestedAt: number;
+  resolvedAt: number | null;
+  reason: string | null;
+  decisionReason: string | null;
 }
 
 // ─── Checkpoint Serialization Types ─────────────────────
@@ -428,6 +470,7 @@ interface SerializedPriorAuth {
   resolvedAt?: number;
   paLeafIndex?: string;                          // bigint as string
   priorAuthData?: Record<string, string>;        // PriorAuthData.toJSON()
+  requestedQuantity?: number;                    // absent in older checkpoints and for the console's requests
 }
 
 /** Serialized pending prescription (JSON-safe) */
@@ -590,6 +633,16 @@ export function bindPlan(
   };
 }
 
+/** Where the engine's proofs go: its proof pool, a wait for the pool still starting after boot, or inline. */
+export type ProverState = 'pool' | 'starting' | 'inline';
+
+/** The engine's readiness to prove (GET /interactive/ready): ready once compiled with a prover that would not wait. */
+export interface ProvingReadiness {
+  ready: boolean;
+  compiled: boolean;
+  prover: ProverState;
+}
+
 // ─── Service ────────────────────────────────────────────
 
 export class AdjudicationService {
@@ -597,6 +650,8 @@ export class AdjudicationService {
   private proofPool: import('./proof-pool.js').ProofPool | null = null;
   /** Resolves once a configured proof pool has started (or failed to); proofs wait on it instead of proving inline. */
   private proofPoolStarting: Promise<void> | null = null;
+  /** How that start went: 'pending' until it settles, then 'started' or 'failed'; null when no pool was started. */
+  private proofPoolStart: 'pending' | 'started' | 'failed' | null = null;
 
   /** ProofGate's verification key, kept at compile so a device's ownership proof can be verified (B2). */
   private proofGateVk: VerificationKey | null = null;
@@ -657,6 +712,13 @@ export class AdjudicationService {
   private prescriptions: Map<string, PrescriptionState> = new Map();
   private fulfillments: Map<string, FulfillmentState[]> = new Map();
   private priorAuths: Map<string, PriorAuthState> = new Map();
+  /**
+   * Prior-authorization requests an approval is being proven for. An approval checks that the request is pending, then
+   * proves it and queues the member's wallet update over several awaits; meanwhile no other decision is taken on the
+   * request (denyPriorAuth and a second approval refuse with 409), so a denial cannot land between that check and the
+   * approval and then be overwritten by it.
+   */
+  private priorAuthApprovalsInFlight: Set<string> = new Set();
   /** B5: per member wallet, the prescribers its device authorized beyond its PCP. */
   private prescriberAuthorizations: Map<string, PrescriberAuthorization[]> = new Map();
   private rxCounter = 0;
@@ -1007,8 +1069,11 @@ export class AdjudicationService {
    * and the fill refuse it with 403); the price is quoteFill's, NADAC x quantity plus the plan's fee; the member's share
    * is splitClaimCost, the fill circuit's rules, over the engine's accumulators for the member, under the limits its next
    * fill is proven against (see ensurePlanBinding), and its family. A fixture member keeps its tier copay and the network default fee, as
-   * its fill does. Changes nothing. Null for a wallet this engine has not enrolled. The quote holds for today: a script
-   * written on a later day is priced again then (B3 will take this quote at prescribing and lock it on the prescription).
+   * its fill does. The quote also carries the drug's availability on that plan (formularyAvailabilityOf): prior
+   * authorization with this member's own status, step therapy and the limit per fill, so a prescriber knows before
+   * writing whether a prior authorization is needed. Changes nothing. Null for a wallet this engine has not enrolled. The
+   * quote holds for today: a script written on a later day is priced again then (B3 will take this quote at prescribing
+   * and lock it on the prescription).
    */
   quoteMemberCost(walletId: string, ndcHash: string, quantity: number): MemberCostQuote | null {
     const enrolled = this.enrolledMembers.get(walletId);
@@ -1040,6 +1105,22 @@ export class AdjudicationService {
       copayBasis: this.onConsoleFormulary(enrolled) ? 'tier' : 'plan',
       tierLevel: Number(coverage.entry.tierLevel.toBigInt()),
       split,
+      availability: this.formularyAvailabilityOf(walletId, coverage.entry, ndcHash),
+    };
+  }
+
+  /**
+   * A drug's availability for a member, from the formulary entry its prescription and fill are held to: whether the
+   * plan requires prior authorization (and then this member's own status for the drug, from this engine's records),
+   * whether it requires step therapy, and its limit per fill in the drug's pricing unit (the entry holds thousandths).
+   */
+  private formularyAvailabilityOf(memberWalletId: string, entry: FormularyEntry, ndcHash: string): FormularyAvailability {
+    const priorAuthRequired = entry.requiresPriorAuth.toBigInt() === 1n;
+    return {
+      priorAuthRequired,
+      stepTherapyRequired: entry.stepTherapyRequired.toBigInt() === 1n,
+      maxQuantityPerFill: quantityFromMilli(Number(entry.maxQuantityPerFill.toBigInt())),
+      ...(priorAuthRequired ? { priorAuth: this.priorAuthStatusOf(memberWalletId, ndcHash) } : {}),
     };
   }
 
@@ -1411,9 +1492,41 @@ export class AdjudicationService {
    * of proving inline, because an inline proof blocks the event loop the sequencer shares and nothing else is answered
    * for the length of the proof (in the four-member run of 2026-10-19 an employer lookup timed out behind a 6.4 s inline
    * proof). `starting` must settle after setProofPool has run. If the pool fails to start, proofs prove inline as before.
+   * The start is tracked until it settles: until then the engine is not ready to prove (isProvingReady).
    */
   setProofPoolStarting(starting: Promise<unknown>): void {
-    this.proofPoolStarting = starting.then(() => undefined, () => undefined);
+    this.proofPoolStart = 'pending';
+    const settled: Promise<void> = starting.then(
+      () => { if (this.proofPoolStarting === settled) this.proofPoolStart = 'started'; },
+      () => { if (this.proofPoolStarting === settled) this.proofPoolStart = 'failed'; },
+    );
+    this.proofPoolStarting = settled;
+  }
+
+  /**
+   * Whether the engine is ready to prove: its programs are compiled, and a proof made now would not wait for the proof
+   * pool, because none is configured, the pool runs, or its start has settled as failed (proofs then prove inline, the
+   * fallback above). While a configured pool is still starting, the routes that make proofs answer 503 with Retry-After
+   * instead of holding a request for minutes: in the single-member run of 2026-10-19 a prescription arrived about 150 s
+   * before the pool was ready, its first proof waited 148.87 s, and the request outlasted its 180 s budget. dispatchProof's
+   * wait for a starting pool stays as the safety net.
+   */
+  isProvingReady(): boolean {
+    return this.compiled === true && this.proverState() !== 'starting';
+  }
+
+  /** The engine's readiness to prove, for the open read GET /interactive/ready. It names nothing about members. */
+  provingReadiness(): ProvingReadiness {
+    const compiled = this.compiled === true;
+    const prover = this.proverState();
+    return { ready: compiled && prover !== 'starting', compiled, prover };
+  }
+
+  /** Where a proof made now would go: to the running pool, to a wait for the pool still starting, or inline. */
+  private proverState(): ProverState {
+    if (this.proofPool?.isRunning()) return 'pool';
+    if (this.proofPoolStart === 'pending') return 'starting';
+    return 'inline';
   }
 
   /**
@@ -1442,7 +1555,8 @@ export class AdjudicationService {
    *
    * When the pool is available, this serializes args → IPC → worker → deserialize → prove → result.
    * When no pool, falls back to direct in-process proving (blocks event loop). A pool that is still starting is waited
-   * for (setProofPoolStarting), so a proof made in the minutes after boot does not block the event loop either.
+   * for (setProofPoolStarting), so a proof made in the minutes after boot does not block the event loop either. The
+   * routes that make proofs refuse until the engine is ready to prove (isProvingReady); this wait is the safety net.
    */
   private async dispatchProof(
     program: string,
@@ -2273,6 +2387,32 @@ export class AdjudicationService {
       a.prescriberWalletId === prescriberWalletId && a.expiresAt > now && (a.ndcHash === null || a.ndcHash === ndcHash));
   }
 
+  /**
+   * The member's consent that lets a prescriber prescribe a drug for it now, as createPrescription requires it (B5):
+   * 'pcp' when the prescriber is the primary-care prescriber the member named, 'authorization' when the member's device
+   * authorized this prescriber for a visit that has not ended, for this drug or any; null otherwise, for a wallet this
+   * engine has not enrolled, and for a prescriber that is not a credentialed, active prescriber in the provider
+   * registry. No lifecycle or network check: prescribing makes those after consent. The sequencer's read gate asks it
+   * before a prescriber reads the member's pre-script quote (registered with the quote, registerInteractiveRoutes), and a
+   * prescriber's own prior-authorization request and status read are refused without it.
+   */
+  prescribingConsentFor(memberWalletId: string, prescriberWalletId: string, ndcHash: string, now = Date.now()): 'pcp' | 'authorization' | null {
+    const enrolled = this.enrolledMembers.get(memberWalletId);
+    if (!enrolled || !/^\d+$/.test(prescriberWalletId)) return null;
+    const provider = this.l2Node.getSequencer().getProvider(prescriberWalletId);
+    if (!provider || provider.metadata.providerType !== 'prescriber' || Number(provider.leaf.credentialState) !== ProviderLifecycle.ACTIVE) return null;
+    if (enrolled.pcpAssignment !== undefined && enrolled.pcpAssignment.pcpWalletId.toString() === prescriberWalletId) return 'pcp';
+    return this.prescriberAuthorizationFor(memberWalletId, prescriberWalletId, ndcHash, now) ? 'authorization' : null;
+  }
+
+  /** The engine's seed index for a prescriber's wallet, the name prescribing and prior authorization use; null for none. */
+  private prescriberIndexOf(prescriberWalletId: string): number | null {
+    for (const [index, wallet] of this.prescriberWalletIds) {
+      if (wallet.toString() === prescriberWalletId) return index;
+    }
+    return null;
+  }
+
   /** The member's live authorizations, expired ones left out (B5). */
   activePrescriberAuthorizations(memberWalletId: string, now = Date.now()): PrescriberAuthorization[] {
     return (this.prescriberAuthorizations.get(memberWalletId) ?? []).filter(a => a.expiresAt > now);
@@ -2520,8 +2660,10 @@ export class AdjudicationService {
   // ─── Prior Authorization ─────────────────────────────────
 
   /**
-   * Request a prior authorization for a PA-required medication.
-   * Creates a PENDING PA request that the insurer must approve or deny.
+   * The console's operator path: the operator names the prescriber by its seed index (POST /interactive/request-prior-auth
+   * with the operator's token). Requests a prior authorization for a drug the catalog marks PA-required and creates a
+   * PENDING request that the insurer must approve or deny. A prescriber's own request goes through
+   * requestPriorAuthAsPrescriber, which takes the prescriber from its signature and checks the member's consent and plan.
    */
   requestPriorAuth(opts: {
     memberWalletId: string;
@@ -2598,6 +2740,162 @@ export class AdjudicationService {
   }
 
   /**
+   * A prescriber's own prior-authorization request (owner decision 2026-10-19), from a prescriber node that signs it as
+   * the prescriber's wallet: the route takes the prescriber from that signature, never from the request. Checked in this
+   * order, before anything is recorded: the member's consent to this prescriber for this drug (prescribingConsentFor; 403,
+   * the same answer for a wallet this engine has not enrolled, so the route tells no one who is enrolled); a prescriber
+   * the engine can name (409, a seed prescriber, as prescribing requires); the ledger shows the member billable (409);
+   * the drug is in the catalog (404) and on the member's plan as published (403); that plan requires prior authorization
+   * for it (409); the quantity is within the plan's limit per fill, which an approval does not lift (409); no request for
+   * it is pending and no approval is in force (409). The request reaches the insurer as a PA_REQUEST message and in its
+   * review list (listPriorAuths), with the quantity asked for and the reason; the reason is held in memory only, never in
+   * the checkpoint or a log. The answer names no request ID, member or plan.
+   */
+  requestPriorAuthAsPrescriber(opts: {
+    prescriberWalletId: string;
+    memberWalletId: string;
+    ndcHash: string;
+    quantity: number;
+    reason?: string;
+  }): { status: 'pending'; drugName: string; ndcHash: string; quantity: number; pricingUnit: string; requestedAt: number } {
+    const quantityProblem = quantityError(opts.quantity);
+    if (quantityProblem) throw new RegistrationRefused(400, quantityProblem);
+    const reason = opts.reason === undefined ? '' : opts.reason;
+    if (typeof reason !== 'string' || reason.length > PRIOR_AUTH_REASON_MAX) {
+      throw new RegistrationRefused(400, `reason is optional text of at most ${PRIOR_AUTH_REASON_MAX} characters`);
+    }
+    // plain text only: the reason reaches the insurer's screens and the operator console in the PA_REQUEST message
+    const reasonProblem = plainTextError(reason);
+    if (reasonProblem) throw new RegistrationRefused(400, reasonProblem);
+    if (!this.prescribingConsentFor(opts.memberWalletId, opts.prescriberWalletId, opts.ndcHash)) {
+      throw new RegistrationRefused(403, "This prescriber may not prescribe this drug for this member: it is not the primary-care prescriber the member named and holds no authorization from the member's device for this visit");
+    }
+    const prescriberIndex = this.prescriberIndexOf(opts.prescriberWalletId);
+    if (prescriberIndex === null) throw new RegistrationRefused(409, 'This prescriber is not a provider the engine can adjudicate for');
+    const enrolled = this.enrolledMembers.get(opts.memberWalletId)!;
+    refuseUnlessLedgerBillable(this.l2Node.getSequencer().lifecycleStateOf(enrolled.walletId.toString()), enrolled, 'no prior authorization can be requested');
+    const medication = this.medByNdcHash.get(opts.ndcHash);
+    if (!medication) throw new RegistrationRefused(404, 'The drug is not in the formulary catalog');
+    let entry: FormularyEntry;
+    try {
+      entry = this.displayFormularyEntryFor(enrolled, opts.ndcHash).entry;
+    } catch (err) {
+      if (!(err instanceof RegistrationRefused)) throw err;
+      // the reason names no plan, as the quote's does
+      throw new RegistrationRefused(err.status, err.status === 403
+        ? `${medication.brandName} is not on the formulary of the member's plan`
+        : "The member's plan cannot be read until the insurer publishes it again");
+    }
+    if (entry.requiresPriorAuth.toBigInt() !== 1n) {
+      throw new RegistrationRefused(409, `${medication.brandName} needs no prior authorization on the member's plan`);
+    }
+    const unit = medication.pricingUnit ?? '';
+    if (BigInt(quantityMilli(opts.quantity)) > entry.maxQuantityPerFill.toBigInt()) {
+      const limit = quantityFromMilli(Number(entry.maxQuantityPerFill.toBigInt()));
+      throw new RegistrationRefused(409, `The member's plan allows at most ${formatQuantity(limit, unit)} of ${medication.brandName} per fill, and an approval does not lift that limit`);
+    }
+    const current = this.priorAuthStatusOf(opts.memberWalletId, opts.ndcHash);
+    if (current.status === 'pending') throw new RegistrationRefused(409, `A prior authorization for ${medication.brandName} is already pending for this member`);
+    if (current.status === 'approved') throw new RegistrationRefused(409, `${medication.brandName} is already authorized for this member through ${current.expiresOn}`);
+
+    this.paCounter++;
+    const paId = `PA-${String(this.paCounter).padStart(4, '0')}`;
+    const requestedAt = Date.now();
+    this.priorAuths.set(paId, {
+      id: paId,
+      memberWalletId: opts.memberWalletId,
+      prescriberIndex,
+      ndcHash: opts.ndcHash,
+      status: 'PENDING',
+      requestedAt,
+      requestedQuantity: opts.quantity,
+      ...(reason ? { reason } : {}),
+    });
+
+    const prescriberName = prescriberDisplayName(PRESCRIBERS[prescriberIndex]);
+    this.emit('phase', 'prior-auth', `═══ Prior Auth Request: ${medication.brandName} ═══`);
+    this.emit('offchain', 'prior-auth', `${prescriberName} requests PA, signed as the prescriber's wallet`);
+    this.emit('info', 'prior-auth', `  ${paId} — Status: PENDING, ${formatQuantity(opts.quantity, unit)} per fill — awaiting insurer review`);
+    this.sendInternalMessage(this.prescriberWalletIds.get(prescriberIndex)!, this.adminWalletId, MSG_TYPE_PA_REQUEST,
+      `PA Request: ${medication.brandName}`,
+      `Prior auth requested for ${medication.brandName} ${medication.strength}, ${formatQuantity(opts.quantity, unit)} per fill — patient ${enrolled.walletIdStr}${reason ? `\nReason: ${reason}` : ''}`);
+
+    return {
+      status: 'pending',
+      drugName: medication.genericName || medication.brandName,
+      ndcHash: opts.ndcHash,
+      quantity: opts.quantity,
+      pricingUnit: unit,
+      requestedAt,
+    };
+  }
+
+  /**
+   * A member's prior-authorization status for one drug, from this engine's records: a pending request answers pending;
+   * else an approval still in force answers approved, through the last day its PriorAuthData holds; else the latest
+   * request decides: denied, or none for an approval past its last day; none when there was no request. No request ID.
+   */
+  priorAuthStatusOf(memberWalletId: string, ndcHash: string, now = Date.now()): PriorAuthStatus {
+    const records = [...this.priorAuths.values()]
+      .filter(pa => pa.memberWalletId === memberWalletId && pa.ndcHash === ndcHash)
+      .sort((a, b) => a.requestedAt - b.requestedAt);
+    const pending = records.filter(pa => pa.status === 'PENDING').pop();
+    if (pending) return { status: 'pending', requestedAt: pending.requestedAt };
+    const today = ccyymmddOf(now);
+    const lastDayOf = (pa: PriorAuthState): string | null =>
+      pa.priorAuthData ? pa.priorAuthData.expirationDate.toBigInt().toString().padStart(8, '0') : null;
+    const inForce = records.filter(pa => pa.status === 'APPROVED' && (lastDayOf(pa) ?? '') >= today).pop();
+    if (inForce) {
+      return { status: 'approved', requestedAt: inForce.requestedAt, resolvedAt: inForce.resolvedAt, expiresOn: isoDayOf(lastDayOf(inForce)!) };
+    }
+    const latest = records[records.length - 1];
+    if (latest?.status === 'DENIED') return { status: 'denied', requestedAt: latest.requestedAt, resolvedAt: latest.resolvedAt };
+    return { status: 'none' };
+  }
+
+  /**
+   * The prior-authorization requests for the plan's review (the insurer node's queue): the pending ones, the decided ones
+   * (RESOLVED), or all, oldest first. Each carries what the reviewer needs and no more: the request, the member's wallet
+   * ID, the drug, the quantity asked for (none for a request the console made), the prescriber's display name, the
+   * dates, the prescriber's reason and the insurer's own. No member name.
+   */
+  listPriorAuths(filter: 'PENDING' | 'RESOLVED' | 'ALL'): PriorAuthListing[] {
+    return [...this.priorAuths.values()]
+      .filter(pa => filter === 'ALL' || (filter === 'PENDING' ? pa.status === 'PENDING' : pa.status !== 'PENDING'))
+      .sort((a, b) => a.requestedAt - b.requestedAt)
+      .map(pa => {
+        const medication = this.medByNdcHash.get(pa.ndcHash);
+        const prescriber = PRESCRIBERS[pa.prescriberIndex];
+        return {
+          id: pa.id,
+          status: pa.status,
+          memberWalletId: pa.memberWalletId,
+          ndcHash: pa.ndcHash,
+          ndc: medication?.ndcFormatted ?? null,
+          drugName: medication ? (medication.genericName || medication.brandName) : null,
+          quantity: pa.requestedQuantity ?? null,
+          pricingUnit: medication?.pricingUnit ?? null,
+          prescriberName: prescriber ? prescriberDisplayName(prescriber) : null,
+          requestedAt: pa.requestedAt,
+          resolvedAt: pa.resolvedAt ?? null,
+          reason: pa.reason ?? null,
+          decisionReason: pa.decisionReason ?? null,
+        };
+      });
+  }
+
+  /**
+   * A prescriber's read of a member's prior-authorization status for one drug: refused (403) unless the member's consent
+   * lets this prescriber prescribe it (prescribingConsentFor), the same answer for a wallet this engine has not enrolled.
+   */
+  priorAuthStatusForPrescriber(prescriberWalletId: string, memberWalletId: string, ndcHash: string): PriorAuthStatus {
+    if (!this.prescribingConsentFor(memberWalletId, prescriberWalletId, ndcHash)) {
+      throw new RegistrationRefused(403, "This prescriber may not prescribe this drug for this member, so it may not read the member's prior authorization for it");
+    }
+    return this.priorAuthStatusOf(memberWalletId, ndcHash);
+  }
+
+  /**
    * Insurer approves a prior authorization request.
    * Builds PriorAuthData, inserts into member's forest ACCESS_CONTROL tree,
    * and generates a provePriorAuth ZK proof.
@@ -2606,9 +2904,19 @@ export class AdjudicationService {
     if (!this.compiled) throw new Error('Programs not compiled yet');
 
     const paState = this.priorAuths.get(paId);
-    if (!paState) throw new Error(`Prior auth not found: ${paId}`);
-    if (paState.status !== 'PENDING') throw new Error(`Prior auth is already ${paState.status}: ${paId}`);
+    if (!paState) throw new RegistrationRefused(404, `Prior auth not found: ${paId}`);
+    if (paState.status !== 'PENDING') throw new RegistrationRefused(409, `Prior auth is already ${paState.status}: ${paId}`);
+    if (this.priorAuthApprovalsInFlight.has(paId)) throw new RegistrationRefused(409, `An approval of ${paId} is already being proven`);
+    this.priorAuthApprovalsInFlight.add(paId);
+    try {
+      return await this.proveAndRecordPriorAuthApproval(paId, paState);
+    } finally {
+      this.priorAuthApprovalsInFlight.delete(paId);
+    }
+  }
 
+  /** The approval itself; approvePriorAuth holds the request against any other decision while it runs. */
+  private async proveAndRecordPriorAuthApproval(paId: string, paState: PriorAuthState): Promise<Record<string, unknown>> {
     const enrolled = this.enrolledMembers.get(paState.memberWalletId);
     if (!enrolled) throw new Error(`Member not enrolled: ${paState.memberWalletId}`);
     // Plan-bound formularies: the PA is proven against the formulary the member's credential names; a drug not on it is
@@ -2627,13 +2935,19 @@ export class AdjudicationService {
     const paLeafIndex = this.nextPaLeafIndex.get(paState.memberWalletId) ?? 1n;
     this.nextPaLeafIndex.set(paState.memberWalletId, paLeafIndex + 1n);
 
+    // The insurer approves the quantity the prescriber asked for, the quantity its review list shows, within the plan's
+    // limit per fill (a republish may have lowered the limit since the request). A request the console made names no
+    // quantity and is approved at the plan's limit. A larger quantity is refused at prescribing (createPrescription),
+    // as the PA proof's own check (requested quantity <= approved quantity) refuses it.
+    const planLimit = quantityFromMilli(Number(paCoverage.entry.maxQuantityPerFill.toBigInt()));
+    const approvedQuantity = paState.requestedQuantity === undefined ? planLimit : Math.min(paState.requestedQuantity, planLimit);
     const priorAuthData = buildPriorAuthData({
       ndc: medication.ndc,
       memberWalletId: enrolled.walletId.toString(),
       prescriberWalletId: prescriberWalletId.toString(),
       approvalDate: '20260201',
       expirationDate: '20270201',
-      approvedQuantity: medication.formularyEntry.maxQuantityPerFill,
+      approvedQuantity,
       authorizationCode: `AUTH-${paId}-${medication.ndc}`,
     });
 
@@ -2674,8 +2988,8 @@ export class AdjudicationService {
     await this.dispatchProof(
       'AccessControl', 'provePriorAuth',
       ['CredentialData', 'EligibilityData', 'ForestRoots', 'ForestMerkleWitness', 'ForestMerkleWitness', 'PriorAuthData', 'FormularyEntry', 'FormularyMerkleWitness', 'Field', 'Field'],
-      [enrolled.credentialData, enrolled.eligibilityData, eligForestRoots, eligWitness, paWitness, priorAuthData, formularyEntry, formularyWitness, dateToField('20260202'), quantityToField(medication.formularyEntry.maxQuantityPerFill)],
-      () => AccessControlProgram.provePriorAuth(enrolled.credentialData, enrolled.eligibilityData, eligForestRoots, eligWitness, paWitness, priorAuthData, formularyEntry, formularyWitness, dateToField('20260202'), quantityToField(medication.formularyEntry.maxQuantityPerFill)),
+      [enrolled.credentialData, enrolled.eligibilityData, eligForestRoots, eligWitness, paWitness, priorAuthData, formularyEntry, formularyWitness, dateToField('20260202'), quantityToField(approvedQuantity)],
+      () => AccessControlProgram.provePriorAuth(enrolled.credentialData, enrolled.eligibilityData, eligForestRoots, eligWitness, paWitness, priorAuthData, formularyEntry, formularyWitness, dateToField('20260202'), quantityToField(approvedQuantity)),
     );
     const elapsedProof = performance.now() - startProof;
     this.emit('proof', 'prior-auth', `  AccessControl.provePriorAuth proof verified`, 'complete', elapsedProof);
@@ -2691,11 +3005,11 @@ export class AdjudicationService {
     paState.paLeafIndex = paLeafIndex;
     paState.priorAuthData = priorAuthData;
 
-    this.emit('info', 'prior-auth', `  ${paId} APPROVED — ${medication.brandName} authorized for ${enrolled.displayName}`);
+    this.emit('info', 'prior-auth', `  ${paId} APPROVED — ${medication.brandName} authorized for ${enrolled.displayName}, ${formatQuantity(approvedQuantity, medication.pricingUnit)} per fill`);
 
     // Auto-send PA_RESPONSE message (insurer → prescriber)
     this.sendInternalMessage(this.adminWalletId, prescriberWalletId, MSG_TYPE_PA_RESPONSE,
-      `PA Approved: ${medication.brandName}`, `Prior auth approved — Auth #${paId}`);
+      `PA Approved: ${medication.brandName}`, `Prior auth approved — Auth #${paId}, ${formatQuantity(approvedQuantity, medication.pricingUnit)} per fill`);
 
     this.emitViz('viz:eligibility:verified', 'eligibility', {
       actor: 'Insurer',
@@ -2708,6 +3022,9 @@ export class AdjudicationService {
     return {
       paId,
       status: 'APPROVED',
+      // per fill, in the drug's pricing unit
+      approvedQuantity,
+      pricingUnit: medication.pricingUnit ?? null,
       medication: {
         brandName: medication.brandName,
         genericName: medication.genericName,
@@ -2731,18 +3048,32 @@ export class AdjudicationService {
   }
 
   /**
-   * Insurer denies a prior authorization request.
+   * Insurer denies a prior authorization request, with its reason when it gives one: kept on the request in memory for
+   * the review list and sent to the prescriber in the PA_RESPONSE message, never written to the checkpoint or a log.
    */
-  denyPriorAuth(paId: string): Record<string, unknown> {
+  denyPriorAuth(paId: string, reason?: string): Record<string, unknown> {
+    if (reason !== undefined) {
+      if (typeof reason !== 'string' || reason.length > PRIOR_AUTH_REASON_MAX) {
+        throw new RegistrationRefused(400, `reason is optional text of at most ${PRIOR_AUTH_REASON_MAX} characters`);
+      }
+      // plain text only: the reason reaches the prescriber's screens and the operator console in the PA_RESPONSE message
+      const reasonProblem = plainTextError(reason);
+      if (reasonProblem) throw new RegistrationRefused(400, reasonProblem);
+    }
     const paState = this.priorAuths.get(paId);
-    if (!paState) throw new Error(`Prior auth not found: ${paId}`);
-    if (paState.status !== 'PENDING') throw new Error(`Prior auth is already ${paState.status}: ${paId}`);
+    if (!paState) throw new RegistrationRefused(404, `Prior auth not found: ${paId}`);
+    if (paState.status !== 'PENDING') throw new RegistrationRefused(409, `Prior auth is already ${paState.status}: ${paId}`);
+    // An approval being proven holds the request: a denial now would be overwritten when the approval lands.
+    if (this.priorAuthApprovalsInFlight.has(paId)) {
+      throw new RegistrationRefused(409, `An approval of ${paId} is being proven; it can no longer be denied`);
+    }
 
     const enrolled = this.enrolledMembers.get(paState.memberWalletId);
     const medication = this.getMedicationByNdcHash(paState.ndcHash);
 
     paState.status = 'DENIED';
     paState.resolvedAt = Date.now();
+    if (reason) paState.decisionReason = reason;
 
     const memberName = enrolled?.displayName ?? 'Unknown';
     this.emit('phase', 'prior-auth', `═══ Prior Auth Denied: ${medication.brandName} ═══`);
@@ -2751,7 +3082,7 @@ export class AdjudicationService {
     // Auto-send PA_RESPONSE message (insurer → prescriber)
     const prescriberWalletId = this.prescriberWalletIds.get(paState.prescriberIndex)!;
     this.sendInternalMessage(this.adminWalletId, prescriberWalletId, MSG_TYPE_PA_RESPONSE,
-      `PA Denied: ${medication.brandName}`, `Prior auth denied — ${paId}`);
+      `PA Denied: ${medication.brandName}`, `Prior auth denied — ${paId}${reason ? `\nReason: ${reason}` : ''}`);
 
     this.emitViz('viz:eligibility:verified', 'eligibility', {
       actor: 'Insurer',
@@ -2991,6 +3322,12 @@ export class AdjudicationService {
           `Prior authorization required for ${medication.brandName} (Tier ${medication.formularyEntry.tierLevel}). ` +
           `Use the Prescriber tab to request PA before writing this prescription.`
         );
+      }
+      // The approval covers the quantity the insurer approved. The PA proof below asserts the same (requested quantity
+      // <= approved quantity); refused here first, with the reason, rather than as a failed proof.
+      const approvedMilli = approvedPa.priorAuthData?.approvedQuantity.toBigInt();
+      if (approvedMilli !== undefined && BigInt(quantityMilli(opts.quantity)) > approvedMilli) {
+        throw new RegistrationRefused(409, `The prior authorization for ${medication.brandName} approves at most ${formatQuantity(quantityFromMilli(Number(approvedMilli)), medication.pricingUnit)} per fill; ${formatQuantity(opts.quantity, medication.pricingUnit)} is more`);
       }
       this.emit('info', 'prescribe', `  PA verified: ${approvedPa.id} APPROVED for ${medication.brandName}`);
     }
@@ -6824,6 +7161,8 @@ export class AdjudicationService {
         priorAuthData: pa.priorAuthData
           ? PriorAuthData.toJSON(pa.priorAuthData) as Record<string, string>
           : undefined,
+        // the prescriber's and the insurer's reasons stay in memory: free text about a member's care is not written to disk
+        requestedQuantity: pa.requestedQuantity,
       });
     }
 
@@ -6916,6 +7255,7 @@ export class AdjudicationService {
         priorAuthData: spa.priorAuthData
           ? new PriorAuthData(PriorAuthData.fromJSON(spa.priorAuthData as any))
           : undefined,
+        requestedQuantity: typeof spa.requestedQuantity === 'number' ? spa.requestedQuantity : undefined,
       };
       this.priorAuths.set(pa.id, pa);
     }

@@ -56,6 +56,7 @@ describe('the engine\'s routes', () => {
   function standIn() {
     const svc = {
       getState() { return { compiled: true, enrolledMembers: [] }; },
+      isProvingReady() { return true; }, // a proving route refuses with 503 while the engine's provers start
       getPrescriberWalletId(i: number) { return i === 0 ? Field(700) : undefined; },
       getPharmacyWalletId(i: number) { return i === 0 ? Field(500) : undefined; },
       getL2Node() { return { withProvingLock: (fn: () => Promise<unknown>) => Promise.resolve().then(fn) }; },

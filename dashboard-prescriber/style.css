@@ -1214,3 +1214,59 @@ html, body {
   font-family: var(--font-mono);
   margin-top: 4px;
 }
+
+/* ── Admin Token Bar (this node's own credential) ─────────── */
+
+.admin-token-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.admin-token-bar label { white-space: nowrap; }
+
+/* ── Cost estimate: coverage and prior authorization ──────── */
+
+.rx-coverage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.rx-coverage-item {
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.rx-coverage-item.ok { border-color: rgba(63, 185, 80, 0.4); color: var(--green); }
+.rx-coverage-item.warn { border-color: rgba(210, 153, 34, 0.5); color: var(--yellow); }
+.rx-coverage-item.bad { border-color: rgba(248, 81, 73, 0.5); color: var(--red); }
+
+.rx-pa {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.rx-pa-label { color: var(--text-secondary); }
+.rx-pa-status { font-weight: 600; }
+.rx-pa-status.pending { color: var(--yellow); }
+.rx-pa-status.approved { color: var(--green); }
+.rx-pa-status.denied { color: var(--red); }
+.rx-pa-status.none { color: var(--text-secondary); }
+.rx-pa-reason { flex: 1; min-width: 180px; font-size: 12px; }

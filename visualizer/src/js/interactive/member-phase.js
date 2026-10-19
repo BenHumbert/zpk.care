@@ -31,6 +31,7 @@ import {
   truncHash,
 } from '../node-common.js';
 import { nadacPerUnitLabel } from './nadac-price.js';
+import { escapeHtml, renderMessageBubbles } from './message-thread.js';
 
 const PCP_ELIGIBLE_SPECIALTIES = [
   'Internal Medicine',
@@ -1692,24 +1693,10 @@ export class MemberPhase {
       if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
       const decrypted = await res.json();
       const dir = state.walletDirectory || {};
-      const MSG_LABELS = { 1:'Rx', 2:'PA Req', 3:'PA Resp', 4:'Notice', 5:'General', 6:'Support', 7:'Summary' };
 
-      bodyDiv.innerHTML = decrypted.filter(Boolean).map(m => {
-        const isSent = m.senderWalletId === member.walletId;
-        const senderName = dir[m.senderWalletId]?.displayName || m.senderWalletId.slice(0,8) + '\u2026';
-        const timeStr = m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : '';
-        const typeLabel = MSG_LABELS[m.messageType] || 'Msg';
-        return `
-          <div class="msg-bubble ${isSent ? 'msg-sent' : 'msg-received'}">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-              <span style="font-size: 11px; font-weight: 600;">${senderName}</span>
-              <span style="font-size: 10px; color: var(--text-muted);">${timeStr} <span class="msg-type-badge msg-type-${m.messageType}" style="font-size: 9px;">${typeLabel}</span></span>
-            </div>
-            ${m.subject ? `<div style="font-weight: 600; font-size: 12px; margin-bottom: 2px;">${m.subject}</div>` : ''}
-            <div style="font-size: 12px; white-space: pre-wrap;">${m.body}</div>
-          </div>`;
-      }).join('') + `
-        <button class="msg-reply-btn" data-thread-id="${threadId}" style="margin-top: 8px; font-size: 11px; background: var(--accent-blue); color: white; border: none; border-radius: 4px; padding: 4px 12px; cursor: pointer;">Reply</button>
+      // every value in a message came over the network and is escaped (message-thread.js)
+      bodyDiv.innerHTML = renderMessageBubbles(decrypted, member.walletId, dir) + `
+        <button class="msg-reply-btn" data-thread-id="${escapeHtml(threadId)}" style="margin-top: 8px; font-size: 11px; background: var(--accent-blue); color: white; border: none; border-radius: 4px; padding: 4px 12px; cursor: pointer;">Reply</button>
       `;
 
       // Bind reply button

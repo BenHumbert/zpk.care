@@ -187,6 +187,48 @@ export class EmployerNode extends EntityNodeBase {
     return value;
   }
 
+  /** The last answer of attestationPlansToAdd, for the attestation it was asked for. */
+  private plansToAddCache: {
+    at: number;
+    attestation: import('../l2/l2-types.js').EmployerAttestation;
+    value: Promise<string[] | null>;
+  } | null = null;
+
+  /**
+   * The plans this employer selected on the marketplace that are published now and that its attestation does not
+   * authorize, so no group can be opened on them yet. Only the insurer holds the plans an employer selected, so the
+   * insurer node answers, from the application the attestation names (GET /employer-agreements/:applicationId/
+   * plans-to-add). The employer adds them by signing the new terms on the marketplace, which registers the next
+   * attestation (seq + 1). Null with no attestation or no insurer URL, or when the insurer does not answer. The answer is
+   * reused for TERMS_STATUS_TTL_MS (or until another attestation is loaded), as attestationTermsStatus's is, so the open
+   * GET /attestation asks the insurer at most that often.
+   */
+  async attestationPlansToAdd(): Promise<string[] | null> {
+    const att = this.attestation;
+    if (!att || !this.insurerUrl || typeof att.applicationId !== 'string' || att.applicationId === '') return null;
+    const cached = this.plansToAddCache;
+    if (cached && cached.attestation === att && Date.now() - cached.at < EmployerNode.TERMS_STATUS_TTL_MS) return cached.value;
+    const url = `${this.insurerUrl.replace(/\/+$/, '')}/employer-agreements/${encodeURIComponent(att.applicationId)}/plans-to-add`;
+    const value = (async (): Promise<string[] | null> => {
+      try {
+        const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
+        if (!resp.ok) return null;
+        const json = await resp.json() as { data?: { plansToAdd?: unknown } };
+        const list = json?.data?.plansToAdd;
+        return Array.isArray(list) && list.every((p) => typeof p === 'string') ? list as string[] : null;
+      } catch {
+        return null;
+      }
+    })();
+    this.plansToAddCache = { at: Date.now(), attestation: att, value };
+    return value;
+  }
+
+  /** Where the employer signs its agreement: the insurer's marketplace, or null with no insurer URL configured. */
+  getMarketplaceUrl(): string | null {
+    return this.insurerUrl ? `${this.insurerUrl.replace(/\/+$/, '')}/marketplace/` : null;
+  }
+
   /** Whether attestation is required for plan authorization (set via config) */
   private requireAttestation = false;
 

@@ -39,7 +39,7 @@ import type { L2Receipt, L2Block, L2Batch, L2ChainState, L2ChainProofResponse, C
 import type { ClaimAccumulatorEntry } from './claim-accumulator-types.js';
 import type { StoredMessage, MessagePayload, MessageStoreEntry } from './message-store-types.js';
 import type { AuditLog } from '../audit/audit-types.js';
-import type { RpcRequest, RpcResponse } from './l2-rpc-server.js';
+import type { RpcRequest, RpcResponse, PriorAuthStatus } from './l2-rpc-server.js';
 import type { GossipMessage, PeerInfo, StateDigest } from './l2-peer-types.js';
 import type { L2SequencerState } from './l2-checkpoint.js';
 import { l2Stringify, l2Parse } from './l2-json.js';
@@ -222,29 +222,49 @@ export class L2Client {
   }
 
   /** Estimate cost for a drug — returns member pay, employer pay, and full pricing breakdown */
+  /**
+   * The pre-script quote (l2_estimateCost). With a walletId, the member's own price by its plan as published, the
+   * fill circuit's split and the drug's availability on the plan, answered to the member, a prescriber who may prescribe
+   * for it, a caller presenting its attestation (memberAttestation), the plan or the operator; a planId sent with a
+   * walletId is not used. With no walletId, the named plan's published price, or the list price for none.
+   */
   async estimateCost(params: {
     ndcHash: string;
-    planId?: string;
-    walletId?: string;
+    /** In the drug's NADAC pricing unit (EA, ML or GM), to thousandths; 30 when omitted */
     quantity?: number;
-    dispensingFeeCents?: number;
-    deductibleAmountCents?: number;
-    oopMaxCents?: number;
-    annualBenefitMaxCents?: number;
+    walletId?: string;
+    /** The member's own unexpired attestation, the tap at a counter */
+    memberAttestation?: Record<string, unknown>;
+    /** Read only when no walletId is sent */
+    planId?: string;
   }, signer?: RequestSigner): Promise<{
     covered: boolean;
     drugName: string;
     ndcHash: string;
     classification?: string;
+    nadacPerUnit: number;
+    pricingUnit: string;
+    quantity: number;
     tierLevel?: number;
-    nadacPerUnit?: number;
-    quantity?: number;
     ingredientCostCents?: number;
     dispensingFeeCents?: number;
+    dispensingFeeSource?: 'plan' | 'network-default';
     totalCostCents?: number;
     copayAmountCents?: number;
+    /** 'plan': the plan's copay as published; 'tier': the drug's catalog tier copay (a fixture member, or no plan) */
+    copayBasis?: 'plan' | 'tier';
+    /** The rule that set the member's share: 'deductible', 'copay', 'oop-max-reached', 'benefit-max-reached' or 'not-covered' */
+    phase: string;
     memberPayCents?: number;
     employerPayCents?: number;
+    /** A member's quote only: the drug's availability on the member's plan */
+    priorAuthRequired?: boolean;
+    stepTherapyRequired?: boolean;
+    /** In the drug's pricing unit */
+    maxQuantityPerFill?: number;
+    /** A member's quote for a drug that needs prior authorization: the member's own status for it */
+    priorAuth?: PriorAuthStatus;
+    /** Why a drug is not covered; names no plan for a member's quote */
     reason?: string;
   }> {
     return this.rpcCall('l2_estimateCost', params as unknown as Record<string, unknown>, signer);

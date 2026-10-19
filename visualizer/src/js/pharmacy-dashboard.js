@@ -46,6 +46,10 @@ import {
   renderInteractionAlerts,
 } from './drug-interactions.js';
 
+// NADAC per unit as the engine computes it (src/fulfillment/nadac-pricing.ts): the console's copy, which
+// tests/console-nadac-preview.test.ts holds to the engine's results for every drug in the catalog.
+import { nadacPerUnitLabel, nadacUnitPriceE5 } from './interactive/nadac-price.js';
+
 // ============================================================================
 // State
 // ============================================================================
@@ -1088,20 +1092,24 @@ function renderFormulary() {
     return;
   }
 
+  // A fill is priced at NADAC per pricing unit (EA, ML or GM) times the quantity, plus the plan's dispensing fee, so the
+  // list shows the NADAC price with its unit, as whole $0.00001 the way the engine reads it; AWP prices nothing here.
   const columns = [
     { key: 'brandName', label: 'Brand Name' },
     { key: 'genericName', label: 'Generic Name', format: (v) => v || '--' },
     { key: 'therapeuticClass', label: 'Class' },
     { key: 'tierLevel', label: 'Tier', format: (v) => tierBadge(v) },
-    { key: 'awpCents', label: 'AWP', format: (v) => v != null ? formatCents(v) : '--', align: 'right' },
+    { key: 'nadacE5', label: 'NADAC/Unit', format: (_v, row) => row.nadacLabel, align: 'right' },
   ];
 
   const rows = medications.map((m, i) => ({
     brandName: m.brandName || m.name || `Med #${i}`,
     genericName: m.genericName || '',
     therapeuticClass: m.therapeuticClass || '',
-    tierLevel: m.tierLevel,
-    awpCents: m.awpCents || m.awp || null,
+    // the engine's /node/state names the tier `tier`
+    tierLevel: m.tierLevel ?? m.tier,
+    nadacE5: nadacUnitPriceE5(m.nadacPerUnit),
+    nadacLabel: nadacPerUnitLabel(m),
   }));
 
   const table = renderSortableTable('formulary-table', columns, rows);

@@ -39,6 +39,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { Field, Poseidon, verify } from 'o1js';
 import { Trace, makeHttp, poll, abbrev } from './trace.js';
+import { waitForEngineReady } from './engine-ready.js';
 import { expectedAdjudication, findSecrets, nadacE5, expectedNadacIngredientCents, deductibleLanding } from './reference.js';
 import { hashString, hashDate } from '../../src/zkp/hash-utils.js';
 import { NautilusLocalState } from '../../src/nodes/nautilus-local-state.js';
@@ -404,6 +405,11 @@ async function mainFlow() {
   t.begin('harness', 'Wait for the network');
   const ready = await poll(quietAdmin, `${SEQ}/interactive/state`, j => j?.compiled === true, 2_400_000, 10_000);
   t.check('All circuits compiled', ready.json?.compiled === true, true, ready.json?.compiled);
+  // The engine refuses work that makes proofs (503 with Retry-After) until its proof pool runs, and the pool's workers
+  // compile for minutes after boot; every proving step below comes after this.
+  const provers = await waitForEngineReady(quiet, SEQ);
+  results.engineReadyWaitMs = provers.ms;
+  t.check('Claims engine ready to prove', provers.ready, 'ready within 15 min', provers.readiness, `waited ${(provers.ms / 1000).toFixed(1)} s`);
   await checkInvariant('boot (seed providers provisioned)', []);
 
   t.begin('insurer', 'Create the plan');

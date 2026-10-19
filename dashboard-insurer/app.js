@@ -126,9 +126,12 @@
   // ── Router ─────────────────────────────────────────────────
   var tabs = document.querySelectorAll('.nav-tab');
   var pages = document.querySelectorAll('.page');
+  /** The tab on screen; a page's own poll stops once another tab is shown (the Employers & Groups poll reads it). */
+  var currentTab = 'overview';
 
   function navigate(tab) {
     tab = tab || 'overview';
+    currentTab = tab;
     if (window._overviewTimer) { clearInterval(window._overviewTimer); window._overviewTimer = null; }
     tabs.forEach(function (t) { t.classList.toggle('active', t.dataset.tab === tab); });
     pages.forEach(function (p) { p.classList.toggle('active', p.id === 'page-' + tab); });
@@ -151,6 +154,7 @@
       case 'plans': loadPlansPage(); break;
       case 'employers': loadEmployersPage(); break;
       case 'eligibility': loadEligibilityPage(); break;
+      case 'priorauth': loadPriorAuthPage(); break;
       case 'credentialing': loadCredentialingPage(); break;
       case 'reports': loadReportsPage(); break;
       case 'pricing': initPricing(); break;
@@ -301,39 +305,71 @@
     if (publishBtn) publishBtn.onclick = publishUpload;
   }
 
+  /**
+   * A formulary copay in cents as this page reads one, typed or from a CSV: blank takes the default, and anything given
+   * is kept as given, 0 included (a $0 copay is a $0 copay), as the plan form reads its amounts (centsFromInput). NaN for
+   * anything but a whole number of cents, 0 or more, which the caller refuses rather than replace with the default.
+   */
+  function copayCentsFromText(raw, dflt) {
+    var s = String(raw == null ? '' : raw).trim();
+    if (s === '') return dflt;
+    if (!/^\d+$/.test(s)) return NaN;
+    var n = Number(s);
+    return Number.isSafeInteger(n) ? n : NaN;
+  }
+
+  /**
+   * The formulary entries in a CSV's text: a header row naming ndcHash and, optionally, tierLevel, copayAmountCents,
+   * brandName and requiresPriorAuth, then one entry per row. A blank copay takes the default (1000 cents) and a given
+   * one is kept, 0 included; a row whose copay is not a whole number of cents, 0 or more, is not read, and errors says
+   * which. `error` is set when the file cannot be read at all.
+   */
+  function csvFormularyEntries(text) {
+    var lines = String(text == null ? '' : text).split(/\r?\n/).filter(function (l) { return l.trim(); });
+    if (lines.length < 2) return { error: 'CSV must have a header row and at least one data row', entries: [], errors: [] };
+
+    var header = lines[0].split(',').map(function (h) { return h.trim().toLowerCase(); });
+    var ndcIdx = header.indexOf('ndchash');
+    var tierIdx = header.indexOf('tierlevel');
+    var copayIdx = header.indexOf('copayamountcents');
+    var brandIdx = header.indexOf('brandname');
+    var paIdx = header.indexOf('requirespriorauth');
+
+    if (ndcIdx === -1) return { error: 'CSV must have an "ndcHash" column', entries: [], errors: [] };
+
+    var entries = [];
+    var errors = [];
+    for (var i = 1; i < lines.length; i++) {
+      var cols = lines[i].split(',').map(function (c) { return c.trim(); });
+      if (!cols[ndcIdx]) continue;
+      var copay = copayIdx !== -1 ? copayCentsFromText(cols[copayIdx], 1000) : 1000;
+      if (isNaN(copay)) {
+        errors.push('Row ' + i + ': copayAmountCents must be a whole number of cents, 0 or more');
+        continue;
+      }
+      entries.push({
+        ndcHash: cols[ndcIdx],
+        brandName: brandIdx !== -1 ? cols[brandIdx] || '' : '',
+        tierLevel: tierIdx !== -1 ? Number(cols[tierIdx]) || 1 : 1,
+        copayAmountCents: copay,
+        requiresPriorAuth: paIdx !== -1 ? cols[paIdx] === 'true' || cols[paIdx] === '1' : false,
+      });
+    }
+    return { error: null, entries: entries, errors: errors };
+  }
+
   function parseCSV(file) {
     var reader = new FileReader();
     reader.onload = function (e) {
-      var text = e.target.result;
-      var lines = text.split(/\r?\n/).filter(function (l) { return l.trim(); });
-      if (lines.length < 2) { toast('CSV must have a header row and at least one data row', 'error'); return; }
-
-      var header = lines[0].split(',').map(function (h) { return h.trim().toLowerCase(); });
-      var ndcIdx = header.indexOf('ndchash');
-      var tierIdx = header.indexOf('tierlevel');
-      var copayIdx = header.indexOf('copayamountcents');
-      var brandIdx = header.indexOf('brandname');
-      var paIdx = header.indexOf('requirespriorauth');
-
-      if (ndcIdx === -1) { toast('CSV must have an "ndcHash" column', 'error'); return; }
-
-      var entries = [];
-      for (var i = 1; i < lines.length; i++) {
-        var cols = lines[i].split(',').map(function (c) { return c.trim(); });
-        if (!cols[ndcIdx]) continue;
-        entries.push({
-          ndcHash: cols[ndcIdx],
-          brandName: brandIdx !== -1 ? cols[brandIdx] || '' : '',
-          tierLevel: tierIdx !== -1 ? Number(cols[tierIdx]) || 1 : 1,
-          copayAmountCents: copayIdx !== -1 ? Number(cols[copayIdx]) || 1000 : 1000,
-          requiresPriorAuth: paIdx !== -1 ? cols[paIdx] === 'true' || cols[paIdx] === '1' : false,
-        });
+      var parsed = csvFormularyEntries(e.target.result);
+      if (parsed.error) { toast(parsed.error, 'error'); return; }
+      if (parsed.errors.length > 0) {
+        toast(parsed.errors.length + ' row(s) not read. ' + parsed.errors[0] + (parsed.errors.length > 1 ? ' (and others)' : ''), 'error');
       }
+      if (parsed.entries.length === 0) { toast('No valid entries found in CSV', 'error'); return; }
 
-      if (entries.length === 0) { toast('No valid entries found in CSV', 'error'); return; }
-
-      csvParsedData = entries;
-      showUploadPreview(entries);
+      csvParsedData = parsed.entries;
+      showUploadPreview(parsed.entries);
     };
     reader.readAsText(file);
   }
@@ -429,9 +465,11 @@
     var ndc = ($('form-ndc') || {}).value || '';
     var brand = ($('form-brand') || {}).value || '';
     var tier = Number(($('form-tier') || {}).value) || 1;
-    var copay = Number(($('form-copay') || {}).value) || 1000;
+    // A typed 0 is a $0 copay; only an empty box takes the default (copayCentsFromText).
+    var copay = copayCentsFromText(($('form-copay') || {}).value, 1000);
 
     if (!ndc.trim()) { toast('NDC Hash is required', 'error'); return; }
+    if (isNaN(copay)) { toast('Copay must be a whole number of cents, 0 or more (blank for $10.00)', 'error'); return; }
 
     formularyData.push({
       ndcHash: ndc.trim(),
@@ -1165,23 +1203,40 @@
     // Auto-poll every 10s so insurer sees doc uploads + status changes in real time
     if (_appsPollTimer) clearInterval(_appsPollTimer);
     _appsPollTimer = setInterval(function() {
-      if (currentTab === 'employers') loadMarketplaceApplications();
+      if (currentTab === 'employers') loadMarketplaceApplications({ quiet: true });
       else { clearInterval(_appsPollTimer); _appsPollTimer = null; }
     }, 10000);
   }
 
-  async function loadMarketplaceApplications() {
+  /** The applications list as last drawn, so a poll that finds nothing new leaves the table, and a click on it, alone. */
+  var _appsLastHtml = null;
+
+  /**
+   * Draw the employer applications. A first load, the Refresh button and an action show "Loading applications..." while
+   * they ask; the 10 s poll ({ quiet: true }) does not, and redraws only when the list changed, so the table does not
+   * blink, move the page or swallow a click on every poll. A poll that fails leaves the table as it was.
+   */
+  async function loadMarketplaceApplications(opts) {
+    var quiet = !!(opts && opts.quiet === true);
     var body = $('marketplace-apps-body');
     if (!body) return;
-    body.innerHTML = '<div class="loading">Loading applications...</div>';
+    if (!quiet) {
+      _appsLastHtml = null;
+      body.innerHTML = '<div class="loading">Loading applications...</div>';
+    }
+    var show = function (html) {
+      if (quiet && html === _appsLastHtml) return;
+      _appsLastHtml = html;
+      body.innerHTML = html;
+    };
     try {
       var apps = await API.getEmployerApplications();
       var list = Array.isArray(apps) ? apps : (apps.data || apps);
       if (!list || list.length === 0) {
-        body.innerHTML = '<div class="empty-state">No marketplace applications yet.</div>';
+        show('<div class="empty-state">No marketplace applications yet.</div>');
         return;
       }
-      body.innerHTML = '<table class="data-table"><thead><tr>' +
+      show('<table class="data-table"><thead><tr>' +
         '<th>Company</th><th>EIN</th><th>Plans</th><th>Cap</th><th>Status</th><th>Submitted</th><th>Document</th><th>Actions</th></tr></thead><tbody>' +
         list.map(function(a) {
           var statusColor = { submitted: 'yellow', under_review: 'yellow', needs_documents: 'orange', approved: 'blue', signed: 'green', active: 'green', denied: 'red' };
@@ -1199,9 +1254,10 @@
             '<td class="actions-cell">' + renderAppActions(a) + '</td>' +
           '</tr>';
         }).join('') +
-        '</tbody></table>';
+        '</tbody></table>');
     } catch (e) {
-      body.innerHTML = '<div class="form-result error">Failed to load applications: ' + esc(e.message) + '</div>';
+      if (quiet) return;
+      show('<div class="form-result error">Failed to load applications: ' + esc(e.message) + '</div>');
     }
   }
 
@@ -1600,7 +1656,7 @@
     var btns = [];
     if (app.status === 'pending') {
       btns.push('<button class="btn btn-sm" onclick="App.verifyApp(\'' + esc(app.applicationId) + '\')">Verify</button>');
-      btns.push('<button class="btn btn-sm btn-danger" onclick="App.denyApp(\'' + esc(app.applicationId) + '\')">Deny</button>');
+      btns.push('<button class="btn btn-sm btn-danger" onclick="App.denyCredentialingApp(\'' + esc(app.applicationId) + '\')">Deny</button>');
     }
     if (app.status === 'verified' || app.status === 'pending') {
       btns.push('<button class="btn btn-sm btn-primary" onclick="App.approveCredentialingApp(\'' + esc(app.applicationId) + '\')">Approve</button>');
@@ -1723,6 +1779,157 @@
     }
 
     return '<pre style="white-space:pre-wrap;font-size:12px">' + esc(JSON.stringify(data, null, 2)) + '</pre>';
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  //  PRIOR AUTHORIZATIONS
+  // ═══════════════════════════════════════════════════════════
+
+  /** A request ID this page puts into an element ID or a handler: letters, digits, '-' and '_', as the node accepts. */
+  function paIdOk(id) {
+    return typeof id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(id);
+  }
+
+  /** A request's quantity with the drug's pricing unit: "30 EA", "0.4 ML". */
+  function paQuantity(r) {
+    if (r.quantity == null) return '--';
+    return r.pricingUnit ? r.quantity + ' ' + r.pricingUnit : String(r.quantity);
+  }
+
+  /** Why a prior-authorization list could not be shown, in words the insurer can act on. */
+  function paLoadError(e) {
+    if (e && e.status === 401) return 'Set the insurer admin token in the Admin tab to see prior-authorization requests.';
+    return 'Could not load prior-authorization requests: ' + ((e && e.message) || 'unknown error');
+  }
+
+  /** The pending requests, each with a reason box, Approve and Deny. */
+  function renderPendingPriorAuths(requests) {
+    var rows = (requests || []).filter(function (r) { return r && paIdOk(r.id); });
+    if (rows.length === 0) return '<div class="empty-state">No prior-authorization requests are waiting for a decision.</div>';
+    return '<table class="data-table"><thead><tr>' +
+      '<th>Request</th><th>Member</th><th>Drug</th><th>NDC</th><th>Quantity</th><th>Prescriber</th><th>Requested</th><th>Prescriber\'s Reason</th><th>Decision</th>' +
+      '</tr></thead><tbody>' +
+      rows.map(function (r) {
+        var id = r.id;
+        return '<tr>' +
+          '<td style="font-family:var(--font-mono);font-size:12px">' + esc(id) + '</td>' +
+          '<td><span class="hash" title="The member\'s wallet ID, cut">' + esc(r.member || '--') + '</span></td>' +
+          '<td>' + esc(r.drugName || '--') + '</td>' +
+          '<td style="font-family:var(--font-mono);font-size:12px">' + esc(r.ndc || '--') + '</td>' +
+          '<td>' + esc(paQuantity(r)) + '</td>' +
+          '<td>' + esc(r.prescriberName || '--') + '</td>' +
+          '<td style="font-size:12px">' + esc(fmtDate(r.requestedAt)) + '</td>' +
+          '<td style="font-size:12px">' + esc(r.reason || '--') + '</td>' +
+          '<td class="actions-cell">' +
+            '<input type="text" class="form-input" id="pa-reason-' + id + '" placeholder="Reason (required to deny)" maxlength="500" style="min-width:200px;margin-bottom:6px">' +
+            '<div style="display:flex;gap:4px">' +
+              '<button class="btn btn-sm btn-primary" id="pa-approve-' + id + '" onclick="App.approvePriorAuth(\'' + id + '\')">Approve</button>' +
+              '<button class="btn btn-sm btn-danger" id="pa-deny-' + id + '" onclick="App.denyPriorAuth(\'' + id + '\')">Deny</button>' +
+            '</div>' +
+          '</td>' +
+        '</tr>';
+      }).join('') +
+      '</tbody></table>';
+  }
+
+  /** The latest decisions, newest first. */
+  function renderPriorAuthDecisions(decisions) {
+    var rows = (decisions || []).filter(function (d) { return d && paIdOk(d.id); });
+    if (rows.length === 0) return '<div class="empty-state">No decisions yet.</div>';
+    return '<table class="data-table"><thead><tr>' +
+      '<th>Request</th><th>Member</th><th>Drug</th><th>Quantity</th><th>Prescriber</th><th>Decision</th><th>Reason</th><th>Decided</th>' +
+      '</tr></thead><tbody>' +
+      rows.map(function (d) {
+        var badge = d.status === 'APPROVED' ? '<span class="badge badge-ready">Approved</span>' : '<span class="badge badge-error">Denied</span>';
+        return '<tr>' +
+          '<td style="font-family:var(--font-mono);font-size:12px">' + esc(d.id) + '</td>' +
+          '<td><span class="hash">' + esc(d.member || '--') + '</span></td>' +
+          '<td>' + esc(d.drugName || '--') + '</td>' +
+          '<td>' + esc(paQuantity(d)) + '</td>' +
+          '<td>' + esc(d.prescriberName || '--') + '</td>' +
+          '<td>' + badge + '</td>' +
+          '<td style="font-size:12px">' + esc(d.decisionReason || '--') + '</td>' +
+          '<td style="font-size:12px">' + esc(fmtDate(d.resolvedAt)) + '</td>' +
+        '</tr>';
+      }).join('') +
+      '</tbody></table>';
+  }
+
+  async function loadPendingPriorAuths() {
+    var el = $('pa-pending-container');
+    if (!el) return;
+    el.innerHTML = '<div class="loading">Loading...</div>';
+    try {
+      var data = await API.getPendingPriorAuths();
+      el.innerHTML = renderPendingPriorAuths(data && Array.isArray(data.requests) ? data.requests : []);
+    } catch (e) {
+      el.innerHTML = '<div class="form-result error">' + esc(paLoadError(e)) + '</div>';
+    }
+  }
+
+  async function loadPriorAuthDecisions() {
+    var el = $('pa-decisions-container');
+    if (!el) return;
+    el.innerHTML = '<div class="loading">Loading...</div>';
+    try {
+      var data = await API.getPriorAuthDecisions(20);
+      el.innerHTML = renderPriorAuthDecisions(data && Array.isArray(data.decisions) ? data.decisions : []);
+    } catch (e) {
+      el.innerHTML = '<div class="form-result error">' + esc(paLoadError(e)) + '</div>';
+    }
+  }
+
+  /** The Prior Auth tab: both lists, read again on entry, on Refresh and after every decision. */
+  async function loadPriorAuthPage() {
+    var refresh = $('pa-refresh-btn');
+    if (refresh) refresh.onclick = loadPriorAuthPage;
+    await Promise.all([loadPendingPriorAuths(), loadPriorAuthDecisions()]);
+  }
+
+  /** A row's two buttons, off while its decision is sent, so the decision is sent once. */
+  function paRowBusy(id, decision) {
+    var approve = $('pa-approve-' + id);
+    var deny = $('pa-deny-' + id);
+    if (approve) approve.disabled = true;
+    if (deny) deny.disabled = true;
+    if (decision === 'approve' && approve) approve.textContent = 'Approving...';
+    if (decision === 'deny' && deny) deny.textContent = 'Denying...';
+  }
+
+  async function approvePriorAuth(id) {
+    if (!paIdOk(id)) return;
+    paRowBusy(id, 'approve');
+    try {
+      var r = await API.approvePriorAuth(id);
+      var note = r && r.walletUpdate === 'pending' ? ' The member\'s device applies it when it next syncs.' : '';
+      toast('Approved ' + id + '.' + note, 'success');
+      showResult('pa-action-result', 'Approved ' + id + (r && r.drugName ? ' (' + r.drugName + ')' : '') + '.' + note, true);
+    } catch (e) {
+      toast('Approve failed: ' + e.message, 'error');
+      showResult('pa-action-result', 'Approve failed for ' + id + ': ' + e.message, false);
+    }
+    await loadPriorAuthPage();
+  }
+
+  async function denyPriorAuth(id) {
+    if (!paIdOk(id)) return;
+    var input = $('pa-reason-' + id);
+    var reason = String((input && input.value) || '').trim();
+    if (!reason) {
+      toast('Enter the reason for the denial: the prescriber is told it', 'error');
+      if (input && input.focus) input.focus();
+      return;
+    }
+    paRowBusy(id, 'deny');
+    try {
+      await API.denyPriorAuth(id, reason);
+      toast('Denied ' + id, 'info');
+      showResult('pa-action-result', 'Denied ' + id + ': ' + reason, true);
+    } catch (e) {
+      toast('Deny failed: ' + e.message, 'error');
+      showResult('pa-action-result', 'Deny failed for ' + id + ': ' + e.message, false);
+    }
+    await loadPriorAuthPage();
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -2269,6 +2476,8 @@
     denyApp: denyApp,
     requestDocs: requestDocs,
     reviewDoc: reviewDoc,
+    approvePriorAuth: approvePriorAuth,
+    denyPriorAuth: denyPriorAuth,
     suspendProvider: async function (wid) {
       if (!confirm('Suspend provider ' + wid.slice(0, 16) + '...?')) return;
       try { await API.suspendProvider(wid); toast('Provider suspended', 'success'); loadProviderRegistry(); }
@@ -2289,7 +2498,9 @@
       try { await API.approveApplication(appId, walletId); toast('Application approved & credentialed', 'success'); loadCredentialingApps(); loadProviderRegistry(); }
       catch (e) { toast('Failed: ' + e.message, 'error'); }
     },
-    denyApp: async function (appId) {
+    // Credentialing's own deny. It was a second denyApp key in this object, which replaced the employer application's
+    // denyApp above, so Deny on an employer application posted to the credentialing route, which has no such application.
+    denyCredentialingApp: async function (appId) {
       var reason = prompt('Denial reason (optional):');
       try { await API.denyApplication(appId, reason || 'Denied by insurer'); toast('Application denied', 'info'); loadCredentialingApps(); }
       catch (e) { toast('Failed: ' + e.message, 'error'); }

@@ -31,6 +31,7 @@
     <button class="nav-tab" data-tab="plans" role="tab">Plans</button>
     <button class="nav-tab" data-tab="employers" role="tab">Employers &amp; Groups</button>
     <button class="nav-tab" data-tab="eligibility" role="tab">Eligibility</button>
+    <button class="nav-tab" data-tab="priorauth" role="tab">Prior Auth</button>
     <button class="nav-tab" data-tab="pricing" role="tab">Pricing</button>
     <button class="nav-tab" data-tab="credentialing" role="tab">Credentialing</button>
     <button class="nav-tab" data-tab="claims" role="tab">Claims</button>
@@ -93,7 +94,7 @@
           <div class="upload-zone" id="form-upload-zone">
             <div class="upload-icon">&#8682;</div>
             <div class="upload-text">Drag &amp; drop a CSV file here, or click to browse</div>
-            <div class="upload-hint">Columns: ndcHash, tierLevel, copayAmountCents, brandName (optional), requiresPriorAuth (optional)</div>
+            <div class="upload-hint">Columns: ndcHash, tierLevel, copayAmountCents, brandName (optional), requiresPriorAuth (optional). A blank copay is $10.00; 0 is no copay.</div>
             <input type="file" id="form-file-input" accept=".csv,.txt" class="hidden">
           </div>
           <div id="form-upload-preview" class="hidden">
@@ -137,7 +138,8 @@
             </div>
             <div class="form-group">
               <label class="form-label">Copay (cents)</label>
-              <input type="number" class="form-input" id="form-copay" value="1000" min="0">
+              <input type="number" class="form-input" id="form-copay" value="1000" min="0" step="1">
+              <span class="form-hint">0 = no copay; blank = $10.00</span>
             </div>
           </div>
           <div class="form-actions">
@@ -445,6 +447,30 @@
           <button class="btn btn-sm" id="elig-pending-refresh">Refresh</button>
         </div>
         <div class="panel-body" id="elig-pending-container">
+          <div class="loading">Loading...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!--  PRIOR AUTHORIZATIONS                                    -->
+    <!-- ════════════════════════════════════════════════════════ -->
+    <section class="page" id="page-priorauth">
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Pending Prior Authorizations</h3>
+          <button class="btn btn-sm" id="pa-refresh-btn">Refresh</button>
+        </div>
+        <div class="panel-body">
+          <p class="form-desc">Requests a prescriber started for a drug the member's plan covers only with prior authorization. Approving proves the authorization and records it in the member's credential; a member's device applies the update when it next syncs. A denial needs a reason, which the prescriber is told.</p>
+          <div id="pa-pending-container"><div class="loading">Loading...</div></div>
+          <div id="pa-action-result"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header"><h3>Recent Decisions</h3></div>
+        <div class="panel-body" id="pa-decisions-container">
           <div class="loading">Loading...</div>
         </div>
       </div>

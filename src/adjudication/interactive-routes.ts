@@ -20,14 +20,17 @@
  * Registers endpoints on L2RpcServer:
  *   GET  /interactive/state          — current session state
  *   GET  /interactive/console        — SSE stream of console events
+ *   GET  /interactive/ready          — whether the engine is ready to prove (open; 503 with Retry-After until it is)
  *   POST /interactive/enroll         — execute member enrollment
  *   POST /interactive/enroll-family  — enroll subscriber + all dependents
  *   POST /interactive/assign-pcp     — assign PCP with consent proof
  *   GET  /interactive/member-history  — get member's Rx history (PCP-gated)
  *   GET  /interactive/family-history  — get family-level history + pooled accumulators
- *   POST /interactive/request-prior-auth — prescriber requests PA for PA-required med
+ *   POST /interactive/request-prior-auth — prescriber requests PA for PA-required med (signed as the prescriber's wallet; the console as the operator)
+ *   GET  /interactive/prior-auth-status  — a member's PA status for one drug (the prescriber's wallet, with the member's consent; the operator)
  *   POST /interactive/approve-prior-auth — insurer approves PA (generates provePriorAuth proof)
- *   POST /interactive/deny-prior-auth    — insurer denies PA request
+ *   POST /interactive/deny-prior-auth    — insurer denies PA request (with its reason)
+ *   GET  /interactive/prior-auths        — the PA requests for the plan's review (?status=PENDING|RESOLVED|ALL)
  *   POST /interactive/prescribe          — create prescription with proofs (enforces PA)
  *   POST /interactive/fill               — dispense step (backward-compat path, returns 202, poll fill-status)
  *   GET  /interactive/fill-status       — poll fill job status
@@ -60,6 +63,14 @@ import type { NfcReader, NfcTagEvent, NdefPayload } from './nfc-port.js';
 import type { NfcCredentialAttestation } from '../credentials/nfc-attestation.js';
 import { MEDICATIONS, PRESCRIBERS, PHARMACIES } from '../data/index.js';
 import { readRequestBody } from '../security/request-body.js';
+
+type RouteHandler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+
+/** What a route that makes proofs answers, with 503, while the engine is still starting its provers. */
+export const PROVERS_STARTING_MESSAGE = 'The claims engine is still starting its provers; try again shortly.';
+
+/** The Retry-After, in seconds, of that answer and of GET /interactive/ready while the engine is not ready to prove. */
+export const PROVERS_RETRY_AFTER_SECONDS = 10;
 
 export function registerInteractiveRoutes(
   server: L2RpcServer,
@@ -137,6 +148,16 @@ export function registerInteractiveRoutes(
     '/interactive/console',
   ]);
 
+  /**
+   * Routes a prescriber calls as itself (owner decision 2026-10-19): the prescriber node signs as the prescriber's own
+   * wallet, the sequencer verifies that wallet's registered key, and the handler takes the prescriber from the signature
+   * (L2RpcServer.principalOf), never from the body. The operator's credential opens them too, for the console.
+   */
+  const PROVIDER_ROUTES: Record<string, 'prescriber' | 'pharmacy'> = {
+    'POST:/interactive/request-prior-auth': 'prescriber',
+    'GET:/interactive/prior-auth-status': 'prescriber',
+  };
+
   /** Routes that take only the signature of the wallet they name (B2), and where the request names it. */
   const WALLET_ROUTES: Record<string, { from: 'query' | 'body'; param: string }> = {
     'GET:/interactive/wallet-updates': { from: 'query', param: 'walletId' },
@@ -165,26 +186,77 @@ export function registerInteractiveRoutes(
   const GATED_READS = new Set([
     '/interactive/member-history', '/interactive/family-history', '/interactive/threads',
     '/interactive/prescriptions-by-pharmacy', '/interactive/fill-status', '/interactive/step-therapy-check',
-    '/interactive/enroll-status',
+    '/interactive/enroll-status', '/interactive/prior-auths',
   ]);
   const OPEN_NODE_READS = new Set(['/node/chain-state', '/node/chain-proof', '/node/all-batches', '/node/formulary']);
+  /**
+   * Reads open by design: a caller with no credential needs them, and they name nothing about members. The engine's
+   * readiness to prove is one (a provider node, a harness or the launcher waits on it before a first proof). A GET
+   * outside GATED_READS is open anyway; these are named so that no later change puts one behind a gate, which reg refuses.
+   */
+  const OPEN_READS = new Set(['/interactive/ready']);
+
+  /**
+   * The routes that make proofs: each handler reaches the engine's prover (dispatchProof) through the service, as
+   * prescribing, dispensing, a reversal and a prior-authorization approval do, and the console's enrollments, its PCP
+   * assignment (assign-pcp), messages, delegations, credentials and badge taps; the formulary, provider-network and
+   * plan-year cascades prove for the console's members. While the engine is not ready to prove (its programs compile, or
+   * its proof pool's workers are still compiling after boot) each answers 503 with Retry-After before it reads its body,
+   * takes the proving lock or changes anything, and the caller tries again: a provider node's job stays pending and does.
+   * The prover's own wait for a starting pool stays as the safety net; GET /interactive/ready says when the engine is
+   * ready. pcp-assignment, a member device's own PCP choice, is not here: it makes no proof (the device proves the wallet
+   * update it queues), as tests/engine-ready-route.test.ts checks against the code.
+   */
+  const PROVING_ROUTES = new Set([
+    '/interactive/enroll', '/interactive/enroll-family', '/interactive/approve-prior-auth',
+    '/interactive/prescribe', '/interactive/fill', '/interactive/prescribe-and-fill', '/interactive/reverse',
+    '/interactive/assign-pcp', '/interactive/send-message', '/interactive/create-delegation', '/interactive/generate-credential',
+    '/interactive/update-formulary', '/interactive/update-provider-network', '/interactive/plan-year-rollover',
+    '/interactive/badge/tap', '/interactive/badge/auto-tap',
+  ]);
+
+  /** A proving route's handler behind the engine's readiness to prove: 503 with Retry-After until the engine is ready. */
+  function untilProvingReady(method: string, path: string, handler: RouteHandler): RouteHandler {
+    return async (req: IncomingMessage, res: ServerResponse) => {
+      if (!service.isProvingReady()) {
+        console.log(`  [interactive] ${method} ${path} answered 503: the provers are still starting (retry after ${PROVERS_RETRY_AFTER_SECONDS} s)`);
+        res.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': String(PROVERS_RETRY_AFTER_SECONDS) });
+        res.end(JSON.stringify({ error: PROVERS_STARTING_MESSAGE, retryAfterSeconds: PROVERS_RETRY_AFTER_SECONDS }));
+        return;
+      }
+      return handler(req, res);
+    };
+  }
 
   // The prescriber's pre-script estimate (l2_estimateCost with a walletId) is this engine's quote for that member,
-  // reached through one narrow call that can become an RPC when the engine moves into its own process. The service is
-  // asked only when a quote is.
-  server.setMemberCostQuoteProvider((request) => service.quoteMemberCost(request.walletId, request.ndcHash, request.quantity));
+  // reached through one narrow call that can become an RPC when the engine moves into its own process, together with the
+  // member's consent the read gate asks before a prescriber reads it (B5: the named primary-care prescriber, or one the
+  // member's device authorized for the visit). The service is asked only when a quote or a consent is.
+  server.setMemberCostQuoteProvider({
+    quote: (request) => service.quoteMemberCost(request.walletId, request.ndcHash, request.quantity),
+    mayPrescribe: (request) => service.prescribingConsentFor(request.memberWalletId, request.prescriberWalletId, request.ndcHash) !== null,
+  });
 
-  // Helper: register route with the admin gate (A11, D2), the wallet gate for wallet routes, and the
-  // proving budget for every write route
-  function reg(method: string, path: string, handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>): void {
+  // Helper: register route with the admin gate (A11, D2), the wallet gate for wallet routes, the proving budget for
+  // every write route, and the readiness gate for the routes that make proofs
+  function reg(method: string, path: string, handler: RouteHandler): void {
     const upper = method.toUpperCase();
     const walletSigned = WALLET_ROUTES[`${upper}:${path}`];
     const timeoutMs = upper === 'POST' ? ENGINE_ROUTE_BUDGET_MS : undefined;
+    const providerSigned = PROVIDER_ROUTES[`${upper}:${path}`];
+    if (OPEN_READS.has(path) && (upper !== 'GET' || providerSigned || walletSigned || ADMIN_ROUTES.has(path) || GATED_READS.has(path))) {
+      throw new Error(`${upper} ${path} is an open read (OPEN_READS) and is never registered behind a gate`);
+    }
+    const route = upper === 'POST' && PROVING_ROUTES.has(path) ? untilProvingReady(upper, path, handler) : handler;
+    if (providerSigned) {
+      server.registerRoute(method, path, route, timeoutMs ? { providerSigned, timeoutMs } : { providerSigned });
+      return;
+    }
     const adminOnly = ADMIN_ROUTES.has(path)
       || (upper === 'POST' && !walletSigned && !OPEN_POSTS.has(path))
       || (upper === 'GET' && GATED_READS.has(path))
       || (path.startsWith('/node/') && !OPEN_NODE_READS.has(path));
-    server.registerRoute(method, path, handler, adminOnly ? { adminOnly: true, timeoutMs } : walletSigned ? { walletSigned, timeoutMs } : timeoutMs ? { timeoutMs } : undefined);
+    server.registerRoute(method, path, route, adminOnly ? { adminOnly: true, timeoutMs } : walletSigned ? { walletSigned, timeoutMs } : timeoutMs ? { timeoutMs } : undefined);
   }
 
   // Console SSE clients
@@ -234,6 +306,21 @@ export function registerInteractiveRoutes(
       const message = err instanceof Error ? err.message : String(err);
       console.error('[/interactive/state] Error:', message);
       sendError(res, 500, message);
+    }
+  });
+
+  // GET /interactive/ready — whether the engine is ready to prove: { ready, compiled, prover }, and nothing about members.
+  // Open (OPEN_READS). 200 when ready; 503 with Retry-After while its programs compile or its proof pool is starting.
+  reg('GET', '/interactive/ready', async (_req: IncomingMessage, res: ServerResponse) => {
+    try {
+      const readiness = service.provingReadiness();
+      const summary = { ready: readiness.ready === true, compiled: readiness.compiled === true, prover: readiness.prover };
+      res.writeHead(summary.ready ? 200 : 503, summary.ready
+        ? { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+        : { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Retry-After': String(PROVERS_RETRY_AFTER_SECONDS) });
+      res.end(JSON.stringify(summary));
+    } catch (err) {
+      sendError(res, 500, err instanceof Error ? err.message : String(err));
     }
   });
 
@@ -484,11 +571,56 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/request-prior-auth
+  //
+  // Two callers. A prescriber node signs the request as the prescriber's own wallet: the prescriber is the wallet that
+  // signed (server.principalOf), and a body that names a prescriber is refused; the engine refuses a prescriber without
+  // the member's consent, a drug that needs no prior authorization on the member's plan and a duplicate of a pending
+  // request (requestPriorAuthAsPrescriber). The console's operator path: the operator's credential, the prescriber
+  // named by its seed index, for the console's members (requestPriorAuth). Nobody else.
   reg('POST', '/interactive/request-prior-auth', async (req: IncomingMessage, res: ServerResponse) => {
     try {
+      const who = server.principalOf(req);
       const body = await readBody(req);
-      const params = JSON.parse(body);
+      let params: Record<string, unknown>;
+      try {
+        const parsed = JSON.parse(body || '{}') as unknown;
+        params = parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {};
+      } catch {
+        sendError(res, 400, 'The body is not JSON');
+        return;
+      }
 
+      if (who?.kind === 'wallet') {
+        if (params.prescriberIndex !== undefined || params.prescriberWalletId !== undefined) {
+          sendError(res, 400, "A prescriber's own request names no prescriber: the engine takes the prescriber from the wallet that signed it");
+          return;
+        }
+        if (typeof params.memberWalletId !== 'string' || !/^\d+$/.test(params.memberWalletId) ||
+            typeof params.ndcHash !== 'string' || !/^\d+$/.test(params.ndcHash)) {
+          sendError(res, 400, 'Missing required fields: memberWalletId and ndcHash, as decimal strings');
+          return;
+        }
+        if (params.reason !== undefined && typeof params.reason !== 'string') {
+          sendError(res, 400, 'reason is optional text');
+          return;
+        }
+        const result = service.requestPriorAuthAsPrescriber({
+          prescriberWalletId: who.walletId,
+          memberWalletId: params.memberWalletId,
+          ndcHash: params.ndcHash,
+          quantity: params.quantity as number,
+          reason: params.reason === undefined ? undefined : (params.reason as string).trim(),
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(safeJsonStringify(result));
+        return;
+      }
+
+      if (who?.kind !== 'operator' && !(who?.kind === 'node' && who.role === 'operator')) {
+        sendError(res, 403, "A prior authorization is requested by the prescriber, signed as the prescriber's own wallet, or by the operator");
+        return;
+      }
+      // The console's operator path: the prescriber is named by its seed index
       if (typeof params.memberWalletId !== 'string' ||
           typeof params.prescriberIndex !== 'number' ||
           typeof params.ndcHash !== 'string') {
@@ -506,8 +638,56 @@ export function registerInteractiveRoutes(
       });
       res.end(safeJsonStringify(result));
     } catch (err) {
+      if (err instanceof RegistrationRefused) return sendError(res, err.status, err.message);
       const message = err instanceof Error ? err.message : String(err);
       sendError(res, 500, message);
+    }
+  });
+
+  // GET /interactive/prior-auths?status=PENDING|RESOLVED|ALL — the prior-authorization requests for the plan's review:
+  // the insurer node (its role) or the operator. Each names the member by wallet ID only, the drug, the quantity asked
+  // for, the prescriber, the dates and both reasons.
+  reg('GET', '/interactive/prior-auths', async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      const status = (new URL(req.url ?? '/', 'http://localhost').searchParams.get('status') ?? 'ALL').toUpperCase();
+      if (status !== 'PENDING' && status !== 'RESOLVED' && status !== 'ALL') {
+        sendError(res, 400, 'status is PENDING, RESOLVED or ALL');
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ priorAuths: service.listPriorAuths(status) }));
+    } catch (err) {
+      sendError(res, 500, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  // GET /interactive/prior-auth-status?memberWalletId=&ndcHash= — a member's prior-authorization status for one drug.
+  // A prescriber reads it signed as its own wallet and only with the member's consent (priorAuthStatusForPrescriber);
+  // the operator reads any member's. The answer names no request ID.
+  reg('GET', '/interactive/prior-auth-status', async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      const who = server.principalOf(req);
+      const query = new URL(req.url ?? '/', 'http://localhost').searchParams;
+      const memberWalletId = query.get('memberWalletId') ?? '';
+      const ndcHash = query.get('ndcHash') ?? '';
+      if (!/^\d+$/.test(memberWalletId) || !/^\d+$/.test(ndcHash)) {
+        sendError(res, 400, 'memberWalletId and ndcHash (decimal) are required');
+        return;
+      }
+      let status;
+      if (who?.kind === 'wallet') {
+        status = service.priorAuthStatusForPrescriber(who.walletId, memberWalletId, ndcHash);
+      } else if (who?.kind === 'operator' || (who?.kind === 'node' && who.role === 'operator')) {
+        status = service.priorAuthStatusOf(memberWalletId, ndcHash);
+      } else {
+        sendError(res, 403, "A member's prior authorization is read by a prescriber with the member's consent, signed as its own wallet, or by the operator");
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ memberWalletId, ndcHash, ...status }));
+    } catch (err) {
+      if (err instanceof RegistrationRefused) return sendError(res, err.status, err.message);
+      sendError(res, 500, err instanceof Error ? err.message : String(err));
     }
   });
 
@@ -530,12 +710,15 @@ export function registerInteractiveRoutes(
       // Force batch to settle any pending transitions immediately
       service.forceBatch().catch(() => {});
     } catch (err) {
+      // an unknown request 404; one already decided, or an approval of it already being proven, 409
+      if (err instanceof RegistrationRefused) return sendError(res, err.status, err.message);
       const message = err instanceof Error ? err.message : String(err);
       sendError(res, 500, message);
     }
   });
 
-  // POST /interactive/deny-prior-auth
+  // POST /interactive/deny-prior-auth {priorAuthId, reason?} — the insurer's reason, at most 500 characters, goes to the
+  // prescriber in the PA_RESPONSE message and into the review list, and is kept in memory only
   reg('POST', '/interactive/deny-prior-auth', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
@@ -545,13 +728,20 @@ export function registerInteractiveRoutes(
         sendError(res, 400, 'Missing required field: priorAuthId');
         return;
       }
+      if (params.reason !== undefined && (typeof params.reason !== 'string' || params.reason.trim().length > 500)) {
+        sendError(res, 400, 'reason is optional text of at most 500 characters');
+        return;
+      }
+      const reason = typeof params.reason === 'string' && params.reason.trim().length > 0 ? params.reason.trim() : undefined;
 
-      const result = service.denyPriorAuth(params.priorAuthId);
+      const result = service.denyPriorAuth(params.priorAuthId, reason);
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
       res.end(safeJsonStringify(result));
     } catch (err) {
+      // a reason that is not plain text 400; an unknown request 404; one already decided, or being approved, 409
+      if (err instanceof RegistrationRefused) return sendError(res, err.status, err.message);
       const message = err instanceof Error ? err.message : String(err);
       sendError(res, 500, message);
     }
@@ -1576,6 +1766,9 @@ export function registerInteractiveRoutes(
           strength: m.strength,
           ndc: m.ndc,
           tier: m.formularyEntry.tierLevel,
+          // what a fill is priced at: NADAC per pricing unit (EA, ML or GM); the pharmacy console's formulary lists it
+          nadacPerUnit: m.nadacPerUnit,
+          pricingUnit: m.pricingUnit,
         })),
       }, 'node-state'));
     } catch (err) {

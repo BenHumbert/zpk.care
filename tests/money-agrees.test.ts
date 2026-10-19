@@ -192,6 +192,7 @@ describe('the RPC and the engine\'s fill job', () => {
   let dispenses = 0;
   const service = {
     getState() { return { compiled: true, enrolledMembers: [] }; },
+    isProvingReady() { return true; }, // a proving route refuses with 503 while the engine's provers start
     getL2Node() { return { withProvingLock: (fn: () => Promise<unknown>) => fn() }; },
     async forceBatch() {},
     dispensePrescription(opts: { prescriptionId: string }) {

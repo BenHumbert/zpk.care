@@ -122,15 +122,22 @@ const isDecimal = (v: unknown): boolean => typeof v === 'string' && /^\d+$/.test
 
 /**
  * Why the sequencer's plan store must refuse this plan, or null when it may store it. The engine builds formularies,
- * binds members and (with NADAC pricing) prices fills from what is stored, so a malformed copay, drug list, provider
- * list or set of published terms would otherwise fail later inside register, prescribe or fill. Fields left out are
- * allowed (the insurer's routes fill in the plan's defaults); published terms, when present, must be complete.
+ * binds members and (with NADAC pricing) prices fills from what is stored, so a malformed copay, limit, drug list,
+ * provider list or set of published terms would otherwise fail later inside register, prescribe or fill. Fields left out
+ * are allowed (the insurer's routes fill in the plan's defaults); published terms, when present, must be complete.
+ *
+ * The live record's copay and its six limits are held to the rule the insurer's POST and PUT /plans apply (whole cents,
+ * 0 or more; 0 is none or no limit), so a plan stored directly through l2_storePlan cannot hold a draft those routes
+ * would refuse. Published terms are checked the same way below.
  */
 export function planStoreError(plan: unknown): string | null {
   if (!plan || typeof plan !== 'object') return 'Missing or invalid plan parameter (requires planId, name)';
   const p = plan as Record<string, unknown>;
   if (typeof p.planId !== 'string' || typeof p.name !== 'string') return 'Missing or invalid plan parameter (requires planId, name)';
   if (p.copayAmountCents !== undefined && !isCents(p.copayAmountCents)) return 'copayAmountCents must be a whole number of cents, 0 or more';
+  for (const k of LIMIT_FIELDS) {
+    if (p[k] !== undefined && !isCents(p[k])) return `${k} must be a whole number of cents, 0 or more`;
+  }
   if (p.formularyNdcs !== undefined && !isStringList(p.formularyNdcs)) return 'formularyNdcs must be a list of NDC strings (empty for every drug in the formulary)';
   if (p.networkProviderWalletIds !== undefined && !isStringList(p.networkProviderWalletIds)) return 'networkProviderWalletIds must be a list of wallet ID strings';
   // NADAC pricing: the engine adds this fee to every fill on the plan

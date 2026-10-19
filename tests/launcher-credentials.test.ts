@@ -2,9 +2,14 @@
  * The launcher hands each child exactly its own credential — plan item A9 (remainder), finding A-14.
  *
  * Structural: the boot script keys every node it spawns and registers the key by role before the
- * spawn, passes the operator's token to no child, gives the insurer its own token, scrubs its
- * environment for every child including the explorer and the proof workers, and spawns without a
- * shell. The start scripts read their key and watch their parent.
+ * spawn, passes the operator's token to no child, gives the insurer and the prescriber tokens of
+ * their own, scrubs its environment for every child including the explorer and the proof workers,
+ * and spawns without a shell. The start scripts read their key and watch their parent.
+ *
+ * The prescriber's token (owner decision 2026-10-19): until provider sign-in (B4) the prescriber
+ * node's patient-price and prior-authorization routes answer only that node's administrator, so a
+ * prescriber node started without a token refused everyone and the feature could not be used on a
+ * network the launcher booted.
  */
 import fs from 'fs';
 import path from 'path';
@@ -22,14 +27,23 @@ describe('start-leviathan.ts', () => {
     expect(boot).toMatch(/childEnvironment\(process\.env, \{/);
   });
 
-  test('passes the operator token to no child; the insurer gets a token of its own', () => {
+  test('passes the operator token to no child; the insurer and the prescriber get tokens of their own', () => {
     expect(boot).not.toMatch(/ZKTRIDENT_ADMIN_TOKEN: adminToken/);
     expect(boot).toMatch(/ZKTRIDENT_ADMIN_TOKEN: insurerAdminToken/);
     expect(boot).toMatch(/env\.ZKTRIDENT_INSURER_ADMIN_TOKEN\s*\n?\s*\?\? \(adminToken \? deriveNodeAdminToken\(adminToken, 'insurer'\)/);
-    // the three nodes without admin routes get no token at all
-    for (const role of ['prescriber', 'pharmacy', 'member']) {
-      const call = boot.slice(boot.indexOf(`spawnEntity('${role}'`), boot.indexOf('});', boot.indexOf(`spawnEntity('${role}'`)));
-      expect(call).not.toMatch(/ADMIN_TOKEN/);
+    const spawnCall = (role: string) => boot.slice(boot.indexOf(`spawnEntity('${role}'`), boot.indexOf('});', boot.indexOf(`spawnEntity('${role}'`)));
+    // the prescriber's own token, explicit or derived from the operator's as the insurer's is
+    expect(spawnCall('prescriber')).toMatch(/ZKTRIDENT_ADMIN_TOKEN: prescriberAdminToken/);   // before: no token, every patient route 401
+    expect(boot).toMatch(/env\.ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN\s*\n?\s*\?\? \(adminToken \? deriveNodeAdminToken\(adminToken, 'prescriber'\)/);
+    // the two nodes without admin routes get no token at all
+    for (const role of ['pharmacy', 'member']) expect(spawnCall(role)).not.toMatch(/ADMIN_TOKEN/);
+  });
+
+  test('a node\'s own token variable is a secret that no child inherits', async () => {
+    const { SECRET_ENV_KEYS, childEnvironment } = await import('../src/security/node-roles.js');
+    for (const key of ['ZKTRIDENT_INSURER_ADMIN_TOKEN', 'ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN']) {
+      expect(SECRET_ENV_KEYS).toContain(key);
+      expect(childEnvironment({ [key]: 'node-token', PATH: '/bin' }, {})).toEqual({ PATH: '/bin' });
     }
   });
 

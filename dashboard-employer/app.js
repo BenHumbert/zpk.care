@@ -229,6 +229,44 @@
     loadGroupsTable();
   }
 
+  /** The marketplace, where the employer signs: the URL the node names (its insurer's), else the local default. */
+  function marketplaceHref(data) {
+    var url = data && typeof data.marketplaceUrl === 'string' ? data.marketplaceUrl : '';
+    return /^https?:\/\/[^\s"'<>]+$/.test(url) ? url : 'http://localhost:4004/marketplace/';
+  }
+
+  /**
+   * What the employer should do about its signed agreement, from GET /attestation: sign the new terms on the marketplace
+   * when the terms it signed are no longer what its members are billed (termsChanged), when it signed before agreements
+   * covered every billing term (signedBeforeFullTerms), or when a plan it selected is published now and its agreement
+   * does not cover it (plansToAdd). '' when the agreement is current, or when the node could not tell.
+   */
+  function attestationNotice(data) {
+    if (!data || !data.loaded) return '';
+    var reasons = [];
+    if (data.termsChanged === true) {
+      var gone = Array.isArray(data.unavailablePlanIds) ? data.unavailablePlanIds : [];
+      reasons.push('<strong>Terms changed since you signed.</strong> A plan your agreement covers was published again with other terms, or withdrawn' +
+        (gone.length > 0 ? ' (no longer published: ' + esc(gone.join(', ')) + ')' : '') +
+        '. Your members are billed the plans\' published terms, not the terms you signed.');
+    } else if (data.signedBeforeFullTerms === true) {
+      reasons.push('<strong>Signed before full terms.</strong> Your agreement was signed before agreements covered dispensing fees, formularies, family limits and the provider network. The terms it covered are unchanged.');
+    }
+    var adding = Array.isArray(data.plansToAdd) ? data.plansToAdd : [];
+    if (adding.length > 0) {
+      var one = adding.length === 1;
+      reasons.push('<strong>Plans to add.</strong> ' + esc(adding.join(', ')) + (one ? ' is' : ' are') +
+        ' published now, and your agreement does not cover ' + (one ? 'it' : 'them') + ', so no group can be created on ' + (one ? 'it' : 'them') + ' yet.');
+    }
+    if (reasons.length === 0) return '';
+    var next = typeof data.attestationSeq === 'number' ? '; they register as attestation #' + esc(String(data.attestationSeq + 1)) : '';
+    return '<div class="attestation-notice" style="margin-top:10px;padding:10px 12px;border:1px solid #f59e0b;border-radius:6px">' +
+      '<div style="font-size:12px;color:#f59e0b;font-weight:600;margin-bottom:6px">ACTION NEEDED: SIGN THE NEW TERMS</div>' +
+      reasons.map(function (r) { return '<div style="font-size:13px;margin-bottom:4px">' + r + '</div>'; }).join('') +
+      '<div style="font-size:13px;margin-top:6px">Sign the new terms on <a href="' + esc(marketplaceHref(data)) + '" target="_blank" rel="noopener">the marketplace</a>' + next + '.</div>' +
+      '</div>';
+  }
+
   // Phase 3.4: Fetch current attestation status and render a banner at the top of the Groups tab.
   async function loadAttestationBanner() {
     var banner = document.getElementById('attestation-banner');
@@ -239,16 +277,18 @@
       if (data && data.loaded) {
         var plans = (data.authorizedPlanIds || []).map(function(p) { return '<span class="badge primary">' + esc(p) + '</span>'; }).join(' ');
         var eff = data.effectiveDate ? data.effectiveDate.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3') : 'n/a';
-        banner.innerHTML = '<div class="panel" style="margin-bottom:12px;border-left:3px solid #10b981"><div class="panel-body" style="padding:12px 16px">' +
+        var notice = attestationNotice(data);
+        banner.innerHTML = '<div class="panel" style="margin-bottom:12px;border-left:3px solid ' + (notice ? '#f59e0b' : '#10b981') + '"><div class="panel-body" style="padding:12px 16px">' +
           '<div style="font-size:12px;color:#10b981;font-weight:600;margin-bottom:4px">MARKETPLACE ATTESTATION LOADED</div>' +
           '<div style="font-size:13px">Authorized plans: ' + (plans || '<em>none</em>') + '</div>' +
           '<div style="font-size:11px;color:#888;margin-top:4px">Effective: ' + esc(eff) + ' | Cap: ' + esc(String(data.enrollmentCap || 'n/a')) + ' members</div>' +
+          notice +
           '</div></div>';
       } else {
         banner.innerHTML = '<div class="panel" style="margin-bottom:12px;border-left:3px solid #f59e0b"><div class="panel-body" style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px">' +
           '<div>' +
             '<div style="font-size:12px;color:#f59e0b;font-weight:600;margin-bottom:4px">WAITING FOR MARKETPLACE ATTESTATION</div>' +
-            '<div style="font-size:13px">No attestation loaded. Groups cannot be created yet. Complete the marketplace flow at <a href="http://localhost:4004/marketplace/" target="_blank">http://localhost:4004/marketplace/</a> first.</div>' +
+            '<div style="font-size:13px">No attestation loaded. Groups cannot be created yet. Complete the marketplace flow at <a href="' + esc(marketplaceHref(data)) + '" target="_blank" rel="noopener">' + esc(marketplaceHref(data)) + '</a> first.</div>' +
           '</div>' +
           '<button class="btn sm" id="btn-refresh-attestation">Refresh Attestation</button>' +
         '</div></div>';

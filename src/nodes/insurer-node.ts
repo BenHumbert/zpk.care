@@ -23,6 +23,7 @@
  *   - All 12 report types (wraps stateless ReportingService)
  *   - Full audit suite (wraps stateless AuditService)
  *   - Admin operations (formulary publish, force batch)
+ *   - The engine's price of a fill (l2_estimateCost), read as the plan
  *
  * No wallet ID. No ZkProgram compilation. Signature-gated admin.
  * Runs on: insurer backend server.
@@ -59,6 +60,7 @@ import type {
   EntityClaimView,
 } from './entity-node-types.js';
 import type { BenefitPlanConfig } from '../l2/l2-types.js';
+import type { L2Client } from '../l2/l2-client.js';
 import { publishedTermsFrom, publishedTermsOf } from '../l2/plan-terms.js';
 export type { BenefitPlanConfig };
 
@@ -204,6 +206,22 @@ export class InsurerNode extends EntityNodeBase {
   /** Get the latest chain proof for offline verification */
   async getChainProof(): Promise<L2ChainProofResponse> {
     return this.client.getChainProof();
+  }
+
+  // ─── Pricing ────────────────────────────────────────────
+
+  /**
+   * The engine's price of a fill (l2_estimateCost): NADAC x quantity plus the plan's dispensing fee, split as the fill
+   * would split it today. With a walletId it is that member's own quote, which the sequencer's read gate answers this
+   * node because its key carries the insurer role (the plan reads its members); with a planId, the plan's published
+   * price; with neither, the list price. Only the drug, the quantity and one of the two are sent: a fee or limits sent
+   * here would not be used, so none are.
+   */
+  async estimateCost(params: { ndcHash: string; quantity: number; walletId?: string; planId?: string }): ReturnType<L2Client['estimateCost']> {
+    const request: { ndcHash: string; quantity: number; walletId?: string; planId?: string } = { ndcHash: params.ndcHash, quantity: params.quantity };
+    if (params.walletId) request.walletId = params.walletId;
+    else if (params.planId) request.planId = params.planId;
+    return this.client.estimateCost(request);
   }
 
   // ─── Entity-Filtered Queries ────────────────────────────

@@ -408,6 +408,12 @@
     <!--  ONBOARDING                                              -->
     <!-- ════════════════════════════════════════════════════════ -->
     <section class="page" id="page-onboarding">
+      <!-- This node's admin token: a patient's own price and prior authorization answer only this node's administrator -->
+      <div class="admin-token-bar">
+        <label for="admin-token-input">Node admin token:</label>
+        <input type="password" autocomplete="off" class="form-input" id="admin-token-input" placeholder="This prescriber node's admin token (a patient's own price and prior authorization)" style="flex: 1;">
+        <button class="btn btn-sm" id="admin-set-token">Set</button>
+      </div>
       <div class="wizard">
         <div class="wizard-progress" id="wiz-progress"></div>
         <div class="wizard-panels">

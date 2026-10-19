@@ -41,6 +41,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { Field, Poseidon, verify } from 'o1js';
 import { Trace, makeHttp, poll, sleep, abbrev } from './trace.js';
+import { waitForEngineReady } from './engine-ready.js';
 import { expectedAdjudication, findSecrets, nadacE5, expectedNadacIngredientCents, deductibleLanding } from './reference.js';
 import { hashString, hashIdentityField, hashIdentityDate, isIdentitySalt } from '../../src/zkp/hash-utils.js';
 import { combineEnrollmentKey, recoveryPinVerifier, type RecoveryCardV3 } from '../../src/security/recovery-card.js';
@@ -199,6 +200,11 @@ async function main() {
   trace.begin('harness', 'Wait until the network has compiled every circuit');
   const ready = await poll(quietAdmin, `${SEQ}/interactive/state`, j => j?.compiled === true, 1_800_000, 10_000);
   trace.check('Adjudication service compiled all 10 circuits', ready.json?.compiled === true, true, ready.json?.compiled);
+  // The engine refuses work that makes proofs (503 with Retry-After) until its proof pool runs, and the pool's workers
+  // compile for minutes after boot. Every proving step below comes after this, the probes at prescribing included.
+  const provers = await waitForEngineReady(quiet, SEQ);
+  results.engineReadyWaitMs = provers.ms;
+  trace.check('Claims engine ready to prove', provers.ready, 'ready within 15 min', provers.readiness, `waited ${(provers.ms / 1000).toFixed(1)} s`);
   const status = await rpc('l2_getStatus', {}, false);
   results.vkCommitment = status.result?.vkCommitment;
   trace.note(`vkCommitment = ${status.result?.vkCommitment}`);

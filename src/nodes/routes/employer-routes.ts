@@ -542,12 +542,17 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
       const node = server.getEntityNode() as EmployerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
       const att = node.getAttestation();
+      // Where the employer signs: the dashboard links to it, to sign first or to sign new terms
+      const marketplaceUrl = node.getMarketplaceUrl();
       if (!att) {
-        return server.sendResponse(res, 200, true, { loaded: false, authorizedPlanIds: [], enrollmentCap: null, effectiveDate: null });
+        return server.sendResponse(res, 200, true, { loaded: false, authorizedPlanIds: [], enrollmentCap: null, effectiveDate: null, marketplaceUrl });
       }
-      // Whether the terms the employer signed are still what its plans' members are billed (null: could not tell). The
-      // node reads the plans from the sequencer at most once per EmployerNode.TERMS_STATUS_TTL_MS for this open route.
-      const terms = await node.attestationTermsStatus();
+      // Whether the terms the employer signed are still what its plans' members are billed (null: could not tell), and
+      // the plans it selected that are published now and its attestation does not cover (the insurer's answer; null:
+      // could not ask). The node reads the plans from the sequencer, and asks the insurer, at most once per
+      // EmployerNode.TERMS_STATUS_TTL_MS for this open route. When any of them calls for it, the employer signs the new
+      // terms on the marketplace.
+      const [terms, plansToAdd] = await Promise.all([node.attestationTermsStatus(), node.attestationPlansToAdd()]);
       server.sendResponse(res, 200, true, {
         loaded: true,
         authorizedPlanIds: att.authorizedPlanIds || [],
@@ -558,6 +563,8 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
         termsChanged: terms.termsChanged,
         signedBeforeFullTerms: terms.signedBeforeFullTerms,
         unavailablePlanIds: terms.unavailablePlanIds,
+        plansToAdd,
+        marketplaceUrl,
       });
     },
   });

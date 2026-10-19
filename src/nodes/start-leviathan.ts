@@ -32,6 +32,11 @@
  *   ZKTRIDENT_PARTITION_INDEX  — This sequencer's partition index (default: 0)
  *   ZKTRIDENT_SEED_PEERS       — Comma-separated peer URLs (default: none)
  *   ZKTRIDENT_ADMIN_TOKEN      — Bearer token for admin RPC methods (default: none)
+ *   ZKTRIDENT_INSURER_ADMIN_TOKEN — The insurer node's own admin token (default: derived
+ *                                from ZKTRIDENT_ADMIN_TOKEN, deriveNodeAdminToken)
+ *   ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN — The prescriber node's own admin token, for its
+ *                                patient-price and prior-authorization routes (default:
+ *                                derived from ZKTRIDENT_ADMIN_TOKEN, deriveNodeAdminToken)
  *   ZKTRIDENT_INSURER_SIGNING_SEED — Insurer's Ed25519 attestation seed. NOT the admin
  *                                token (A-14). Random per boot if unset, which
  *                                invalidates attestations from a previous run.
@@ -103,10 +108,21 @@ const adminToken = unsecureMode ? (env.ZKTRIDENT_ADMIN_TOKEN ?? 'admin123') : en
  * is accepted by the sequencer only; the insurer's routes take this one. Explicit when the
  * deployment sets it, otherwise derived from the operator's token in a way the insurer node cannot
  * reverse, so a one-variable deployment keeps working without the insurer holding the network's
- * credential. Member, prescriber and pharmacy nodes have no admin routes and get no token at all.
+ * credential. Member and pharmacy nodes have no admin routes and get no token at all.
  */
 const insurerAdminToken = env.ZKTRIDENT_INSURER_ADMIN_TOKEN
   ?? (adminToken ? deriveNodeAdminToken(adminToken, 'insurer') : undefined);
+/*
+ * The prescriber node's own admin token, the same way (owner decision 2026-10-19). Until provider
+ * sign-in (B4), the prescriber node's routes that return a patient's data or start a member-data
+ * action (a patient's own quote on /estimate-cost, /prior-auth/request, /prior-auth/status) answer
+ * only this node's administrator; with no token those routes refuse everyone, so the prescriber
+ * could never see a patient's price or start a prior authorization. Explicit when the deployment
+ * sets ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN, otherwise derived from the operator's token, so the
+ * operator can recompute it and the prescriber node never holds the network's credential.
+ */
+const prescriberAdminToken = env.ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN
+  ?? (adminToken ? deriveNodeAdminToken(adminToken, 'prescriber') : undefined);
 const gossipSecret = env.ZKTRIDENT_GOSSIP_SECRET;
 
 /*
@@ -811,6 +827,8 @@ async function main(): Promise<void> {
   // Will poll l2_getProvider to confirm credentialing before ready
   spawnEntity('prescriber', 'start-prescriber-nautilus.ts', 4002, {
     ZKTRIDENT_SEED_PRESCRIBER: '0',
+    // its own admin token for its own patient-data routes; the operator's token never leaves this process
+    ...(prescriberAdminToken ? { ZKTRIDENT_ADMIN_TOKEN: prescriberAdminToken } : {}),
   });
 
   // Pharmacy (port 4003) — uses seed identity index 0
@@ -910,6 +928,7 @@ async function main(): Promise<void> {
   console.log('  Security:      %s', unsecureMode ? 'UNSECURE MODE (admin123 shared token)' : 'Ed25519 per-node identity');
   console.log('  Admin token:   %s', adminToken ? 'configured' : 'NONE (admin RPC disabled)');
   console.log('  Insurer token: %s', env.ZKTRIDENT_INSURER_ADMIN_TOKEN ? 'configured (ZKTRIDENT_INSURER_ADMIN_TOKEN)' : insurerAdminToken ? 'derived from the operator token' : 'NONE');
+  console.log('  Prescriber token: %s', env.ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN ? 'configured (ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN)' : prescriberAdminToken ? 'derived from the operator token' : 'NONE (patient prices and prior authorization refused)');
   console.log('  Node keys:     one per child, registered by role; no child holds the operator token');
   console.log('  Gossip secret: %s', gossipSecret ? 'configured' : 'NONE (unauthenticated gossip)');
   console.log('  Replicas:      %d, each with its own key (A13); invariant monitor every 5 s, divergence grace 30 s', REPLICA_COUNT);
