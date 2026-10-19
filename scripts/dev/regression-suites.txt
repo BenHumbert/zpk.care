@@ -47,3 +47,5 @@ tests/wallet-update-payload.test.ts
 tests/engine-write-gates.test.ts
 tests/money-agrees.test.ts
 tests/proving-lease.test.ts
+tests/proof-pool-table.test.ts
+tests/family-binding.test.ts

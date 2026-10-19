@@ -965,7 +965,7 @@ async function main() {
   trace.begin('verifier', 'Scan what the network stores and serves for the member\'s secrets');
   const secrets: Record<string, string> = {
     firstName: MEMBER.firstName, lastName: MEMBER.lastName, dateOfBirth: MEMBER.dob, cardholderId: MEMBER.employeeId,
-    email: MEMBER.email, enrollmentKey, enrollmentPIN: myToken.tokenPIN, devicePIN: MEMBER.memberPin,
+    email: MEMBER.email, familyId: MEMBER.familyId, enrollmentKey, enrollmentPIN: myToken.tokenPIN, devicePIN: MEMBER.memberPin,
     'hash(enrollmentKey)': hashString(enrollmentKey).toString(),
     // C2: the sixth input is the employer group hash, a public identifier the insurer and the group
     // registry hold by design; it is not a secret and is not swept. The five salted inputs are.

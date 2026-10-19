@@ -68,6 +68,8 @@ interface RedeemedCode {
   employerId: string | null;
   groupIdHash: string | null;
   planIdHash: string | null;
+  /** The employer's opaque family hash from the code (A-34); absent on records written before it. */
+  familyIdHash?: string | null;
   at: number;
   completedAt?: number;
 }
@@ -235,7 +237,7 @@ async function resolveCodeTargets(
 }
 
 type RedeemOutcome =
-  | { ok: true; employerId: string | null; groupIdHash: string | null; planIdHash: string | null }
+  | { ok: true; employerId: string | null; groupIdHash: string | null; planIdHash: string | null; familyIdHash: string | null }
   | { ok: false; status: number; error: string };
 
 /** Ask the candidate employer(s), signed as the insurer, to redeem the code. */
@@ -267,7 +269,7 @@ async function redeemWithEmployers(
       unreachable++;
       continue;
     }
-    const data = (json.data ?? json) as { valid?: boolean; reason?: string; groupIdHash?: string; planIdHash?: string };
+    const data = (json.data ?? json) as { valid?: boolean; reason?: string; groupIdHash?: string; planIdHash?: string; familyIdHash?: string };
 
     if (status === 401 || status === 503 || status === 429) {
       // The oracle would not answer us at all: a trust or capacity problem on that node, not a
@@ -276,7 +278,9 @@ async function redeemWithEmployers(
       continue;
     }
     if (data.valid === true) {
-      return { ok: true, employerId: c.employerId, groupIdHash: data.groupIdHash ?? null, planIdHash: data.planIdHash ?? null };
+      // A-34: the family hash the code carries; anything but a decimal hash is no family.
+      const familyIdHash = typeof data.familyIdHash === 'string' && DECIMAL.test(data.familyIdHash) ? data.familyIdHash : null;
+      return { ok: true, employerId: c.employerId, groupIdHash: data.groupIdHash ?? null, planIdHash: data.planIdHash ?? null, familyIdHash };
     }
     const reason = String(data.reason ?? json.error ?? 'Token validation failed');
     // "Token not found" means this is not that employer's code; the next candidate may own it.
@@ -428,6 +432,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         employerId: outcome.employerId,
         groupIdHash: outcome.groupIdHash,
         planIdHash: outcome.planIdHash,
+        familyIdHash: outcome.familyIdHash,
         at: Date.now(),
       });
       await persistRedeemedCodes(server);
@@ -485,7 +490,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         const approval = await server.signedFetch(`${seqUrl}/interactive/approve-member`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ walletId: b.walletId, groupIdHash: rec.groupIdHash, planIdHash: rec.planIdHash, planId: plan.planId, employerId: rec.employerId }),
+          body: JSON.stringify({ walletId: b.walletId, groupIdHash: rec.groupIdHash, planIdHash: rec.planIdHash, planId: plan.planId, employerId: rec.employerId, familyIdHash: rec.familyIdHash ?? null }),
         });
         if (!approval.ok) {
           const text = await approval.text().catch(() => '');

@@ -244,6 +244,12 @@ export function registerInteractiveRoutes(
         sendError(res, 400, 'The identity preimage is never sent to the engine: send the ownership proof made on the device as ownershipProofJson (B2)');
         return;
       }
+      // A-34: the family comes from the insurer's approval, which carries the employer's opaque family hash;
+      // the employee ID stays with the employer (I5). Neither is read from this body.
+      if (params.familyId !== undefined || params.employeeId !== undefined) {
+        sendError(res, 400, 'The family comes from the insurer approval and the employee ID stays with the employer: send neither (A-34)');
+        return;
+      }
       if (!params.walletId || typeof params.ownershipProofJson !== 'string') {
         sendError(res, 400, 'Missing required fields: walletId, ownershipProofJson (ProofGate.verifyMember proof made on the device)');
         return;
@@ -254,9 +260,7 @@ export function registerInteractiveRoutes(
         walletId: String(params.walletId),
         ownershipProofJson: params.ownershipProofJson,
         displayName: params.displayName || 'Member',
-        familyId: params.familyId,
         relationship: params.relationship,
-        employeeId: params.employeeId,
         publicKeyHex: params.publicKeyHex ? String(params.publicKeyHex) : undefined,
       });
 
@@ -361,12 +365,19 @@ export function registerInteractiveRoutes(
         sendError(res, 400, 'Required: walletId, groupIdHash, planIdHash (decimal strings) and planId');
         return;
       }
+      // A-34: the employer's opaque family hash from the enrollment code, or none.
+      if (params.familyIdHash !== undefined && params.familyIdHash !== null
+        && (typeof params.familyIdHash !== 'string' || !decimal.test(params.familyIdHash))) {
+        sendError(res, 400, 'familyIdHash, when given, is a decimal string');
+        return;
+      }
       const result = service.approveMember({
         walletId: params.walletId,
         groupIdHash: params.groupIdHash,
         planIdHash: params.planIdHash,
         planId: params.planId,
         employerId: typeof params.employerId === 'string' ? params.employerId : null,
+        familyIdHash: typeof params.familyIdHash === 'string' ? params.familyIdHash : null,
       });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ...result, walletId: params.walletId }));

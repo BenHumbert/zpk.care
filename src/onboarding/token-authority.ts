@@ -40,6 +40,9 @@ export interface TokenRecord {
   groupIdHash: string;
   /** Plan ID hash (from the token struct) */
   planIdHash: string;
+  /** Family ID hash (from the token struct): the employer's opaque family identifier. The insurer binds family
+   *  coverage from it without learning who the family is (A-34). Absent on records made before it. */
+  familyIdHash?: string;
   /** Poseidon(tokenId + PIN) — enrollment 2FA binding. Set by HR Tool after token generation. */
   tokenPinHash?: string;
   /** Number of failed PIN attempts (locked after MAX_PIN_ATTEMPTS) */
@@ -64,6 +67,8 @@ export interface TokenValidationResult {
   groupIdHash?: string;
   /** The plan ID hash from the token (if valid) */
   planIdHash?: string;
+  /** The family ID hash from the token (if valid): opaque, per group; members of one family share it (A-34) */
+  familyIdHash?: string;
 }
 
 /**
@@ -160,6 +165,7 @@ export class TokenAuthority {
       validUntil,
       groupIdHash: token.groupIdHash.toString(),
       planIdHash: token.planIdHash.toString(),
+      familyIdHash: token.familyIdHash.toString(),
       status: 'unused',
     };
 
@@ -204,6 +210,7 @@ export class TokenAuthority {
       valid: true,
       groupIdHash: record.groupIdHash,
       planIdHash: record.planIdHash,
+      familyIdHash: record.familyIdHash,
     };
   }
 

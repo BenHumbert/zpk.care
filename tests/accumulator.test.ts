@@ -29,6 +29,7 @@ import {
   AccumulatorFulfillmentProof,
 } from '../src/fulfillment/accumulator-fulfillment-program.js';
 import { AccumulatorFulfillmentService } from '../src/fulfillment/accumulator-fulfillment-service.js';
+import { FamilyAccumulatorService } from '../src/onboarding/family-accumulator-service.js';
 import { FULFILL_OP_CLAIM, FULFILL_OP_REVERSAL } from '../src/fulfillment/fulfillment-program.js';
 import {
   FulfillmentData,
@@ -547,6 +548,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           PHARM_QUAL,
           PHARM_ID_HASH,
           PHARM_EK_HASH,
+          Field(0), Field(0), Field(0), Field(0), Field(0), Field(0),   // B8: no family limits
         );
 
         const output = result.proof.publicOutput;
@@ -604,6 +606,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           PHARM_QUAL,
           PHARM_ID_HASH,
           PHARM_EK_HASH,
+          Field(0), Field(0), Field(0), Field(0), Field(0), Field(0),   // B8: no family limits
         );
 
         const output = result.proof.publicOutput;
@@ -655,6 +658,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           PHARM_QUAL,
           PHARM_ID_HASH,
           PHARM_EK_HASH,
+          Field(0), Field(0), Field(0), Field(0), Field(0), Field(0),   // B8: no family limits
         );
 
         const output = result.proof.publicOutput;
@@ -702,12 +706,83 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           PHARM_QUAL,
           PHARM_ID_HASH,
           PHARM_EK_HASH,
+          Field(0), Field(0), Field(0), Field(0), Field(0), Field(0),   // B8: no family limits
         );
 
         const output = result.proof.publicOutput;
         // No accumulators → normal copay: min(5500, 1000) = 1000
         expect(output.patientPayCents.toString()).toBe('1000');
         expect(output.planPayCents.toString()).toBe('4500');
+      }, 120_000);
+    });
+
+    // B8 (A-23): family pooling inside the circuit. The amounts the proof commits to are the amounts billed: the
+    // new eligibility forest root the proof outputs is the one the engine reaches by adding the proof's own
+    // amounts to the accumulator, with no rewrite after the proof.
+    describe('family pooling inside the circuit (B8, A-23)', () => {
+      type Family = { paid: [number, number, number]; limits: [number, number, number] };
+      async function proveWithFamily(family: Family) {
+        // deductible met, individual OOP far away: the individual rules give the $10 copay on a $55 claim
+        const accumulator = createTestAccumulator({ deductibleAmount: 50000, deductiblePaid: 50000, oopMax: 800000, oopPaid: 0 });
+        const scenario = setupDualCredentialScenario(accumulator);
+        const fulfillment = createTestFulfillmentData(scenario.rxData.commitment());
+        const formularyRegistry = createTestFormularyRegistry();
+        const formularyEntry = formularyRegistry.getEntry(0n)!;
+        const formularyWitness = formularyRegistry.getEntryWitness(0n);
+        const formularyRoot = formularyRegistry.getRoot();
+        const rxForestRoots = ForestRoots.fromForest(scenario.prescriptionForest);
+        const medicationWitness = scenario.prescriptionForest.getWitness(ForestDomain.MEDICATION, 0n);
+        const statusWitness = scenario.prescriptionForest.getWitness(ForestDomain.TRANSACTION, 1n);
+        const newSlotWitness = scenario.prescriptionForest.getWitness(ForestDomain.TRANSACTION, 2n);
+        const eligForestRoots = ForestRoots.fromForest(scenario.eligibilityForest);
+        const accumulatorWitness = scenario.eligibilityForest.getWitness(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX);
+        const result = await AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(
+          scenario.prescriptionCredential, scenario.rxData, scenario.filledStatus, fulfillment, formularyEntry, rxForestRoots,
+          medicationWitness, statusWitness, newSlotWitness, formularyWitness, formularyRoot, scenario.eligibilityCredential,
+          eligForestRoots, accumulator, accumulatorWitness, PHARM_QUAL, PHARM_ID_HASH, PHARM_EK_HASH,
+          Field(family.paid[0]), Field(family.paid[1]), Field(family.paid[2]), Field(family.limits[0]), Field(family.limits[1]), Field(family.limits[2]),
+        );
+        const output = result.proof.publicOutput;
+        // the A-23 property: the engine's accumulator after the fill, from the proof's own amounts, is the leaf the proof committed
+        const after = new AccumulatorData({
+          planYear: accumulator.planYear,
+          deductibleAmountCents: accumulator.deductibleAmountCents,
+          deductiblePaidCents: accumulator.deductiblePaidCents.add(output.deductibleCreditCents),
+          oopMaxCents: accumulator.oopMaxCents,
+          oopPaidCents: accumulator.oopPaidCents.add(output.patientPayCents),
+          annualBenefitMaxCents: accumulator.annualBenefitMaxCents,
+          annualBenefitUsedCents: accumulator.annualBenefitUsedCents.add(output.planPayCents),
+        });
+        scenario.eligibilityForest.setLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX, after.commitment());
+        expect(output.newEligibilityForestRoot.toString()).toBe(scenario.eligibilityForest.getForestRoot().toString());
+        const reference = FamilyAccumulatorService.computeFamilyAdjustedPay(1000, 5500,
+          { deductiblePaidCents: family.paid[0], oopPaidCents: family.paid[1], annualBenefitUsedCents: family.paid[2], memberCount: 2 },
+          { familyDeductibleAmountCents: family.limits[0], familyOopMaxCents: family.limits[1], familyAnnualBenefitMaxCents: family.limits[2] });
+        expect(output.patientPayCents.toString()).toBe(String(reference.patientPayCents));
+        expect(output.planPayCents.toString()).toBe(String(reference.planPayCents));
+        expect(output.familyCommitment.toString()).toBe(Poseidon.hash([...family.paid, ...family.limits].map((n) => Field(n))).toString());
+        return output;
+      }
+
+      it('no family limits: the individual split, rule 0', async () => {
+        const output = await proveWithFamily({ paid: [0, 0, 0], limits: [0, 0, 0] });
+        expect([output.patientPayCents.toString(), output.planPayCents.toString(), output.familyRule.toString()]).toEqual(['1000', '4500', '0']);
+      }, 120_000);
+      it('family out-of-pocket maximum met: the patient pays nothing', async () => {
+        const output = await proveWithFamily({ paid: [100000, 1600000, 0], limits: [100000, 1600000, 0] });
+        expect([output.patientPayCents.toString(), output.planPayCents.toString(), output.familyRule.toString()]).toEqual(['0', '5500', '1']);
+      }, 120_000);
+      it('patient pay capped at the family out-of-pocket remaining', async () => {
+        const output = await proveWithFamily({ paid: [100000, 1599500, 0], limits: [100000, 1600000, 0] });
+        expect([output.patientPayCents.toString(), output.planPayCents.toString(), output.familyRule.toString()]).toEqual(['500', '5000', '3']);
+      }, 120_000);
+      it('family annual benefit exhausted: the patient pays everything', async () => {
+        const output = await proveWithFamily({ paid: [0, 0, 100000], limits: [0, 0, 100000] });
+        expect([output.patientPayCents.toString(), output.planPayCents.toString(), output.familyRule.toString()]).toEqual(['5500', '0', '2']);
+      }, 120_000);
+      it('plan pay capped at the family benefit remaining', async () => {
+        const output = await proveWithFamily({ paid: [0, 0, 97000], limits: [0, 0, 100000] });
+        expect([output.patientPayCents.toString(), output.planPayCents.toString(), output.familyRule.toString()]).toEqual(['2500', '3000', '4']);
       }, 120_000);
     });
 
@@ -757,6 +832,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           PHARM_QUAL,
           PHARM_ID_HASH,
           PHARM_EK_HASH,
+          Field(0), Field(0), Field(0), Field(0), Field(0), Field(0),   // B8: no family limits
         );
 
         const origPatientPay = fulfillResult.proof.publicOutput.patientPayCents;

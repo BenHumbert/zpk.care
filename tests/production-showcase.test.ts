@@ -720,6 +720,7 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
       pharmaPreimage[0],
       pharmaPreimage[1],
       pharmaPreimage[2],
+      Field(0), Field(0), Field(0), Field(0), Field(0), Field(0),   // B8: no family limits
     );
 
     const output = fulfillResult.proof.publicOutput;

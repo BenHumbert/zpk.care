@@ -117,6 +117,8 @@ export class AccumulatorFulfillmentService {
     prescriptionCredentialSlot: bigint,
     eligibilityCredentialSlot: bigint,
     pharmacyPreimage: Field[] = [],
+    /** B8: the family's totals before this fill and the plan's family limits, in cents; zeros mean no family pooling */
+    family: { deductiblePaidCents: number; oopPaidCents: number; benefitUsedCents: number; deductibleAmountCents: number; oopMaxCents: number; benefitMaxCents: number } = { deductiblePaidCents: 0, oopPaidCents: 0, benefitUsedCents: 0, deductibleAmountCents: 0, oopMaxCents: 0, benefitMaxCents: 0 },
   ): Promise<AccumulatorFulfillmentResult> {
     // 1. Pre-flight validation (circuit also enforces — fail-fast only)
     const statusVal = BigInt(latestStatus.status.toString());
@@ -178,6 +180,13 @@ export class AccumulatorFulfillmentService {
       pharmacyPreimage[0] ?? Field(0),
       pharmacyPreimage[1] ?? Field(0),
       pharmacyPreimage[2] ?? Field(0),
+      // B8: family pooling inside the circuit
+      Field(family.deductiblePaidCents),
+      Field(family.oopPaidCents),
+      Field(family.benefitUsedCents),
+      Field(family.deductibleAmountCents),
+      Field(family.oopMaxCents),
+      Field(family.benefitMaxCents),
     );
 
     const output = result.proof.publicOutput;

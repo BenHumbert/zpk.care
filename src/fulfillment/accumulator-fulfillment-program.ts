@@ -60,6 +60,10 @@ export class AccumulatorFulfillmentOutput extends Struct({
   deductibleCreditCents: Field,
   /** Poseidon hash of NDC code — drug identity proven by circuit */
   ndcHash: Field,
+  /** B8: Poseidon hash of the six family inputs the split was computed against (0 for a reversal) */
+  familyCommitment: Field,
+  /** B8: the family rule applied — 0 none, 1 family OOP max met, 2 family benefit exhausted, 3 patient pay capped at the family OOP max, 4 plan pay capped at the family benefit max */
+  familyRule: Field,
 }) {}
 
 // ─── AccumulatorFulfillmentProgram ────────────────────────────
@@ -79,6 +83,12 @@ export class AccumulatorFulfillmentOutput extends Struct({
  *   2. Benefit exhausted → patient pays total
  *   3. In deductible phase → patient pays min(total, remaining deductible)
  *   4. Normal → patient pays min(total, formulary copay)
+ *
+ * B8 (A-23): family pooling is applied inside the circuit, after the individual split and in the same
+ * order as the plan's rules — family OOP max met → patient pays $0; family benefit exhausted → patient
+ * pays total; patient pay capped at the family OOP remaining; plan pay capped at the family benefit
+ * remaining — from six private inputs (the family's totals before this fill and the plan's family
+ * limits), committed in the output, so the amounts the proof commits to are the amounts billed.
  */
 export const AccumulatorFulfillmentProgram = ZkProgram({
   name: 'AccumulatorFulfillment',
@@ -111,6 +121,12 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
         Field,                      // H2: pharmacy qualifier
         Field,                      // H2: pharmacy serviceProviderIdHash
         Field,                      // H2: pharmacy enrollmentKeyHash
+        Field,                      // B8: family deductible paid before this fill (cents)
+        Field,                      // B8: family out-of-pocket paid before this fill
+        Field,                      // B8: family annual benefit used before this fill
+        Field,                      // B8: family deductible amount (0 = none)
+        Field,                      // B8: family out-of-pocket maximum (0 = none)
+        Field,                      // B8: family annual benefit maximum (0 = none)
       ],
       async method(
         credentialData: CredentialData,
@@ -131,6 +147,12 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
         pharmacyQualifier: Field,
         pharmacyServiceProviderIdHash: Field,
         pharmacyEnrollmentKeyHash: Field,
+        familyDeductiblePaidCents: Field,
+        familyOopPaidCents: Field,
+        familyBenefitUsedCents: Field,
+        familyDeductibleAmountCents: Field,
+        familyOopMaxCents: Field,
+        familyBenefitMaxCents: Field,
       ) {
         // ── Steps 1-12: Prescription credential validation (same as FulfillmentProgram) ──
 
@@ -365,13 +387,71 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
         );
 
         // Cap patient pay at remaining OOPM
-        const patientPay = Provable.if(
+        const individualPatientPay = Provable.if(
           hasOopm.and(postBenefitPay.greaterThan(remainingOopm)),
           remainingOopm,
           postBenefitPay,
         );
+        const individualPlanPay = total.sub(individualPatientPay);
 
+        // ── B8 (A-23): family pooling, inside the circuit ──
+        // The family's totals are what they were before this fill; the limits are the plan's. In the
+        // plan's order: family OOP max met → the patient pays nothing; family benefit exhausted → the
+        // patient pays everything; otherwise the patient's share is capped at the family OOP remaining
+        // and the plan's share at the family benefit remaining. A limit of 0 means none.
+        const hasFamilyOopm = familyOopMaxCents.greaterThan(Field(0));
+        const familyOopMet = hasFamilyOopm.and(familyOopPaidCents.greaterThanOrEqual(familyOopMaxCents));
+        const hasFamilyBenefitMax = familyBenefitMaxCents.greaterThan(Field(0));
+        const familyBenefitExhausted = hasFamilyBenefitMax.and(
+          familyBenefitUsedCents.greaterThanOrEqual(familyBenefitMaxCents),
+        );
+        const familyOopRemaining = Provable.if(
+          familyOopMet,
+          Field(0),
+          Provable.if(hasFamilyOopm, familyOopMaxCents.sub(familyOopPaidCents), individualPatientPay),
+        );
+        const familyOopCapApplies = hasFamilyOopm
+          .and(familyOopMet.not())
+          .and(individualPatientPay.greaterThan(familyOopRemaining));
+        const familyBenefitRemaining = Provable.if(
+          familyBenefitExhausted,
+          Field(0),
+          Provable.if(hasFamilyBenefitMax, familyBenefitMaxCents.sub(familyBenefitUsedCents), individualPlanPay),
+        );
+        const familyBenefitCapApplies = hasFamilyBenefitMax
+          .and(familyBenefitExhausted.not())
+          .and(individualPlanPay.greaterThan(familyBenefitRemaining));
+        const patientPay = Provable.if(
+          familyOopMet,
+          Field(0),
+          Provable.if(
+            familyBenefitExhausted,
+            total,
+            Provable.if(
+              familyOopCapApplies,
+              familyOopRemaining,
+              Provable.if(familyBenefitCapApplies, total.sub(familyBenefitRemaining), individualPatientPay),
+            ),
+          ),
+        );
         const planPay = total.sub(patientPay);
+        const familyRule = Provable.if(
+          familyOopMet,
+          Field(1),
+          Provable.if(
+            familyBenefitExhausted,
+            Field(2),
+            Provable.if(familyOopCapApplies, Field(3), Provable.if(familyBenefitCapApplies, Field(4), Field(0))),
+          ),
+        );
+        const familyCommitment = Poseidon.hash([
+          familyDeductiblePaidCents,
+          familyOopPaidCents,
+          familyBenefitUsedCents,
+          familyDeductibleAmountCents,
+          familyOopMaxCents,
+          familyBenefitMaxCents,
+        ]);
 
         // ── 16e: Deductible credit for accumulator update (C4 fix) ──
         // Only the deductible portion counts toward deductiblePaidCents.
@@ -445,6 +525,8 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
             newEligibilityForestRoot: newEligForestRoot,
             deductibleCreditCents: deductibleCredit,
             ndcHash: fulfillmentData.ndcHash,
+            familyCommitment,
+            familyRule,
           }),
         };
       },
@@ -676,6 +758,8 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
             newEligibilityForestRoot: newEligForestRoot,
             deductibleCreditCents: originalDeductibleCredit,
             ndcHash: originalFulfillment.ndcHash,
+            familyCommitment: Field(0),
+            familyRule: Field(0),
           }),
         };
       },

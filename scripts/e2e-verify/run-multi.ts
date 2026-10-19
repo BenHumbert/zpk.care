@@ -373,9 +373,10 @@ async function mainFlow() {
   const plan = await http('POST', `${INS}/plans`, { planId, name: 'E2E Gold', coverageType: 1, copayAmountCents: 1000, deductibleAmountCents: 50000, oopMaxCents: 800000, annualBenefitMaxCents: 0, familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000 }, insurerBearer);
   t.check('Plan created with the insurer token', plan.status < 300, '2xx', plan.status);
 
+  // A-34: A1 and A2 are one family on employer A's roster; B1 and B2 are each a family of one.
   const people: Person[] = [
     { key: 'A1', employer: 'A', port: 4001, employeeId: `A1-${RUN}`, familyId: `FA1-${RUN}`, firstName: 'Avery', lastName: 'Quillfeather', dob: '19870412', email: 'a1@example.test', pin: '864209' },
-    { key: 'A2', employer: 'A', port: 4011, employeeId: `A2-${RUN}`, familyId: `FA2-${RUN}`, firstName: 'Rowan', lastName: 'Ashgrove', dob: '19921103', email: 'a2@example.test', pin: '531907' },
+    { key: 'A2', employer: 'A', port: 4011, employeeId: `A2-${RUN}`, familyId: `FA1-${RUN}`, firstName: 'Rowan', lastName: 'Ashgrove', dob: '19921103', email: 'a2@example.test', pin: '531907' },
     { key: 'B1', employer: 'B', port: 4012, employeeId: `B1-${RUN}`, familyId: `FB1-${RUN}`, firstName: 'Jules', lastName: 'Marrowind', dob: '19750828', email: 'b1@example.test', pin: '702318' },
     { key: 'B2', employer: 'B', port: 4013, employeeId: `B2-${RUN}`, familyId: `FB2-${RUN}`, firstName: 'Sasha', lastName: 'Penhallow', dob: '20010219', email: 'b2@example.test', pin: '416685' },
   ];
@@ -523,6 +524,18 @@ async function verifyAll(credentialWallet: string, people: Person[]) {
     await CredentialProgram.compile();
     t.check('Credential proof verifies offline', await verifyCredentialOffline(credential, ''), true, 'verify');
   }
+  // A-34: the engine binds each member's family from the insurer's approval, which carries the employer's
+  // opaque family hash from the enrollment code; the family ID itself stays on the employer's machine.
+  t.begin('verifier', 'Families are bound from the employer codes');
+  const familyHistory = async (key: string) => (await httpAdmin('GET', `${SEQ}/interactive/family-history?walletId=${results.members[key]?.walletId}`)).json;
+  const head12 = (key: string) => String(results.members[key]?.walletId ?? '').slice(0, 12);
+  const familyHeads = (f: any) => ((f?.members ?? []) as any[]).map((m) => String(m.walletId).slice(0, 12)).sort();
+  const famA1 = await familyHistory('A1'), famA2 = await familyHistory('A2'), famB1 = await familyHistory('B1'), famB2 = await familyHistory('B2');
+  const a1a2 = [head12('A1'), head12('A2')].sort();
+  t.check('A1 and A2, one family on the roster, are one family on the engine', JSON.stringify(familyHeads(famA1)) === JSON.stringify(a1a2), a1a2, familyHeads(famA1));
+  t.check('A2 sees the same family', famA2?.familyId === famA1?.familyId && JSON.stringify(familyHeads(famA2)) === JSON.stringify(a1a2), famA1?.familyId, famA2?.familyId);
+  t.check('B1, a family of one, pools with no one', JSON.stringify(familyHeads(famB1)) === JSON.stringify([head12('B1')]), [head12('B1')], familyHeads(famB1));
+  t.check('The engine holds opaque family hashes, one per family', [famA1, famB1, famB2].every((f) => /^\d+$/.test(String(f?.familyId ?? ''))) && new Set([famA1?.familyId, famB1?.familyId, famB2?.familyId]).size === 3, 'three distinct decimal hashes', [famA1?.familyId, famB1?.familyId, famB2?.familyId]);
   t.begin('verifier', 'Where do members\' secrets appear?');
   const sources: Array<[string, string]> = [['sequencer /interactive/state', (await http('GET', `${SEQ}/interactive/state`)).text]];
   const walk = (dir: string, label: string) => {
@@ -538,7 +551,7 @@ async function verifyAll(credentialWallet: string, people: Person[]) {
   for (const p of people) {
     const m = results.members[p.key];
     if (!m) continue;
-    const secrets: Record<string, string> = { firstName: p.firstName, lastName: p.lastName, dob: p.dob, cardholderId: p.employeeId, enrollmentKey: m.secrets.enrollmentKey, 'hash(enrollmentKey)': m.secrets.preimage[4] };
+    const secrets: Record<string, string> = { firstName: p.firstName, lastName: p.lastName, dob: p.dob, cardholderId: p.employeeId, familyId: p.familyId, enrollmentKey: m.secrets.enrollmentKey, 'hash(enrollmentKey)': m.secrets.preimage[4] };
     const where: Record<string, string[]> = {};
     for (const [label, text] of sources) for (const h of findSecrets(text, secrets)) ((where[h.secret] ??= []).includes(label) || where[h.secret].push(label));
     m.secretLocations = where;

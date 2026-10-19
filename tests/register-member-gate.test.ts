@@ -31,7 +31,9 @@ function standInService() {
     approveMember(a: Omit<MemberApproval, 'approvedAt'>) {
       const existing = approvals.get(a.walletId);
       if (existing) {
-        if (existing.planId !== a.planId || existing.groupIdHash !== a.groupIdHash) throw new RegistrationRefused(409, 'already approved under a different group or plan');
+        if (existing.planId !== a.planId || existing.groupIdHash !== a.groupIdHash || (existing.familyIdHash ?? null) !== (a.familyIdHash ?? null)) {
+          throw new RegistrationRefused(409, 'already approved under a different group, plan or family');
+        }
         return { approved: true as const, alreadyApproved: true };
       }
       approvals.set(a.walletId, { ...a, approvedAt: Date.now() });
@@ -98,6 +100,19 @@ describe('approve-member', () => {
     const conflict = await post('/interactive/approve-member', { ...approval, planId: 'OTHER' }, { Authorization: `Bearer ${OPERATOR}` });
     expect(conflict.status).toBe(409);
   });
+
+  test('carries the employer\'s family hash, refuses one that is not a hash, and refuses another family for an approved wallet (A-34)', async () => {
+    const bearer = { Authorization: `Bearer ${OPERATOR}` };
+    const fam = { ...approval, walletId: '555', familyIdHash: '424242' };
+    expect((await post('/interactive/approve-member', fam, bearer)).status).toBe(200);
+    expect(service.approvalFor('555')?.familyIdHash).toBe('424242');
+    const plain = await post('/interactive/approve-member', { ...fam, walletId: '556', familyIdHash: 'FAM-PLAINTEXT' }, bearer);
+    expect(plain.status).toBe(400);
+    expect(service.approvalFor('556')).toBeUndefined();
+    expect((await post('/interactive/approve-member', { ...fam, familyIdHash: '434343' }, bearer)).status).toBe(409);
+    expect((await post('/interactive/approve-member', { ...approval, walletId: '557' }, bearer)).status).toBe(200);
+    expect(service.approvalFor('557')?.familyIdHash).toBeNull();
+  });
 });
 
 describe('register-member', () => {
@@ -119,5 +134,13 @@ describe('register-member', () => {
 
   test('still validates its own body first', async () => {
     expect((await post('/interactive/register-member', { walletId: '42' })).status).toBe(400);
+  });
+
+  test('refuses a body that names a family or an employee ID: the family is the approval\'s, the employee ID the employer\'s (A-34)', async () => {
+    const fam = await post('/interactive/register-member', { walletId: approval.walletId, ownershipProofJson: PROOF, displayName: 'Alice', familyId: 'FAM-OF-SOMEONE-ELSE' });
+    expect(fam.status).toBe(400);
+    expect(fam.json.error).toMatch(/insurer approval/);
+    const emp = await post('/interactive/register-member', { walletId: approval.walletId, ownershipProofJson: PROOF, displayName: 'Alice', employeeId: 'E-1' });
+    expect(emp.status).toBe(400);
   });
 });

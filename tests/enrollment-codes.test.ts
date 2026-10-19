@@ -562,9 +562,10 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
   // Real hashes, because completion resolves the plan from its hash and approves the wallet with the engine (Step 2 commit two).
   const G1 = hashString('GRP-1').toString();
   const P1 = hashString('PLAN-1').toString();
+  const F1 = hashString('FAM-1').toString(); // A-34: the code's opaque family hash
   const PLAN_1 = { planId: 'PLAN-1', name: 'Plan 1', coverageType: 1, copayAmountCents: 1000, deductibleAmountCents: 50000, oopMaxCents: 800000, annualBenefitMaxCents: 0, familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0, formularyNdcs: [], networkProviderWalletIds: [], published: true, createdAt: 0, updatedAt: 0 };
   const approvals: unknown[] = [];
-  const VALID = () => ({ status: 200, body: { ok: true, data: { valid: true, groupIdHash: G1, planIdHash: P1, consumed: true } } });
+  const VALID = () => ({ status: 200, body: { ok: true, data: { valid: true, groupIdHash: G1, planIdHash: P1, familyIdHash: F1, consumed: true } } });
   const NOT_FOUND = () => ({ status: 200, body: { ok: true, data: { valid: false, reason: 'Token not found' } } });
   const servers: http.Server[] = [];
   let seqUrl: string;
@@ -660,7 +661,7 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
     expect(r.payload.data.groupIdHash).toBe(G1);
     // completion approved the wallet with the engine, naming the plan it resolved from the hash
     expect(approvals.length).toBe(1);
-    expect(approvals[0]).toMatchObject({ walletId: '11', groupIdHash: G1, planIdHash: P1, planId: 'PLAN-1', employerId: 'EMP-A' });
+    expect(approvals[0]).toMatchObject({ walletId: '11', groupIdHash: G1, planIdHash: P1, planId: 'PLAN-1', employerId: 'EMP-A', familyIdHash: F1 });
     const data = main.server.getLocalState().getState() as unknown as { redeemedEnrollmentCodes?: Record<string, { walletId: string | null }> };
     expect(data.redeemedEnrollmentCodes?.[codeA]?.walletId).toBe('11');
     expect(probesA).toHaveLength(1);                            // completion asks the employer nothing
@@ -756,6 +757,18 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
     expect(src).not.toContain('__already_validated__');
     expect(src).toContain("signRequest({ signerId: 'insurer'");
     expect(src).toContain('enrollmentCodeRoutingPrefix(n.employerId) === prefix');
+  });
+
+  test('a family the employer names in anything but a hash is no family: the plain ID never reaches the engine (A-34)', async () => {
+    answerA = () => ({ status: 200, body: { ok: true, data: { valid: true, groupIdHash: G1, planIdHash: P1, familyIdHash: 'FAM-PLAINTEXT-1', consumed: true } } });
+    const code = generateEnrollmentCode('EMP-A');
+    expect((await call(main.process, { body: { tokenId: code, tokenPinHash: 'pin-fam' } })).status).toBe(200);
+    expect((await call(main.complete, { body: { walletId: '33', tokenId: code } })).status).toBe(200);
+    const last = approvals[approvals.length - 1] as Record<string, unknown>;
+    expect(last.walletId).toBe('33');
+    expect(last.familyIdHash).toBeNull();
+    expect(JSON.stringify(approvals)).not.toContain('FAM-PLAINTEXT');
+    answerA = VALID;
   });
 });
 

@@ -610,6 +610,7 @@ async function main() {
       accumWitness,
       // H2: pharmacy wallet identity preimage
       ...pharmacyPreimageFields as [Field, Field, Field],
+      Field(0), Field(0), Field(0), Field(0), Field(0), Field(0),   // B8: no family limits
     ));
 
   console.log('       THE CLAIM: Dual-credential fulfillment with accumulator update');

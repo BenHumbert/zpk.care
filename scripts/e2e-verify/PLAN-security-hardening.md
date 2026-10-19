@@ -1288,6 +1288,80 @@ Not here, by design: the preimage still reaches the engine and the engine still 
 on it; the insurer's approval and the real plan in the engine are commit two. State from before this
 commit is not readable by design (C4, genesis).
 
+**B8 — implementation record: family pooling is proven inside the circuit, over a family the insurer's approval binds; nothing is rewritten after the proof.**
+Done 2026-10-18. Closes **A-23**, and **A-34**, found in this item's review.
+
+*What was wrong.* The fulfillment circuit computed the split from the member's own accumulator, and the
+engine then rewrote patient pay and plan pay after the proof whenever family pooling applied — a family
+out-of-pocket maximum met, a family benefit exhausted, or a cap at either — and advanced the member's
+accumulator by the rewritten amounts. The settlement commitment the engine recorded was computed from the
+proof's values while the member was billed the rewritten ones, and the eligibility forest the engine kept
+no longer matched the root the proof had committed to. The pooling itself also counted the current fill
+twice, because it summed the family's totals with the current member's already-updated values and then
+added the fill's patient pay again. The family limits were constants in the engine, not the plan's.
+
+*Now.* `AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator` takes six more private inputs — the
+family's deductible paid, out-of-pocket paid and benefit used before this fill, and the plan's family
+deductible amount, out-of-pocket maximum and annual benefit maximum — and applies the family rules after
+the individual split, in the plan's order: family out-of-pocket maximum met → the patient pays nothing;
+family benefit exhausted → the patient pays everything; otherwise the patient's share is capped at the
+family out-of-pocket remaining and the plan's share at the family benefit remaining. A limit of zero means
+none. The deductible credit is the lesser of the final patient pay and the deductible portion. The output
+carries `familyCommitment`, a Poseidon hash of the six inputs, and `familyRule` (0 none, 1 OOP met, 2
+benefit exhausted, 3 OOP cap, 4 benefit cap); a reversal outputs zeros for both. The engine gathers the
+family's accumulators before the fill (the current member's included, at its pre-fill values), reads the
+family limits from the member's plan, passes the six fields to the proof, and takes the amounts, the
+deductible credit and the new accumulator from the proof; the post-proof rewrite is gone, and the rule the
+circuit applied is what the display and the viz event report. `AccumulatorFulfillmentService` takes an
+optional family input (zeros by default); the seed demo passes zeros.
+
+*Who the family is (A-34).* The engine chose a member's family by comparing family IDs, and every member
+enrolled from a device had an empty one, because the device sends none and the insurer's approval named
+none. Every device member was therefore one family: in the old rewrite, and in this item's first cut,
+which carried the same selection into the proof's inputs. Once the members' combined out-of-pocket reached
+the family maximum, each of them would have paid nothing. The open registration route also read a family
+ID and an employee ID from its body, so an approved member could have named a family and pooled with it.
+Now the family travels the way the group and the plan do. The employer's validation answer names the
+code's family hash, which the HR Tool salts per group and the token hashes again; the employer learns
+nothing new, and the insurer learns only which wallets share a family. The insurer keeps the hash with the
+redeemed code and names it in its approval, the engine binds the member's family from the approval, and a
+registration body that names a family or an employee ID is refused. `familyMembersOf` pools only members
+who share a bound family in one group and one plan; a member with no bound family pools with no one and
+has no family limits (`familyLimitsFor`). The fill proof's inputs and the family history both use it, and
+the family history reads the plan's limits instead of constants.
+
+*Left as is, on purpose.* A family deductible rule (the individual deductible phase ending when the
+family deductible is met) was never applied by the engine and is not applied by the circuit; whether the
+plan's deductible is aggregate or embedded is a plan-design decision for the owner. The registration's
+relationship field stays as the device reports it and is display only. The harness's fills stay far below
+the family limits, so the family rules are proven by the circuit suite and the binding is proven live.
+The fill proof is still discarded after the engine reads it (A-22); the agreement this item restores is
+between what the proof commits to, what the member is billed and what the ledger records.
+
+*Found on the way.* The proof pool worker keeps its own table of circuit methods and argument types, and
+the engine dispatches by it. The first live run of this build failed every fill with "Arg count mismatch:
+expected 18, got 24" while every unit suite, which calls the circuit directly, stayed green. The table now
+lists the six family inputs — and a new static test, `tests/proof-pool-table.test.ts`, holds the table to
+each circuit's `privateInputs`. That test found a second, older mismatch at once: the reversal method has
+taken the three pharmacy-identity fields since H2 and the table still listed fifteen arguments, so a live
+reversal through the pool would have failed the same way; neither harness reverses a fill. Fixed with it.
+
+*Verified.* `tests/accumulator.test.ts`, new describe "family pooling inside the circuit (B8, A-23)":
+five proofs — no family limits, family OOP met, patient pay capped at the family OOP remaining, family
+benefit exhausted, plan pay capped at the family benefit remaining — each checked against
+`FamilyAccumulatorService.computeFamilyAdjustedPay` and, for the A-23 property, against the eligibility
+forest root the engine reaches by adding the proof's own amounts; the whole suite 56 tests, all passing.
+`tests/family-binding.test.ts`, new: who pools with whom, the family limits, the family hash in the
+employer's answer, and the engine's registration in source; 10 tests, all passing. The family cases added to
+`register-member-gate` (the approval carries a family hash and refuses a plaintext one or another family;
+registration refuses a family or an employee ID) and `enrollment-codes` (the insurer's approval names the
+code's family hash; a family the employer names in anything but a hash is no family).
+`tests/proof-pool-table.test.ts`, new, 4 tests. `family` passes again (its seed expectations followed the
+fixture rename). Regression batch 51 suites, 772 tests, all passing. Typecheck src 20, scripts 2. Live: single-member
+pipeline 222 of 222; multi-member, concurrent, 201 of 201, with A1 and A2 one family on the engine, B1
+and B2 each alone, three distinct opaque family hashes, and no plain family ID on the network or the
+sequencer's disk.
+
 **D4 + D5 — implementation record: what is billed, what the ledger holds and what the audit chain commits to agree.**
 Done 2026-10-18. Closes **A-10**, **A-11** and **A-26**.
 
@@ -2728,3 +2802,23 @@ network a stranger can reach** (owner note): lease hogging freezes a partition o
 this commit: two stale tests in `registry-consistency` awaited nothing. Git: with this commit, 53
 commits on local `dev`, nothing pushed, `origin/main` untouched. **Next:** B8 (A-23), then B4; D8 before any
 exposure; B3/B7 wait on the §7 decisions; A-25 with phase E.
+
+**Addendum, 2026-10-18: B8 done, Session 7.** Family pooling is proven inside the fulfillment circuit from the
+family's totals before the fill and the plan's family limits; the engine takes the amounts, the credit and the
+new accumulator from the proof and rewrites nothing after it. A-23 closed. The review found that the engine
+pooled every device-enrolled member as one family, because no family was ever bound; the family is now bound
+from the insurer's approval, carried there from the employer's code as an opaque hash, and A-34 is opened and
+closed with it. The proof pool worker's method table had fallen behind two circuits; a static test now holds it
+to them. Scoreboard: 34 findings; 31 fixed; 3 open (A-22, A-25, and A-33 under the interim lease with D8
+pending), none critical. Verified: accumulator 56 tests, all passing; family binding 10 tests, all passing; regression batch 51 suites, 772 tests, all passing;
+typecheck src 20, scripts 2; single-member pipeline 222 of 222; multi-member, concurrent, 201 of 201. Git: with
+this commit, 54 commits on local `dev`, nothing pushed, `origin/main` untouched. **Next:** B4 (provider
+keys in an authenticator), then D8 before any exposure; B3/B7 wait on the §7 decisions; A-25 with phase E; the
+split of the state transition (D7) for scale. Open owner question, raised 2026-10-18: pickup by a parent or an
+appointed representative is not enforced at the counter (the delegation registry exists; dispensing never
+consults it), and a dependent without a phone has no way to hold a wallet. Owner direction, same day, to solve
+next: extra NFC cards sent to the family's insured member; every member has a family ID (true since this item:
+the HR Tool refuses an empty family_id and the approval binds the code's family hash); and the idea of adding the
+family members to the enrollment hash, re-enrolling on a life event. To weigh first: a wallet that covers several
+people changes on every life event, and per-person accumulators and clinical checks need one identity per person;
+one wallet per person, linked by the bound family hash and held on the parent's phone, is the alternative.

@@ -236,6 +236,8 @@ const PROGRAM_REGISTRY: Record<string, Record<string, MethodDef>> = {
         'CredentialData', 'ForestRoots',
         'AccumulatorData', 'ForestMerkleWitness',
         'Field', 'Field', 'Field',
+        // B8: the family's totals before the fill and the plan's family limits
+        'Field', 'Field', 'Field', 'Field', 'Field', 'Field',
       ],
       hasPublicOutput: true,
     },
@@ -248,6 +250,8 @@ const PROGRAM_REGISTRY: Record<string, Record<string, MethodDef>> = {
         'Field', 'Field', 'Field',
         'CredentialData', 'ForestRoots',
         'AccumulatorData', 'ForestMerkleWitness',
+        // H2: pharmacy wallet identity preimage — the circuit has taken these since H2; the table had not caught up
+        'Field', 'Field', 'Field',
       ],
       hasPublicOutput: true,
     },

@@ -477,6 +477,8 @@ export interface MemberApproval {
   /** The plan as stored on the sequencer (`l2_storePlan`), resolved by the insurer from the hash. */
   planId: string;
   employerId: string | null;
+  /** A-34: the employer's opaque family hash from the enrollment code, or null for no family. Absent in older checkpoints. */
+  familyIdHash?: string | null;
   approvedAt: number;
 }
 
@@ -504,6 +506,33 @@ export class RegistrationRefused extends Error {
     super(message);
     this.name = 'RegistrationRefused';
   }
+}
+
+/**
+ * B8, A-34: whose accumulators pool with this member's. A family is the one the insurer's approval bound
+ * from the employer's enrollment code, never one a request names, and it pools only inside one group and
+ * one plan. A member with no bound family pools with no one: an empty family ID is not a family.
+ */
+export function familyMembersOf<M extends { familyId: string; groupId: string; planId: string }>(member: M, all: Iterable<M>): M[] {
+  if (!member.familyId) return [member];
+  const family: M[] = [];
+  for (const m of all) {
+    if (m.familyId === member.familyId && m.groupId === member.groupId && m.planId === member.planId) family.push(m);
+  }
+  return family.includes(member) ? family : [member, ...family];
+}
+
+/** The plan's family limits for a member with a bound family; none (zeros) for a member without one, or with no plan. */
+export function familyLimitsFor(
+  member: { familyId: string },
+  plan: { familyDeductibleAmountCents?: number; familyOopMaxCents?: number; familyAnnualBenefitMaxCents?: number } | null | undefined,
+): FamilyLimits {
+  if (!member.familyId || !plan) return { familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0 };
+  return {
+    familyDeductibleAmountCents: plan.familyDeductibleAmountCents ?? 0,
+    familyOopMaxCents: plan.familyOopMaxCents ?? 0,
+    familyAnnualBenefitMaxCents: plan.familyAnnualBenefitMaxCents ?? 0,
+  };
 }
 
 /**
@@ -1632,13 +1661,14 @@ export class AdjudicationService {
 
   /**
    * Record the insurer's approval of a wallet — plan item B2 (now), finding A-6. Idempotent for the
-   * same binding; a different group or plan for an already approved wallet is refused.
+   * same binding; a different group, plan or family for an already approved wallet is refused.
    */
   approveMember(a: Omit<MemberApproval, 'approvedAt'>): { approved: true; alreadyApproved: boolean } {
     const existing = this.approvedMembers.get(a.walletId);
     if (existing) {
-      if (existing.groupIdHash !== a.groupIdHash || existing.planIdHash !== a.planIdHash || existing.planId !== a.planId) {
-        throw new RegistrationRefused(409, 'This wallet is already approved under a different group or plan');
+      if (existing.groupIdHash !== a.groupIdHash || existing.planIdHash !== a.planIdHash || existing.planId !== a.planId
+        || (existing.familyIdHash ?? null) !== (a.familyIdHash ?? null)) {
+        throw new RegistrationRefused(409, 'This wallet is already approved under a different group, plan or family');
       }
       return { approved: true, alreadyApproved: true };
     }
@@ -1867,9 +1897,8 @@ export class AdjudicationService {
     /** ProofGate.verifyMember proof made on the device: the wallet is theirs. The identity preimage is never sent (B2). */
     ownershipProofJson: string;
     displayName: string;
-    familyId?: string;
+    /** Display only, as the device reports it. The family is the insurer's approval's (A-34); the employee ID stays with the employer (I5). */
     relationship?: string;
-    employeeId?: string;
     publicKeyHex?: string;     // X25519 public key from member's device (private key never leaves device)
   }): Promise<Record<string, unknown>> {
     if (!this.compiled) throw new Error('Programs not compiled yet — wait for ZkProgram compilation to finish');
@@ -1997,9 +2026,10 @@ export class AdjudicationService {
       accumulatorData,
       planId,
       groupId,
-      familyId: opts.familyId || '',
+      // A-34: the family the insurer's approval carries (the employer's opaque hash), never one a request names.
+      familyId: approval.familyIdHash ?? '',
       relationship: opts.relationship || 'SELF',
-      employeeId: opts.employeeId || '',
+      employeeId: '', // I5: the employee ID stays with the employer
       inNetworkPrescriberIndices: network.prescriberIndices,
       inNetworkPharmacyIndices: network.pharmacyIndices,
       lifecycle: 'ELIGIBLE',
@@ -3191,14 +3221,29 @@ export class AdjudicationService {
 
     this.emit('proof', 'fill', `[3/3] Generating AccumulatorFulfillment.proveFulfillmentWithAccumulator...`, 'start');
     this.emit('info', 'fill', '       THE CLAIM: Dual-credential fulfillment with accumulator update');
-    this.emit('info', 'fill', '       18 private inputs verified in a single ZK circuit');
+    this.emit('info', 'fill', '       24 private inputs verified in a single ZK circuit');
 
+    // B8 (A-23): family pooling is proven inside the circuit, from the family's accumulators before this fill and
+    // the plan's family limits; the proof's amounts are what the member is billed and what the ledger records.
+    // The family is the one the insurer's approval bound (A-34); a member with none pools with no one and
+    // has no family limits.
+    const familyLimitsIn = familyLimitsFor(enrolled, this.l2Node.getSequencer().getPlan(enrolled.planId));
+    const familyBefore: MemberAccumulator[] = familyMembersOf(enrolled, this.enrolledMembers.values()).map((m) => ({
+      deductiblePaidCents: Number(m.accumulatorData.deductiblePaidCents.toBigInt()),
+      oopPaidCents: Number(m.accumulatorData.oopPaidCents.toBigInt()),
+      annualBenefitUsedCents: Number(m.accumulatorData.annualBenefitUsedCents.toBigInt()),
+    }));
+    const familyTotals = FamilyAccumulatorService.getFamilyTotals(familyBefore);
+    const familyFields = [
+      familyTotals.deductiblePaidCents, familyTotals.oopPaidCents, familyTotals.annualBenefitUsedCents,
+      familyLimitsIn.familyDeductibleAmountCents, familyLimitsIn.familyOopMaxCents, familyLimitsIn.familyAnnualBenefitMaxCents,
+    ].map((n) => Field(BigInt(Math.max(0, Math.trunc(n)))));
     const startFulf = performance.now();
     const fulfillDispatch = await this.dispatchProof(
       'AccumulatorFulfillment', 'proveFulfillmentWithAccumulator',
-      ['CredentialData', 'PrescriptionData', 'PrescriptionStatusData', 'FulfillmentData', 'FormularyEntry', 'ForestRoots', 'ForestMerkleWitness', 'ForestMerkleWitness', 'ForestMerkleWitness', 'FormularyMerkleWitness', 'Field', 'CredentialData', 'ForestRoots', 'AccumulatorData', 'ForestMerkleWitness', 'Field', 'Field', 'Field'],
-      [rxCredentialData, rxState.prescriptionData, preDispenseStatus, fulfillmentData, rxState.formularyEntry, rxForestRoots, fulfMedWitness, fulfStatusWitness, fulfNewSlotWitness, fulfFormWitness, enrolled.eligibilityData.formularyRoot, enrolled.credentialData, eligForestRoots, enrolled.accumulatorData, accumWitness, ...pharmacyPreimage],
-      () => AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(rxCredentialData, rxState.prescriptionData, preDispenseStatus, fulfillmentData, rxState.formularyEntry, rxForestRoots, fulfMedWitness, fulfStatusWitness, fulfNewSlotWitness, fulfFormWitness, enrolled.eligibilityData.formularyRoot, enrolled.credentialData, eligForestRoots, enrolled.accumulatorData, accumWitness, ...pharmacyPreimage as [Field, Field, Field]),
+      ['CredentialData', 'PrescriptionData', 'PrescriptionStatusData', 'FulfillmentData', 'FormularyEntry', 'ForestRoots', 'ForestMerkleWitness', 'ForestMerkleWitness', 'ForestMerkleWitness', 'FormularyMerkleWitness', 'Field', 'CredentialData', 'ForestRoots', 'AccumulatorData', 'ForestMerkleWitness', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field'],
+      [rxCredentialData, rxState.prescriptionData, preDispenseStatus, fulfillmentData, rxState.formularyEntry, rxForestRoots, fulfMedWitness, fulfStatusWitness, fulfNewSlotWitness, fulfFormWitness, enrolled.eligibilityData.formularyRoot, enrolled.credentialData, eligForestRoots, enrolled.accumulatorData, accumWitness, ...pharmacyPreimage, ...familyFields],
+      () => AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(rxCredentialData, rxState.prescriptionData, preDispenseStatus, fulfillmentData, rxState.formularyEntry, rxForestRoots, fulfMedWitness, fulfStatusWitness, fulfNewSlotWitness, fulfFormWitness, enrolled.eligibilityData.formularyRoot, enrolled.credentialData, eligForestRoots, enrolled.accumulatorData, accumWitness, ...pharmacyPreimage as [Field, Field, Field], ...familyFields as [Field, Field, Field, Field, Field, Field]),
     );
     const elapsedFulf = performance.now() - startFulf;
     this.emit('proof', 'fill', `[3/3] AccumulatorFulfillment proof generated`, 'complete', elapsedFulf);
@@ -3259,67 +3304,32 @@ export class AdjudicationService {
 
     let phase = patientPayCents === totalCostCents ? 'DEDUCTIBLE (not yet met)' : 'NORMAL COPAY';
 
-    // ─── Family Accumulator Pooling (service-layer override) ─────
-    const familyLimits: FamilyLimits = {
-      familyDeductibleAmountCents: 100000,
-      familyOopMaxCents: 1600000,
-      familyAnnualBenefitMaxCents: 0,
-    };
-
-    let familyPoolingApplied = false;
-    let familyPoolingReason = '';
-
-    // Collect all enrolled family members' accumulators (BEFORE this fill)
-    const familyAccumulators: MemberAccumulator[] = [];
-    for (const [_, m] of this.enrolledMembers) {
-      if (m.familyId === enrolled.familyId) {
-        if (m.walletId.toString() === enrolled.walletId.toString()) {
-          // Use the updated values for the current member
-          familyAccumulators.push({
-            deductiblePaidCents: newDeductiblePaid,
-            oopPaidCents: newOopPaid,
-            annualBenefitUsedCents: newBenefitUsed,
-          });
-        } else {
-          familyAccumulators.push({
-            deductiblePaidCents: Number(m.accumulatorData.deductiblePaidCents.toBigInt()),
-            oopPaidCents: Number(m.accumulatorData.oopPaidCents.toBigInt()),
-            annualBenefitUsedCents: Number(m.accumulatorData.annualBenefitUsedCents.toBigInt()),
-          });
-        }
-      }
-    }
-
-    if (familyAccumulators.length > 1) {
-      const familyTotals = FamilyAccumulatorService.getFamilyTotals(familyAccumulators);
-      const adjusted = FamilyAccumulatorService.computeFamilyAdjustedPay(
-        patientPayCents, totalCostCents, familyTotals, familyLimits,
-      );
-
-      if (adjusted.familyPoolingApplied) {
-        familyPoolingApplied = true;
-        familyPoolingReason = adjusted.reason;
-        patientPayCents = adjusted.patientPayCents;
-        planPayCents = adjusted.planPayCents;
-        newDeductiblePaid = oldDeductiblePaid + Math.min(deductibleCreditCents, patientPayCents);
-        newOopPaid = oldOopPaid + patientPayCents;
-        newBenefitUsed = oldBenefitUsed + planPayCents;
-        phase = adjusted.reason;
-
-        this.emitViz('viz:accumulator:updated', 'fulfillment', {
-          actor: 'Insurer',
-          actorType: 'insurer',
-          target: enrolled.displayName,
-          targetType: 'member',
-          data: {
-            familyPooling: true,
-            familyOopTotal: familyTotals.oopPaidCents,
-            familyDeductibleTotal: familyTotals.deductiblePaidCents,
-            adjustedPatientPay: patientPayCents,
-            reason: familyPoolingReason,
-          },
-        });
-      }
+    // B8 (A-23): the family rule the circuit applied, for the record and the display. The amounts above are the
+    // proof's, pooled inside the circuit; nothing is rewritten after the proof any more.
+    const familyRuleCode = Number(BigInt(proofOutput.familyRule ?? '0'));
+    const familyPoolingApplied = familyRuleCode !== 0;
+    const familyPoolingReason = [
+      'Individual accumulator rules applied',
+      'Family out-of-pocket maximum met',
+      'Family annual benefit maximum exhausted',
+      'Patient pay capped at family out-of-pocket maximum',
+      'Plan pay capped at family annual benefit maximum',
+    ][familyRuleCode] ?? 'Individual accumulator rules applied';
+    if (familyPoolingApplied) {
+      phase = familyPoolingReason;
+      this.emitViz('viz:accumulator:updated', 'fulfillment', {
+        actor: 'Insurer',
+        actorType: 'insurer',
+        target: enrolled.displayName,
+        targetType: 'member',
+        data: {
+          familyPooling: true,
+          familyOopTotal: familyTotals.oopPaidCents,
+          familyDeductibleTotal: familyTotals.deductiblePaidCents,
+          adjustedPatientPay: patientPayCents,
+          reason: familyPoolingReason,
+        },
+      });
     }
 
     this.emit('info', 'fill', '');
@@ -5360,9 +5370,8 @@ export class AdjudicationService {
     const familyMembers: Record<string, unknown>[] = [];
     const familyAccumulators: MemberAccumulator[] = [];
 
-    for (const [_, m] of this.enrolledMembers) {
-      if (m.familyId !== enrolled.familyId) continue;
-
+    // A-34: the bound family only; a member with none is shown alone.
+    for (const m of familyMembersOf(enrolled, this.enrolledMembers.values())) {
       const memberAccum = {
         deductiblePaidCents: Number(m.accumulatorData.deductiblePaidCents.toBigInt()),
         oopPaidCents: Number(m.accumulatorData.oopPaidCents.toBigInt()),
@@ -5421,11 +5430,8 @@ export class AdjudicationService {
 
     // Family totals
     const familyTotals = FamilyAccumulatorService.getFamilyTotals(familyAccumulators);
-    const familyLimits: FamilyLimits = {
-      familyDeductibleAmountCents: 100000,
-      familyOopMaxCents: 1600000,
-      familyAnnualBenefitMaxCents: 0,
-    };
+    // B8: the plan's family limits, the ones the fill proof uses, not constants.
+    const familyLimits: FamilyLimits = familyLimitsFor(enrolled, this.l2Node.getSequencer().getPlan(enrolled.planId));
 
     return {
       familyId: enrolled.familyId,

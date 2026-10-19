@@ -582,6 +582,7 @@ describe('Full Claim Lifecycle Benchmark', () => {
         accumWitness,
         // H2 fix: pharmacy wallet identity preimage (qualifier, serviceProviderIdHash, enrollmentKeyHash)
         ...pharmacyPreimageFields as [Field, Field, Field],
+        Field(0), Field(0), Field(0), Field(0), Field(0), Field(0),   // B8: no family limits
       ));
   }, 180_000);
 
