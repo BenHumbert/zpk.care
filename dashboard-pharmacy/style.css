@@ -407,12 +407,12 @@ html, body {
   50% { border-color: var(--red); box-shadow: 0 0 8px 2px rgba(248,81,73,0.3); }
 }
 
-.script-card.has-issue .script-issue-badge {
-  display: inline-block;
-}
-
+/* Every badge a card renders is shown: the issue badge, and the status badges (eRx, Proving..., ZK Proved,
+   Settlement Complete, Member Verified, ...) that carry their own colors. */
 .script-issue-badge {
-  display: none;
+  display: inline-block;
+  flex: none;
+  white-space: nowrap;
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
@@ -423,21 +423,26 @@ html, body {
   color: var(--red);
 }
 
+/* The drug name, then its badges: on one line when they fit, the badges wrapping under the name in a narrow column. */
 .script-card-top {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px;
   margin-bottom: 4px;
 }
 
 .script-med {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  margin-right: auto;
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 70%;
 }
 
 .script-card-meta {
@@ -448,17 +453,31 @@ html, body {
   font-family: var(--font-mono);
 }
 
-.script-patient {
+/* Each item keeps one line: the patient and the prescriber shorten with an ellipsis; the date and quantity never wrap. */
+.script-card-meta > span {
+  flex: none;
+  white-space: nowrap;
+}
+
+.script-card-meta > .script-patient,
+.script-card-meta > .script-prescriber {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.script-patient {
   max-width: 120px;
 }
 
+/* The prices, then the actions; in a narrow column the actions move under the prices, right-aligned. */
 .script-card-bottom {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-top: 6px;
 }
 
@@ -470,6 +489,7 @@ html, body {
 
 .script-price-tag {
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .script-price-tag.patient-pay {
@@ -489,11 +509,13 @@ html, body {
 .script-actions {
   display: flex;
   gap: 4px;
+  margin-left: auto;
 }
 
 .script-actions .btn {
   padding: 2px 8px;
   font-size: 11px;
+  white-space: nowrap;
 }
 
 /* Script card status badges */

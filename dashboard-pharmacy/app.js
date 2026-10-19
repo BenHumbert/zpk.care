@@ -575,7 +575,7 @@
         '</div>' +
         '<div class="script-card-meta">' +
           '<span class="script-patient" title="Patient">' + escapeHtml(patient) + '</span>' +
-          '<span title="Prescriber">' + escapeHtml(prescriber) + '</span>' +
+          '<span class="script-prescriber" title="Prescriber">' + escapeHtml(prescriber) + '</span>' +
           '<span>' + escapeHtml(date) + '</span>' +
           (qtyText ? '<span title="Quantity prescribed, in the drug\'s NADAC pricing unit">' + escapeHtml(qtyText) + '</span>' : '') +
         '</div>' +
