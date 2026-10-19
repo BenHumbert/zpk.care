@@ -289,6 +289,10 @@
 
   function navigate(page) {
     currentPage = page || 'dashboard';
+    // A tab is a link to #page, and a link to the hash already in the address bar fires no hashchange. A page the tool
+    // opens by itself (after unlock, after a group is selected, or when a group-scoped page sends the user to Groups)
+    // takes the address bar with it, or the tab for the hash left behind does nothing when clicked.
+    if (location.hash.replace('#', '') !== currentPage) history.replaceState(null, '', '#' + currentPage);
     navLinks.forEach(function(l) { l.classList.toggle('active', l.dataset.tab === currentPage); });
     window.scrollTo(0, 0);
     renderPage();

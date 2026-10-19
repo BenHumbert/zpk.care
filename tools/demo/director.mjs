@@ -774,6 +774,9 @@ const SCENE_RUN = {
     await select.waitFor({ timeout: 60000 });
     await speak('codes', 'group');
     await select.click();
+    // the first selection makes and encrypts the group's seed; Import waits until the Dashboard names the group, as a
+    // person would (clicked sooner, the router sends it back to Groups)
+    await pg.locator('#dash-group-label', { hasText: c.group.id }).waitFor({ timeout: 60000 });
     await pg.locator('a.nav-link[data-tab="import"]').click();
     const zone = pg.locator('#csv-drop-zone');
     await zone.waitFor({ timeout: 15000 });

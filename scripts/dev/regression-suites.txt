@@ -100,3 +100,4 @@ tests/engine-proving-readiness.test.ts
 tests/engine-ready-route.test.ts
 tests/engine-starting-retry.test.ts
 tests/engine-ready-harness.test.ts
+tests/hr-tool-router.test.ts
