@@ -86,10 +86,9 @@ function request(port: number, method: string, urlPath: string, body?: unknown):
   return new Promise((resolve, reject) => {
     const payload = body === undefined ? undefined : JSON.stringify(body);
     const headers: Record<string, string> = {};
-    if (payload) {
-      headers['Content-Type'] = 'application/json';
-      headers['Content-Length'] = String(Buffer.byteLength(payload));
-    }
+    // A write declares JSON even without a body, as the device's page does: the node refuses one that declares no type (A-82).
+    if (method !== 'GET') headers['Content-Type'] = 'application/json';
+    if (payload) headers['Content-Length'] = String(Buffer.byteLength(payload));
     if (deviceSession) headers['X-Device-Session'] = deviceSession;
     const req = http.request(
       {

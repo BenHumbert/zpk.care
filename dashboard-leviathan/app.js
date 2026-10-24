@@ -2119,9 +2119,10 @@
       '<div class="detail-val">' + escHtml(String(val)) + '</div>';
   }
 
+  // Escapes for text and for attribute values, in double or single quotes: batch numbers go into data-batch.
   function escHtml(s) {
     if (!s) return '';
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   // ── SSE Setup ───────────────────────────────────────────────

@@ -62,6 +62,8 @@ export interface L2ClientOptions {
   adminPrivateKeyHex?: string;
   /** This node's id as the launcher registered it on the sequencer (`ZKTRIDENT_NODE_ID`). */
   adminNodeId?: string;
+  /** The largest RPC response body read, in bytes. Default `DEFAULT_MAX_RESPONSE_BYTES`. */
+  maxResponseBytes?: number;
 }
 
 /** Default client options (sequencerUrl must be provided) */
@@ -70,6 +72,41 @@ export const DEFAULT_L2_CLIENT_OPTIONS: Omit<L2ClientOptions, 'sequencerUrl'> = 
   maxRetries: 3,
   retryBaseDelayMs: 1_000,
 };
+
+/*
+ * What this client buffers from a sequencer — A-83, found by the security posture check of
+ * 2026-10-24.
+ *
+ * The event stream appended every chunk to one string and split all of it again on each chunk,
+ * with no limit, and an RPC response was read whole whatever its length. A sequencer, a replica,
+ * or anything on the path between that sent an event with no end, or a body with no end, grew that
+ * buffer until the node ran out of memory, and every node keeps such a stream open. Each now has a
+ * ceiling.
+ */
+
+/**
+ * The longest unfinished event the stream holds, in characters (at least as many bytes). The
+ * sequencer's events are a few hundred bytes; a frame still open at this length is dropped with its
+ * connection, and the client reconnects.
+ */
+export const MAX_SSE_FRAME_CHARS = 1024 * 1024;
+
+/** The largest RPC response body read, in bytes, unless `maxResponseBytes` sets another: over three times the 20 MB the sequencer accepts in a request. */
+export const DEFAULT_MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
+
+/** The ceiling for `l2_requestSnapshot`, whose one answer is the sequencer's whole state for a replica catching up. */
+export const MAX_SNAPSHOT_RESPONSE_BYTES = 256 * 1024 * 1024;
+
+/** Hand one SSE frame's event to the handler: the frame's first `data:` line, parsed. A frame without one, or that does not parse, is skipped. */
+function deliverEventFrame(frame: string, handler: L2EventHandler): void {
+  const dataLine = frame.split('\n').find((l) => l.startsWith('data:'));
+  if (!dataLine) return;
+  try {
+    handler(l2Parse<L2ChainEvent>(dataLine.slice(5).trim()));
+  } catch {
+    // Ignore parse errors
+  }
+}
 
 // ─── L2Client ───────────────────────────────────────────
 
@@ -505,7 +542,8 @@ export class L2Client {
 
   /** Request a full state snapshot from a peer (for IBD recovery) */
   async requestSnapshot(): Promise<L2SequencerState> {
-    return this.rpcCall<L2SequencerState>('l2_requestSnapshot');
+    const maxResponseBytes = Math.max(this.options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES, MAX_SNAPSHOT_RESPONSE_BYTES);
+    return this.rpcCall<L2SequencerState>('l2_requestSnapshot', undefined, undefined, maxResponseBytes);
   }
 
   /** Get a compact state digest from a peer for quick sync check */
@@ -587,48 +625,53 @@ export class L2Client {
       } else if (this.options.adminToken) {
         streamHeaders['Authorization'] = `Bearer ${this.options.adminToken}`;
       }
+      // One reconnect per connection, whichever comes first: its end, its error, or a dropped frame.
+      let reconnecting = false;
+      const reconnectOnce = () => {
+        if (reconnecting) return;
+        reconnecting = true;
+        scheduleReconnect();
+      };
       currentReq = transport.get(url, { headers: streamHeaders }, (res) => {
         if (res.statusCode !== 200) {
-          scheduleReconnect();
+          res.resume();
+          reconnectOnce();
           return;
         }
 
         retryCount = 0; // Reset on successful connect
+        // Decoded as a stream, so a character split between two chunks arrives whole (A-83).
+        res.setEncoding('utf8');
         let buffer = '';
+        let searchFrom = 0;
 
-        res.on('data', (chunk: Buffer) => {
-          buffer += chunk.toString();
+        res.on('data', (chunk: string) => {
+          buffer += chunk;
 
-          // Parse SSE frames (split on double newline)
-          const frames = buffer.split('\n\n');
-          buffer = frames.pop() ?? ''; // Keep incomplete frame
-
-          for (const frame of frames) {
-            const lines = frame.split('\n');
-            const dataLine = lines.find((l) => l.startsWith('data:'));
-            if (dataLine) {
-              try {
-                const event = l2Parse<L2ChainEvent>(dataLine.slice(5).trim());
-                handler(event);
-              } catch {
-                // Ignore parse errors
-              }
-            }
+          // Parse SSE frames (split on double newline). Only the new text is searched: what was
+          // held before had no separator, bar its last character, which may begin one.
+          let start = 0;
+          for (let end = buffer.indexOf('\n\n', searchFrom); end !== -1; end = buffer.indexOf('\n\n', start)) {
+            deliverEventFrame(buffer.slice(start, end), handler);
+            start = end + 2;
           }
+          buffer = buffer.slice(start); // Keep incomplete frame
+
+          // A-83: an event that never ends is dropped with its connection rather than held.
+          if (buffer.length > MAX_SSE_FRAME_CHARS) {
+            buffer = '';
+            res.destroy();
+            reconnectOnce();
+            return;
+          }
+          searchFrom = Math.max(0, buffer.length - 1);
         });
 
-        res.on('end', () => {
-          scheduleReconnect();
-        });
-
-        res.on('error', () => {
-          scheduleReconnect();
-        });
+        res.on('end', reconnectOnce);
+        res.on('error', reconnectOnce);
       });
 
-      currentReq.on('error', () => {
-        scheduleReconnect();
-      });
+      currentReq.on('error', reconnectOnce);
     };
 
     const scheduleReconnect = () => {
@@ -657,6 +700,7 @@ export class L2Client {
     method: string,
     params?: Record<string, unknown>,
     signer?: RequestSigner,
+    maxResponseBytes?: number,
   ): Promise<T> {
     const rpcReq: RpcRequest = {
       jsonrpc: '2.0',
@@ -692,6 +736,7 @@ export class L2Client {
       method: 'POST',
       headers,
       body,
+      maxResponseBytes,
     });
 
     const rpcRes = l2Parse<RpcResponse>(resBody);
@@ -705,8 +750,9 @@ export class L2Client {
 
   private httpRequest(
     path: string,
-    options: { method: string; headers?: Record<string, string>; body?: string },
+    options: { method: string; headers?: Record<string, string>; body?: string; maxResponseBytes?: number },
   ): Promise<string> {
+    const maxBytes = options.maxResponseBytes ?? this.options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
     return new Promise((resolve, reject) => {
       const url = new URL(path, this.options.sequencerUrl);
       const transport = url.protocol === 'https:' ? https : http;
@@ -719,17 +765,40 @@ export class L2Client {
           timeout: this.options.timeoutMs,
         },
         (res) => {
-          let data = '';
-          res.on('data', (chunk) => {
-            data += chunk;
+          // A-83: a body over the ceiling is refused by its declared length, or as it arrives.
+          let refused = false;
+          const refuse = () => {
+            refused = true;
+            req.destroy();
+            reject(new Error(`Response body exceeds ${maxBytes} bytes`));
+          };
+          const declared = Number(res.headers['content-length']);
+          if (Number.isFinite(declared) && declared > maxBytes) {
+            refuse();
+            return;
+          }
+          const chunks: Buffer[] = [];
+          let received = 0;
+          res.on('data', (chunk: Buffer) => {
+            if (refused) return;
+            received += chunk.length;
+            if (received > maxBytes) {
+              refuse();
+              return;
+            }
+            chunks.push(chunk);
           });
           res.on('end', () => {
+            if (refused) return;
+            const data = Buffer.concat(chunks).toString('utf-8');
             if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
               resolve(data);
             } else {
               reject(new Error(`HTTP ${res.statusCode}: ${data}`));
             }
           });
+          // A connection closed partway through the body ends the call rather than leaving it waiting.
+          res.on('error', reject);
         },
       );
 

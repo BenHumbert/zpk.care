@@ -71,7 +71,7 @@ async function main() {
   // 2. Clear any previous event buffer so browsers see fresh events
   await new Promise<void>((resolve) => {
     const req = http.request(
-      { hostname: '127.0.0.1', port: PORT, path: '/viz/clear', method: 'POST' },
+      { hostname: '127.0.0.1', port: PORT, path: '/viz/clear', method: 'POST', headers: { 'Content-Type': 'application/json' } },
       (res) => { res.resume(); res.on('end', resolve); },
     );
     req.on('error', () => resolve());

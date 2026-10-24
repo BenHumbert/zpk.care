@@ -39,9 +39,11 @@ import { normalizeTokenId } from '../../onboarding/enrollment-code.js';
 export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistration[] {
   const routes: RouteRegistration[] = [];
 
-  // A6: the validate oracle's own limiter and replay memory. Per node, so one tenant's traffic
-  // never counts against another's.
-  const validatePerCaller = new SlidingWindowLimiter(60, 60_000);
+  // A6: the validate oracle's own limiters and replay memory. Per node, so one tenant's traffic
+  // never counts against another's. A caller is charged only for the requests the insurer did not
+  // sign; one the insurer signed spends the overall budget alone (the route says why).
+  const VALIDATE_PER_CALLER_PER_MINUTE = 60;
+  const validatePerCaller = new SlidingWindowLimiter(VALIDATE_PER_CALLER_PER_MINUTE, 60_000);
   const validateOverall = new SlidingWindowLimiter(600, 60_000);
   const validateReplay = new ReplayCache();
 
@@ -317,25 +319,42 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
        * the same step. It no longer answers anonymous callers, so it is no longer an oracle that
        * leaks "token not found" versus "wrong PIN (3 attempts remaining)" to anyone on the network.
        *
-       * Rate limits sit in front of all of it, per caller address and overall, in addition to the
-       * authority's own lock after five wrong PINs on a token.
+       * Two rate limits, in addition to the authority's own lock after five wrong PINs on a token:
+       * 60 requests a minute from one caller that the insurer did not sign, and 600 a minute in
+       * all that it did. A caller is what server.callerKey names: its address, an IPv6 address's
+       * /64, or behind a reverse proxy this node trusts, the client the proxy forwards for. The raw
+       * socket address counted here before made an IPv4 caller and its IPv4-mapped form two
+       * callers, one IPv6 host as many as its /64 has addresses, and everyone behind a proxy one.
        */
       const node = server.getEntityNode() as EmployerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
 
-      const caller = req.socket?.remoteAddress ?? 'unknown';
-      if (!validateOverall.allow('*') || !validatePerCaller.allow(caller)) {
+      // The order of the checks is what keeps junk off the insurer's budget. A caller already over
+      // its own limit is refused first, whoever signed the request, by a count that records
+      // nothing, so a flood costs no signature check and spends nothing. A request that then fails
+      // to prove it is the insurer's (unsigned, unverifiable for want of an attestation, or not
+      // verifying) is charged to its caller and to nothing else. Only a request the insurer signed
+      // spends the overall budget, and it is never charged to its caller: the insurer is the one
+      // caller this oracle answers, and it relays every member's enrollment. Before, the overall
+      // limit was recorded first, for every request: one client's 600 unsigned requests a minute
+      // (60 answered 401, 540 refused by its own limit, all 600 counted) had the insurer's next
+      // signed request refused 429, and every enrollment with this employer failed for that
+      // minute; and the insurer had only the 60 a minute any caller has.
+      const caller = server.callerKey(req);
+      if (validatePerCaller.count(caller) >= VALIDATE_PER_CALLER_PER_MINUTE) {
         return server.sendResponse(res, 429, false, undefined, 'Too many validation requests. Try again in a minute.');
       }
 
       // An unsigned request is the caller's problem and is answered as such, before anything about
       // this node's own readiness is disclosed.
       if (!req.headers['x-admin-signature']) {
+        validatePerCaller.allow(caller);
         return server.sendResponse(res, 401, false, undefined, 'This oracle answers only the insurer: the request is not signed.');
       }
 
       const pinnedInsurerKey = node.getInsurerPublicKeyHex();
       if (!pinnedInsurerKey) {
+        validatePerCaller.allow(caller);
         return server.sendResponse(res, 503, false, undefined,
           'This employer node has no attestation loaded, so it cannot tell who the insurer is. Refresh the attestation first.');
       }
@@ -352,7 +371,11 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
         replayCache: validateReplay,
       });
       if (!verdict.ok) {
+        validatePerCaller.allow(caller);
         return server.sendResponse(res, 401, false, undefined, `This oracle answers only the insurer: ${verdict.reason}.`);
+      }
+      if (!validateOverall.allow('*')) {
+        return server.sendResponse(res, 429, false, undefined, 'Too many validation requests. Try again in a minute.');
       }
 
       const tokenId = normalizeTokenId(params.tokenId);

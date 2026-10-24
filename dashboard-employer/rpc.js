@@ -25,6 +25,7 @@ const API = (() => {
   let sseListeners = [];
   let sseReconnectDelay = 1000;
   let sseReconnectTimer = null;
+  let sseAttempt = 0;
   let lastOnEvent = null;
 
   function setBaseUrl(url) {
@@ -34,6 +35,7 @@ const API = (() => {
   function setAdminToken(token) {
     adminToken = token || '';
     try { localStorage.setItem('zkt_employer_admin_token', adminToken); } catch {}
+    if (lastOnEvent) connectSSE(lastOnEvent);   // the event stream opens with the token (A-79)
   }
 
   function getAdminToken() {
@@ -192,37 +194,53 @@ const API = (() => {
   }
 
   // ---- SSE Events ----
+  /*
+   * A-79: this node's event stream answers only this node's admin token. An EventSource cannot send a header, so each
+   * connection first trades the token for a single-use ticket and opens the stream with it; every reconnect asks for a
+   * fresh one. With no token set nothing is opened, and setting one opens it.
+   */
   function connectSSE(onEvent) {
     disconnectSSE();
     lastOnEvent = onEvent;
-    try {
-      sseConnection = new EventSource(baseUrl + '/events');
-      sseConnection.onopen = () => {
-        sseReconnectDelay = 1000;
-        sseListeners.forEach(fn => fn('connected'));
-      };
-      sseConnection.onmessage = (ev) => {
-        try {
-          const data = JSON.parse(ev.data);
-          if (onEvent) onEvent(data);
-        } catch {
-          if (onEvent) onEvent({ raw: ev.data });
-        }
-      };
-      sseConnection.onerror = () => {
+    if (!adminToken) return;
+    const attempt = sseAttempt;
+    request('POST', '/events/ticket', {}, true)
+      .then((data) => {
+        if (attempt !== sseAttempt) return;   // disconnected, or connected again, while the ticket was on its way
+        sseConnection = new EventSource(baseUrl + '/events?ticket=' + encodeURIComponent(data.ticket));
+        sseConnection.onopen = () => {
+          sseReconnectDelay = 1000;
+          sseListeners.forEach(fn => fn('connected'));
+        };
+        sseConnection.onmessage = (ev) => {
+          try {
+            const event = JSON.parse(ev.data);
+            if (onEvent) onEvent(event);
+          } catch {
+            if (onEvent) onEvent({ raw: ev.data });
+          }
+        };
+        sseConnection.onerror = () => {
+          sseListeners.forEach(fn => fn('disconnected'));
+          sseConnection.close();
+          sseConnection = null;
+          reconnectSSE();
+        };
+      })
+      .catch(() => {
+        if (attempt !== sseAttempt) return;
         sseListeners.forEach(fn => fn('disconnected'));
-        sseConnection.close();
-        sseConnection = null;
-        sseReconnectTimer = setTimeout(() => connectSSE(lastOnEvent), sseReconnectDelay);
-        sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000);
-      };
-    } catch {
-      sseReconnectTimer = setTimeout(() => connectSSE(lastOnEvent), sseReconnectDelay);
-      sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000);
-    }
+        reconnectSSE();
+      });
+  }
+
+  function reconnectSSE() {
+    sseReconnectTimer = setTimeout(() => connectSSE(lastOnEvent), sseReconnectDelay);
+    sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000);
   }
 
   function disconnectSSE() {
+    sseAttempt++;
     if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
     if (sseConnection) {
       sseConnection.close();

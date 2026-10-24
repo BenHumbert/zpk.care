@@ -875,14 +875,14 @@
     if (btn.classList.contains('active')) {
       // Stop
       try {
-        await fetch('/flowchart/auto-mode/stop', { method: 'POST' });
+        await fetch('/flowchart/auto-mode/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       } catch (err) { console.warn('[AutoMode] Stop request failed:', err); }
       btn.classList.remove('active');
       btn.textContent = 'Auto Mode';
     } else {
       // Start
       try {
-        const res = await fetch('/flowchart/auto-mode/start', { method: 'POST' });
+        const res = await fetch('/flowchart/auto-mode/start', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
         if (res.ok) {
           btn.classList.add('active');
           btn.textContent = 'Auto Mode';
@@ -896,7 +896,7 @@
 
   async function runSmokeTest() {
     try {
-      const res = await fetch('/flowchart/smoke-test', { method: 'POST' });
+      const res = await fetch('/flowchart/smoke-test', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       if (res.ok) {
         document.getElementById('smoke-test-panel').classList.remove('hidden');
         const pollSmoke = setInterval(async () => {
@@ -942,7 +942,7 @@
   // ─── Reset ──────────────────────────────────────────────
   async function resetDashboard() {
     try {
-      await fetch('/flowchart/reset', { method: 'POST' });
+      await fetch('/flowchart/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       document.getElementById('smoke-test-panel').classList.add('hidden');
       enrolledWalletIds.clear();
       if (activityLogEl) activityLogEl.innerHTML = '';

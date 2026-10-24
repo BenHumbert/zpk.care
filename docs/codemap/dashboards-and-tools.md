@@ -55,6 +55,15 @@ rpc.js: base `location.origin` (22), `headers()` = Content-Type only, no auth ev
 
 ## 3. Provider / insurer / employer / HR dashboards
 
+**Buttons that act on a value (since A-88, 2026-10-24).** No screen puts a value inside an inline handler, where the
+browser decodes an escaped quote before the script runs. A button names its action in `data-act` and its value in
+`data-key` (pharmacy) or `data-arg` (insurer), and one listener on the document reads both and acts only on the names
+it lists (`onScriptAction` with `SCRIPT_ACTIONS`; `onIdAction` with `ID_ACTIONS`). The member's provider cards use
+`data-act` with `data-wallet` (`onProviderAction`), the prescriber's formulary Verify `data-witness`
+(`onWitnessClick`), the explorer's rows `data-batch` and `data-receipt` (`onRowClick`), the network screen's rows
+`data-batch` (`setupBatchDetail`, A-65) and the HR Tool's buttons `data-goto` (A-66). The pharmacy has no
+`window.App`; its `truncate` cuts text and each markup caller escapes once. The prescriber's `truncHash` does the same, and its witness window and coverage result escape what the node sends; the insurer's staged formulary keeps its table and search box in agreement on every redraw (A-91).
+
 ### dashboard-insurer
 
 | UI action | Route/RPC | Fields sent | Source |

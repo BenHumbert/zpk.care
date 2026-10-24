@@ -82,6 +82,17 @@ export interface NautilusAppConfig {
   proverApiKey?: string;
   /** Allowed CORS origins */
   allowedOrigins: string[];
+  /**
+   * The Host names this node answers to beyond loopback and its bind address (A-82): a reverse proxy's public name.
+   * Default: `ZKTRIDENT_PUBLIC_HOSTS`.
+   */
+  publicHosts?: string[];
+  /**
+   * The reverse proxies in front of this node, each by its exact IP address, whose X-Forwarded-For names the client a
+   * per-caller limit counts (callerKey). Default: `ZKTRIDENT_TRUSTED_PROXIES`, none unless set. An entry that is not an
+   * IP address stops the node at boot.
+   */
+  trustedProxies?: string[];
   /** The budget for a request before the server answers 504 (default 30 s). A route may declare a longer `timeoutMs`. */
   requestTimeoutMs?: number;
   /** A2: whether and how POST /rpc forwards to the sequencer. Off unless explicitly set. */
@@ -159,6 +170,11 @@ export interface RouteRegistration {
    * would mean the browser keeping the PIN — a worse answer.
    */
   deviceOnly?: boolean;
+  /**
+   * The body types this route reads itself, instead of the JSON the server parses for it (A-82): the CP 575 upload's
+   * `application/pdf`. A request must declare one of them; a route without the field takes `application/json` only.
+   */
+  bodyTypes?: readonly string[];
 }
 
 // ─── API Response Types ────────────────────────────────────────

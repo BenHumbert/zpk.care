@@ -254,7 +254,7 @@ async function doAction(action, btn) {
   btn.disabled = true;
 
   try {
-    const res = await fetch(`${API_BASE}/interactive/${action}`, { method: 'POST' });
+    const res = await fetch(`${API_BASE}/interactive/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     const data = await res.json();
 
     if (data.error) {

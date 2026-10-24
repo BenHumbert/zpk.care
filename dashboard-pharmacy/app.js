@@ -93,9 +93,10 @@
     }, 4000);
   }
 
+  // Cuts the text itself: a caller that draws it into markup escapes it there, once.
   function truncate(s, n) {
     if (!s) return '--';
-    s = escapeHtml(String(s));
+    s = String(s);
     return s.length <= n ? s : s.slice(0, n) + '\u2026';
   }
 
@@ -143,10 +144,11 @@
     if (el) el.textContent = text;
   }
 
+  // Escapes for text and for attribute values: script keys, thread IDs and error text go into quoted attributes.
   function escapeHtml(s) {
     const d = document.createElement('div');
     d.textContent = s;
-    return d.innerHTML;
+    return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   // ── Workflow State (in-memory, no localStorage) ─────────────
@@ -547,28 +549,28 @@
         actionsHtml =
           (currentClaimStatus === 'pending'
             ? '<span class="btn btn-sm" style="background:#f59e0b;color:#fff;cursor:default;font-size:10px">Adjudicating…</span>'
-            : '<button class="btn btn-sm btn-primary" onclick="App.fillScript(\'' + escapeHtml(key) + '\')">Fill</button>') +
-          '<button class="btn btn-sm btn-danger" onclick="App.rejectScript(\'' + escapeHtml(key) + '\')">Reject</button>' +
-          '<button class="btn btn-sm" onclick="App.transferScript(\'' + escapeHtml(key) + '\')">Transfer</button>';
+            : '<button class="btn btn-sm btn-primary" data-act="fillScript" data-key="' + escapeHtml(key) + '">Fill</button>') +
+          '<button class="btn btn-sm btn-danger" data-act="rejectScript" data-key="' + escapeHtml(key) + '">Reject</button>' +
+          '<button class="btn btn-sm" data-act="transferScript" data-key="' + escapeHtml(key) + '">Transfer</button>';
       } else if (columnType === 'filled') {
         var memberVerified = isScriptVerified(claim);
         actionsHtml =
           (memberVerified
             ? '<span class="btn btn-sm" style="background:#10b981;color:#fff;cursor:default;font-size:10px">Verified</span>'
-            : '<button class="btn btn-sm" onclick="App.verifyMemberForScript(\'' + escapeHtml(key) + '\')">Verify Member</button>') +
-          '<button class="btn btn-sm btn-primary" onclick="App.dispenseScript(\'' + escapeHtml(key) + '\')"' +
+            : '<button class="btn btn-sm" data-act="verifyMemberForScript" data-key="' + escapeHtml(key) + '">Verify Member</button>') +
+          '<button class="btn btn-sm btn-primary" data-act="dispenseScript" data-key="' + escapeHtml(key) + '"' +
             (memberVerified ? '' : ' disabled title="Verify member first"') + '>Dispense</button>';
       } else if (columnType === 'dispensed') {
         var paymentReceived = scriptWorkflow[key]?.paymentReceived;
         actionsHtml =
           (!paymentReceived
-            ? '<button class="btn btn-sm btn-primary" onclick="App.confirmPayment(\'' + escapeHtml(key) + '\')">Payment Received</button>'
+            ? '<button class="btn btn-sm btn-primary" data-act="confirmPayment" data-key="' + escapeHtml(key) + '">Payment Received</button>'
             : '<span class="btn btn-sm" style="background:#10b981;color:#fff;cursor:default;font-size:10px">Paid</span>') +
-          '<button class="btn btn-sm btn-reverse" onclick="App.reverseScript(\'' + escapeHtml(key) + '\')">Reverse</button>';
+          '<button class="btn btn-sm btn-reverse" data-act="reverseScript" data-key="' + escapeHtml(key) + '">Reverse</button>';
       }
       // history column: no action buttons
 
-      return '<div class="script-card' + (issue ? ' has-issue' : '') + (isEscript ? ' is-escript' : '') + (isDispensing || isFilling ? ' is-dispensing' : '') + '" data-key="' + escapeHtml(key) + '" onclick="App.showScriptDetail(\'' + escapeHtml(key) + '\')">' +
+      return '<div class="script-card' + (issue ? ' has-issue' : '') + (isEscript ? ' is-escript' : '') + (isDispensing || isFilling ? ' is-dispensing' : '') + '" data-key="' + escapeHtml(key) + '" data-act="showScriptDetail">' +
         '<div class="script-card-top">' +
           '<span class="script-med">' + escapeHtml(med) + '</span>' +
           (isFilling ? '<span class="script-issue-badge" style="background:#6b7280;color:#fff;animation:pulse 2s infinite">Filling...</span>' : '') +
@@ -598,10 +600,10 @@
             '<span class="script-price-tag patient-pay" title="Member Copay">' + escapeHtml(patientPay) + '</span>' +
             '<span class="script-price-tag plan-pay" title="Plan Pays">' + escapeHtml(planPay) + '</span>' +
             (pricing
-              ? '<span class="script-price-tag drug-cost" title="' + escapeHtml(nadacBreakdown(pricing)).replace(/"/g, '&quot;') + '">' + formatCents(pricing.totalCostCents) + '</span>'
+              ? '<span class="script-price-tag drug-cost" title="' + escapeHtml(nadacBreakdown(pricing)) + '">' + escapeHtml(formatCents(pricing.totalCostCents)) + '</span>'
               : '') +
           '</div>' +
-          '<div class="script-actions" onclick="event.stopPropagation();">' + actionsHtml + '</div>' +
+          '<div class="script-actions" data-act="none">' + actionsHtml + '</div>' +
         '</div>' +
       '</div>';
     }).join('');
@@ -1226,27 +1228,27 @@
     // Actions
     html += '<div class="modal-actions">';
     if (status === 'adjudicated') {
-      html += '<button class="btn btn-primary" onclick="App.fillScript(\'' + escapeHtml(key) + '\'); App.closeModal();">Fill</button>';
-      html += '<button class="btn btn-danger" onclick="App.rejectScript(\'' + escapeHtml(key) + '\'); App.closeModal();">Reject</button>';
-      html += '<button class="btn" onclick="App.transferScript(\'' + escapeHtml(key) + '\'); App.closeModal();">Transfer</button>';
+      html += '<button class="btn btn-primary" data-act="fillScript" data-key="' + escapeHtml(key) + '" data-close>Fill</button>';
+      html += '<button class="btn btn-danger" data-act="rejectScript" data-key="' + escapeHtml(key) + '" data-close>Reject</button>';
+      html += '<button class="btn" data-act="transferScript" data-key="' + escapeHtml(key) + '" data-close>Transfer</button>';
     }
     if (status === 'filled') {
       var isVerified = isScriptVerified(claim);
       if (isVerified) {
         var toDispense = Math.max(0, Math.round(Number(claim.quantity || 0) * 1000) - Math.round(Number(claim.quantityDispensed || 0) * 1000)) / 1000;
-        html += '<button class="btn btn-primary" onclick="App.dispenseScript(\'' + escapeHtml(key) + '\'); App.closeModal();">Dispense' + (toDispense > 0 ? ' ' + escapeHtml(withUnit(toDispense)) : '') + ' (Collect Payment + Settle)</button>';
+        html += '<button class="btn btn-primary" data-act="dispenseScript" data-key="' + escapeHtml(key) + '" data-close>Dispense' + (toDispense > 0 ? ' ' + escapeHtml(withUnit(toDispense)) : '') + ' (Collect Payment + Settle)</button>';
       } else {
         html += '<div style="color:var(--text-muted);font-size:12px;margin:8px 0">Verify member (NFC/attestation) to enable dispensing</div>';
-        html += '<button class="btn" onclick="App.verifyMemberForScript(\'' + escapeHtml(key) + '\'); App.closeModal();">Verify Member</button>';
+        html += '<button class="btn" data-act="verifyMemberForScript" data-key="' + escapeHtml(key) + '" data-close>Verify Member</button>';
       }
     }
     if (status === 'dispensed') {
-      html += '<button class="btn btn-reverse" onclick="App.reverseScript(\'' + escapeHtml(key) + '\'); App.closeModal();">Reverse</button>';
+      html += '<button class="btn btn-reverse" data-act="reverseScript" data-key="' + escapeHtml(key) + '" data-close>Reverse</button>';
     }
     if (status === 'adjudicated' || status === 'filled') {
-      html += '<button class="btn" onclick="App.flagIssue(\'' + escapeHtml(key) + '\')">Flag Issue</button>';
+      html += '<button class="btn" data-act="flagIssue" data-key="' + escapeHtml(key) + '">Flag Issue</button>';
     }
-    html += '<button class="btn" onclick="App.durLookupFromScript(\'' + escapeHtml(key) + '\')">DUR Lookup</button>';
+    html += '<button class="btn" data-act="durLookupFromScript" data-key="' + escapeHtml(key) + '">DUR Lookup</button>';
     html += '</div>';
 
     setHTML('#ws-modal-body', html);
@@ -1338,13 +1340,13 @@
         const status = getScriptStatus(c);
         const statusClass = 'status-' + status;
         return '<tr>' +
-          '<td class="mono muted">' + formatField(c.leafIndex || c.index) + '</td>' +
-          '<td class="mono truncate">' + truncate(c.memberWalletId || c.patient || c.patientWalletId, 16) + '</td>' +
-          '<td class="mono truncate">' + truncate(c.ndcHash || c.medication, 16) + '</td>' +
-          '<td class="mono truncate">' + truncate(c.prescriberWalletId || c.prescriber, 16) + '</td>' +
-          '<td class="muted">' + formatDate(c.dateOfService || c.date) + '</td>' +
-          '<td class="text-yellow">' + formatCents(c.patientPayCents || c.patientPay) + '</td>' +
-          '<td class="text-blue">' + formatCents(c.planPayCents || c.planPay) + '</td>' +
+          '<td class="mono muted">' + escapeHtml(formatField(c.leafIndex || c.index)) + '</td>' +
+          '<td class="mono truncate">' + escapeHtml(truncate(c.memberWalletId || c.patient || c.patientWalletId, 16)) + '</td>' +
+          '<td class="mono truncate">' + escapeHtml(truncate(c.ndcHash || c.medication, 16)) + '</td>' +
+          '<td class="mono truncate">' + escapeHtml(truncate(c.prescriberWalletId || c.prescriber, 16)) + '</td>' +
+          '<td class="muted">' + escapeHtml(formatDate(c.dateOfService || c.date)) + '</td>' +
+          '<td class="text-yellow">' + escapeHtml(formatCents(c.patientPayCents || c.patientPay)) + '</td>' +
+          '<td class="text-blue">' + escapeHtml(formatCents(c.planPayCents || c.planPay)) + '</td>' +
           '<td><span class="script-status-badge ' + statusClass + '">' + escapeHtml(status) + '</span></td>' +
           '</tr>';
       }).join('');
@@ -1401,8 +1403,8 @@
         setHTML('#dur-active-meds', meds.map(function (m) {
           const remaining = m.daysRemaining !== undefined ? m.daysRemaining + ' days remaining' : '';
           return '<li class="dur-med-item">' +
-            '<div><div class="dur-med-name">' + truncate(m.ndcHash || m.medication || m.name, 20) + '</div>' +
-            '<div class="dur-med-detail">' + (m.pharmacy ? 'Pharmacy: ' + truncate(m.pharmacy || m.pharmacyWalletId, 16) : '') + '</div></div>' +
+            '<div><div class="dur-med-name">' + escapeHtml(truncate(m.ndcHash || m.medication || m.name, 20)) + '</div>' +
+            '<div class="dur-med-detail">' + (m.pharmacy ? 'Pharmacy: ' + escapeHtml(truncate(m.pharmacy || m.pharmacyWalletId, 16)) : '') + '</div></div>' +
             '<div>' + (remaining ? '<span class="badge badge-green">' + escapeHtml(remaining) + '</span>' : '') + '</div>' +
             '</li>';
         }).join(''));
@@ -1422,12 +1424,12 @@
         setHTML('#dur-history-table', claims.map(function (c) {
           const idx = c.leafIndex || c.index || '';
           return '<tr>' +
-            '<td class="mono truncate">' + truncate(c.ndcHash || c.medication, 16) + '</td>' +
-            '<td class="mono truncate">' + truncate(c.pharmacyWalletId || c.pharmacy, 16) + '</td>' +
-            '<td class="muted">' + formatDate(c.dateOfService || c.date) + '</td>' +
-            '<td class="text-yellow">' + formatCents(c.patientPayCents || c.patientPay) + '</td>' +
-            '<td class="text-blue">' + formatCents(c.planPayCents || c.planPay) + '</td>' +
-            '<td>' + (idx !== '' ? '<button class="btn btn-sm" onclick="App.durClaimDetail(\'' + idx + '\')">View</button>' : '--') + '</td>' +
+            '<td class="mono truncate">' + escapeHtml(truncate(c.ndcHash || c.medication, 16)) + '</td>' +
+            '<td class="mono truncate">' + escapeHtml(truncate(c.pharmacyWalletId || c.pharmacy, 16)) + '</td>' +
+            '<td class="muted">' + escapeHtml(formatDate(c.dateOfService || c.date)) + '</td>' +
+            '<td class="text-yellow">' + escapeHtml(formatCents(c.patientPayCents || c.patientPay)) + '</td>' +
+            '<td class="text-blue">' + escapeHtml(formatCents(c.planPayCents || c.planPay)) + '</td>' +
+            '<td>' + (idx !== '' ? '<button class="btn btn-sm" data-act="durClaimDetail" data-key="' + escapeHtml(String(idx)) + '">View</button>' : '--') + '</td>' +
             '</tr>';
         }).join(''));
 
@@ -1445,7 +1447,7 @@
         Object.keys(medPharmMap).forEach(function (med) {
           if (medPharmMap[med].size > 1) {
             alertHtml += '<div class="dur-alert dur-alert-warn">' +
-              '<span class="fw-600">[MULTI-PHARMACY]</span> ' + truncate(med, 20) +
+              '<span class="fw-600">[MULTI-PHARMACY]</span> ' + escapeHtml(truncate(med, 20)) +
               ' dispensed at ' + medPharmMap[med].size + ' pharmacies' +
               '</div>';
           }
@@ -1594,7 +1596,7 @@
       return '<div class="msg-contact-item' + active + '" data-thread="' + escapeHtml(c.threadId) + '">' +
         '<div class="msg-contact-avatar">' + escapeHtml(initial) + '</div>' +
         '<div class="msg-contact-info">' +
-          '<div class="msg-contact-name">' + truncate(c.otherWallet, 20) + '</div>' +
+          '<div class="msg-contact-name">' + escapeHtml(truncate(c.otherWallet, 20)) + '</div>' +
           '<div class="msg-contact-preview">' + escapeHtml(truncate(c.latestMessage, 30)) + '</div>' +
         '</div>' +
         '<span class="msg-contact-time">' + escapeHtml(time) + '</span>' +
@@ -1802,9 +1804,8 @@
           });
           break;
         case 3:
-          result = await API.onboarding.enroll({
-            insurerUrl: $('#wiz-insurerUrl').value || undefined,
-          });
+          // No insurer URL: the node notifies the insurer its configuration names and refuses one in the request (A-81).
+          result = await API.onboarding.enroll();
           break;
         case 4:
           result = await API.onboarding.compile();
@@ -1907,7 +1908,37 @@
 
   // ── Event Binding ──────────────────────────────────────────
 
+  /** What a data-act may name: each acts on the script, or the DUR claim, whose key is in data-key (A-88). */
+  var SCRIPT_ACTIONS = {
+    fillScript: fillScript,
+    rejectScript: rejectScript,
+    transferScript: transferScript,
+    verifyMemberForScript: verifyMemberForScript,
+    dispenseScript: dispenseScript,
+    confirmPayment: confirmPayment,
+    reverseScript: reverseScript,
+    showScriptDetail: showScriptDetail,
+    flagIssue: flagIssue,
+    durLookupFromScript: durLookupFromScript,
+    durClaimDetail: durClaimDetail,
+  };
+
+  /**
+   * A-88: a card or button that acts on a script names the action in data-act and the script in data-key, and this one
+   * listener reads both, for cards drawn at any time. A key never rides inside an inline handler, where the browser
+   * decodes an escaped quote before the script runs. A modal button with data-close also closes the modal; the card's
+   * button row is data-act="none", so a click between its buttons does not open the card.
+   */
+  function onScriptAction(e) {
+    var el = e.target && e.target.closest ? e.target.closest('[data-act]') : null;
+    if (!el || !Object.prototype.hasOwnProperty.call(SCRIPT_ACTIONS, el.dataset.act)) return;
+    SCRIPT_ACTIONS[el.dataset.act](el.dataset.key);
+    if (el.dataset.close !== undefined) closeModal();
+  }
+
   function bindEvents() {
+    document.addEventListener('click', onScriptAction);
+
     // Nav tabs
     $$('.nav-tab').forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -2216,23 +2247,6 @@
     var hash = location.hash.replace('#', '') || 'workstation';
     navigate(hash);
   }
-
-  // Expose for inline onclick handlers
-  window.App = {
-    dispenseScript: dispenseScript,
-    fillScript: fillScript,
-    rejectScript: rejectScript,
-    transferScript: transferScript,
-    verifyMemberForScript: verifyMemberForScript,
-    confirmPayment: confirmPayment,
-    showScriptDetail: showScriptDetail,
-    closeModal: closeModal,
-    flagIssue: flagIssue,
-    reverseScript: reverseScript,
-    durLookupFromScript: durLookupFromScript,
-    durClaimDetail: durClaimDetail,
-    switchPharmacy: switchPharmacy,
-  };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);

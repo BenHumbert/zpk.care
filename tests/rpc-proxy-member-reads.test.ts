@@ -120,11 +120,14 @@ afterAll(async () => {
   for (const d of dirs) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
 });
 
-/** POST l2_estimateCost to a node's /rpc as a page would: text/plain needs no CORS preflight. */
-async function quoteVia(nodeUrl: string, params: Record<string, unknown>, headers: Record<string, string> = {}): Promise<{ status: number; json: any }> {
+/**
+ * POST l2_estimateCost to a node's /rpc as a page on an allowed origin would. A page on any other site used to send it
+ * as text/plain, which needs no CORS preflight; the node now refuses that before the proxy sees it (A-82).
+ */
+async function quoteVia(nodeUrl: string, params: Record<string, unknown>, headers: Record<string, string> = {}, type = 'application/json'): Promise<{ status: number; json: any }> {
   const r = await fetch(`${nodeUrl}/rpc`, {
     method: 'POST',
-    headers: { 'Content-Type': 'text/plain', ...headers },
+    headers: { 'Content-Type': type, ...headers },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_estimateCost', params }),
   });
   return { status: r.status, json: await r.json() };
@@ -139,6 +142,8 @@ describe('the insurer node\'s /rpc proxy forwards no quote (owner decision 2026-
     expect(r.status).toBe(403);
     expect(r.json.error).toMatchObject({ code: -32601 });
     expect(r.json.error.message).toMatch(/not available through this node's proxy/);
+    // Sent as another site's page sends it, without asking first, it does not reach the proxy (A-82).
+    expect((await quoteVia(insurerUrl, { walletId: MEMBER, ndcHash, quantity: 30 }, {}, 'text/plain')).status).toBe(415);
     expect(asked).toEqual([]);
   });
 

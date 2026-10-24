@@ -126,6 +126,7 @@ Severity counts: CRITICAL 1 · HIGH 10 · MEDIUM 17 · LOW 5 (33 total).
 **Evidence.** On a registration result, `l2_submitProof` writes caller-supplied `entityMetadata.displayName/type/...` into `entityRegistry` keyed by the wallet (rpc:774-787); the comment concedes it is "untrusted display data."
 **Impact.** Combined with SEQ-01 (walletId itself attacker-chosen), an attacker binds an arbitrary display name/type to any wallet, surfaced through OPEN `l2_getEntity`, `/viz/entities`, SSE and dashboards.
 **Fix sketch.** Do not accept display metadata on `l2_submitProof`; set it only through an authenticated registration route.
+**FIXED 2026-10-24** (under A-74): `l2_submitProof` refuses `entityMetadata` before it reads the proof, and the write is gone; names and kinds are registered only with `l2_registerEntity`, which checks both and decides by the caller's role.
 
 ### RPC-05 — MEDIUM — Replayable Ed25519 admin signature
 **Evidence.** `verifyAdminSignature` accepts any signature within `abs(now-ts) <= 30_000` with no nonce and no seen-signature cache (rpc:2635-2656).
@@ -162,6 +163,7 @@ request that carries no `Origin` at all.
 **Evidence.** `applyReplicatedReceipt` overwrites `currentRegistryRoot/LifecycleRoot/WalletCount` from payload strings, registers wallets, and appends audit events + claim entries with no proof (seq:2488-2541; the comment at seq:2480 claims "the sequencer already verified it", which SEQ-01 shows it did not). The replica `batch:built` path guards on `batchVerificationEnabled` and then calls the flag-only `batchProof.verify()` (node:985-989); `verifyGossipBatches` is never set by the launcher.
 **Impact.** A peer that can deliver gossip (an admin-token holder, or if REP-01 is "fixed" naively) defines a replica's entire state — roots, registrations, audit chain, claims — with no verification.
 **Fix sketch.** Verify batch/chain proofs out-of-circuit on replicas before applying, and derive roots from verified proofs, not payload strings.
+**Also (2026-10-24, from tracing A-88).** Leviathan's `handleGossip` applies `proof:accepted` and `batch:built` for every partition this node does not lead, from any sender, without checking that the sender leads that partition (`src/l2/l2-leviathan.ts` handleGossip), so one peer with gossip credentials writes every other partition's replicated state. A replicated batch number or receipt ID is kept as sent; the explorer wrote a batch number into an inline handler unquoted (A-88, fixed on the screen's side). The fix belongs with REP-03: authenticated payloads, and a sender that leads the partition it speaks for.
 
 ### REP-03 — MEDIUM — Gossip signature excludes the payload
 **Evidence.** Both the HMAC and Ed25519 gossip signatures cover only `messageId:type:senderId:timestamp` (peer:633-644,656-668); with no `gossipSecret` and no peer-key map, `verifyGossip` returns `true` for everything (peer:671).

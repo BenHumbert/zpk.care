@@ -47,6 +47,14 @@ describe('start-leviathan.ts', () => {
     }
   });
 
+  test('a secret is held back whatever the case of its name (Windows reads names case-insensitively)', async () => {
+    const { childEnvironment } = await import('../src/security/node-roles.js');
+    const env = childEnvironment({
+      zktrident_node_key_seed: 'a'.repeat(64), Zktrident_Admin_Token: 'operator', zktrident_gossip_secret: 'gossip', PATH: '/bin',
+    }, {});
+    expect(env).toEqual({ PATH: '/bin' });                              // before: the three lower- and mixed-case names came through
+  });
+
   test('spawns children under this Node with tsx, without a shell, and names itself as the parent', () => {
     expect(boot).not.toMatch(/spawn\('npx'/);
     expect(boot).not.toMatch(/shell: true/);

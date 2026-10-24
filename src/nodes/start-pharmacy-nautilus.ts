@@ -38,6 +38,8 @@
  *   ZKTRIDENT_DISPLAY_NAME     — Display name for logging
  *   ZKTRIDENT_PROVER_URL       — Proof delegation URL (optional)
  *   ZKTRIDENT_PROVER_API_KEY   — Prover API key (optional)
+ *   ZKTRIDENT_INSURER_URL      — Insurer Nautilus URL notified at enrollment (optional;
+ *                                http on this machine's loopback, https anywhere else)
  *   ZKTRIDENT_PIN              — PIN for encrypted state (for CI/testing; stdin if not set)
  *
  * Usage:
@@ -54,11 +56,21 @@ import type { NautilusAppConfig } from './nautilus-app-types.js';
 import type { NautilusStateData } from './nautilus-local-state.js';
 import { buildPharmacyRoutes } from './routes/pharmacy-routes.js';
 import { PharmacyNode } from './pharmacy-node.js';
-import { resolveBindHost, resolveAllowedOrigins, resolveRpcProxyPolicy } from '../security/network-policy.js';
+import { resolveBindHost, resolveAllowedOrigins, resolveRpcProxyPolicy, resolvePeerUrl } from '../security/network-policy.js';
 
 // ─── Environment ─────────────────────────────────────────────
 
 const env = process.env;
+
+// A-81: the insurer this node notifies at enrollment is named here and nowhere else, never by a
+// request. A URL that the peer-URL check refuses stops the node at boot.
+let insurerUrl: string | undefined;
+try {
+  insurerUrl = resolvePeerUrl(env, 'ZKTRIDENT_INSURER_URL', 'pharmacy node');
+} catch (err) {
+  console.error('  [FATAL] %s', err instanceof Error ? err.message : String(err));
+  process.exit(1);
+}
 
 const config: NautilusAppConfig = {
   role: 'pharmacy',
@@ -75,6 +87,7 @@ const config: NautilusAppConfig = {
   displayName: env.ZKTRIDENT_DISPLAY_NAME,
   proverUrl: env.ZKTRIDENT_PROVER_URL,
   proverApiKey: env.ZKTRIDENT_PROVER_API_KEY,
+  insurerUrl,
   adminToken: env.ZKTRIDENT_ADMIN_TOKEN,
   // A9: this node's own key, from the launcher; its public half is registered on the sequencer with this node's role.
   nodeKey: nodeKeyFromEnv(env) ?? undefined,
@@ -244,6 +257,7 @@ async function main(): Promise<void> {
   console.log('  Role:          pharmacy');
   console.log('  API:           %s://%s:%d', proto, config.host, server.getPort());
   console.log('  Sequencer:     %s', config.sequencerUrl);
+  console.log('  Insurer URL:   %s', config.insurerUrl ?? 'not configured');
   console.log('  TLS:           %s', server.isTls() ? 'enabled' : 'disabled');
   console.log('  SSE:           %s', config.enableSSE ? 'enabled' : 'disabled');
   console.log('  Phase:         %s', server.getOnboardingPhase());

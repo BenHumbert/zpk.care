@@ -94,9 +94,10 @@
     return '$' + s.slice(0, -5) + '.' + s.slice(-5);
   }
 
+  // Escapes for text and for attribute values, in double or single quotes: the onboarding fields refill value="".
   function esc(s) {
     if (!s) return '';
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   // VULNERABILITY: Messages use base64 (prescriber) or AES-GCM with ephemeral keys
@@ -1361,18 +1362,31 @@
       var initials = (p.displayName || 'XX').slice(0, 2).toUpperCase();
       var sub = p.specialty || p.pharmacyType || p.role || '';
       html += '<div class="provider-card">' +
-        '<div class="provider-avatar' + (isPharmacy ? ' pharmacy' : '') + '">' + initials + '</div>' +
+        '<div class="provider-avatar' + (isPharmacy ? ' pharmacy' : '') + '">' + esc(initials) + '</div>' +
         '<div class="provider-info">' +
           '<div class="provider-name">' + esc(p.displayName || shortHash(p.walletId)) + '</div>' +
-          '<div class="provider-sub">' + esc(sub) + ' &middot; <span class="hash">' + shortHash(p.walletId) + '</span></div>' +
+          '<div class="provider-sub">' + esc(sub) + ' &middot; <span class="hash">' + esc(shortHash(p.walletId)) + '</span></div>' +
         '</div>' +
         '<div class="provider-actions">' +
-          (!isPharmacy ? '<button class="btn btn-sm" onclick="window._assignPcp(\'' + esc(p.walletId) + '\')">Set PCP</button>' : '') +
-          '<button class="btn btn-sm" onclick="window._msgProvider(\'' + esc(p.walletId) + '\')">Message</button>' +
+          (!isPharmacy ? '<button class="btn btn-sm" data-act="assignPcp" data-wallet="' + esc(p.walletId) + '">Set PCP</button>' : '') +
+          '<button class="btn btn-sm" data-act="msgProvider" data-wallet="' + esc(p.walletId) + '">Message</button>' +
         '</div></div>';
     });
     $('provider-list').innerHTML = html;
   }
+
+  /**
+   * A-88: a provider card's buttons name their action in data-act and the provider in data-wallet, and this listener
+   * reads both, for cards drawn at any time; a wallet ID never rides inside an inline handler, where the browser decodes
+   * an escaped quote before the script runs.
+   */
+  function onProviderAction(e) {
+    var btn = e.target && e.target.closest ? e.target.closest('[data-wallet]') : null;
+    if (!btn) return;
+    if (btn.dataset.act === 'assignPcp') window._assignPcp(btn.dataset.wallet);
+    else if (btn.dataset.act === 'msgProvider') window._msgProvider(btn.dataset.wallet);
+  }
+  document.addEventListener('click', onProviderAction);
 
   window._assignPcp = async function (wid) {
     var pcp = { walletId: wid, effectiveDate: new Date().toISOString(), timestamp: Date.now() };

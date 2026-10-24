@@ -372,7 +372,7 @@ class LeviathanModal {
     if (btn) { btn.disabled = true; btn.innerHTML = '<span class="action-spinner"></span> Building...'; }
 
     try {
-      const res = await fetch('/interactive/force-batch', { method: 'POST' });
+      const res = await fetch('/interactive/force-batch', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       const data = await res.json();
 
       if (data.ok) {
@@ -393,7 +393,7 @@ class LeviathanModal {
     if (btn) { btn.disabled = true; btn.innerHTML = '<span class="action-spinner"></span> Saving...'; }
 
     try {
-      const res = await fetch('/interactive/save-checkpoint', { method: 'POST' });
+      const res = await fetch('/interactive/save-checkpoint', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       const data = await res.json();
 
       if (data.ok) {
@@ -413,7 +413,7 @@ class LeviathanModal {
     if (btn) { btn.disabled = true; btn.innerHTML = '<span class="action-spinner"></span> Retrying...'; }
 
     try {
-      const res = await fetch('/interactive/retry-batch', { method: 'POST' });
+      const res = await fetch('/interactive/retry-batch', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       const data = await res.json();
 
       if (data.ok) {
@@ -434,7 +434,7 @@ class LeviathanModal {
     if (btn) { btn.disabled = true; btn.innerHTML = '<span class="action-spinner"></span> Simulating...'; }
 
     try {
-      const res = await fetch('/interactive/simulate-batch-failure', { method: 'POST' });
+      const res = await fetch('/interactive/simulate-batch-failure', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       const data = await res.json();
 
       if (data.ok) {

@@ -21,12 +21,12 @@
 (function (root) {
   'use strict';
 
-  /** XSS-safe HTML escaping */
+  /** HTML escaping for text and for quoted attribute values: & < > " and ' as entities. */
   function esc(s) {
     if (s === null || s === undefined) return '';
     var d = document.createElement('div');
     d.textContent = String(s);
-    return d.innerHTML;
+    return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   /** Truncate a hash for display */

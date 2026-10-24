@@ -225,7 +225,7 @@ const clearBtn = document.getElementById('btn-clear');
 if (clearBtn) {
   clearBtn.addEventListener('click', async () => {
     try {
-      await fetch(`${BASE_URL}/viz/clear`, { method: 'POST' });
+      await fetch(`${BASE_URL}/viz/clear`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     } catch { /* server may be down */ }
 
     // Reset local state

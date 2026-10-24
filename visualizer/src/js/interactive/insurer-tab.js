@@ -25,6 +25,10 @@
  *   - Financial summary (aggregate totals)
  *   - Prescription/fulfillment registries (opaque IDs + amounts)
  *   - Audit summary
+ *
+ * Every value from the engine's state or an engine reply (a display name, a wallet ID, a group, plan or thread ID, a
+ * drug or prescriber name, an error) is escaped with escapeHtml (message-thread.js) before it is placed in the page: a
+ * member's name is whatever its device registered, and this page holds the operator token (A-61).
  */
 
 import { API_BASE, formatCents, updateChainState } from '../interactive-app.js';
@@ -105,8 +109,8 @@ export class InsurerTab {
         <td class="mono" style="font-size: 10px;">${truncHash(m.senderWalletId)}</td>
         <td class="mono" style="font-size: 10px;">${truncHash(m.recipientWalletId)}</td>
         <td class="mono" style="font-size: 10px;">${truncHash(m.contentHash)}</td>
-        <td style="font-size: 11px;">${m.messageType}</td>
-        <td style="font-size: 11px;">${m.nonce}</td>
+        <td style="font-size: 11px;">${escapeHtml(m.messageType)}</td>
+        <td style="font-size: 11px;">${escapeHtml(m.nonce)}</td>
       </tr>
     `).join('');
 
@@ -177,13 +181,13 @@ export class InsurerTab {
     // Build recipient options
     const recipientOptions = [];
     (state.enrolledMembers || []).filter(m => m.lifecycle !== 'REVOKED').forEach(m => {
-      recipientOptions.push(`<option value="member:${m.walletId}">${m.displayName}</option>`);
+      recipientOptions.push(`<option value="member:${escapeHtml(m.walletId)}">${escapeHtml(m.displayName)}</option>`);
     });
     (state.demoData?.prescribers || []).forEach(p => {
-      recipientOptions.push(`<option value="prescriber:${p.index}">Dr. ${p.firstName} ${p.lastName}</option>`);
+      recipientOptions.push(`<option value="prescriber:${p.index}">Dr. ${escapeHtml(p.firstName)} ${escapeHtml(p.lastName)}</option>`);
     });
     (state.demoData?.pharmacies || []).forEach(p => {
-      recipientOptions.push(`<option value="pharmacy:${p.index}">${p.storeName}</option>`);
+      recipientOptions.push(`<option value="pharmacy:${p.index}">${escapeHtml(p.storeName)}</option>`);
     });
 
     return `
@@ -222,17 +226,17 @@ export class InsurerTab {
               const typeLabel = MSG_LABELS[lastMsg.messageType] || 'Msg';
               const timeStr = lastMsg.timestamp ? new Date(lastMsg.timestamp).toLocaleTimeString() : '';
               return `
-              <div class="insurer-thread-item msg-thread-item" data-thread-id="${t.threadId}" data-wallet-id="${insurerWalletId}" data-indices="${t.messages.map(m => m.messageIndex).join(',')}">
+              <div class="insurer-thread-item msg-thread-item" data-thread-id="${escapeHtml(t.threadId)}" data-wallet-id="${escapeHtml(insurerWalletId)}" data-indices="${escapeHtml(t.messages.map(m => m.messageIndex).join(','))}">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                   <div>
-                    <span class="msg-type-badge msg-type-${lastMsg.messageType}">${typeLabel}</span>
-                    <strong style="font-size: 12px; margin-left: 4px;">${otherName}</strong>
+                    <span class="msg-type-badge msg-type-${escapeHtml(lastMsg.messageType)}">${typeLabel}</span>
+                    <strong style="font-size: 12px; margin-left: 4px;">${escapeHtml(otherName)}</strong>
                     <span style="font-size: 11px; color: var(--text-muted); margin-left: 4px;">(${t.messages.length} message${t.messages.length > 1 ? 's' : ''})</span>
                   </div>
                   <span style="font-size: 11px; color: var(--text-muted);">${timeStr}</span>
                 </div>
                 <div style="font-size: 12px; color: var(--text-muted);">${lastMsg.hasEncryptedPayload ? 'Click to decrypt and view' : 'No content'}</div>
-                <div class="msg-thread-expanded hidden" data-thread-body="${t.threadId}"></div>
+                <div class="msg-thread-expanded hidden" data-thread-body="${escapeHtml(t.threadId)}"></div>
               </div>`;
             }).join('')}
           </div>
@@ -253,8 +257,8 @@ export class InsurerTab {
         <td style="font-size: 11px;">${i}</td>
         <td class="mono" style="font-size: 10px;">${truncHash(d.delegatorWalletId)}</td>
         <td class="mono" style="font-size: 10px;">${truncHash(d.delegateWalletId)}</td>
-        <td style="font-size: 11px;">${d.scopeFlags}</td>
-        <td style="font-size: 11px;">${d.relationshipCode}</td>
+        <td style="font-size: 11px;">${escapeHtml(d.scopeFlags)}</td>
+        <td style="font-size: 11px;">${escapeHtml(d.relationshipCode)}</td>
       </tr>
     `).join('');
 
@@ -371,7 +375,7 @@ export class InsurerTab {
         document.getElementById('insurer-msg-body')?.focus();
       });
     } catch (err) {
-      bodyDiv.innerHTML = `<div style="padding: 8px; color: var(--accent-red); font-size: 12px;">Decrypt failed: ${err.message}</div>`;
+      bodyDiv.innerHTML = `<div style="padding: 8px; color: var(--accent-red); font-size: 12px;">Decrypt failed: ${escapeHtml(err.message)}</div>`;
     }
   }
 
@@ -418,11 +422,11 @@ export class InsurerTab {
         <div class="result-card" style="margin-bottom: 12px;">
           <div class="result-title">Notification Sent (Encrypted)</div>
           <div class="data-grid">
-            <div class="label">To</div><div class="value">${result.to}</div>
-            <div class="label">Subject</div><div class="value">${result.subject}</div>
+            <div class="label">To</div><div class="value">${escapeHtml(result.to)}</div>
+            <div class="label">Subject</div><div class="value">${escapeHtml(result.subject)}</div>
             <div class="label">Encrypted</div><div class="value">${result.ciphertextLength} bytes (AES-256-GCM)</div>
             <div class="label">Proof Time</div><div class="value">${(result.proofTimeMs / 1000).toFixed(2)}s</div>
-            <div class="label">Thread</div><div class="value mono" style="font-size: 11px;">${result.threadId || 'new'}</div>
+            <div class="label">Thread</div><div class="value mono" style="font-size: 11px;">${escapeHtml(result.threadId || 'new')}</div>
             <div class="label">Audit Hash</div><div class="value mono" style="font-size: 11px;">${result.auditChainHash ? result.auditChainHash.slice(0, 20) + '\u2026' : '\u2014'}</div>
           </div>
         </div>
@@ -443,7 +447,7 @@ export class InsurerTab {
     } catch (err) {
       const resultDiv = document.getElementById('insurer-send-result');
       resultDiv.classList.remove('hidden');
-      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px;">Error: ${err.message}</div>`;
+      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px;">Error: ${escapeHtml(err.message)}</div>`;
       this.app.setStatus('ready', 'Error');
     } finally {
       btn.classList.remove('loading');
@@ -501,7 +505,7 @@ export class InsurerTab {
     }
 
     const groupRows = [...groups.entries()].map(([gid, count]) =>
-      `<div class="label">${gid}</div><div class="value">${count} wallet${count > 1 ? 's' : ''}</div>`
+      `<div class="label">${escapeHtml(gid)}</div><div class="value">${count} wallet${count > 1 ? 's' : ''}</div>`
     ).join('');
 
     return `
@@ -538,14 +542,14 @@ export class InsurerTab {
       const lifecycleLabel = isRevoked ? 'REVOKED' : (m.lifecycle || 'ELIGIBLE');
       return `
       <tr${isRevoked ? ' style="opacity: 0.6;"' : ''}>
-        <td class="mono" style="font-size: 11px;">${m.walletIdDisplay || truncHash(m.walletId)}</td>
-        <td>${m.groupId}</td>
-        <td>${m.planId}</td>
-        <td><span class="family-badge ${(m.relationship || 'SELF').toLowerCase()}">${m.relationship || 'SELF'}</span></td>
-        <td><span class="rx-status-badge ${lifecycleClass}">${lifecycleLabel}</span></td>
+        <td class="mono" style="font-size: 11px;">${m.walletIdDisplay ? escapeHtml(m.walletIdDisplay) : truncHash(m.walletId)}</td>
+        <td>${escapeHtml(m.groupId)}</td>
+        <td>${escapeHtml(m.planId)}</td>
+        <td><span class="family-badge ${escapeHtml((m.relationship || 'SELF').toLowerCase())}">${escapeHtml(m.relationship || 'SELF')}</span></td>
+        <td><span class="rx-status-badge ${lifecycleClass}">${escapeHtml(lifecycleLabel)}</span></td>
         <td>${isRevoked
-          ? `<span style="font-size: 11px; color: var(--text-muted);">${m.terminationDate || ''}</span>`
-          : `<button class="btn-terminate-member" data-wallet-id="${m.walletId}" style="font-size: 11px; padding: 3px 10px; background: var(--accent-red); color: #0d1117; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Terminate</button>`
+          ? `<span style="font-size: 11px; color: var(--text-muted);">${escapeHtml(m.terminationDate || '')}</span>`
+          : `<button class="btn-terminate-member" data-wallet-id="${escapeHtml(m.walletId)}" style="font-size: 11px; padding: 3px 10px; background: var(--accent-red); color: #0d1117; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Terminate</button>`
         }</td>
       </tr>
     `;
@@ -561,7 +565,7 @@ export class InsurerTab {
     const groupButtons = activeGroups.size > 0
       ? `<div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
           ${[...activeGroups.entries()].map(([gid, count]) =>
-            `<button class="btn-terminate-group" data-group-id="${gid}" style="font-size: 11px; padding: 5px 12px; background: var(--accent-red); color: #0d1117; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Terminate Group: ${gid} (${count} active)</button>`
+            `<button class="btn-terminate-group" data-group-id="${escapeHtml(gid)}" style="font-size: 11px; padding: 5px 12px; background: var(--accent-red); color: #0d1117; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Terminate Group: ${escapeHtml(gid)} (${count} active)</button>`
           ).join('')}
         </div>`
       : '';
@@ -615,8 +619,8 @@ export class InsurerTab {
       const allTerminated = info.active === 0;
       return `
       <tr${allTerminated ? ' style="opacity: 0.6;"' : ''}>
-        <td>${gid}</td>
-        <td>${info.planId}</td>
+        <td>${escapeHtml(gid)}</td>
+        <td>${escapeHtml(info.planId)}</td>
         <td>${info.active} / ${info.count}</td>
         <td style="color: ${allTerminated ? 'var(--accent-red)' : 'var(--accent-green)'};">
           ${allTerminated ? 'TERMINATED' : 'OPEN'}
@@ -678,7 +682,7 @@ export class InsurerTab {
       return `
         <tr class="${rowClass}" data-med-index="${i}">
           <td>${i}</td>
-          <td>${m.brandName}${m.deaSchedule > 0 ? ` <span class="dea-badge dea-schedule-${m.deaSchedule}">C-${m.deaSchedule}</span>` : ''}</td>
+          <td>${escapeHtml(m.brandName)}${m.deaSchedule > 0 ? ` <span class="dea-badge dea-schedule-${m.deaSchedule}">C-${m.deaSchedule}</span>` : ''}</td>
           <td><span class="tier-badge tier-${tier}">T${tier}</span></td>
           <td>${formatCents(copay)}</td>
           <td>${pa ? 'Yes' : 'No'}</td>
@@ -695,9 +699,9 @@ export class InsurerTab {
         <div style="max-height: 200px; overflow-y: auto;">
           ${history.map(h => `
             <div class="formulary-history-entry">
-              <span class="formulary-history-type formulary-history-${h.changeType.toLowerCase()}">${h.changeType}</span>
-              <span>${h.medicationName}</span>
-              <span style="color: var(--text-muted); font-size: 11px;">${h.details}</span>
+              <span class="formulary-history-type formulary-history-${escapeHtml(h.changeType.toLowerCase())}">${escapeHtml(h.changeType)}</span>
+              <span>${escapeHtml(h.medicationName)}</span>
+              <span style="color: var(--text-muted); font-size: 11px;">${escapeHtml(h.details)}</span>
               <span style="color: var(--text-muted); font-size: 10px;">${h.affectedMembers.length} member(s)</span>
             </div>
           `).join('')}
@@ -710,7 +714,7 @@ export class InsurerTab {
         <div class="card-header insurer">Benefit Plan & Formulary Management</div>
         <div class="card-body">
           <div class="data-grid" style="margin-bottom: 16px;">
-            <div class="label">Plan ID</div><div class="value">${plan.planId}</div>
+            <div class="label">Plan ID</div><div class="value">${escapeHtml(plan.planId)}</div>
             <div class="label">Copay (Generic)</div><div class="value">${formatCents(plan.copayAmountCents)}</div>
             <div class="label">Deductible (Ind)</div><div class="value">${formatCents(plan.deductibleAmountCents)}</div>
             <div class="label">OOP Max (Ind)</div><div class="value">${formatCents(plan.oopMaxCents)}</div>
@@ -817,18 +821,18 @@ export class InsurerTab {
       const truncWid = walletIdStr ? walletIdStr.slice(0, 12) + '...' : 'N/A';
 
       return `
-        <tr class="${rowClass}" data-prescriber-wallet="${walletIdStr}">
+        <tr class="${rowClass}" data-prescriber-wallet="${escapeHtml(walletIdStr)}">
           <td>${i}</td>
-          <td>${displayName}</td>
-          <td>${p.specialty || 'General'}</td>
-          <td class="mono" style="font-size: 10px;">${truncWid}</td>
+          <td>${escapeHtml(displayName)}</td>
+          <td>${escapeHtml(p.specialty || 'General')}</td>
+          <td class="mono" style="font-size: 10px;">${escapeHtml(truncWid)}</td>
           <td>${isInNetwork
             ? '<span style="color: var(--accent-green);">In-Network</span>'
             : '<span style="color: var(--accent-red);">Out-of-Network</span>'}</td>
           <td>
             ${isInNetwork
-              ? `<button class="btn-network-action btn-network-remove" data-prescriber-wallet="${walletIdStr}" data-prescriber-name="${displayName}">Remove</button>`
-              : `<button class="btn-network-action btn-network-add" data-prescriber-wallet="${walletIdStr}" data-prescriber-name="${displayName}">Add</button>`}
+              ? `<button class="btn-network-action btn-network-remove" data-prescriber-wallet="${escapeHtml(walletIdStr)}" data-prescriber-name="${escapeHtml(displayName)}">Remove</button>`
+              : `<button class="btn-network-action btn-network-add" data-prescriber-wallet="${escapeHtml(walletIdStr)}" data-prescriber-name="${escapeHtml(displayName)}">Add</button>`}
           </td>
         </tr>
       `;
@@ -840,9 +844,9 @@ export class InsurerTab {
         <div style="max-height: 200px; overflow-y: auto;">
           ${history.map(h => `
             <div class="formulary-history-entry">
-              <span class="formulary-history-type formulary-history-${h.changeType.toLowerCase()}">${h.changeType}</span>
-              <span>${h.prescriberName}</span>
-              <span style="color: var(--text-muted); font-size: 11px;">${h.details}</span>
+              <span class="formulary-history-type formulary-history-${escapeHtml(h.changeType.toLowerCase())}">${escapeHtml(h.changeType)}</span>
+              <span>${escapeHtml(h.prescriberName)}</span>
+              <span style="color: var(--text-muted); font-size: 11px;">${escapeHtml(h.details)}</span>
               <span style="color: var(--text-muted); font-size: 10px;">${h.affectedMemberCount} member(s)</span>
             </div>
           `).join('')}
@@ -951,10 +955,10 @@ export class InsurerTab {
       const statusClass = `rx-status-${status.toLowerCase().replace('_', '-')}`;
       return `
         <tr>
-          <td class="mono" style="font-size: 11px;">${rx.id}</td>
+          <td class="mono" style="font-size: 11px;">${escapeHtml(rx.id)}</td>
           <td class="mono" style="font-size: 11px;">${walletDisplay}</td>
           <td>${rx.quantityDispensed || 0} / ${rx.quantity}</td>
-          <td><span class="rx-status-badge ${statusClass}">${status.replace('_', ' ')}</span></td>
+          <td><span class="rx-status-badge ${escapeHtml(statusClass)}">${escapeHtml(status.replace('_', ' '))}</span></td>
         </tr>
       `;
     }).join('');
@@ -990,7 +994,7 @@ export class InsurerTab {
       const rowStyle = isReversed ? ' style="opacity: 0.5; text-decoration: line-through;"' : '';
       return `
       <tr${rowStyle}>
-        <td class="mono" style="font-size: 11px;">${f.prescriptionId || '\u2014'}</td>
+        <td class="mono" style="font-size: 11px;">${escapeHtml(f.prescriptionId || '\u2014')}</td>
         <td>${formatCents(f.patientPayCents || 0)}</td>
         <td>${formatCents(f.planPayCents || 0)}</td>
         <td class="mono" style="font-size: 10px; word-break: break-all;">${truncHash(f.settlementCommitment || '')}</td>
@@ -1072,16 +1076,16 @@ export class InsurerTab {
     if (pending.length > 0) {
       pendingRows = pending.map(pa => `
         <tr>
-          <td class="mono" style="font-size: 11px;">${pa.id}</td>
+          <td class="mono" style="font-size: 11px;">${escapeHtml(pa.id)}</td>
           <td class="mono" style="font-size: 11px;">${truncHash(pa.memberWalletId)}</td>
-          <td><span class="tier-badge tier-${pa.medicationTier}">Tier ${pa.medicationTier}</span> ${pa.medicationName}</td>
-          <td>${pa.prescriberName}</td>
+          <td><span class="tier-badge tier-${pa.medicationTier}">Tier ${pa.medicationTier}</span> ${escapeHtml(pa.medicationName)}</td>
+          <td>${escapeHtml(pa.prescriberName)}</td>
           <td><span class="pa-badge pa-pending">PENDING</span></td>
           <td>
-            <button class="btn-pa-approve" data-pa-id="${pa.id}" style="font-size: 11px; padding: 3px 10px; background: var(--accent-green); color: #0d1117; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; margin-right: 4px;">
+            <button class="btn-pa-approve" data-pa-id="${escapeHtml(pa.id)}" style="font-size: 11px; padding: 3px 10px; background: var(--accent-green); color: #0d1117; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; margin-right: 4px;">
               Approve
             </button>
-            <button class="btn-pa-deny" data-pa-id="${pa.id}" style="font-size: 11px; padding: 3px 10px; background: var(--accent-red); color: #0d1117; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">
+            <button class="btn-pa-deny" data-pa-id="${escapeHtml(pa.id)}" style="font-size: 11px; padding: 3px 10px; background: var(--accent-red); color: #0d1117; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">
               Deny
             </button>
           </td>
@@ -1097,10 +1101,10 @@ export class InsurerTab {
           : '<span class="pa-badge pa-denied">DENIED</span>';
         return `
           <tr style="opacity: 0.7;">
-            <td class="mono" style="font-size: 11px;">${pa.id}</td>
+            <td class="mono" style="font-size: 11px;">${escapeHtml(pa.id)}</td>
             <td class="mono" style="font-size: 11px;">${truncHash(pa.memberWalletId)}</td>
-            <td><span class="tier-badge tier-${pa.medicationTier}">Tier ${pa.medicationTier}</span> ${pa.medicationName}</td>
-            <td>${pa.prescriberName}</td>
+            <td><span class="tier-badge tier-${pa.medicationTier}">Tier ${pa.medicationTier}</span> ${escapeHtml(pa.medicationName)}</td>
+            <td>${escapeHtml(pa.prescriberName)}</td>
             <td>${statusBadge}</td>
             <td style="font-size: 11px; color: var(--text-muted);">${pa.resolvedAt ? new Date(pa.resolvedAt).toLocaleTimeString() : ''}</td>
           </tr>
@@ -1213,7 +1217,7 @@ export class InsurerTab {
             <div style="font-size: 12px; color: var(--text-secondary);">
               Wallet ${truncHash(walletId)} \u2192 REVOKED. Credential revoked, lifecycle updated.
               ${cancelledRxs.length > 0
-                ? `<br>${cancelledRxs.length} active prescription${cancelledRxs.length > 1 ? 's' : ''} auto-cancelled: ${cancelledRxs.join(', ')}`
+                ? `<br>${cancelledRxs.length} active prescription${cancelledRxs.length > 1 ? 's' : ''} auto-cancelled: ${escapeHtml(cancelledRxs.join(', '))}`
                 : ''}
             </div>
           </div>
@@ -1229,7 +1233,7 @@ export class InsurerTab {
     } catch (err) {
       if (resultDiv) {
         resultDiv.classList.remove('hidden');
-        resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px;">Error: ${err.message}</div>`;
+        resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px;">Error: ${escapeHtml(err.message)}</div>`;
       }
       btn.disabled = false;
       btn.textContent = 'Terminate';
@@ -1266,7 +1270,7 @@ export class InsurerTab {
         const members = result.members || [];
         resultDiv.innerHTML = `
           <div style="padding: 12px; background: rgba(239, 83, 80, 0.08); border: 1px solid rgba(239, 83, 80, 0.25); border-radius: 6px;">
-            <div style="font-weight: 600; color: var(--accent-red); margin-bottom: 6px;">Group ${groupId} Terminated</div>
+            <div style="font-weight: 600; color: var(--accent-red); margin-bottom: 6px;">Group ${escapeHtml(groupId)} Terminated</div>
             <div style="font-size: 12px; color: var(--text-secondary);">
               ${members.length} member${members.length !== 1 ? 's' : ''} terminated.
               All credentials revoked, lifecycles set to REVOKED.
@@ -1284,7 +1288,7 @@ export class InsurerTab {
     } catch (err) {
       if (resultDiv) {
         resultDiv.classList.remove('hidden');
-        resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px;">Error: ${err.message}</div>`;
+        resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px;">Error: ${escapeHtml(err.message)}</div>`;
       }
       btn.disabled = false;
       btn.textContent = `Terminate Group: ${groupId}`;
@@ -1322,18 +1326,18 @@ export class InsurerTab {
         resultDiv.classList.remove('hidden');
         resultDiv.innerHTML = `
           <div style="padding: 12px; background: rgba(129, 199, 132, 0.1); border: 1px solid rgba(129, 199, 132, 0.3); border-radius: 6px;">
-            <div style="font-weight: 600; color: var(--accent-green); margin-bottom: 4px;">${paId} Approved</div>
+            <div style="font-weight: 600; color: var(--accent-green); margin-bottom: 4px;">${escapeHtml(paId)} Approved</div>
             <div style="font-size: 12px; color: var(--text-secondary);">
-              ${result.medication?.brandName} authorized for wallet ${result.member?.walletId}.
+              ${escapeHtml(result.medication?.brandName)} authorized for wallet ${escapeHtml(result.member?.walletId)}.
               provePriorAuth proof generated in ${(result.proofTimeMs / 1000).toFixed(2)}s.
-              Forest root updated: ${result.forestRoot}
+              Forest root updated: ${escapeHtml(result.forestRoot)}
             </div>
           </div>
           ${result.l2Receipt ? `
             <div class="l2-receipt-card" style="margin-top:12px;">
               <div class="receipt-title">L2 Receipt</div>
               <div class="receipt-grid">
-                <div class="rl">Receipt ID</div><div class="rv">${result.l2Receipt.receiptId}</div>
+                <div class="rl">Receipt ID</div><div class="rv">${escapeHtml(result.l2Receipt.receiptId)}</div>
                 <div class="rl">Sequence #</div><div class="rv">${result.l2Receipt.sequenceNumber}</div>
                 <div class="rl">Status</div><div class="rv"><span class="l2-status-badge pending">pending</span></div>
               </div>
@@ -1352,7 +1356,7 @@ export class InsurerTab {
     } catch (err) {
       if (resultDiv) {
         resultDiv.classList.remove('hidden');
-        resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px;">Error: ${err.message}</div>`;
+        resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px;">Error: ${escapeHtml(err.message)}</div>`;
       }
       btn.disabled = false;
       btn.textContent = 'Approve';
@@ -1386,7 +1390,7 @@ export class InsurerTab {
     } catch (err) {
       if (resultDiv) {
         resultDiv.classList.remove('hidden');
-        resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px;">Error: ${err.message}</div>`;
+        resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px;">Error: ${escapeHtml(err.message)}</div>`;
       }
       btn.disabled = false;
       btn.textContent = 'Deny';
@@ -1495,7 +1499,7 @@ export class InsurerTab {
       resultDiv.classList.remove('hidden');
       resultDiv.innerHTML = `
         <div style="padding: 8px 12px; background: rgba(129, 199, 132, 0.1); border: 1px solid rgba(129, 199, 132, 0.3); border-radius: 6px; font-size: 12px;">
-          <strong>${action === 'REMOVE' ? 'Removed' : 'Re-added'}</strong> ${result.medicationName}.
+          <strong>${action === 'REMOVE' ? 'Removed' : 'Re-added'}</strong> ${escapeHtml(result.medicationName)}.
           ${result.affectedMemberCount} member credential(s) updated. Notifications sent.
           New formulary root: ${truncHash(result.newFormularyRoot)}
         </div>
@@ -1510,7 +1514,7 @@ export class InsurerTab {
 
     } catch (err) {
       resultDiv.classList.remove('hidden');
-      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px; font-size: 12px;">Error: ${err.message}</div>`;
+      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px; font-size: 12px;">Error: ${escapeHtml(err.message)}</div>`;
       this.app.setStatus('ready', 'Error');
     }
   }
@@ -1555,7 +1559,7 @@ export class InsurerTab {
       resultDiv.classList.remove('hidden');
       resultDiv.innerHTML = `
         <div style="padding: 8px 12px; background: rgba(129, 199, 132, 0.1); border: 1px solid rgba(129, 199, 132, 0.3); border-radius: 6px; font-size: 12px;">
-          <strong>Modified</strong> ${result.medicationName}: ${result.details}.
+          <strong>Modified</strong> ${escapeHtml(result.medicationName)}: ${escapeHtml(result.details)}.
           ${result.affectedMemberCount} member credential(s) cascaded. Notifications sent.
         </div>
       `;
@@ -1568,7 +1572,7 @@ export class InsurerTab {
 
     } catch (err) {
       resultDiv.classList.remove('hidden');
-      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px; font-size: 12px;">Error: ${err.message}</div>`;
+      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px; font-size: 12px;">Error: ${escapeHtml(err.message)}</div>`;
       this.app.setStatus('ready', 'Error');
     } finally {
       btn.classList.remove('loading');
@@ -1616,7 +1620,7 @@ export class InsurerTab {
       resultDiv.classList.remove('hidden');
       resultDiv.innerHTML = `
         <div style="padding: 8px 12px; background: rgba(129, 199, 132, 0.1); border: 1px solid rgba(129, 199, 132, 0.3); border-radius: 6px; font-size: 12px;">
-          <strong>${action === 'REMOVE' ? 'Removed' : 'Added'}</strong> ${result.prescriberName} ${action === 'REMOVE' ? 'from' : 'to'} network.
+          <strong>${action === 'REMOVE' ? 'Removed' : 'Added'}</strong> ${escapeHtml(result.prescriberName)} ${action === 'REMOVE' ? 'from' : 'to'} network.
           ${result.affectedMemberCount} member credential(s) updated. Notifications sent.
           ${result.inNetworkCount} prescriber(s) now in-network.
           New network root: ${truncHash(result.newNetworkRoot)}
@@ -1632,7 +1636,7 @@ export class InsurerTab {
 
     } catch (err) {
       resultDiv.classList.remove('hidden');
-      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px; font-size: 12px;">Error: ${err.message}</div>`;
+      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px; font-size: 12px;">Error: ${escapeHtml(err.message)}</div>`;
       this.app.setStatus('ready', 'Error');
     }
   }
@@ -1671,7 +1675,7 @@ export class InsurerTab {
 
     } catch (err) {
       resultDiv.classList.remove('hidden');
-      resultDiv.innerHTML = `<div style="color: var(--accent-red); font-size: 12px;">Error: ${err.message}</div>`;
+      resultDiv.innerHTML = `<div style="color: var(--accent-red); font-size: 12px;">Error: ${escapeHtml(err.message)}</div>`;
       this.app.setStatus('ready', 'Error');
     } finally {
       btn.classList.remove('loading');
@@ -1680,8 +1684,9 @@ export class InsurerTab {
   }
 }
 
+/** A hash or wallet ID shortened for a cell, escaped: every caller places it in the page as HTML (A-61). */
 function truncHash(s) {
   if (!s) return '\u2014';
-  if (s.length <= 20) return s;
-  return s.slice(0, 8) + '\u2026' + s.slice(-8);
+  const text = String(s);
+  return escapeHtml(text.length <= 20 ? text : text.slice(0, 8) + '\u2026' + text.slice(-8));
 }

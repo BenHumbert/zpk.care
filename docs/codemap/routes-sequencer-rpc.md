@@ -17,7 +17,7 @@ Abbreviations: RPC = `src/l2/l2-rpc-server.ts`; CLI = `src/l2/l2-client.ts`; SEQ
 | Unhandled error | `handleRequest().catch` → 500 `Internal Server Error` | RPC:271-277 |
 | Request timeout | 30 s timer on every non-SSE request (`/events`, `/viz/events`, `/interactive/console` exempt by prefix); writes 504 JSON if not yet ended; does not abort the handler | RPC:410-418 |
 | Dynamic routes | `registerRoute(method, path, handler, {adminOnly, walletSigned, providerSigned, timeoutMs})` keyed `METHOD:PATH`; adminOnly routes gated by `checkAdminAuth` (since A9 `authorizeRoute`). A walletSigned route (B2) takes only the signature of the wallet it names. A providerSigned route (since 2026-10-19; the type is 'prescriber' or 'pharmacy') takes the operator's bearer, a node key whose role allows the route (the ordinary route gate), or the signature of a wallet registered in the entity directory as that provider type, verified against that wallet's own signing key over method, path and body (30 s window, replay cache); a registered wallet of another type gets 403 (`authorizeProviderRoute`). Each gate keeps who it admitted, and a handler reads it with `principalOf(req)` (null for an ungated route), never from the body | RPC:386-399,498-508; RPC `registerRoute`, `authorizeProviderRoute`, `principalOf` |
-| Engine hooks | `setEntityProofPoolStatus`, `seedEntities`, `setPeerNetwork`, `setVkCommitment`, `getAdminRegistryState`/`restoreAdminRegistryState` (admin registry persisted via node checkpoint) | RPC:201-203,292-296,401-403,2731-2733,2688-2726; LEV:274-276,402,420 |
+| Engine hooks | `setEntityProofPoolStatus`, `setPeerNetwork`, `setVkCommitment`, `getAdminRegistryState`/`restoreAdminRegistryState` (admin registry persisted via node checkpoint) | RPC:201-203,292-296,401-403,2731-2733,2688-2726; LEV:274-276,402,420 |
 
 ### 1.2 CORS and response headers
 | Item | Fact | Source |
@@ -56,7 +56,7 @@ Abbreviations: RPC = `src/l2/l2-rpc-server.ts`; CLI = `src/l2/l2-client.ts`; SEQ
 ### 1.6 Body, parsing, errors
 | Item | Fact | Source |
 |---|---|---|
-| Body limit | `readBody` enforces `maxBodyBytes` (20 MB) for `/rpc`, `/viz/emit`, `/viz/entities`; destroys socket on overflow; the overflow message is echoed to the client as `-32700` | RPC:667-672,2757-2777 |
+| Body limit | `readBody` enforces `maxBodyBytes` (20 MB) for `/rpc` and `/viz/emit`; destroys socket on overflow; the overflow message is echoed to the client as `-32700` | RPC:667-672,2757-2777 |
 | Parse | `l2Parse` (BigInt-safe); invalid → `-32700 'Invalid JSON'`; structural check `jsonrpc==='2.0' && method && id!==undefined` → `-32600` | RPC:675-686 |
 | Error classes | substring routing: `not found`/`Unknown method`→-32601; `verification failed`/`mismatch`/`REJECTED`→-32001; `not running`→-32002; `Missing or invalid`/`not configured`/`Duplicate proof`/`Wrong partition`/`Not leader`/`Not a leviathan`/`already registered`/`registry full`/`unavailable`/`not known`→-32602; else `console.error(err)` + `-32603 'Internal error'` | RPC:729-745 |
 | Leak/quirk notes | `l2_syncWalletState` returns the raw sequencer error string inside a success result (RPC:811-814); `Drug not found: <ndcHash>` is classified as method-not-found (RPC:732-733,1460); thrown messages echo caller-supplied ids (employerId, nodeId); all RPC responses are HTTP 200 (RPC:2366-2381) | — |
@@ -78,7 +78,7 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 ### Proof submission / wallet sync
 | Method | Auth | Params | Reads/writes | Member | Line |
 |---|---|---|---|---|---|
-| l2_submitProof | RATE (proof verified in `node.submitProof`) | proofJson, newCredentialInventoryRoot?, entityMetadata? | `StateTransitionProof.fromJSON` → `node.submitProof(proof, meta)`; only `newCredentialInventoryRoot` (decimal string) is forwarded as metadata, plus the claim the engine committed for that wallet and root (`pendingClaimFor`, B2), cleared once the proof is accepted; if result `isRegistration`, unverified `entityMetadata{displayName,type,specialty,pharmacyType,group}` is written to `entityRegistry` | yes: L2Receipt (walletId, roots, claimLeafIndex) | 755-790 |
+| l2_submitProof | RATE (proof verified in `node.submitProof`) | proofJson, newCredentialInventoryRoot? (`entityMetadata` refused, RPC-04) | `StateTransitionProof.fromJSON` → `node.submitProof(proof, meta)`; only `newCredentialInventoryRoot` (decimal string) is forwarded as metadata, plus the claim the engine committed for that wallet and root (`pendingClaimFor`, B2), cleared once the proof is accepted; if result `isRegistration`, unverified `entityMetadata{displayName,type,specialty,pharmacyType,group}` is written to `entityRegistry` | yes: L2Receipt (walletId, roots, claimLeafIndex) | 755-790 |
 | l2_syncWalletState | OPEN (verify-only) | walletId, newCredentialInventoryRoot, newNonce | `seq.syncWalletState`: refuses unless wallet registered and state reproduces current registry root; else no-op/update; errors returned as `{synced:false,error}` | no | 792-818; SEQ:1963-1975 No caller since B1 step two, commit three; remove with the fixtures (F). |
 
 ### Admin keys / admission
@@ -182,10 +182,10 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 ### Entities / providers
 | Method | Auth | Params | Reads/writes | Member | Line |
 |---|---|---|---|---|---|
-| l2_registerEntity | ADMIN | walletId, displayName, type, specialty?, pharmacyType?, group?, encryptionPublicKeyHex?, npi? | writes `entityRegistry`; if prescriber/pharmacy also `seq.credentialProvider` ACTIVE (duplicates ignored); `node.registerKnownWallet` (attestation eligibility); emits `viz:enrollment:started` with walletId | yes (writes wallet→displayName) | 1843-1902 |
+| l2_registerEntity | ADMIN | walletId, displayName, type, specialty?, pharmacyType?, group?, encryptionPublicKeyHex?, npi? | refuses (A-74) a wallet ID not in canonical decimal, a name, specialty, pharmacy type or group that is not a short line of plain text, a kind outside `ENTITY_KINDS`, an encryption key that is not 64 hex, and an NPI that is not ten digits with the NPI check digit (`npiError`); writes `entityRegistry`; if prescriber/pharmacy also `seq.credentialProvider` ACTIVE (duplicates ignored); `node.registerKnownWallet` (attestation eligibility); emits `viz:enrollment:started` with walletId | yes (writes wallet→displayName) | 1843-1902 |
 | l2_getEntity | D1: a member’s entry answers the wallet, the plan or operator, its named PCP or the member’s attestation; a provider’s entry is public | walletId | `entityRegistry` → displayName, type, group, specialty, pharmacyType | yes: wallet→display identity (member entries included) | 1904-1917 |
 | l2_getEncryptionKey | D1: any signed caller | walletId | `entityRegistry[walletId].encryptionPublicKeyHex` | yes: wallet's X25519 key | 1434-1440 |
-| l2_credentialProvider | ADMIN | walletId, displayName, providerType, npi?, specialty?, pharmacyType?, deaNumber?, stateOfLicense?, verificationMethod?, initialState?, credentialedByHash?, applicationId? | `seq.credentialProvider` (npiHash = hash(npi) or walletId); mirrors into `entityRegistry`; emits `viz:credential:generated` incl. npi | provider only | 1921-1981; SEQ:2275 |
+| l2_credentialProvider | ADMIN | walletId, displayName, providerType, npi?, specialty?, pharmacyType?, deaNumber?, stateOfLicense?, verificationMethod?, initialState?, credentialedByHash?, applicationId? | refuses (A-74, A-89) a wallet ID not in canonical decimal, an NPI that is not ten digits with the NPI check digit (`npiError`), and a name, specialty, pharmacy type, DEA number or state of license that is not a short line of plain text; `seq.credentialProvider` (npiHash = hash(npi) or walletId); mirrors into `entityRegistry`; emits `viz:credential:generated` incl. npi | provider only | 1921-1981; SEQ:2275 |
 | l2_updateProviderStatus | ADMIN | walletId, newState(0-4) | `seq.updateProviderStatus`; emits lifecycle viz | provider only | 1983-2010; SEQ:2280 |
 | l2_getProvider | OPEN | walletId | provider leaf+metadata (npi, state) | provider only | 2012-2029 |
 | l2_getProviderByNpi | OPEN | npiHash | provider by NPI hash | provider only | 2031-2045 |
@@ -235,8 +235,7 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 | POST | /rpc | per-method (see 1.5) | body ≤20 MB; JSON-RPC 2.0 shape | JSON-RPC result/error (always HTTP 200) | RPC:449,665-747 |
 | POST | /viz/emit | ADMIN (`checkAdminAuth`) | body ≤20 MB; any JSON accepted as VizEvent; id/timestamp filled | pushes to viz buffer (10k) + broadcast | RPC:455-462,2387-2423 |
 | GET | /viz/events | D2: operator or plan (bearer, `?token=`, or insurer node key) | ≤100 clients | VizEvent stream (no replay) | RPC:464,2426-2451 |
-| POST | /viz/entities | ADMIN | JSON array; registry cap 1000 (429) | writes `entityRegistry` | RPC:468-475,2473-2500 |
-| GET | /viz/entities | OPEN (GAP I7) | — | full `VizEntity[]` incl. walletId, displayName, type, group, encryptionPublicKeyHex | RPC:477,2502-2509 |
+| GET | /viz/entities | ADMIN read (D1) | — | full `VizEntity[]` incl. walletId, displayName, type, group, encryptionPublicKeyHex | RPC:477,2502-2509 |
 | GET | /viz/state | OPEN (GAP I7) | — | {events (whole buffer), entities, nodeRunning, client counts} | RPC:481,2512-2522 |
 | GET | /viz/history | operator or plan (bearer or insurer node key). Was OPEN | — | whole viz buffer (the events /viz/state also returns) | RPC:582-586,2629-2636 |
 | POST | /viz/clear | ADMIN | — | clears viz buffer, resets counter, **clears `entityRegistry`** | RPC:489-496,2463-2470 |
@@ -329,4 +328,4 @@ Server: only `StateTransitionProgram` compiled (PD:249-252); binds `127.0.0.1` s
 7. `l2_revokeEmployerAttestation` deletes through the private `employerAttestationStore` (RPC:1367) — is a sequencer method intended?
 8. `l2_recordFill` appends claim leaves with no proof (RPC:1684-1727); only `scripts/e2e-verify/run.ts` references it — fixture-only, or a production path? **Answered by D2 (2026-10-18): neither — removed.**
 9. Who is meant to call `POST /prove`? No node uses `ProofDelegateClient`; the browser path has no API key and the server emits no CORS headers (PD:260-302; `dashboard-member/rpc.js:179-191`).
-10. `l2_submitProof` accepts unverified `entityMetadata` and writes it to `entityRegistry` for registrations (RPC:774-787) — is the display-name binding to a wallet meant to be attacker-controllable at registration time?
+10. ~~`l2_submitProof` accepts unverified `entityMetadata` and writes it to `entityRegistry` for registrations~~ Answered 2026-10-24: no. It is refused, and the write is gone (RPC-04, under A-74).

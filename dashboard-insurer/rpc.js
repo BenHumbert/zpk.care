@@ -25,12 +25,14 @@ const API = (() => {
   let sseListeners = [];
   let sseReconnectDelay = 1000;
   let sseReconnectTimer = null;
+  let sseAttempt = 0;
   let lastOnEvent = null;
 
   function setBaseUrl(url) { baseUrl = url.replace(/\/+$/, ''); }
   function setAdminToken(token) {
     adminToken = token || '';
     try { localStorage.setItem('zkt_insurer_admin_token', adminToken); } catch {}
+    if (lastOnEvent) connectSSE(lastOnEvent);   // the event stream opens with the token (A-79)
   }
   function getAdminToken() { return adminToken; }
   // Restore admin token from localStorage, fall back to bootstrap default
@@ -130,6 +132,9 @@ const API = (() => {
   function getPharmacyClaims(walletId) { return request('GET', '/claims/pharmacy/' + encodeURIComponent(walletId)); }
   function getDrugClaims(ndcHash) { return request('GET', '/claims/drug/' + encodeURIComponent(ndcHash)); }
 
+  // ---- Reports (the node's admin credential; a refusal is thrown with the node's reason) ----
+  function generateReport(type, body) { return request('POST', '/reports/' + encodeURIComponent(type), body, true); }
+
   // ---- Admin ----
   function forceBatch() { return request('POST', '/admin/batch/force', {}, true); }
 
@@ -149,7 +154,7 @@ const API = (() => {
   // ---- Credentialing ----
   function getCredentialingApplications(status) {
     var q = status ? '?status=' + encodeURIComponent(status) : '';
-    return request('GET', '/credentialing/applications' + q);
+    return request('GET', '/credentialing/applications' + q, undefined, true);
   }
 
   function submitCredentialingApplication(data) {
@@ -240,36 +245,52 @@ const API = (() => {
   function getMessageStoreStatus() { return request('GET', '/messaging/status'); }
 
   // ---- SSE ----
+  /*
+   * A-79: this node's event stream answers only this node's admin token, and carries no event that names a wallet.
+   * An EventSource cannot send a header, so each connection first trades the token for a single-use ticket and opens
+   * the stream with it; every reconnect asks for a fresh one. With no token set nothing is opened, and setting one
+   * opens it.
+   */
   function connectSSE(onEvent) {
     disconnectSSE();
     lastOnEvent = onEvent;
-    try {
-      sseConnection = new EventSource(baseUrl + '/events');
-      sseConnection.onopen = () => {
-        sseReconnectDelay = 1000;
-        sseListeners.forEach(fn => fn('connected'));
-      };
-      sseConnection.onmessage = (ev) => {
-        try {
-          const data = JSON.parse(ev.data);
-          if (onEvent) onEvent(data);
-        } catch {
-          if (onEvent) onEvent({ raw: ev.data });
-        }
-      };
-      sseConnection.onerror = () => {
+    if (!adminToken) return;
+    const attempt = sseAttempt;
+    request('POST', '/events/ticket', {}, true)
+      .then((data) => {
+        if (attempt !== sseAttempt) return;   // disconnected, or connected again, while the ticket was on its way
+        sseConnection = new EventSource(baseUrl + '/events?ticket=' + encodeURIComponent(data.ticket));
+        sseConnection.onopen = () => {
+          sseReconnectDelay = 1000;
+          sseListeners.forEach(fn => fn('connected'));
+        };
+        sseConnection.onmessage = (ev) => {
+          try {
+            const event = JSON.parse(ev.data);
+            if (onEvent) onEvent(event);
+          } catch {
+            if (onEvent) onEvent({ raw: ev.data });
+          }
+        };
+        sseConnection.onerror = () => {
+          sseListeners.forEach(fn => fn('disconnected'));
+          sseConnection.close();
+          sseConnection = null;
+          reconnectSSE();
+        };
+      })
+      .catch(() => {
+        if (attempt !== sseAttempt) return;
         sseListeners.forEach(fn => fn('disconnected'));
-        sseConnection.close();
-        sseConnection = null;
-        sseReconnectTimer = setTimeout(() => connectSSE(lastOnEvent), sseReconnectDelay);
-        sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000);
-      };
-    } catch {
-      sseReconnectTimer = setTimeout(() => connectSSE(lastOnEvent), sseReconnectDelay);
-      sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000);
-    }
+        reconnectSSE();
+      });
+  }
+  function reconnectSSE() {
+    sseReconnectTimer = setTimeout(() => connectSSE(lastOnEvent), sseReconnectDelay);
+    sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000);
   }
   function disconnectSSE() {
+    sseAttempt++;
     if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
     if (sseConnection) { sseConnection.close(); sseConnection = null; }
   }
@@ -317,6 +338,7 @@ const API = (() => {
     getAuditLog, getChainProof,
     verifyChainIntegrity, verifyFinancialBalance, detectDuplicateClaims,
     getMemberClaims, getPrescriberClaims, getPharmacyClaims, getDrugClaims,
+    generateReport,
     forceBatch,
     getRoster, registerRoster,
     getCredentialingApplications, submitCredentialingApplication,

@@ -21,6 +21,8 @@
  * dispatches UI updates to phase modules.
  */
 
+import { escapeHtml } from './interactive/message-thread.js';
+
 export const API_BASE = 'http://127.0.0.1:3030';
 
 export function formatCents(cents) {
@@ -69,7 +71,8 @@ export function updateChainState(chainState) {
 }
 
 /**
- * Render a collapsible credential card with all 7 fields + commitment.
+ * Render a collapsible credential card with all 7 fields + commitment. Every field is escaped: the card shows what an
+ * engine route returned, wallet IDs among it (A-61).
  */
 export function renderCredentialCard(title, nftData, colorClass) {
   if (!nftData) return '';
@@ -82,14 +85,14 @@ export function renderCredentialCard(title, nftData, colorClass) {
       </div>
       <div class="zk-section-body">
         <div class="zk-data-grid">
-          <div class="zk-label">Credential Type</div><div class="zk-value">${typeLabel} (${nftData.nftType})</div>
-          <div class="zk-label">Forest Root</div><div class="zk-value">${nftData.forestRoot}</div>
-          <div class="zk-label">Issuer Wallet ID</div><div class="zk-value">${nftData.issuerWalletId}</div>
-          <div class="zk-label">Subject Wallet ID</div><div class="zk-value">${nftData.subjectWalletId}</div>
-          <div class="zk-label">Issued At</div><div class="zk-value">${nftData.issuedAt}</div>
-          <div class="zk-label">Expires At</div><div class="zk-value">${nftData.expiresAt === '0' ? '0 (never)' : nftData.expiresAt}</div>
-          <div class="zk-label">Revoked</div><div class="zk-value">${nftData.revoked === '0' ? '0 (active)' : nftData.revoked}</div>
-          <div class="zk-label">Credential Commitment</div><div class="zk-value zk-highlight">${nftData.commitment}</div>
+          <div class="zk-label">Credential Type</div><div class="zk-value">${escapeHtml(typeLabel)} (${escapeHtml(nftData.nftType)})</div>
+          <div class="zk-label">Forest Root</div><div class="zk-value">${escapeHtml(nftData.forestRoot)}</div>
+          <div class="zk-label">Issuer Wallet ID</div><div class="zk-value">${escapeHtml(nftData.issuerWalletId)}</div>
+          <div class="zk-label">Subject Wallet ID</div><div class="zk-value">${escapeHtml(nftData.subjectWalletId)}</div>
+          <div class="zk-label">Issued At</div><div class="zk-value">${escapeHtml(nftData.issuedAt)}</div>
+          <div class="zk-label">Expires At</div><div class="zk-value">${nftData.expiresAt === '0' ? '0 (never)' : escapeHtml(nftData.expiresAt)}</div>
+          <div class="zk-label">Revoked</div><div class="zk-value">${nftData.revoked === '0' ? '0 (active)' : escapeHtml(nftData.revoked)}</div>
+          <div class="zk-label">Credential Commitment</div><div class="zk-value zk-highlight">${escapeHtml(nftData.commitment)}</div>
         </div>
         <div class="hash-flow">
           <span class="hf-op">Poseidon.hash</span>
@@ -97,7 +100,7 @@ export function renderCredentialCard(title, nftData, colorClass) {
           <span class="hf-input">7 fields</span>
           <span class="hf-arrow">)</span>
           <span class="hf-arrow">=</span>
-          <span class="hf-output">${nftData.commitment}</span>
+          <span class="hf-output">${escapeHtml(nftData.commitment)}</span>
         </div>
       </div>
     </div>
@@ -110,7 +113,7 @@ export function renderCredentialCard(title, nftData, colorClass) {
 export function renderForestCard(title, forestRoots, colorClass) {
   if (!forestRoots) return '';
   const rows = Object.entries(FOREST_DOMAIN_LABELS).map(([key, label]) => `
-    <div class="zk-label">${label}</div><div class="zk-value">${forestRoots[key]}</div>
+    <div class="zk-label">${label}</div><div class="zk-value">${escapeHtml(forestRoots[key])}</div>
   `).join('');
 
   return `
@@ -123,7 +126,7 @@ export function renderForestCard(title, forestRoots, colorClass) {
         <div class="zk-data-grid">
           ${rows}
           <div class="zk-label" style="font-weight:700;">Forest Root</div>
-          <div class="zk-value zk-highlight">${forestRoots.forestRoot}</div>
+          <div class="zk-value zk-highlight">${escapeHtml(forestRoots.forestRoot)}</div>
         </div>
         <div class="hash-flow">
           <span class="hf-op">Poseidon.hash</span>
@@ -131,7 +134,7 @@ export function renderForestCard(title, forestRoots, colorClass) {
           <span class="hf-input">6 tree roots</span>
           <span class="hf-arrow">)</span>
           <span class="hf-arrow">=</span>
-          <span class="hf-output">${forestRoots.forestRoot}</span>
+          <span class="hf-output">${escapeHtml(forestRoots.forestRoot)}</span>
         </div>
       </div>
     </div>
@@ -139,12 +142,13 @@ export function renderForestCard(title, forestRoots, colorClass) {
 }
 
 /**
- * Render a collapsible data section with arbitrary key-value pairs.
+ * Render a collapsible data section with arbitrary key-value pairs, each escaped: they are what an engine route
+ * returned (A-61).
  */
 export function renderZkDataSection(title, data, colorClass, commitLabel, commitValue) {
   if (!data) return '';
   const rows = Object.entries(data).map(([key, val]) => `
-    <div class="zk-label">${key}</div><div class="zk-value">${val}</div>
+    <div class="zk-label">${escapeHtml(key)}</div><div class="zk-value">${escapeHtml(val)}</div>
   `).join('');
 
   const hashFlow = commitLabel ? `
@@ -154,7 +158,7 @@ export function renderZkDataSection(title, data, colorClass, commitLabel, commit
       <span class="hf-input">${commitLabel}</span>
       <span class="hf-arrow">)</span>
       <span class="hf-arrow">=</span>
-      <span class="hf-output">${commitValue || ''}</span>
+      <span class="hf-output">${escapeHtml(commitValue || '')}</span>
     </div>
   ` : '';
 
@@ -386,7 +390,7 @@ class InteractiveApp {
     this.setStatus('working', 'Resetting...');
 
     try {
-      await fetch(`${API_BASE}/interactive/reset`, { method: 'POST' });
+      await fetch(`${API_BASE}/interactive/reset`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       this.enrollmentResult = null;
       await this.fetchState();
       this.tabBar.reset();

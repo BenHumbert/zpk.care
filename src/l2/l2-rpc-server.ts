@@ -48,11 +48,17 @@ import { ProviderLifecycle, PROVIDER_TYPE_TAG } from './provider-registry-types.
 import type { ProviderType } from './provider-registry-types.js';
 import type { BenefitPlanConfig, ClaimSubmissionMetadata } from './l2-types.js';
 import { hashString } from '../zkp/hash-utils.js';
+import { walletIdError } from '../security/wallet-id.js';
+import { displayNameError } from '../security/free-text.js';
+import { npiError } from '../security/npi.js';
 import { dispensingFeeOf, priceDispense, quoteNadacPrice, quantityError, type FillPrice } from '../fulfillment/nadac-pricing.js';
 import { planStoreError, planAsPublished, publishedTermsOf, publishedListCovers } from './plan-terms.js';
 import { splitClaimCost, type ClaimSplit } from '../access-control/accumulator-query-service.js';
 import { ProofRejected } from './l2-proof-verifier.js';
-import { corsOriginHeader, resolveAllowedOrigins } from '../security/network-policy.js';
+import {
+  corsOriginHeader, resolveAllowedOrigins, resolvePublicHosts, requestHostAllowed, bodyTypeAccepted,
+  MISDIRECTED_REQUEST, UNSUPPORTED_BODY_TYPE, type HostPolicy,
+} from '../security/network-policy.js';
 import { verifySignedRequest, signerIdFromHeaders, ReplayCache } from '../security/signed-request.js';
 import { SequencerAttestationAuthority, type NfcCredentialAttestation } from '../credentials/nfc-attestation.js';
 
@@ -95,6 +101,9 @@ export type VizLane = 'enrollment' | 'eligibility' | 'prescription' | 'fulfillme
 
 /** Actor types in the system */
 export type VizActorType = 'member' | 'prescriber' | 'pharmacy' | 'insurer' | 'employer' | 'leviathan' | 'worker';
+
+/** Every kind an entity may be registered as: a provider route admits a signer by the kind its registration names. */
+const ENTITY_KINDS: ReadonlySet<string> = new Set<VizActorType>(['member', 'prescriber', 'pharmacy', 'insurer', 'employer', 'leviathan', 'worker']);
 
 /** A visualization event pushed by the scenario script */
 export interface VizEvent {
@@ -152,6 +161,11 @@ export interface L2RpcServerOptions {
   unsecureMode?: boolean;
   /** Allowed CORS origins. Default ['http://localhost', 'http://127.0.0.1']. Set to ['*'] for open access. */
   allowedOrigins?: string[];
+  /**
+   * The Host names this server answers to beyond loopback and its bind address (A-82): a reverse
+   * proxy's public name, or the address its peers use. Default: `ZKTRIDENT_PUBLIC_HOSTS`.
+   */
+  publicHosts?: string[];
   /** Maximum concurrent SSE connections. Default 100. */
   maxSseConnections?: number;
   /** Max proof submissions per IP per minute. Default 60. Set to 0 to disable. */
@@ -402,6 +416,8 @@ export class L2RpcServer {
   private dashboardDir: string | null = null;
   /** Browser origins this server will answer cross-origin. Fixed at construction. */
   private readonly allowedOrigins: string[];
+  /** The names this server answers to in a request's Host (A-82). Fixed at construction. */
+  private readonly hostPolicy: HostPolicy;
 
   constructor(node: L2Node | L2Leviathan, options?: Partial<L2RpcServerOptions>) {
     this.node = node;
@@ -412,6 +428,11 @@ export class L2RpcServer {
     this.allowedOrigins = this.options.allowedOrigins?.length
       ? this.options.allowedOrigins
       : resolveAllowedOrigins(process.env, { role: 'rpc server' });
+    this.hostPolicy = {
+      bindHost: this.options.host,
+      publicHosts: this.options.publicHosts ?? resolvePublicHosts(process.env),
+      tls: Boolean(this.options.tlsCert && this.options.tlsKey),
+    };
 
     // Initialize admin key registry from options
     this.initAdminKeys();
@@ -442,13 +463,6 @@ export class L2RpcServer {
       }, requestHandler);
     } else {
       this.server = http.createServer(requestHandler);
-    }
-  }
-
-  /** Programmatically seed entities into the entity registry (e.g. seed providers on startup) */
-  seedEntities(entities: VizEntity[]): void {
-    for (const entity of entities) {
-      this.entityRegistry.set(entity.walletId, entity);
     }
   }
 
@@ -598,6 +612,13 @@ export class L2RpcServer {
   // ─── Request Handling ─────────────────────────────────
 
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    // A-82: the request must name this server in its Host, or a page rebound to loopback could read every answer.
+    if (!requestHostAllowed(req, this.hostPolicy)) {
+      res.writeHead(421, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: MISDIRECTED_REQUEST }));
+      return;
+    }
+
     // M10 fix: Server-side request budget (30 s default, excludes SSE streams), re-armed to a
     // registered route's own budget once the route is known: the engine's proving routes run for
     // longer than a lookup, and a slow proof must not read as a dead request.
@@ -635,6 +656,13 @@ export class L2RpcServer {
       return;
     }
 
+    // A-82: a body method declares JSON, the one type this server reads, so a browser asks before it sends one cross-site.
+    if (!bodyTypeAccepted(req)) {
+      res.writeHead(415, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: UNSUPPORTED_BODY_TYPE }));
+      return;
+    }
+
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
     const pathname = url.pathname;
 
@@ -666,12 +694,6 @@ export class L2RpcServer {
       const decision = this.authorizeStream(req, url, pathname);
       if (!decision.ok) return L2RpcServer.denyRoute(res, decision);
       return this.handleVizSSE(req, res);
-    }
-
-    if (pathname === '/viz/entities' && req.method === 'POST') {
-      const decision = await this.authorizeRoute(req, pathname);
-      if (!decision.ok) return L2RpcServer.denyRoute(res, decision);
-      return this.handleVizEntityRegister(req, res);
     }
 
     if (pathname === '/viz/entities' && req.method === 'GET') {
@@ -1002,6 +1024,12 @@ export class L2RpcServer {
   ): Promise<unknown> {
     switch (method) {
       case 'l2_submitProof': {
+        // RPC-04: a registration proof shows that a wallet is new and that its holder knows its secrets, and nothing
+        // about who the holder is. An entity's name and kind are registered with l2_registerEntity, which checks both
+        // and decides by the caller's role.
+        if (params.entityMetadata !== undefined) {
+          throw new RequestRefused('l2_submitProof takes no entityMetadata: an entity\'s name and kind are registered with l2_registerEntity', RPC_INVALID_PARAMS);
+        }
         const proofJson = params.proofJson;
         if (!proofJson || typeof proofJson !== 'object') {
           throw new Error('Missing or invalid proofJson parameter');
@@ -1026,27 +1054,6 @@ export class L2RpcServer {
           : submitMeta;
         const result = await this.node.submitProof(proof, finalMeta);
         if (committed) this.node.getSequencer().clearPendingClaim(walletOfProof, newCred as string);
-
-        // Auto-register entity metadata if provided alongside a registration proof.
-        // The metadata is untrusted display data — the ZK proof guarantees the walletId.
-        const entityMeta = params.entityMetadata as Record<string, string> | undefined;
-        if (entityMeta && result && typeof result === 'object' && 'isRegistration' in result && (result as any).isRegistration) {
-          const walletId = (result as any).walletId as string;
-          if (walletId && entityMeta.displayName && entityMeta.type) {
-            const known = this.entityRegistry.get(walletId);
-            this.entityRegistry.set(walletId, {
-              walletId,
-              displayName: entityMeta.displayName,
-              type: entityMeta.type as VizActorType,
-              specialty: entityMeta.specialty,
-              pharmacyType: entityMeta.pharmacyType,
-              group: entityMeta.group,
-              // A10b: a proof's display metadata never erases the keys the wallet registered
-              encryptionPublicKeyHex: known?.encryptionPublicKeyHex,
-              signingPublicKeyHex: known?.signingPublicKeyHex,
-            });
-          }
-        }
 
         return result;
       }
@@ -2124,6 +2131,30 @@ export class L2RpcServer {
         if (!walletId || !displayName || !type) {
           throw new Error('Missing walletId, displayName, or type');
         }
+        // A-74: the wallet ID is a field element in decimal, as every wallet ID the network issues is, and the name a
+        // short line of plain text. Every screen that lists wallets draws both, so anything else is refused here.
+        const entityFieldProblem = walletIdError(walletId) ?? displayNameError(displayName);
+        if (entityFieldProblem) throw new RequestRefused(entityFieldProblem, RPC_INVALID_PARAMS);
+        // The kind is one the network has, and the labels the screens draw beside the name are short lines of plain
+        // text like it; an empty label is no label.
+        if (!ENTITY_KINDS.has(type)) {
+          throw new RequestRefused(`type must be one of ${[...ENTITY_KINDS].join(', ')}`, RPC_INVALID_PARAMS);
+        }
+        for (const label of ['specialty', 'pharmacyType', 'group']) {
+          const value = params[label];
+          const labelProblem = value === undefined || value === null || value === '' ? null : displayNameError(value, label);
+          if (labelProblem) throw new RequestRefused(labelProblem, RPC_INVALID_PARAMS);
+        }
+        // An npi, when one is given, is a National Provider Identifier, checked before anything reads it (A-89): the
+        // credentialing below keys the provider registry by its hash, one provider to an NPI, and the directory draws
+        // it. An npi with a space or an invisible character beside the digits reads there as a real provider's, and
+        // its hash is a key of its own, so the registry would credential it beside the real one.
+        const npiProblem = params.npi === undefined || params.npi === null || params.npi === '' ? null : npiError(params.npi);
+        if (npiProblem) throw new RequestRefused(npiProblem, RPC_INVALID_PARAMS);
+        const encryptionKey = params.encryptionPublicKeyHex;
+        if (encryptionKey !== undefined && encryptionKey !== null && (typeof encryptionKey !== 'string' || !/^[0-9a-fA-F]{64}$/.test(encryptionKey))) {
+          throw new RequestRefused('encryptionPublicKeyHex must be 32 bytes (64 hex chars)', RPC_INVALID_PARAMS);
+        }
         // A10b / A-32: a node registers entities of its own kind; the operator and the insurer, who
         // are the principals that credential, register any kind.
         const principalRole = params._verifiedRole as NodeRole | undefined;
@@ -2148,7 +2179,7 @@ export class L2RpcServer {
           specialty: params.specialty as string | undefined,
           pharmacyType: params.pharmacyType as string | undefined,
           group: params.group as string | undefined,
-          encryptionPublicKeyHex: (params.encryptionPublicKeyHex as string | undefined) ?? existing?.encryptionPublicKeyHex,
+          encryptionPublicKeyHex: typeof encryptionKey === 'string' ? encryptionKey.toLowerCase() : existing?.encryptionPublicKeyHex,
           signingPublicKeyHex: signingPublicKeyHex ?? existing?.signingPublicKeyHex,
         });
         // Also credential into provider registry if prescriber/pharmacy — for the operator and the
@@ -2224,6 +2255,16 @@ export class L2RpcServer {
         if (providerType !== 'prescriber' && providerType !== 'pharmacy') {
           throw new Error('providerType must be "prescriber" or "pharmacy"');
         }
+        // A-74: every screen that lists providers draws what this writes, so it keeps what l2_registerEntity keeps: a
+        // wallet ID as the network writes one, short lines of plain text, and an npi, when one is given, that is a
+        // National Provider Identifier before it is hashed into the registry's key, one provider to an NPI (A-89).
+        const credentialFieldProblem = walletIdError(walletId) ?? displayNameError(displayName)
+          ?? (params.npi === undefined || params.npi === null || params.npi === '' ? null : npiError(params.npi))
+          ?? ['specialty', 'pharmacyType', 'deaNumber', 'stateOfLicense']
+            .map((label) => { const value = params[label]; return value === undefined || value === null || value === '' ? null : displayNameError(value, label); })
+            .find((problem) => problem !== null)
+          ?? null;
+        if (credentialFieldProblem) throw new RequestRefused(credentialFieldProblem, RPC_INVALID_PARAMS);
         const npiHash = npi ? hashString(npi).toString() : walletId;
         const initialState = params.initialState !== undefined
           ? parseInt(String(params.initialState), 10) as ProviderLifecycle
@@ -2766,35 +2807,6 @@ export class L2RpcServer {
     this.entityRegistry.clear();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, cleared: count }));
-  }
-
-  /** Register entity metadata (POST /viz/entities) */
-  private async handleVizEntityRegister(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    let body: string;
-    try {
-      body = await this.readBody(req);
-    } catch {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Failed to read body' }));
-      return;
-    }
-
-    try {
-      const entities = JSON.parse(body) as VizEntity[];
-      for (const entity of entities) {
-        if (this.entityRegistry.size >= 1_000 && !this.entityRegistry.has(entity.walletId)) {
-          res.writeHead(429, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Entity registry full (max 1000)' }));
-          return;
-        }
-        this.entityRegistry.set(entity.walletId, entity);
-      }
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, count: entities.length }));
-    } catch {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Invalid JSON' }));
-    }
   }
 
   /** Get entity registry (GET /viz/entities) */

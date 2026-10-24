@@ -20,6 +20,10 @@
  * Two modes:
  *   A) No enrollment yet → enrollment flow (token, plan, identity, key, ceremony)
  *   B) After enrollment → member dashboard (accumulators, PCP, prescriptions, family)
+ *
+ * Every value from the engine's state or an engine reply (a display name, a wallet ID, a group, plan or thread ID, a
+ * relationship, an error) is escaped with escapeHtml (message-thread.js) before it is placed in the page: a member's
+ * name is whatever its device registered, and this page holds the operator token (A-61).
  */
 
 import {
@@ -72,10 +76,10 @@ export class MemberPhase {
         <div class="card-header employer">From Your Employer</div>
         <div class="card-body">
           <div class="data-grid">
-            <div class="label">Group ID</div><div class="value">${token.groupId}</div>
-            <div class="label">Plan ID</div><div class="value">${token.planId}</div>
+            <div class="label">Group ID</div><div class="value">${escapeHtml(token.groupId)}</div>
+            <div class="label">Plan ID</div><div class="value">${escapeHtml(token.planId)}</div>
             <div class="label">Token ID</div><div class="value">TOKEN-001</div>
-            <div class="label">Valid Until</div><div class="value">${token.validUntil}</div>
+            <div class="label">Valid Until</div><div class="value">${escapeHtml(token.validUntil)}</div>
           </div>
           <p style="margin-top: 12px; font-size: 12px; color: var(--text-muted);">
             Your employer has provided this enrollment token. It is one-time use and contains no personal data.
@@ -85,7 +89,7 @@ export class MemberPhase {
 
       <!-- Section 2: Your Benefit Plan -->
       <div class="section-card">
-        <div class="card-header insurer">Your Benefit Plan \u2014 ${plan.planId}</div>
+        <div class="card-header insurer">Your Benefit Plan \u2014 ${escapeHtml(plan.planId)}</div>
         <div class="card-body">
           <div class="data-grid">
             <div class="label">Copay</div><div class="value">${formatCents(plan.copayAmountCents)}</div>
@@ -106,7 +110,7 @@ export class MemberPhase {
             <select id="member-select">
               <option value="">\u2014 Choose a member \u2014</option>
               ${members.map((m, i) => `
-                <option value="${i}">${m.firstName} ${m.lastName} (${m.cardholderId}) \u2014 ${m.relationship}</option>
+                <option value="${i}">${escapeHtml(m.firstName)} ${escapeHtml(m.lastName)} (${escapeHtml(m.cardholderId)}) \u2014 ${escapeHtml(m.relationship)}</option>
               `).join('')}
             </select>
           </div>
@@ -177,15 +181,15 @@ export class MemberPhase {
       const m = members[idx];
 
       detailsGrid.innerHTML = `
-        <div class="label">First Name</div><div class="value">${m.firstName}</div>
-        <div class="label">Last Name</div><div class="value">${m.lastName}</div>
-        <div class="label">Cardholder ID</div><div class="value highlight">${m.cardholderId}</div>
-        <div class="label">Date of Birth</div><div class="value">${formatDate(m.dateOfBirth)}</div>
+        <div class="label">First Name</div><div class="value">${escapeHtml(m.firstName)}</div>
+        <div class="label">Last Name</div><div class="value">${escapeHtml(m.lastName)}</div>
+        <div class="label">Cardholder ID</div><div class="value highlight">${escapeHtml(m.cardholderId)}</div>
+        <div class="label">Date of Birth</div><div class="value">${escapeHtml(formatDate(m.dateOfBirth))}</div>
         <div class="label">Gender</div><div class="value">${m.genderCode === 1 ? 'Male' : m.genderCode === 2 ? 'Female' : 'Not Specified'}</div>
-        <div class="label">Relationship</div><div class="value"><span class="family-badge ${m.relationship.toLowerCase()}">${m.relationship}</span></div>
-        <div class="label">Employee ID</div><div class="value">${m.employeeId}</div>
-        <div class="label">Family ID</div><div class="value">${m.familyId}</div>
-        <div class="label">Address</div><div class="value">${m.address}, ${m.city}, ${m.state} ${m.zip}</div>
+        <div class="label">Relationship</div><div class="value"><span class="family-badge ${escapeHtml(m.relationship.toLowerCase())}">${escapeHtml(m.relationship)}</span></div>
+        <div class="label">Employee ID</div><div class="value">${escapeHtml(m.employeeId)}</div>
+        <div class="label">Family ID</div><div class="value">${escapeHtml(m.familyId)}</div>
+        <div class="label">Address</div><div class="value">${escapeHtml(m.address)}, ${escapeHtml(m.city)}, ${escapeHtml(m.state)} ${escapeHtml(m.zip)}</div>
       `;
 
       details.classList.remove('hidden');
@@ -249,7 +253,7 @@ export class MemberPhase {
     } catch (err) {
       const resultDiv = document.getElementById('enroll-result');
       resultDiv.classList.remove('hidden');
-      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 12px;">Error: ${err.message}</div>`;
+      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 12px;">Error: ${escapeHtml(err.message)}</div>`;
       this.app.setStatus('ready', 'Error');
       btn.classList.remove('loading');
       btn.querySelector('.btn-text').textContent = 'Begin Enrollment';
@@ -285,7 +289,7 @@ export class MemberPhase {
         setTimeout(poll, 15_000);
       } catch (err) {
         resultDiv.classList.remove('hidden');
-        resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 12px;">Error: ${err.message}</div>`;
+        resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 12px;">Error: ${escapeHtml(err.message)}</div>`;
         this.app.setStatus('ready', 'Error');
         btn.classList.remove('loading');
         btn.querySelector('.btn-text').textContent = 'Begin Enrollment';
@@ -308,10 +312,10 @@ export class MemberPhase {
       <div class="result-card">
         <div class="result-title">Enrollment Complete</div>
         <div class="data-grid">
-          <div class="label">Wallet ID</div><div class="value highlight mono">${result.walletIdDisplay || result.walletId}</div>
-          <div class="label">Plan</div><div class="value">${result.planId}</div>
-          <div class="label">Group</div><div class="value">${result.groupId}</div>
-          <div class="label">Lifecycle</div><div class="value" style="color: var(--accent-green);">${result.lifecycle}</div>
+          <div class="label">Wallet ID</div><div class="value highlight mono">${escapeHtml(result.walletIdDisplay || result.walletId)}</div>
+          <div class="label">Plan</div><div class="value">${escapeHtml(result.planId)}</div>
+          <div class="label">Group</div><div class="value">${escapeHtml(result.groupId)}</div>
+          <div class="label">Lifecycle</div><div class="value" style="color: var(--accent-green);">${escapeHtml(result.lifecycle)}</div>
           <div class="label">Credential Forest Root</div><div class="value mono">${result.nftForestRoot}</div>
           <div class="label">Proof Time</div><div class="value">${(result.proofTimeMs / 1000).toFixed(2)}s</div>
           <div class="label">Enrollment Time</div><div class="value">${(result.enrollTimeMs / 1000).toFixed(2)}s</div>
@@ -361,7 +365,7 @@ export class MemberPhase {
       <!-- Member Summary -->
       <div class="section-card"${member.lifecycle === 'REVOKED' ? ' style="border-color: rgba(239, 83, 80, 0.3);"' : ''}>
         <div class="card-header member">
-          Member Dashboard \u2014 ${member.displayName}
+          Member Dashboard \u2014 ${escapeHtml(member.displayName)}
           ${member.lifecycle === 'REVOKED' ? '<span class="rx-status-badge rx-status-cancelled" style="margin-left: 8px; font-size: 11px;">TERMINATED</span>' : ''}
         </div>
         <div class="card-body">
@@ -369,18 +373,18 @@ export class MemberPhase {
           <div style="padding: 10px 14px; margin-bottom: 12px; background: rgba(239, 83, 80, 0.08); border: 1px solid rgba(239, 83, 80, 0.25); border-radius: 6px;">
             <div style="font-size: 13px; color: var(--accent-red); font-weight: 600;">Coverage Terminated</div>
             <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
-              This member's enrollment was terminated${member.terminationDate ? ` on ${member.terminationDate}` : ''}. Credential revoked, lifecycle set to REVOKED.
+              This member's enrollment was terminated${member.terminationDate ? ` on ${escapeHtml(member.terminationDate)}` : ''}. Credential revoked, lifecycle set to REVOKED.
               Active prescriptions have been auto-cancelled.
             </div>
           </div>
           ` : ''}
           <div class="data-grid">
-            <div class="label">Wallet ID</div><div class="value mono" style="font-size: 11px;">${member.walletIdDisplay || member.walletId}</div>
-            <div class="label">Plan</div><div class="value">${member.planId}</div>
-            <div class="label">Group</div><div class="value">${member.groupId}</div>
-            <div class="label">Family ID</div><div class="value">${member.familyId || '\u2014'}</div>
-            <div class="label">Relationship</div><div class="value"><span class="family-badge ${(member.relationship || 'SELF').toLowerCase()}">${member.relationship || 'SELF'}</span></div>
-            <div class="label">Status</div><div class="value"><span class="rx-status-badge ${member.lifecycle === 'REVOKED' ? 'rx-status-cancelled' : 'rx-status-active'}">${member.lifecycle === 'REVOKED' ? 'REVOKED' : (member.lifecycle || 'ELIGIBLE')}</span></div>
+            <div class="label">Wallet ID</div><div class="value mono" style="font-size: 11px;">${escapeHtml(member.walletIdDisplay || member.walletId)}</div>
+            <div class="label">Plan</div><div class="value">${escapeHtml(member.planId)}</div>
+            <div class="label">Group</div><div class="value">${escapeHtml(member.groupId)}</div>
+            <div class="label">Family ID</div><div class="value">${escapeHtml(member.familyId || '\u2014')}</div>
+            <div class="label">Relationship</div><div class="value"><span class="family-badge ${escapeHtml((member.relationship || 'SELF').toLowerCase())}">${escapeHtml(member.relationship || 'SELF')}</span></div>
+            <div class="label">Status</div><div class="value"><span class="rx-status-badge ${member.lifecycle === 'REVOKED' ? 'rx-status-cancelled' : 'rx-status-active'}">${member.lifecycle === 'REVOKED' ? 'REVOKED' : escapeHtml(member.lifecycle || 'ELIGIBLE')}</span></div>
           </div>
 
           <!-- Accumulators -->
@@ -407,7 +411,7 @@ export class MemberPhase {
               ? `<div class="data-grid">
                   <div class="label">Primary Care</div>
                   <div class="value" style="color: var(--accent-green);">
-                    ${member.pcpAssignment.prescriberName}, ${member.pcpAssignment.specialty}
+                    ${escapeHtml(member.pcpAssignment.prescriberName)}, ${escapeHtml(member.pcpAssignment.specialty)}
                   </div>
                 </div>`
               : `<div style="font-size: 12px; color: var(--text-muted);">No PCP assigned yet. Select one below.</div>`
@@ -433,11 +437,11 @@ export class MemberPhase {
                 const payment = rx.patientPayCents != null ? formatCents(rx.patientPayCents) : '\u2014';
                 return `
                 <tr>
-                  <td class="mono" style="font-size: 11px;">${rx.id}</td>
-                  <td>${rx.medication}${rx.medicationStrength ? ' ' + rx.medicationStrength : ''}</td>
+                  <td class="mono" style="font-size: 11px;">${escapeHtml(rx.id)}</td>
+                  <td>${escapeHtml(rx.medication)}${rx.medicationStrength ? ' ' + escapeHtml(rx.medicationStrength) : ''}</td>
                   <td>${rx.quantity}</td>
                   <td>${rx.quantityDispensed || 0}</td>
-                  <td><span class="rx-status-badge ${statusClass}">${statusLabel}</span></td>
+                  <td><span class="rx-status-badge ${escapeHtml(statusClass)}">${escapeHtml(statusLabel)}</span></td>
                   <td>${payment}</td>
                 </tr>`;
               }).join('')}
@@ -487,7 +491,7 @@ export class MemberPhase {
               <option value="">\u2014 Choose a member \u2014</option>
               ${state.demoData.members.map((m, i) => {
                 const alreadyEnrolled = enrolled.some(e => e.memberIndex === i);
-                return `<option value="${i}" ${alreadyEnrolled ? 'disabled' : ''}>${m.firstName} ${m.lastName} (${m.cardholderId}) ${alreadyEnrolled ? '(enrolled)' : ''}</option>`;
+                return `<option value="${i}" ${alreadyEnrolled ? 'disabled' : ''}>${escapeHtml(m.firstName)} ${escapeHtml(m.lastName)} (${escapeHtml(m.cardholderId)}) ${alreadyEnrolled ? '(enrolled)' : ''}</option>`;
               }).join('')}
             </select>
           </div>
@@ -536,15 +540,15 @@ export class MemberPhase {
         : '\u2014';
 
       return `
-        <tr class="claims-row" data-dos="${f.serviceDateStr || ''}"${f.reversed ? ' style="opacity: 0.5;"' : ''}>
-          <td>${drug}</td>
-          <td>${pharmacy}</td>
-          <td>${fillDate}</td>
+        <tr class="claims-row" data-dos="${escapeHtml(f.serviceDateStr || '')}"${f.reversed ? ' style="opacity: 0.5;"' : ''}>
+          <td>${escapeHtml(drug)}</td>
+          <td>${escapeHtml(pharmacy)}</td>
+          <td>${escapeHtml(fillDate)}</td>
           <td>${f.quantityDispensed}${reversedBadge}</td>
           <td style="color: var(--accent-orange); font-weight: 600;">${formatCents(f.patientPayCents)}</td>
           <td style="color: var(--accent-green);">${formatCents(f.planPayCents)}</td>
           <td>${formatCents(f.totalCostCents)}</td>
-          <td class="mono" style="font-size: 10px;" title="${f.settlementCommitment || ''}">${settlement}</td>
+          <td class="mono" style="font-size: 10px;" title="${escapeHtml(f.settlementCommitment || '')}">${escapeHtml(settlement)}</td>
         </tr>`;
     }).join('');
 
@@ -606,7 +610,7 @@ export class MemberPhase {
         <div class="card-header pcp">Assign Primary Care Physician</div>
         <div class="card-body">
           <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">
-            ${hasNetwork ? `Showing ${prescribers.length} in-network prescribers for ${member.planId}.` : 'All prescribers shown.'} Recommended PCP specialties are highlighted.
+            ${hasNetwork ? `Showing ${prescribers.length} in-network prescribers for ${escapeHtml(member.planId)}.` : 'All prescribers shown.'} Recommended PCP specialties are highlighted.
           </p>
           <div class="entity-grid" id="pcp-prescriber-grid">
             ${prescribers.map(p => {
@@ -615,9 +619,9 @@ export class MemberPhase {
                 <div class="entity-card ${isPcpEligible ? 'pcp-eligible' : ''}" data-index="${p.index}">
                   ${isPcpEligible ? '<span class="pcp-badge">Recommended PCP</span>' : ''}
                   ${hasNetwork ? '<span class="network-badge">In-Network</span>' : ''}
-                  <div class="entity-name" style="color: var(--color-prescriber);">Dr. ${p.firstName} ${p.lastName}, ${p.credential}</div>
-                  <div class="entity-detail">${p.specialty}</div>
-                  <div class="entity-detail">NPI: ${p.npi} | ${p.state}</div>
+                  <div class="entity-name" style="color: var(--color-prescriber);">Dr. ${escapeHtml(p.firstName)} ${escapeHtml(p.lastName)}, ${escapeHtml(p.credential)}</div>
+                  <div class="entity-detail">${escapeHtml(p.specialty)}</div>
+                  <div class="entity-detail">NPI: ${escapeHtml(p.npi)} | ${escapeHtml(p.state)}</div>
                 </div>
               `;
             }).join('')}
@@ -661,7 +665,7 @@ export class MemberPhase {
 
     return `
       <div class="section-card">
-        <div class="card-header member">Your Family \u2014 ${familyId}</div>
+        <div class="card-header member">Your Family \u2014 ${escapeHtml(familyId)}</div>
         <div class="card-body">
           <div class="family-member-cards">
             ${familyMembers.map(fm => {
@@ -669,9 +673,9 @@ export class MemberPhase {
               const isRevoked = enrolledMember && enrolledMember.lifecycle === 'REVOKED';
               return `
                 <div class="family-member-card"${isRevoked ? ' style="opacity: 0.5;"' : ''}>
-                  <div class="family-member-name">${fm.firstName} ${fm.lastName}</div>
+                  <div class="family-member-name">${escapeHtml(fm.firstName)} ${escapeHtml(fm.lastName)}</div>
                   <div class="family-member-detail">
-                    <span class="family-badge ${fm.relationship.toLowerCase()}">${fm.relationship}</span>
+                    <span class="family-badge ${escapeHtml(fm.relationship.toLowerCase())}">${escapeHtml(fm.relationship)}</span>
                     ${isRevoked
                       ? `<span style="color: var(--accent-red); font-size: 10px; margin-left: 8px;">TERMINATED</span>`
                       : enrolledMember
@@ -760,7 +764,7 @@ export class MemberPhase {
     // 1. Assigned PCP (if any)
     if (member.pcpAssignment) {
       const p = state.demoData.prescribers[member.pcpAssignment.prescriberIndex];
-      recipientOptions.push(`<option value="prescriber:${member.pcpAssignment.prescriberIndex}">Dr. ${p.firstName} ${p.lastName} (My PCP)</option>`);
+      recipientOptions.push(`<option value="prescriber:${member.pcpAssignment.prescriberIndex}">Dr. ${escapeHtml(p.firstName)} ${escapeHtml(p.lastName)} (My PCP)</option>`);
     }
 
     // 2. Family members (same familyId, enrolled, not self, not revoked)
@@ -768,7 +772,7 @@ export class MemberPhase {
       (enrolled || [])
         .filter(e => e.familyId === member.familyId && e.walletId !== member.walletId && e.lifecycle !== 'REVOKED')
         .forEach(fm => {
-          recipientOptions.push(`<option value="member:${fm.walletId}">${fm.displayName} (Family)</option>`);
+          recipientOptions.push(`<option value="member:${escapeHtml(fm.walletId)}">${escapeHtml(fm.displayName)} (Family)</option>`);
         });
     }
 
@@ -808,17 +812,17 @@ export class MemberPhase {
               const typeLabel = MSG_LABELS[lastMsg.messageType] || 'Msg';
               const timeStr = lastMsg.timestamp ? new Date(lastMsg.timestamp).toLocaleTimeString() : '';
               return `
-              <div class="msg-thread-item" data-thread-id="${t.threadId}" data-wallet-id="${member.walletId}" data-indices="${t.messages.map(m => m.messageIndex).join(',')}">
+              <div class="msg-thread-item" data-thread-id="${escapeHtml(t.threadId)}" data-wallet-id="${escapeHtml(member.walletId)}" data-indices="${escapeHtml(t.messages.map(m => m.messageIndex).join(','))}">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                   <div>
-                    <span class="msg-type-badge msg-type-${lastMsg.messageType}">${typeLabel}</span>
-                    <strong style="font-size: 12px; margin-left: 4px;">${otherName}</strong>
+                    <span class="msg-type-badge msg-type-${escapeHtml(lastMsg.messageType)}">${typeLabel}</span>
+                    <strong style="font-size: 12px; margin-left: 4px;">${escapeHtml(otherName)}</strong>
                     <span style="font-size: 11px; color: var(--text-muted); margin-left: 4px;">(${t.messages.length} message${t.messages.length > 1 ? 's' : ''})</span>
                   </div>
                   <span style="font-size: 11px; color: var(--text-muted);">${timeStr}</span>
                 </div>
                 <div style="font-size: 12px; color: var(--text-muted);">${lastMsg.hasEncryptedPayload ? 'Click to decrypt and view' : 'No content'}</div>
-                <div class="msg-thread-expanded hidden" data-thread-body="${t.threadId}"></div>
+                <div class="msg-thread-expanded hidden" data-thread-body="${escapeHtml(t.threadId)}"></div>
               </div>`;
             }).join('')}
           </div>
@@ -849,7 +853,7 @@ export class MemberPhase {
             <label>Delegate To</label>
             <select id="delegate-select">
               <option value="">\u2014 Select member \u2014</option>
-              ${otherMembers.map(m => `<option value="${m.walletId}">${m.displayName} (${m.relationship})</option>`).join('')}
+              ${otherMembers.map(m => `<option value="${escapeHtml(m.walletId)}">${escapeHtml(m.displayName)} (${escapeHtml(m.relationship)})</option>`).join('')}
             </select>
             <div style="display: flex; gap: 12px; margin: 8px 0;">
               <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;"><input type="checkbox" id="scope-read" checked> Read</label>
@@ -883,9 +887,9 @@ export class MemberPhase {
                 if (d.scopeFlags & 4) scopeLabels.push('PICKUP');
                 return `<tr>
                   <td>${isGranted ? 'Granted \u2192' : '\u2190 Received'}</td>
-                  <td>${otherName}</td>
+                  <td>${escapeHtml(otherName)}</td>
                   <td>${scopeLabels.join(', ')}</td>
-                  <td>${REL_LABELS[d.relationshipCode] || d.relationshipCode}</td>
+                  <td>${escapeHtml(REL_LABELS[d.relationshipCode] || d.relationshipCode)}</td>
                 </tr>`;
               }).join('')}
             </tbody>
@@ -939,9 +943,9 @@ export class MemberPhase {
       const removedClass = !active ? ' formulary-removed' : '';
       return `
         <tr data-med-index="${i}" class="${removedClass}" style="cursor: pointer;">
-          <td>${m.brandName}${!active ? ' <span class="removed-badge">Removed</span>' : ''}</td>
-          <td>${m.genericName}</td>
-          <td>${m.ndc}</td>
+          <td>${escapeHtml(m.brandName)}${!active ? ' <span class="removed-badge">Removed</span>' : ''}</td>
+          <td>${escapeHtml(m.genericName)}</td>
+          <td>${escapeHtml(m.ndc)}</td>
           <td><span class="tier-badge tier-${tier}">Tier ${tier}</span></td>
           <td>${formatCents(copay)}</td>
           <td>${paBadge}</td>
@@ -991,12 +995,12 @@ export class MemberPhase {
     document.getElementById('member-formulary-detail-body').innerHTML = `
       ${!active ? '<div style="padding: 8px 12px; background: rgba(244, 67, 54, 0.08); border: 1px solid rgba(244, 67, 54, 0.3); border-radius: 6px; margin-bottom: 12px; font-size: 12px; color: var(--accent-red);">This medication has been removed from the formulary.</div>' : ''}
       <div class="data-grid">
-        <div class="label">Brand Name</div><div class="value">${med.brandName}</div>
-        <div class="label">Generic Name</div><div class="value">${med.genericName}</div>
-        <div class="label">Strength</div><div class="value">${med.strength}</div>
-        <div class="label">Dosage Form</div><div class="value">${med.dosageForm}</div>
-        <div class="label">Route</div><div class="value">${med.route}</div>
-        <div class="label">NDC</div><div class="value mono">${med.ndc}</div>
+        <div class="label">Brand Name</div><div class="value">${escapeHtml(med.brandName)}</div>
+        <div class="label">Generic Name</div><div class="value">${escapeHtml(med.genericName)}</div>
+        <div class="label">Strength</div><div class="value">${escapeHtml(med.strength)}</div>
+        <div class="label">Dosage Form</div><div class="value">${escapeHtml(med.dosageForm)}</div>
+        <div class="label">Route</div><div class="value">${escapeHtml(med.route)}</div>
+        <div class="label">NDC</div><div class="value mono">${escapeHtml(med.ndc)}</div>
         <div class="label">Tier</div><div class="value"><span class="tier-badge tier-${tier}">Tier ${tier}</span></div>
         <div class="label">Copay</div><div class="value">${formatCents(copay)}</div>
         <div class="label">Prior Auth</div><div class="value">${pa ? '<span class="pa-badge pa-required">PA Required</span>' : '<span style="color: var(--accent-green);">Not Required</span>'}</div>
@@ -1004,8 +1008,8 @@ export class MemberPhase {
         <div class="label">Max Qty/Fill</div><div class="value">${med.maxQuantityPerFill}</div>
         <div class="label">Max Day Supply</div><div class="value">${med.maxDaySupply}</div>
         <div class="label">NADAC Unit Price</div><div class="value">${nadacPerUnitLabel(med)}</div>
-        <div class="label">Manufacturer</div><div class="value">${med.manufacturer}</div>
-        <div class="label">Therapeutic Class</div><div class="value">${med.therapeuticClass}</div>
+        <div class="label">Manufacturer</div><div class="value">${escapeHtml(med.manufacturer)}</div>
+        <div class="label">Therapeutic Class</div><div class="value">${escapeHtml(med.therapeuticClass)}</div>
         <div class="label">DEA Schedule</div><div class="value">${deaDisplay}</div>
       </div>
     `;
@@ -1077,11 +1081,11 @@ export class MemberPhase {
         const statusColor = r.status === 'settled' ? 'var(--accent-green)' : 'var(--accent-yellow)';
         return `
           <tr>
-            <td class="mono" style="font-size: 11px;" title="${id}">${truncId}</td>
-            <td>${type}</td>
-            <td>${seq}</td>
+            <td class="mono" style="font-size: 11px;" title="${escapeHtml(id)}">${escapeHtml(truncId)}</td>
+            <td>${escapeHtml(type)}</td>
+            <td>${escapeHtml(seq)}</td>
             <td>${timeStr}</td>
-            <td><span style="color: ${statusColor}; font-weight: 600; font-size: 11px;">${r.status || 'pending'}</span></td>
+            <td><span style="color: ${statusColor}; font-weight: 600; font-size: 11px;">${escapeHtml(r.status || 'pending')}</span></td>
           </tr>`;
       }).join('');
 
@@ -1092,7 +1096,7 @@ export class MemberPhase {
         </table>
       `;
     } catch (err) {
-      container.innerHTML = `<div style="color: var(--accent-red); font-size: 12px; padding: 12px;">${err.message}</div>`;
+      container.innerHTML = `<div style="color: var(--accent-red); font-size: 12px; padding: 12px;">${escapeHtml(err.message)}</div>`;
     }
   }
 
@@ -1140,7 +1144,7 @@ export class MemberPhase {
         <div class="label">Sequencer URL</div><div class="value mono">http://127.0.0.1:3030</div>
         <div class="label">Health</div><div class="value"><span style="color: var(--accent-red);">Disconnected</span></div>
       </div>
-      <div style="color: var(--accent-red); font-size: 12px; margin-top: 8px;">${err.message}</div>`;
+      <div style="color: var(--accent-red); font-size: 12px; margin-top: 8px;">${escapeHtml(err.message)}</div>`;
     }
   }
 
@@ -1166,8 +1170,8 @@ export class MemberPhase {
           <div class="data-grid" style="margin-bottom: 12px;">
             <div class="label">Credential Type</div><div class="value">${credTypeLabel} (${cred.nftType})</div>
             <div class="label">Forest Root</div><div class="value mono" style="font-size: 11px;">${truncate(cred.forestRoot)}</div>
-            <div class="label">Issuer</div><div class="value mono" style="font-size: 11px;">${truncate(cred.issuerWalletId)}</div>
-            <div class="label">Subject</div><div class="value mono" style="font-size: 11px;">${truncate(cred.subjectWalletId)} (you)</div>
+            <div class="label">Issuer</div><div class="value mono" style="font-size: 11px;">${escapeHtml(truncate(cred.issuerWalletId))}</div>
+            <div class="label">Subject</div><div class="value mono" style="font-size: 11px;">${escapeHtml(truncate(cred.subjectWalletId))} (you)</div>
             <div class="label">Status</div><div class="value">${cred.revoked === '0' ? '<span style="color: var(--accent-green);">Active</span>' : '<span style="color: var(--accent-red);">Revoked</span>'}</div>
             <div class="label">Commitment</div><div class="value mono" style="font-size: 11px;">${truncate(cred.commitment)}</div>
           </div>
@@ -1235,7 +1239,7 @@ export class MemberPhase {
     } catch (err) {
       const resultDiv = document.getElementById('credential-result');
       resultDiv.classList.remove('hidden');
-      resultDiv.innerHTML = `<div class="verify-result invalid"><div class="verify-badge invalid">Error: ${err.message}</div></div>`;
+      resultDiv.innerHTML = `<div class="verify-result invalid"><div class="verify-badge invalid">Error: ${escapeHtml(err.message)}</div></div>`;
       this.app.setStatus('ready', 'Credential generation failed');
       btn.classList.remove('loading');
       btn.querySelector('.btn-text').textContent = 'Generate Portable Credential';
@@ -1276,7 +1280,7 @@ export class MemberPhase {
         setTimeout(poll, 15_000);
       } catch (err) {
         resultDiv.classList.remove('hidden');
-        resultDiv.innerHTML = `<div class="verify-result invalid"><div class="verify-badge invalid">Error: ${err.message}</div></div>`;
+        resultDiv.innerHTML = `<div class="verify-result invalid"><div class="verify-badge invalid">Error: ${escapeHtml(err.message)}</div></div>`;
         this.app.setStatus('ready', 'Credential generation failed');
         btn.classList.remove('loading');
         btn.querySelector('.btn-text').textContent = 'Generate Portable Credential';
@@ -1305,8 +1309,8 @@ export class MemberPhase {
           Portable Credential Generated
         </div>
         <div class="credential-field">
-          <div class="cf-label">Proof Type</div><div class="cf-value">${cred.proofType}</div>
-          <div class="cf-label">Wallet ID</div><div class="cf-value">${truncate(cred.publicOutput.walletId)}</div>
+          <div class="cf-label">Proof Type</div><div class="cf-value">${escapeHtml(cred.proofType)}</div>
+          <div class="cf-label">Wallet ID</div><div class="cf-value">${escapeHtml(truncate(cred.publicOutput.walletId))}</div>
           <div class="cf-label">Credential Commitment</div><div class="cf-value">${truncate(cred.publicOutput.nftCommitment)}</div>
           <div class="cf-label">Inventory Root</div><div class="cf-value">${truncate(cred.publicOutput.oldInventoryRoot)}</div>
           <div class="cf-label">VK Hash</div><div class="cf-value">${truncate(cred.verificationKeyHash)}</div>
@@ -1333,7 +1337,7 @@ export class MemberPhase {
           </div>
           <textarea id="credential-json-output" readonly
             style="width: 100%; height: 120px; padding: 8px; font-size: 11px; font-family: monospace; background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 4px; color: var(--text-primary); resize: vertical; cursor: text;"
-            onclick="this.select()">${credJson}</textarea>
+            onclick="this.select()">${escapeHtml(credJson)}</textarea>
           <div style="margin-top: 6px; font-size: 11px; color: var(--text-muted);">
             ${credJson.length.toLocaleString()} characters &bull; Click textarea to select all &bull; Contains ZK proof (no PHI revealed)
           </div>
@@ -1499,7 +1503,7 @@ export class MemberPhase {
             <div style="padding: 12px; background: rgba(102, 187, 106, 0.08); border: 1px solid rgba(102, 187, 106, 0.3); border-radius: 6px;">
               <div style="font-weight: 600; color: var(--accent-green); margin-bottom: 8px;">Claim Verified</div>
               <div class="data-grid">
-                <div class="label">Leaf Index</div><div class="value mono">${data.leafIndex}</div>
+                <div class="label">Leaf Index</div><div class="value mono">${escapeHtml(data.leafIndex)}</div>
                 <div class="label">Leaf Hash</div><div class="value mono" style="font-size: 11px; word-break: break-all;">${data.leafHash || 'N/A'}</div>
                 <div class="label">Root</div><div class="value mono" style="font-size: 11px; word-break: break-all;">${data.root || 'N/A'}</div>
                 <div class="label">Proof Valid</div><div class="value">${data.valid !== false ? '<span style="color: var(--accent-green);">Yes</span>' : '<span style="color: var(--accent-red);">No</span>'}</div>
@@ -1507,7 +1511,7 @@ export class MemberPhase {
             </div>
           `;
         } catch (err) {
-          resultDiv.innerHTML = `<div style="padding: 12px; background: rgba(239, 83, 80, 0.08); border: 1px solid rgba(239, 83, 80, 0.3); border-radius: 6px; color: var(--accent-red);">${err.message}</div>`;
+          resultDiv.innerHTML = `<div style="padding: 12px; background: rgba(239, 83, 80, 0.08); border: 1px solid rgba(239, 83, 80, 0.3); border-radius: 6px; color: var(--accent-red);">${escapeHtml(err.message)}</div>`;
         }
       };
       btnVerify.addEventListener('click', doVerify);
@@ -1566,10 +1570,10 @@ export class MemberPhase {
         <div class="result-card">
           <div class="result-title">PCP Assigned Successfully</div>
           <div class="data-grid">
-            <div class="label">PCP</div><div class="value highlight">${result.prescriber.name}, ${result.prescriber.credential}</div>
-            <div class="label">Specialty</div><div class="value">${result.prescriber.specialty}</div>
-            <div class="label">NPI</div><div class="value mono">${result.prescriber.npi}</div>
-            <div class="label">PCP Wallet ID</div><div class="value mono">${result.prescriber.walletId}</div>
+            <div class="label">PCP</div><div class="value highlight">${escapeHtml(result.prescriber.name)}, ${escapeHtml(result.prescriber.credential)}</div>
+            <div class="label">Specialty</div><div class="value">${escapeHtml(result.prescriber.specialty)}</div>
+            <div class="label">NPI</div><div class="value mono">${escapeHtml(result.prescriber.npi)}</div>
+            <div class="label">PCP Wallet ID</div><div class="value mono">${escapeHtml(result.prescriber.walletId)}</div>
             <div class="label">Consent Scope</div><div class="value">Rx History + Eligibility + Accumulators (7)</div>
           </div>
           <div style="margin: 12px 0; padding: 8px 12px; background: rgba(79, 195, 247, 0.08); border-radius: 6px; border: 1px solid rgba(79, 195, 247, 0.2);">
@@ -1610,7 +1614,7 @@ export class MemberPhase {
     } catch (err) {
       const resultDiv = document.getElementById('pcp-result');
       resultDiv.classList.remove('hidden');
-      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 12px;">Error: ${err.message}</div>`;
+      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 12px;">Error: ${escapeHtml(err.message)}</div>`;
       this.app.setStatus('ready', 'Error');
     } finally {
       btn.classList.remove('loading');
@@ -1643,7 +1647,7 @@ export class MemberPhase {
           </div>
           ${result.members.map(m => `
             <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">
-              ${m.displayName || 'Member'} \u2014 ${m.status === 'already_enrolled' ? 'Already enrolled' : `Wallet: ${m.walletIdDisplay || m.walletId}`}
+              ${escapeHtml(m.displayName || 'Member')} \u2014 ${m.status === 'already_enrolled' ? 'Already enrolled' : `Wallet: ${escapeHtml(m.walletIdDisplay || m.walletId)}`}
             </div>
           `).join('')}
         </div>
@@ -1660,7 +1664,7 @@ export class MemberPhase {
 
     } catch (err) {
       const resultDiv = document.getElementById('family-enroll-result');
-      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px; margin-top: 8px;">${err.message}</div>`;
+      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px; margin-top: 8px;">${escapeHtml(err.message)}</div>`;
       this.app.setStatus('ready', 'Error');
     } finally {
       btn.classList.remove('loading');
@@ -1743,7 +1747,7 @@ export class MemberPhase {
         document.getElementById('msg-body')?.focus();
       });
     } catch (err) {
-      bodyDiv.innerHTML = `<div style="padding: 8px; color: var(--accent-red); font-size: 12px;">Decrypt failed: ${err.message}</div>`;
+      bodyDiv.innerHTML = `<div style="padding: 8px; color: var(--accent-red); font-size: 12px;">Decrypt failed: ${escapeHtml(err.message)}</div>`;
     }
   }
 
@@ -1790,12 +1794,12 @@ export class MemberPhase {
         <div class="result-card" style="margin-bottom: 12px;">
           <div class="result-title">Message Sent (Encrypted)</div>
           <div class="data-grid">
-            <div class="label">To</div><div class="value">${result.to}</div>
-            <div class="label">Subject</div><div class="value">${result.subject}</div>
+            <div class="label">To</div><div class="value">${escapeHtml(result.to)}</div>
+            <div class="label">Subject</div><div class="value">${escapeHtml(result.subject)}</div>
             <div class="label">Encrypted</div><div class="value">${result.ciphertextLength} bytes (AES-256-GCM)</div>
             <div class="label">Content Hash</div><div class="value mono" style="font-size: 11px;">${result.contentHash}</div>
             <div class="label">Proof Time</div><div class="value">${(result.proofTimeMs / 1000).toFixed(2)}s</div>
-            <div class="label">Thread</div><div class="value mono" style="font-size: 11px;">${result.threadId || 'new'}</div>
+            <div class="label">Thread</div><div class="value mono" style="font-size: 11px;">${escapeHtml(result.threadId || 'new')}</div>
             <div class="label">Audit Hash</div><div class="value mono" style="font-size: 11px;">${result.auditChainHash ? result.auditChainHash.slice(0, 20) + '\u2026' : '\u2014'}</div>
           </div>
         </div>
@@ -1813,7 +1817,7 @@ export class MemberPhase {
     } catch (err) {
       const resultDiv = document.getElementById('send-message-result');
       resultDiv.classList.remove('hidden');
-      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px;">Error: ${err.message}</div>`;
+      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px;">Error: ${escapeHtml(err.message)}</div>`;
       this.app.setStatus('ready', 'Error');
     } finally {
       btn.classList.remove('loading');
@@ -1854,9 +1858,9 @@ export class MemberPhase {
         <div class="result-card" style="margin-bottom: 12px;">
           <div class="result-title">Delegation Created</div>
           <div class="data-grid">
-            <div class="label">Delegate</div><div class="value">${result.delegate}</div>
-            <div class="label">Scope</div><div class="value">${result.scopeLabels.join(', ')}</div>
-            <div class="label">Relationship</div><div class="value">${result.relationshipLabel}</div>
+            <div class="label">Delegate</div><div class="value">${escapeHtml(result.delegate)}</div>
+            <div class="label">Scope</div><div class="value">${escapeHtml(result.scopeLabels.join(', '))}</div>
+            <div class="label">Relationship</div><div class="value">${escapeHtml(result.relationshipLabel)}</div>
             <div class="label">Proof Time</div><div class="value">${(result.proofTimeMs / 1000).toFixed(2)}s</div>
           </div>
         </div>
@@ -1867,7 +1871,7 @@ export class MemberPhase {
     } catch (err) {
       const resultDiv = document.getElementById('delegation-result');
       resultDiv.classList.remove('hidden');
-      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px;">Error: ${err.message}</div>`;
+      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px;">Error: ${escapeHtml(err.message)}</div>`;
       this.app.setStatus('ready', 'Error');
     } finally {
       btn.classList.remove('loading');
@@ -1910,7 +1914,7 @@ export class MemberPhase {
     } catch (err) {
       const resultDiv = document.getElementById('enroll-another-result');
       resultDiv.classList.remove('hidden');
-      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 12px;">Error: ${err.message}</div>`;
+      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 12px;">Error: ${escapeHtml(err.message)}</div>`;
       this.app.setStatus('ready', 'Error');
       btn.classList.remove('loading');
       btn.querySelector('.btn-text').textContent = 'Enroll Member';
@@ -1945,7 +1949,7 @@ export class MemberPhase {
         setTimeout(poll, 15_000);
       } catch (err) {
         resultDiv.classList.remove('hidden');
-        resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 12px;">Error: ${err.message}</div>`;
+        resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 12px;">Error: ${escapeHtml(err.message)}</div>`;
         this.app.setStatus('ready', 'Error');
         btn.classList.remove('loading');
         btn.querySelector('.btn-text').textContent = 'Enroll Member';
@@ -1961,10 +1965,10 @@ export class MemberPhase {
     resultDiv.classList.remove('hidden');
     resultDiv.innerHTML = `
       <div class="result-card" style="margin-top: 12px;">
-        <div class="result-title">Enrollment Complete \u2014 ${result.displayName}</div>
+        <div class="result-title">Enrollment Complete \u2014 ${escapeHtml(result.displayName)}</div>
         <div class="data-grid">
-          <div class="label">Wallet ID</div><div class="value mono" style="font-size: 11px;">${result.walletIdDisplay || result.walletId}</div>
-          <div class="label">Plan</div><div class="value">${result.planId}</div>
+          <div class="label">Wallet ID</div><div class="value mono" style="font-size: 11px;">${escapeHtml(result.walletIdDisplay || result.walletId)}</div>
+          <div class="label">Plan</div><div class="value">${escapeHtml(result.planId)}</div>
         </div>
       </div>
     `;
@@ -1988,8 +1992,8 @@ export class MemberPhase {
   renderL2Receipts(receipts) {
     if (!receipts || receipts.length === 0) return '';
     const rows = receipts.map(r => `
-      <div class="rl">${r.type || 'transition'}</div>
-      <div class="rv">${r.receiptId.slice(0, 20)}... (seq #${r.sequenceNumber})</div>
+      <div class="rl">${escapeHtml(r.type || 'transition')}</div>
+      <div class="rv">${escapeHtml(r.receiptId.slice(0, 20))}... (seq #${escapeHtml(r.sequenceNumber)})</div>
     `).join('');
     return `
       <div class="l2-receipt-card">

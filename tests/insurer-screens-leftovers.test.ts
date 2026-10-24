@@ -203,7 +203,7 @@ describe('4. the insurer dashboard\'s handlers each have one name', () => {
     expect(block).toContain('denyApp: denyApp,');
     // the credentialing list's Deny names the credentialing handler
     const actions = run([lift(INSURER_APP, 'credAppActions')], { esc: escHtml }, 'credAppActions');
-    expect(actions({ applicationId: 'CRED-1', status: 'pending' })).toContain("App.denyCredentialingApp('CRED-1')");
+    expect(actions({ applicationId: 'CRED-1', status: 'pending' })).toContain('data-act="denyCredentialingApp" data-arg="CRED-1"');   // A-88: read by onIdAction
     expect(keys).toContain('denyCredentialingApp');
   });
 });

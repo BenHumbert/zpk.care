@@ -89,11 +89,11 @@ test('a PENDING script offers no Fill and cannot be filled; an ADJUDICATED one b
   expect(p.getScriptStatus(pending)).toBe('pending');
   const column = { innerHTML: '' };
   p.renderColumn(column, [pending, ready], 'adjudicated');
-  // One chunk per card: from its data-key to the next card's.
-  const card = (key: string) => column.innerHTML.split('data-key="').find((h) => h.startsWith(key + '"')) ?? '';
+  // One chunk per card: from its opening tag to the next card's.
+  const card = (key: string) => column.innerHTML.split(/<div class="script-card(?=[" ])/).find((h) => h.includes(`data-key="${key}" data-act="showScriptDetail"`)) ?? '';
   expect(card('RX-2')).not.toBe('');
-  expect(card('RX-2')).not.toContain('App.fillScript');
-  expect(card('RX-3')).toContain("App.fillScript('RX-3')");
+  expect(card('RX-2')).not.toContain('data-act="fillScript"');
+  expect(card('RX-3')).toContain('data-act="fillScript" data-key="RX-3"');
   await p.fillScript('RX-2');
   expect(markFilled).not.toHaveBeenCalled();
   await p.fillScript('RX-3');

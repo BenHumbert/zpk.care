@@ -35,7 +35,7 @@ import {
 import type { SeedPrescriber } from '../../src/data/index.js';
 import type { SeedPharmacy } from '../../src/data/index.js';
 import type { SeedMedication } from '../../src/data/index.js';
-import type { VizEvent, VizEntity, VizActorType, VizLane } from '../../src/l2/l2-rpc-server.js';
+import type { VizEvent, VizActorType, VizLane } from '../../src/l2/l2-rpc-server.js';
 
 // ─── Configuration ───────────────────────────────────
 
@@ -83,7 +83,6 @@ interface SimMember {
   lastName: string;
   displayName: string;
   cardholderId: string;
-  walletId: string;
   needsPA: boolean;
   assignedPrescriber: SeedPrescriber;
   assignedPharmacy: SeedPharmacy;
@@ -190,20 +189,6 @@ async function emit(event: VizEvent): Promise<void> {
   const body = JSON.stringify(event);
   return new Promise((resolve, reject) => {
     const url = new URL('/viz/emit', baseUrl);
-    const req = http.request(
-      { hostname: url.hostname, port: url.port, path: url.pathname, method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } },
-      (res) => { res.resume(); res.on('end', resolve); },
-    );
-    req.on('error', reject);
-    req.end(body);
-  });
-}
-
-async function registerEntities(entities: VizEntity[]): Promise<void> {
-  const body = JSON.stringify(entities);
-  return new Promise((resolve, reject) => {
-    const url = new URL('/viz/entities', baseUrl);
     const req = http.request(
       { hostname: url.hostname, port: url.port, path: url.pathname, method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } },
@@ -639,7 +624,6 @@ export async function runScenario(config: Partial<ScenarioConfig> = {}): Promise
       lastName,
       displayName: `${firstName} ${lastName}`,
       cardholderId: `${cfg.groupId.split('-')[0]}-EMP-${String(i + 1).padStart(4, '0')}`,
-      walletId: `member-${i + 1}`,
       needsPA: false,
       assignedPrescriber: pick(PRESCRIBERS),
       assignedPharmacy: pick(PHARMACIES),
@@ -705,39 +689,6 @@ export async function runScenario(config: Partial<ScenarioConfig> = {}): Promise
   const allScripts = members.flatMap(m => m.scripts);
   console.log(`[Sim] ${allScripts.length} scripts generated`);
   console.log(`[Sim] ${allScripts.filter(s => s.needsPA).length} require PA\n`);
-
-  // ─── Register entities ─────────────────────────────
-
-  const entities: VizEntity[] = [];
-
-  for (const m of members) {
-    entities.push({
-      walletId: m.walletId,
-      displayName: m.displayName,
-      type: 'member',
-      group: cfg.employerName,
-    });
-  }
-  for (const p of PRESCRIBERS) {
-    entities.push({
-      walletId: `prescriber-${p.localData.prescriberId}`,
-      displayName: prescriberDisplayName(p),
-      type: 'prescriber',
-      specialty: p.specialty,
-    });
-  }
-  for (const ph of PHARMACIES) {
-    entities.push({
-      walletId: `pharmacy-${ph.localData.serviceProviderId}`,
-      displayName: ph.storeName,
-      type: 'pharmacy',
-      pharmacyType: ph.pharmacyTypeDesc,
-    });
-  }
-  entities.push({ walletId: 'insurer-zkpcare', displayName: 'Adjuda-GATOR PBM', type: 'insurer' });
-  entities.push({ walletId: `employer-${cfg.groupId}`, displayName: `${cfg.employerName} HR`, type: 'employer', group: cfg.employerName });
-
-  await registerEntities(entities);
 
   // ─── Process members one at a time ─────────────────
 

@@ -103,9 +103,59 @@ Most runs need none — the npm scripts set sensible defaults. The notable ones:
 | `ZKTRIDENT_POOL_SIZE` | Entity proof-pool size |
 | `ZKTRIDENT_UNSECURE` | `true` relaxes auth/CORS for local demos only |
 | `ZKTRIDENT_PORT` / `ZKTRIDENT_HOST` | Bind address for a node |
+| `ZKTRIDENT_PUBLIC_HOSTS` | Host names a listener answers beyond loopback and its bind address, comma-separated `name` or `name:port` (a proxy's or a peer's); any other Host gets 421 |
+| `ZKTRIDENT_TRUSTED_PROXIES` | The reverse proxies in front of a node, comma-separated exact IP addresses (IPv4 or IPv6). A node reads `X-Forwarded-For` only from these, to count each caller as the client the proxy names; an entry that is not an IP address stops the node at boot. See [Behind a reverse proxy](#behind-a-reverse-proxy) |
 | `ZKTRIDENT_SEQUENCER_URL` | Where a node finds the sequencer |
 | `ZKTRIDENT_CORS_ORIGINS` | Allowed browser origins (default `*` in dev) |
 | `ZKTRIDENT_ADMIN_TOKEN` | Bearer token for admin endpoints |
+
+### Behind a reverse proxy
+
+A node bound to loopback behind a reverse proxy or TLS terminator on the same host
+sees every request arrive from the proxy's address. The insurer and employer nodes
+limit what each caller may do by its address: credentialing applications (10 open
+and 20 an hour per source), card recovery (30 requests a minute), the plans an
+employer can add, and the employer's validate oracle. A proxy the node does not
+list is **one source for everyone behind it**, so one client could spend every
+caller's allowance and have, say, every member's card recovery refused. Name the
+proxy's address in `ZKTRIDENT_TRUSTED_PROXIES` beside its public name in
+`ZKTRIDENT_PUBLIC_HOSTS`, and the node counts each request as the client the proxy
+names in `X-Forwarded-For`. A node bound to loopback that answers a public name
+with no trusted proxy says so when it starts.
+
+- `X-Forwarded-For` is read only from a listed address. From any other address it
+  is ignored, so a client cannot choose its own source by sending one.
+- It is read from the right: the address the nearest listed proxy appended, past
+  any other listed proxies. Entries further left are the client's own and are not
+  read. An entry that is not a bare IP address (a port, a name, `unknown`) stops
+  the walk, and the request counts as that proxy.
+- List exact addresses, not names, ranges or ports. Trusting `127.0.0.1` trusts
+  every process on the host to say who it forwards for, so list it only when a
+  proxy on this host is the way in.
+
+nginx in front of the insurer node on the same host:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name insurer.example.com;
+    # ssl_certificate and ssl_certificate_key as usual
+
+    location / {
+        proxy_pass http://127.0.0.1:4004;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_buffering off;   # the dashboards' event stream
+    }
+}
+```
+
+```bash
+ZKTRIDENT_PUBLIC_HOSTS=insurer.example.com ZKTRIDENT_TRUSTED_PROXIES=127.0.0.1 npm run start:insurer
+```
+
+`$proxy_add_x_forwarded_for` appends the address nginx took the request from, so
+the node counts that client, whatever the client itself put in the header.
 
 ## Where local data lives
 

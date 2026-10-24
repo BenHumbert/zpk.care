@@ -19,9 +19,13 @@
  *
  * Shows receipts, batches, audit chain, and sequencer status.
  * Action buttons: Force Batch, Save Checkpoint, Simulate Failure + Retry.
+ *
+ * Receipt and wallet IDs, statuses and errors are escaped with escapeHtml (message-thread.js) before they are placed
+ * in the page, which holds the operator token (A-61).
  */
 
 import { API_BASE } from '../interactive-app.js';
+import { escapeHtml } from './message-thread.js';
 
 export class L2ChainTab {
   constructor(app) {
@@ -166,13 +170,13 @@ export class L2ChainTab {
     btn.disabled = true;
 
     try {
-      const res = await fetch(`${API_BASE}/interactive/${action}`, { method: 'POST' });
+      const res = await fetch(`${API_BASE}/interactive/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       const data = await res.json();
 
       if (data.error) {
-        resultDiv.innerHTML = `<div class="l2-action-error">${data.error}</div>`;
+        resultDiv.innerHTML = `<div class="l2-action-error">${escapeHtml(data.error)}</div>`;
       } else {
-        resultDiv.innerHTML = `<div class="l2-action-success">${data.message || 'Done'}</div>`;
+        resultDiv.innerHTML = `<div class="l2-action-success">${escapeHtml(data.message || 'Done')}</div>`;
 
         // Enable retry button after simulate failure
         if (action === 'simulate-batch-failure') {
@@ -185,7 +189,7 @@ export class L2ChainTab {
       await this.app.fetchState();
       if (this.app.state) this.render(this.app.state);
     } catch (err) {
-      resultDiv.innerHTML = `<div class="l2-action-error">Failed: ${err.message}</div>`;
+      resultDiv.innerHTML = `<div class="l2-action-error">Failed: ${escapeHtml(err.message)}</div>`;
     } finally {
       btn.classList.remove('loading');
       btn.disabled = false;
@@ -212,11 +216,11 @@ export class L2ChainTab {
     const sorted = [...receipts].reverse();
     const rows = sorted.map((r, i) => `
       <tr>
-        <td class="mono" style="font-size:10px;" title="${r.receiptId}">${r.receiptId.slice(0, 12)}...</td>
-        <td class="mono" style="font-size:10px;" title="${r.walletId}">${r.walletId}</td>
+        <td class="mono" style="font-size:10px;" title="${escapeHtml(r.receiptId)}">${escapeHtml(r.receiptId.slice(0, 12))}...</td>
+        <td class="mono" style="font-size:10px;" title="${escapeHtml(r.walletId)}">${escapeHtml(r.walletId)}</td>
         <td>${r.isRegistration ? '<span class="l2-type-badge reg">REG</span>' : '<span class="l2-type-badge upd">UPD</span>'}</td>
-        <td>${r.sequenceNumber}</td>
-        <td><span class="l2-status-badge ${r.l1Status}">${r.l1Status}</span></td>
+        <td>${escapeHtml(r.sequenceNumber)}</td>
+        <td><span class="l2-status-badge ${escapeHtml(r.l1Status)}">${escapeHtml(r.l1Status)}</span></td>
         <td style="font-size:11px; color:var(--text-muted);">${this.formatTime(r.acceptedAt)}</td>
       </tr>
     `).join('');
@@ -267,8 +271,8 @@ export class L2ChainTab {
         <td style="font-weight:600;">#${b.batchNumber}</td>
         <td>${b.registrationCount}</td>
         <td>${isEmpty ? '<span style="color:var(--text-muted);">0 (empty)</span>' : b.transitionCount}</td>
-        <td><span class="l2-status-badge ${b.l1Status}">${b.l1Status}</span></td>
-        <td class="mono" style="font-size:10px;" title="${b.l1TxHash || ''}">${b.l1TxHash ? b.l1TxHash.slice(0, 16) + '...' : '-'}</td>
+        <td><span class="l2-status-badge ${escapeHtml(b.l1Status)}">${escapeHtml(b.l1Status)}</span></td>
+        <td class="mono" style="font-size:10px;" title="${escapeHtml(b.l1TxHash || '')}">${b.l1TxHash ? escapeHtml(b.l1TxHash.slice(0, 16)) + '...' : '-'}</td>
         <td style="font-size:11px; color:var(--text-muted);">${this.formatTime(b.createdAt)}</td>
       </tr>
     `;}).join('');
@@ -331,11 +335,11 @@ export class L2ChainTab {
 
   // ─── Helpers ───────────────────────────────────────────
 
+  /** A hash shortened for a cell, escaped: every caller places it in the page as HTML (A-61). */
   truncHash(hash) {
     if (!hash) return '-';
     const s = hash.toString();
-    if (s.length <= 16) return s;
-    return s.slice(0, 8) + '...' + s.slice(-6);
+    return escapeHtml(s.length <= 16 ? s : s.slice(0, 8) + '...' + s.slice(-6));
   }
 
   formatUptime(ms) {

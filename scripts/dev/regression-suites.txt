@@ -116,3 +116,16 @@ tests/money-separators.test.ts
 tests/pharmacy-verify-line.test.ts
 tests/prescriber-plan-pays-label.test.ts
 tests/prescriber-result-box.test.ts
+tests/console-escapes-network-values.test.ts
+tests/dashboard-escape-quotes.test.ts
+tests/employer-tenant-spawn.test.ts
+tests/explorer-malformed-request.test.ts
+tests/insurer-credentialing-gate.test.ts
+tests/insurer-report-routes.test.ts
+tests/l2-client-buffer-caps.test.ts
+tests/listener-request-guards.test.ts
+tests/node-event-stream-gate.test.ts
+tests/pharmacy-enroll-insurer-url.test.ts
+tests/registry-wallet-id-and-name.test.ts
+tests/node-caller-address.test.ts
+tests/insurer-open-intake.test.ts

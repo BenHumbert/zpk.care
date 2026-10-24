@@ -50,11 +50,12 @@
   ];
 
   // ── Helpers ────────────────────────────────────────────────
+  // Escapes for text and for attribute values: wallet IDs, plan IDs and NDC hashes go into quoted attributes.
   function esc(s) {
     if (s === null || s === undefined) return '';
     var d = document.createElement('div');
     d.textContent = String(s);
-    return d.innerHTML;
+    return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   function truncHash(h, len) {
@@ -235,6 +236,9 @@
   async function loadFormularyPage() {
     await loadFormularyFromSequencer();
     renderTierStats();
+    // Entering the tab keeps the search box's text and draws the table under it, as the credentialing filters keep their
+    // choice. The box stays in the page while another tab is shown, in view above the list it narrows, so a search left
+    // for a look at another tab is still there on return; clearing the box on entry would throw it away (A-91).
     renderFormularyTable();
     initUploadZone();
     initManualAdd();
@@ -255,9 +259,17 @@
       '<div class="stat-card"><span class="stat-label">Tier 4 — Specialty</span><span class="stat-value">' + tiers[3] + '</span></div>';
   }
 
-  function renderFormularyTable(filter) {
+  /**
+   * The staged formulary, drawn under the search box's text. The box keeps its text through every change to the
+   * formulary and while another tab is shown, so every draw of the table reads it here: a keystroke, an Add, a Remove, a
+   * CSV publish, Refresh and entering the tab. A draw that passed no search listed the whole formulary beneath a box that
+   * still showed one (A-91).
+   */
+  function renderFormularyTable() {
     var el = $('form-table-container');
     if (!el) return;
+    var search = $('form-search');
+    var filter = search ? search.value : '';
     var items = formularyData;
     if (filter) {
       var f = filter.toLowerCase();
@@ -270,19 +282,21 @@
       el.innerHTML = '<div class="empty-state">No formulary entries' + (filter ? ' matching "' + esc(filter) + '"' : '') + '</div>';
       return;
     }
+    // A row's Remove carries its entry's place in formularyData, which removeFormularyEntry splices and then publishes;
+    // the row's place in a search-filtered list named another entry (A-91).
     el.innerHTML =
       '<table class="data-table"><thead><tr>' +
         '<th>NDC Hash</th><th>Brand Name</th><th>Tier</th><th>Copay</th><th>Prior Auth</th><th>Actions</th>' +
       '</tr></thead><tbody>' +
-      items.map(function (e, i) {
+      items.map(function (e) {
         var tierNames = ['', 'Generic', 'Preferred', 'Non-Preferred', 'Specialty'];
         return '<tr>' +
           '<td><span class="hash" title="' + esc(e.ndcHash) + '">' + esc(truncHash(e.ndcHash, 16)) + '</span></td>' +
           '<td>' + esc(e.brandName || '--') + '</td>' +
-          '<td><span class="badge tier-' + e.tierLevel + '">T' + e.tierLevel + ' ' + tierNames[e.tierLevel] + '</span></td>' +
+          '<td><span class="badge tier-' + esc(String(e.tierLevel)) + '">' + esc('T' + e.tierLevel + ' ' + tierNames[e.tierLevel]) + '</span></td>' +
           '<td style="font-family:var(--font-mono)">' + fmtCents(e.copayAmountCents) + '</td>' +
           '<td>' + (e.requiresPriorAuth ? '<span class="badge badge-pending">Yes</span>' : 'No') + '</td>' +
-          '<td><button class="btn btn-sm btn-danger" onclick="App.removeFormularyEntry(' + i + ')">Remove</button></td>' +
+          '<td><button class="btn btn-sm btn-danger" data-act="removeFormularyEntry" data-arg="' + formularyData.indexOf(e) + '">Remove</button></td>' +
         '</tr>';
       }).join('') +
       '</tbody></table>';
@@ -456,7 +470,7 @@
     if (addBtn) addBtn.onclick = addFormularyEntry;
 
     var searchInput = $('form-search');
-    if (searchInput) searchInput.oninput = function () { renderFormularyTable(searchInput.value); };
+    if (searchInput) searchInput.oninput = function () { renderFormularyTable(); };
 
     var refreshBtn = $('form-refresh-btn');
     if (refreshBtn) refreshBtn.onclick = function () { renderFormularyTable(); };
@@ -1265,7 +1279,7 @@
   function renderAppActions(a) {
     var id = a.applicationId;
     var hasDoc = !!a.cp575DocumentId;
-    var reviewLink = hasDoc ? '<button class="btn btn-sm" style="margin-right:4px" title="Review uploaded CP 575" onclick="App.reviewDoc(\'' + esc(id) + '\')">Review PDF</button>' : '';
+    var reviewLink = hasDoc ? '<button class="btn btn-sm" style="margin-right:4px" title="Review uploaded CP 575" data-act="reviewDoc" data-arg="' + esc(id) + '">Review PDF</button>' : '';
 
     if (a.status === 'submitted' || a.status === 'under_review' || a.status === 'needs_documents') {
       if (hasDoc) {
@@ -1273,17 +1287,17 @@
         return '<div style="display:flex;flex-direction:column;gap:6px">' +
           '<div style="display:flex;gap:4px">' +
             reviewLink +
-            '<button class="btn btn-sm btn-primary" onclick="App.approveApp(\'' + esc(id) + '\')">Approve</button>' +
+            '<button class="btn btn-sm btn-primary" data-act="approveApp" data-arg="' + esc(id) + '">Approve</button>' +
           '</div>' +
           '<div style="display:flex;gap:4px">' +
-            '<button class="btn btn-sm" onclick="App.requestDocs(\'' + esc(id) + '\')">Request Resubmission</button>' +
-            '<button class="btn btn-sm btn-danger" onclick="App.denyApp(\'' + esc(id) + '\')">Deny</button>' +
+            '<button class="btn btn-sm" data-act="requestDocs" data-arg="' + esc(id) + '">Request Resubmission</button>' +
+            '<button class="btn btn-sm btn-danger" data-act="denyApp" data-arg="' + esc(id) + '">Deny</button>' +
           '</div>' +
         '</div>';
       } else {
         // No document yet
-        return '<button class="btn btn-sm" onclick="App.requestDocs(\'' + esc(id) + '\')">Request Docs</button> ' +
-          '<button class="btn btn-sm btn-danger" onclick="App.denyApp(\'' + esc(id) + '\')">Deny</button>';
+        return '<button class="btn btn-sm" data-act="requestDocs" data-arg="' + esc(id) + '">Request Docs</button> ' +
+          '<button class="btn btn-sm btn-danger" data-act="denyApp" data-arg="' + esc(id) + '">Deny</button>';
       }
     }
     if (a.status === 'approved') return '<span class="badge blue">Approved — awaiting employer signature</span>';
@@ -1358,10 +1372,12 @@
       }
 
       if (listEl) {
+        // A group ID can be the one a member's node registered with its entity, so it rides in data-gid with a listener,
+        // never inside an inline handler, where the browser decodes an escaped quote before the script reads it.
         listEl.innerHTML = groupIds.map(function (gid, i) {
           var s = summary[gid];
           var roles = Object.keys(s.roles || {}).map(function (r) { return s.roles[r] + ' ' + r; }).join(', ');
-          return '<div class="emp-item' + (selectedGroup === gid ? ' active' : '') + '" onclick="App.selectGroup(\'' + esc(gid) + '\')">' +
+          return '<div class="emp-item' + (selectedGroup === gid ? ' active' : '') + '" data-gid="' + esc(gid) + '">' +
             '<div class="emp-avatar">' + esc(gid.charAt(0).toUpperCase()) + '</div>' +
             '<div class="emp-info">' +
               '<div class="emp-name">' + esc(gid) + '</div>' +
@@ -1369,6 +1385,9 @@
             '</div>' +
           '</div>';
         }).join('');
+        listEl.querySelectorAll('.emp-item').forEach(function (item) {
+          item.onclick = function () { selectGroup(item.dataset.gid); };
+        });
       }
 
       // Auto-select first group
@@ -1607,8 +1626,8 @@
             '<td style="font-family:var(--font-mono)">' + esc(npi) + '</td>' +
             '<td>' + esc(state) + '</td>' +
             '<td>' +
-              '<button class="btn btn-sm" onclick="App.suspendProvider(\'' + esc(wid) + '\')">Suspend</button> ' +
-              '<button class="btn btn-sm btn-danger" onclick="App.terminateProvider(\'' + esc(wid) + '\')">Terminate</button>' +
+              '<button class="btn btn-sm" data-act="suspendProvider" data-arg="' + esc(wid) + '">Suspend</button> ' +
+              '<button class="btn btn-sm btn-danger" data-act="terminateProvider" data-arg="' + esc(wid) + '">Terminate</button>' +
             '</td></tr>';
         }).join('') +
         '</tbody></table>';
@@ -1656,11 +1675,11 @@
   function credAppActions(app) {
     var btns = [];
     if (app.status === 'pending') {
-      btns.push('<button class="btn btn-sm" onclick="App.verifyApp(\'' + esc(app.applicationId) + '\')">Verify</button>');
-      btns.push('<button class="btn btn-sm btn-danger" onclick="App.denyCredentialingApp(\'' + esc(app.applicationId) + '\')">Deny</button>');
+      btns.push('<button class="btn btn-sm" data-act="verifyApp" data-arg="' + esc(app.applicationId) + '">Verify</button>');
+      btns.push('<button class="btn btn-sm btn-danger" data-act="denyCredentialingApp" data-arg="' + esc(app.applicationId) + '">Deny</button>');
     }
     if (app.status === 'verified' || app.status === 'pending') {
-      btns.push('<button class="btn btn-sm btn-primary" onclick="App.approveCredentialingApp(\'' + esc(app.applicationId) + '\')">Approve</button>');
+      btns.push('<button class="btn btn-sm btn-primary" data-act="approveCredentialingApp" data-arg="' + esc(app.applicationId) + '">Approve</button>');
     }
     return btns.join(' ') || '--';
   }
@@ -1726,17 +1745,9 @@
         return;
       }
 
-      // Step 2: POST claims to report endpoint
-      var reportData;
-      var url = '/reports/' + type;
-      var body = { claims: claimsList };
-      var res = await fetch(location.origin + url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': API.getAdminToken() ? 'Bearer ' + API.getAdminToken() : '' },
-        body: JSON.stringify(body),
-      });
-      var json = await res.json();
-      reportData = (json && json.data) || json;
+      // Step 2: POST claims to report endpoint, with this node's admin token. A refusal (401 without the token,
+      // 413 over the node's limits) throws, so it shows as the failure it is rather than as a report.
+      var reportData = await API.generateReport(type, { claims: claimsList });
 
       // Step 3: Render report
       resultsEl.innerHTML = renderReportData(reportData, type);
@@ -1824,8 +1835,8 @@
           '<td class="actions-cell">' +
             '<input type="text" class="form-input" id="pa-reason-' + id + '" placeholder="Reason (required to deny)" maxlength="500" style="min-width:200px;margin-bottom:6px">' +
             '<div style="display:flex;gap:4px">' +
-              '<button class="btn btn-sm btn-primary" id="pa-approve-' + id + '" onclick="App.approvePriorAuth(\'' + id + '\')">Approve</button>' +
-              '<button class="btn btn-sm btn-danger" id="pa-deny-' + id + '" onclick="App.denyPriorAuth(\'' + id + '\')">Deny</button>' +
+              '<button class="btn btn-sm btn-primary" id="pa-approve-' + id + '" data-act="approvePriorAuth" data-arg="' + esc(id) + '">Approve</button>' +
+              '<button class="btn btn-sm btn-danger" id="pa-deny-' + id + '" data-act="denyPriorAuth" data-arg="' + esc(id) + '">Deny</button>' +
             '</div>' +
           '</td>' +
         '</tr>';
@@ -2507,6 +2518,22 @@
       catch (e) { toast('Failed: ' + e.message, 'error'); }
     },
   };
+
+  /** What a data-act may name: each acts on the application, provider, request or entry whose ID is in data-arg. */
+  var ID_ACTIONS = ['removeFormularyEntry', 'approveApp', 'denyApp', 'requestDocs', 'reviewDoc', 'approvePriorAuth', 'denyPriorAuth',
+    'suspendProvider', 'terminateProvider', 'verifyApp', 'approveCredentialingApp', 'denyCredentialingApp'];
+
+  /**
+   * A-88: a button that acts on an application, a provider, a prior authorization or a staged formulary entry names the
+   * action in data-act and the ID in data-arg, and this one listener reads both, for rows drawn at any time. An ID never
+   * rides inside an inline handler, where the browser decodes an escaped quote before the script runs.
+   */
+  function onIdAction(e) {
+    var el = e.target && e.target.closest ? e.target.closest('[data-act]') : null;
+    if (!el || ID_ACTIONS.indexOf(el.dataset.act) < 0) return;
+    window.App[el.dataset.act](el.dataset.act === 'removeFormularyEntry' ? Number(el.dataset.arg) : el.dataset.arg);
+  }
+  document.addEventListener('click', onIdAction);
 
   init();
 })();

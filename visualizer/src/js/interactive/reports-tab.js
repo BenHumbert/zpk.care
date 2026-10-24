@@ -20,9 +20,13 @@
  * All data comes from state.reports (built server-side via ReportingService).
  * Wallet IDs resolved via state.walletDirectory. NDC hashes resolved via
  * state.reports.ndcDirectory (since frontend can't compute Poseidon hashes).
+ *
+ * Names, wallet IDs and drug names are escaped with escapeHtml (message-thread.js) before they are placed in the page:
+ * a name is whatever its node registered, and this page holds the operator token (A-61).
  */
 
 import { formatCents } from '../interactive-app.js';
+import { escapeHtml } from './message-thread.js';
 
 export class ReportsTab {
   constructor(app) {
@@ -141,7 +145,7 @@ export class ReportsTab {
     const rows = report.claims.map((c, i) => {
       const isRev = c.operationType === 'reversal';
       const med = ndcDir[c.ndcHash];
-      const drugName = med ? med.brandName : this.truncHash(c.ndcHash);
+      const drugName = med ? escapeHtml(med.brandName) : this.truncHash(c.ndcHash);
       const pharmacy = this.resolveName(c.pharmacyWalletId, dir);
       const prescriber = this.resolveName(c.prescriberWalletId, dir);
       const member = this.truncHash(c.memberWalletId);
@@ -150,8 +154,8 @@ export class ReportsTab {
       return `
         <tr${isRev ? ' style="opacity:0.7"' : ''}>
           <td>${i + 1}</td>
-          <td><span class="report-op-badge ${c.operationType}">${c.operationType}</span></td>
-          <td title="${c.memberWalletId}">${member}</td>
+          <td><span class="report-op-badge ${escapeHtml(c.operationType)}">${escapeHtml(c.operationType)}</span></td>
+          <td title="${escapeHtml(c.memberWalletId)}">${member}</td>
           <td>${pharmacy}</td>
           <td>${prescriber}</td>
           <td>${drugName}</td>
@@ -272,7 +276,7 @@ export class ReportsTab {
       const medCount = m.currentMedications ? m.currentMedications.length : 0;
       return `
         <tr>
-          <td title="${m.memberWalletId}" class="mono" style="font-size:10px;">${this.truncHash(m.memberWalletId)}</td>
+          <td title="${escapeHtml(m.memberWalletId)}" class="mono" style="font-size:10px;">${this.truncHash(m.memberWalletId)}</td>
           <td>${m.claimCount}</td>
           <td>${m.reversalCount}</td>
           <td>${medCount}</td>
@@ -310,8 +314,8 @@ export class ReportsTab {
 
     const rows = report.medications.map(m => {
       const med = ndcDir[m.ndcHash];
-      const drugName = med ? med.brandName : this.truncHash(m.ndcHash);
-      const ndc = med ? med.ndc : '-';
+      const drugName = med ? escapeHtml(med.brandName) : this.truncHash(m.ndcHash);
+      const ndc = med ? escapeHtml(med.ndc) : '-';
       const tier = med ? `<span class="tier-badge tier-${med.tier}">Tier ${med.tier}</span>` : '-';
       const qty = (parseInt(m.totalQuantity) / 1000);
 
@@ -356,7 +360,7 @@ export class ReportsTab {
 
     const rows = report.priorAuths.map(pa => {
       const med = ndcDir[pa.ndcHash];
-      const drugName = med ? med.brandName : this.truncHash(pa.ndcHash);
+      const drugName = med ? escapeHtml(med.brandName) : this.truncHash(pa.ndcHash);
       const prescriber = this.resolveName(pa.prescriberWalletId, dir);
       const member = this.truncHash(pa.memberWalletId);
       const approvedQty = parseInt(pa.approvedQuantity) / 1000;
@@ -367,7 +371,7 @@ export class ReportsTab {
       return `
         <tr>
           <td>${drugName}</td>
-          <td title="${pa.memberWalletId}">${member}</td>
+          <td title="${escapeHtml(pa.memberWalletId)}">${member}</td>
           <td>${prescriber}</td>
           <td>${approvedQty}</td>
           <td>${utilizedQty}</td>
@@ -406,14 +410,14 @@ export class ReportsTab {
 
     const rows = report.reversals.map(r => {
       const med = ndcDir[r.ndcHash];
-      const drugName = med ? med.brandName : this.truncHash(r.ndcHash);
+      const drugName = med ? escapeHtml(med.brandName) : this.truncHash(r.ndcHash);
       const pharmacy = this.resolveName(r.pharmacyWalletId, dir);
       const member = this.truncHash(r.memberWalletId);
       const qty = (parseInt(r.quantityDispensed) / 1000);
 
       return `
         <tr>
-          <td title="${r.memberWalletId}">${member}</td>
+          <td title="${escapeHtml(r.memberWalletId)}">${member}</td>
           <td>${pharmacy}</td>
           <td>${drugName}</td>
           <td>${qty}</td>
@@ -450,15 +454,16 @@ export class ReportsTab {
 
   // ─── Helpers ───────────────────────────────────────────
 
+  /** The registered name for a wallet, or its shortened ID, escaped: the name is whatever its node registered (A-61). */
   resolveName(walletId, dir) {
     const entry = dir[walletId];
-    return entry ? entry.displayName : this.truncHash(walletId);
+    return entry ? escapeHtml(entry.displayName) : this.truncHash(walletId);
   }
 
+  /** A hash or wallet ID shortened for a cell, escaped: every caller places it in the page as HTML. */
   truncHash(hash) {
     if (!hash) return '-';
     const s = hash.toString();
-    if (s.length <= 12) return s;
-    return s.slice(0, 6) + '...' + s.slice(-4);
+    return escapeHtml(s.length <= 12 ? s : s.slice(0, 6) + '...' + s.slice(-4));
   }
 }

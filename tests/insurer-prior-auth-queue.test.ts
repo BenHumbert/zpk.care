@@ -409,8 +409,9 @@ describe('the dashboard\'s Prior Auth tab', () => {
     expect(html).toContain('0.4 ML');
     expect(html).toContain('Avery Quill, MD');
     expect(html).toContain('id="pa-reason-PA-0002"');
-    expect(html).toContain('onclick="App.approvePriorAuth(\'PA-0001\')"');
-    expect(html).toContain('onclick="App.denyPriorAuth(\'PA-0002\')"');
+    expect(html).toContain('data-act="approvePriorAuth" data-arg="PA-0001"');
+    expect(html).toContain('data-act="denyPriorAuth" data-arg="PA-0002"');
+    expect(html).not.toContain('onclick');                                // A-88: no ID rides inside an inline handler
     expect(html).toContain('Failed &lt;b&gt;methotrexate&lt;/b&gt;');     // the prescriber's words are text, not markup
     expect(String($('pa-decisions-container').innerHTML)).toContain('No decisions yet');
     // a request whose ID could break out of an attribute is not drawn

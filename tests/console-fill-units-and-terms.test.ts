@@ -46,6 +46,12 @@ function consoleHelpers(): Record<string, unknown> {
   return new Function(`'use strict';\n${src.replace(/^export\s+/gm, '')}\nreturn { ${names.join(', ')} };`)();
 }
 
+/** The console's escaping (message-thread.js), from source: the phases escape what they place in the page (A-61). */
+function messageThread(): Record<string, unknown> {
+  const src = read('visualizer/src/js/interactive/message-thread.js');
+  return new Function(`'use strict';\n${src.replace(/^export\s+/gm, '')}\nreturn { escapeHtml, renderMessageBubbles };`)();
+}
+
 const formatCents = (c: number) => '$' + (c / 100).toFixed(2);
 
 interface Page { element: (id: string) => any; alerts: string[]; sent: Array<{ url: string; body: any }> }
@@ -70,6 +76,7 @@ function loadPhase(file: string, className: string, answer: (url: string) => unk
     renderSectionCard: () => '', renderMetricRow: () => '', renderSortableTable: () => '', truncHash: (h: unknown) => String(h),
     loadInteractiveState: async () => ({}),
     ...consoleHelpers(),
+    ...messageThread(),
     document: { getElementById: element, querySelectorAll: () => [] },
     fetch: async (url: string, init?: { body?: string }) => {
       page.sent.push({ url, body: init?.body ? JSON.parse(init.body) : undefined });

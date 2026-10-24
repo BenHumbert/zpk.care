@@ -50,6 +50,24 @@ import type {
   CrossTabRow,
 } from './report-types.js';
 
+// ─── Limits ───────────────────────────────────────────────────
+
+/**
+ * The most cells one cross-tab builds: distinct row values times distinct column values. Found by the
+ * security posture check of 2026-10-24: every claim can add a row and a column, so 10,000 claims could
+ * ask for 100 million cells, which no screen can show and which would hold the process for seconds and
+ * take gigabytes of memory to build and send.
+ */
+export const MAX_CROSS_TAB_CELLS = 100_000;
+
+/** A report larger than this service builds. The insurer node answers it 413. */
+export class ReportTooLargeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ReportTooLargeError';
+  }
+}
+
 // ─── ReportingService ─────────────────────────────────────────
 
 /**
@@ -574,6 +592,14 @@ export class ReportingService {
       const colMap = rowGroups.get(rowVal)!;
       if (!colMap.has(colVal)) colMap.set(colVal, []);
       colMap.get(colVal)!.push(c);
+    }
+
+    // Counted before any cell is built (MAX_CROSS_TAB_CELLS).
+    if (rowGroups.size * columnHeaders.length > MAX_CROSS_TAB_CELLS) {
+      throw new ReportTooLargeError(
+        `A cross-tab of ${rowGroups.size} rows by ${columnHeaders.length} columns is over ${MAX_CROSS_TAB_CELLS} cells; ` +
+          'filter the claims or pick dimensions with fewer values',
+      );
     }
 
     // Build rows

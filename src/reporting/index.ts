@@ -16,7 +16,7 @@
 
 // Reporting — On-Chain Reporting (L10)
 
-export { ReportingService } from './reporting-service.js';
+export { ReportingService, ReportTooLargeError, MAX_CROSS_TAB_CELLS } from './reporting-service.js';
 
 export type {
   DateRange,

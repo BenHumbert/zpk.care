@@ -246,6 +246,8 @@ describe('Smoke — L2Node + 4 Nautilus Apps (HTTP routes)', () => {
     memberPort = memberApp.getPort();
     prescriberPort = prescriberApp.getPort();
     pharmacyPort = pharmacyApp.getPort();
+    // A-81: the pharmacy notifies the insurer its configuration names; it refuses one in the request.
+    pharmacyApp.getConfig().insurerUrl = `http://127.0.0.1:${insurerPort}`;
 
     /*
      * A5: the member node's routes require a device session. createNautilusApp unlocks the
@@ -429,9 +431,7 @@ describe('Smoke — L2Node + 4 Nautilus Apps (HTTP routes)', () => {
   });
 
   test('P4 — pharmacy enroll', async () => {
-    const result = await post(pharmacyPort, '/onboarding/enroll', {
-      insurerUrl: `http://127.0.0.1:${insurerPort}`,
-    });
+    const result = await post(pharmacyPort, '/onboarding/enroll', {});
     expect(result.status).toBe(200);
     expect((result.body as any).data.phase).toBe('enrolled');
   });

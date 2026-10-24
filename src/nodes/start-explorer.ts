@@ -28,6 +28,8 @@
  *   ZKTRIDENT_CORS_ORIGINS    — Comma-separated CORS origins
  *                               (default: the local dashboard origins)
  *   ZKTRIDENT_HOST            — Bind address (default: 127.0.0.1, loopback only)
+ *   ZKTRIDENT_PUBLIC_HOSTS    — Comma-separated Host names answered beyond loopback
+ *                               and the bind address (default: none)
  *   ZKTRIDENT_RPC_PROXY       — 0 to disable POST /rpc forwarding (default: on,
  *                               limited to the methods the explorer page calls)
  *
@@ -35,14 +37,21 @@
  *   npx tsx src/nodes/start-explorer.ts
  */
 import http from 'http';
-import type { IncomingMessage } from 'http';
+import type { IncomingMessage, ServerResponse } from 'http';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { resolveBindHost, resolveAllowedOrigins, corsOriginHeader, resolveRpcProxyPolicy } from '../security/network-policy.js';
+import {
+  resolveBindHost, resolveAllowedOrigins, corsOriginHeader, resolveRpcProxyPolicy, resolvePublicHosts,
+  requestHostAllowed, bodyTypeAccepted, MISDIRECTED_REQUEST, UNSUPPORTED_BODY_TYPE, NO_FRAMING_HEADERS,
+  type HostPolicy,
+} from '../security/network-policy.js';
 
 const env = process.env;
 const port = parseInt(env.ZKTRIDENT_EXPLORER_PORT ?? '8000', 10);
+const bindHost = resolveBindHost(env, 'explorer');
+/** A-82: the names this explorer answers to in a request's Host. */
+const hostPolicy: HostPolicy = { bindHost, publicHosts: resolvePublicHosts(env) };
 const sequencerUrl = (env.ZKTRIDENT_SEQUENCER_URL ?? 'http://localhost:3030').replace(/\/+$/, '');
 const allowedOrigins = resolveAllowedOrigins(env, { role: 'explorer' });
 // The explorer's page reaches the sequencer only through this proxy, so it stays on. What
@@ -89,14 +98,128 @@ function forwardedCredential(req: IncomingMessage): Record<string, string> {
   return typeof auth === 'string' && auth ? { Authorization: auth } : {};
 }
 
-const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+/**
+ * Relays one of the sequencer's event streams to a page, and lets go of it as soon as the page goes. Rejects only while
+ * the page is still there to be told the sequencer could not be reached.
+ *
+ * A-83, from the review of its fix: the relays listened for the page's leaving only once the sequencer's headers had
+ * come back. A page that left before then (a reload, a dropped link, a sequencer slow to answer) had already closed, so
+ * nothing cancelled the upstream: the relay held the sequencer's stream open for good, writing into the gone page, and
+ * each one kept one of the sequencer's SSE slots (it allows 100), so reconnects over a flaky link could use them all up.
+ * The upstream request now carries an abort signal, set up before the request goes out, which the page's leaving fires
+ * whenever it comes.
+ */
+async function relayEventStream(req: IncomingMessage, res: ServerResponse, target: string): Promise<void> {
+  const upstreamAbort = new AbortController();
+  // The response closes when the page goes, before or after the sequencer answers, and after a normal end, when the
+  // abort does nothing. A response queued behind another on a pipelined connection never closes; its request does.
+  res.on('close', () => upstreamAbort.abort());
+  req.on('close', () => upstreamAbort.abort());
+  const pageGone = (): boolean => upstreamAbort.signal.aborted || res.destroyed;
+  try {
+    // D2: the stream answers a credential — the page's token in a header or in ?token= — and a refusal is relayed as itself.
+    const upstream = await fetch(target, {
+      headers: { Accept: 'text/event-stream', ...forwardedCredential(req) },
+      signal: upstreamAbort.signal,
+    });
+    if (pageGone()) {
+      // The page went as the sequencer answered: let go of the stream now. The cancel rejects when the abort has
+      // already errored the body.
+      upstream.body?.cancel().catch(() => { /* the abort let go of it first */ });
+      return;
+    }
+    if (upstream.status !== 200) {
+      const refusal = await upstream.text();
+      if (pageGone()) return;
+      res.writeHead(upstream.status, { ...corsHeaders(req), 'Content-Type': 'application/json' });
+      res.end(refusal);
+      return;
+    }
+    // No Connection header, so Node answers as HTTP/1.1 has a server do: the page's connection stays open after the
+    // stream for its next request, unless the page asked to close it, and then it closes as the stream ends. Naming
+    // keep-alive here overrode a page's "close", and the connection outlived the stream by Node's keep-alive timeout.
+    res.writeHead(200, {
+      ...corsHeaders(req),
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+    });
+    if (!upstream.body) {
+      res.end();
+      return;
+    }
+    const reader = upstream.body.getReader();
+    const pump = async () => {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(value);
+      }
+      res.end();
+    };
+    // A read rejects when the page's leaving aborts the stream, and then there is no one to write to, or when the
+    // sequencer drops it, and then the page is told the stream has ended.
+    pump().catch(() => { if (!pageGone()) res.end(); });
+  } catch (err) {
+    // The page went first: the abort, or a failure that came with it, has no one to tell.
+    if (pageGone()) return;
+    throw err;
+  }
+}
+
+/*
+ * A-83, found by the security posture check of 2026-10-24: every request's URL was built from its
+ * own Host header, in an async handler with nothing to catch what it threw, so one request with a
+ * malformed Host (`Host: a b`) rejected the handler's promise and Node ended the process, taking the
+ * explorer and the console pages it serves down for everyone. Only the path and query are read, so
+ * they are read against a fixed base; a request whose path cannot be read at all is answered 400,
+ * and anything else one request throws is that request's 500.
+ */
+const REQUEST_URL_BASE = 'http://localhost';
+
+const server = http.createServer((req, res) => {
+  handleRequest(req, res).catch((err: unknown) => {
+    console.warn('  [explorer] %s request failed: %s', req.method, err instanceof Error ? err.message : String(err));
+    if (res.headersSent) {
+      res.destroy();
+      return;
+    }
+    res.writeHead(500, { ...corsHeaders(req), 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Internal error' }));
+  });
+});
+
+async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  // A-82: the request must name this explorer in its Host, or a page rebound to loopback could read every answer.
+  if (!requestHostAllowed(req, hostPolicy)) {
+    res.writeHead(421, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: MISDIRECTED_REQUEST }));
+    return;
+  }
+  // A-82: no other site may frame the explorer's pages.
+  for (const [name, value] of Object.entries(NO_FRAMING_HEADERS)) res.setHeader(name, value);
+
+  let url: URL;
+  try {
+    url = new URL(req.url ?? '/', REQUEST_URL_BASE);
+  } catch {
+    res.writeHead(400, { ...corsHeaders(req), 'Content-Type': 'text/plain' });
+    res.end('Bad request');
+    return;
+  }
   const pathname = url.pathname;
 
   // CORS preflight
   if (req.method === 'OPTIONS') {
     res.writeHead(204, corsHeaders(req));
     res.end();
+    return;
+  }
+
+  // A-82: a body method declares JSON, the one type the explorer forwards, so a browser asks before it sends one
+  // cross-site.
+  if (!bodyTypeAccepted(req)) {
+    res.writeHead(415, { ...corsHeaders(req), 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: UNSUPPORTED_BODY_TYPE }));
     return;
   }
 
@@ -161,37 +284,10 @@ const server = http.createServer(async (req, res) => {
   // Proxy /events SSE to sequencer
   if (pathname === '/events' && req.method === 'GET') {
     try {
-      // D2: the stream answers a credential — the page's token in a header or in ?token= — and a refusal is relayed as itself.
-      const upstream = await fetch(sequencerUrl + '/events' + url.search, {
-        headers: { Accept: 'text/event-stream', ...forwardedCredential(req) },
-      });
-      if (upstream.status !== 200) {
-        res.writeHead(upstream.status, { ...corsHeaders(req), 'Content-Type': 'application/json' });
-        res.end(await upstream.text());
-        return;
-      }
-      res.writeHead(200, {
-        ...corsHeaders(req),
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-      });
-      if (upstream.body) {
-        const reader = (upstream.body as any).getReader();
-        const pump = async () => {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            res.write(value);
-          }
-          res.end();
-        };
-        pump().catch(() => res.end());
-        req.on('close', () => { try { reader.cancel(); } catch {} });
-      } else {
-        res.end();
-      }
+      await relayEventStream(req, res, sequencerUrl + '/events' + url.search);
     } catch {
+      // A-83: a page that has gone, or has had its answer, is written nothing more.
+      if (res.destroyed || res.writableEnded) return;
       res.writeHead(502, corsHeaders(req));
       res.end('data: {"error":"Sequencer unreachable"}\n\n');
     }
@@ -202,36 +298,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname.startsWith('/viz/') && req.method === 'GET') {
     try {
       if (pathname === '/viz/events') {
-        // SSE proxy
-        const upstream = await fetch(sequencerUrl + pathname + url.search, {
-          headers: { Accept: 'text/event-stream', ...forwardedCredential(req) },
-        });
-        if (upstream.status !== 200) {
-          res.writeHead(upstream.status, { ...corsHeaders(req), 'Content-Type': 'application/json' });
-          res.end(await upstream.text());
-          return;
-        }
-        res.writeHead(200, {
-          ...corsHeaders(req),
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
-        });
-        if (upstream.body) {
-          const reader = (upstream.body as any).getReader();
-          const pump = async () => {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              res.write(value);
-            }
-            res.end();
-          };
-          pump().catch(() => res.end());
-          req.on('close', () => { try { reader.cancel(); } catch {} });
-        } else {
-          res.end();
-        }
+        await relayEventStream(req, res, sequencerUrl + pathname + url.search);
       } else {
         const upstream = await fetch(sequencerUrl + pathname + url.search, { headers: forwardedCredential(req) });
         const text = await upstream.text();
@@ -240,6 +307,7 @@ const server = http.createServer(async (req, res) => {
         res.end(text);
       }
     } catch (e: any) {
+      if (res.destroyed || res.writableEnded) return;   // A-83, as for /events
       res.writeHead(502, { ...corsHeaders(req), 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Sequencer unreachable: ' + e.message }));
     }
@@ -281,9 +349,9 @@ const server = http.createServer(async (req, res) => {
 
   res.writeHead(404, { ...corsHeaders(req), 'Content-Type': 'text/plain' });
   res.end('Not found');
-});
+}
 
-server.listen(port, resolveBindHost(env, 'explorer'), () => {
+server.listen(port, bindHost, () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════════════╗');
   console.log('  ║     🐊  LEVIATHAN EXPLORER — Adjuda-GATOR    ║');

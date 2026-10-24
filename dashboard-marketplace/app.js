@@ -81,7 +81,8 @@
     try { return JSON.stringify(e); } catch (_) { return String(e); }
   }
 
-  function esc(s) { if (s == null) return ''; var d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
+  /** Escapes for text and for attribute values: plan IDs and the employer node's address go into quoted attributes. */
+  function esc(s) { if (s == null) return ''; var d = document.createElement('div'); d.textContent = String(s); return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
   /** Whole cents as dollars with thousands separators: 780000 -> "$7,800.00". */
   function fmtCents(c) { return '$' + (Number(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   /** An OOP or benefit limit: 0 means the plan sets no limit, which the fill circuit treats as none. */

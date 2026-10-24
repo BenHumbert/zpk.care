@@ -128,19 +128,19 @@ describe('registration is owned by its signing key', () => {
   });
 
   test('a provider node registering itself is not credentialed by it; the operator registering a provider is (A-32)', async () => {
-    const self = envelope('l2_registerEntity', { walletId: W.drP, displayName: 'Dr P', type: 'prescriber', npi: '1234567890', signingPublicKeyHex: deriveWalletSigningKey(EK.drP).publicKeyHex });
+    const self = envelope('l2_registerEntity', { walletId: W.drP, displayName: 'Dr P', type: 'prescriber', npi: '1245319599', signingPublicKeyHex: deriveWalletSigningKey(EK.drP).publicKeyHex });
     const r = await rpcWith(byNode(prescriberNode, self), self);
     expect(r.error).toBeUndefined();
     expect((await rpcWith(bearer, envelope('l2_getProvider', { walletId: W.drP }))).result).toBeNull();
     // the insurer's own path is l2_credentialProvider; the operator may register any kind, and that credentials
-    const byOperator = envelope('l2_registerEntity', { walletId: W.drR, displayName: 'Dr R', type: 'prescriber', npi: '1234567891' });
+    const byOperator = envelope('l2_registerEntity', { walletId: W.drR, displayName: 'Dr R', type: 'prescriber', npi: '2999000013' });
     expect((await rpcWith(bearer, byOperator)).error).toBeUndefined();
     const provider = (await rpcWith(bearer, envelope('l2_getProvider', { walletId: W.drR }))).result;
     expect(provider).not.toBeNull();
   });
 
   test('the insurer re-credentialing a provider keeps the keys the provider registered', async () => {
-    const cred = envelope('l2_credentialProvider', { walletId: W.drP, displayName: 'Dr P, credentialed', providerType: 'prescriber', npi: '1234567890' });
+    const cred = envelope('l2_credentialProvider', { walletId: W.drP, displayName: 'Dr P, credentialed', providerType: 'prescriber', npi: '1245319599' });
     expect((await rpcWith(byNode(insurerNode, cred), cred)).error).toBeUndefined();
     // Dr P can still speak for the wallet: the key survived the re-credentialing
     const body = message(W.drP, W.alice);

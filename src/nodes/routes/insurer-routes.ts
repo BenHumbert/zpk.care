@@ -24,7 +24,7 @@
  *   - System-wide queries (receipts, batches, audit log, chain proof)
  *   - Entity-filtered claim queries (member, prescriber, pharmacy, drug)
  *   - Full audit suite (chain integrity, financial balance, duplicates)
- *   - 12 report types (claims register, pharmacy/prescriber/member activity, etc.)
+ *   - 12 report types (claims register, pharmacy/prescriber/member activity, etc.), behind the node's admin credential
  *   - Admin operations (formulary publish, force batch, enrollment processing)
  *   - The prior-authorization queue: the engine's pending requests, approved or denied by the insurer
  *   - The Cost Estimator's price of a fill (l2_estimateCost, read as the plan)
@@ -36,12 +36,14 @@ import type { NautilusAppServer } from '../nautilus-app-server.js';
 import { PROVING_BUDGET_MS, type RouteRegistration } from '../nautilus-app-types.js';
 import type { KeyObject } from 'crypto';
 import { signRequest } from '../../security/signed-request.js';
-import { timingSafeEqual } from 'crypto';
+import { randomBytes, timingSafeEqual } from 'crypto';
 import { hashString } from '../../zkp/hash-utils.js';
 import { buildPlanFormulary, planNetworkRoot, type PlanFormulary } from '../../onboarding/plan-formulary.js';
 import { publishedTermsOf } from '../../l2/plan-terms.js';
 import { dispensingFeeError, quantityError } from '../../fulfillment/nadac-pricing.js';
-import { plainTextError } from '../../security/free-text.js';
+import { displayNameError, plainTextError } from '../../security/free-text.js';
+import { walletIdError } from '../../security/wallet-id.js';
+import { npiError } from '../../security/npi.js';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { join } from 'path';
 import { PersistedAttemptLimiter } from '../../security/attempt-limiter.js';
@@ -62,6 +64,7 @@ import type {
   CrossTabMeasure,
   VerifiedClaim,
 } from '../../reporting/report-types.js';
+import { ReportTooLargeError } from '../../reporting/reporting-service.js';
 
 // ─── A6: enrollment-code redemption ─────────────────────────────────────────────────────────
 // Kept out of the handler so /enrollment/process reads as the sequence it is. The Step 1 comment
@@ -256,11 +259,17 @@ async function redeemWithEmployers(
   signer: { privateKey: KeyObject },
 ): Promise<RedeemOutcome> {
   const path = `/tokens/${encodeURIComponent(code)}/validate`;
-  const body = JSON.stringify({ tokenPinHash });
   let refusal: string | null = null;
   let unreachable = 0;
 
   for (const c of candidates) {
+    // Each relay carries a fresh nonce, which the employer's validate route does not read, so no two relays the insurer
+    // signs share a signature. Ed25519 is deterministic, and what is signed is the method, the path, the time in
+    // milliseconds and the body's hash: before the nonce, one code and PIN hash relayed twice in a millisecond (many
+    // sources sending the same junk code at once) went out as byte-identical copies. The employer refused each copy 401
+    // as a replay and charged it to the insurer's caller key, and past 60 in a minute it refused the insurer's genuine
+    // relays before checking their signatures, so every member's enrollment with that employer failed for the minute.
+    const body = JSON.stringify({ tokenPinHash, nonce: randomBytes(16).toString('hex') });
     const headers = {
       'Content-Type': 'application/json',
       ...signRequest({ signerId: 'insurer', privateKey: signer.privateKey, method: 'POST', path, body }),
@@ -462,6 +471,118 @@ async function engineListPriorAuths(
   return { items: list.map(priorAuthView).filter((v): v is PriorAuthView => v !== null) };
 }
 
+// ─── Report requests ─────────────────────────────────────────────────────────────────────────
+// The security posture check of 2026-10-24 found the twelve /reports/* routes open, each computing over whatever
+// its body held up to the server's 5 MB cap. The REPORTS comment in buildInsurerRoutes says what changed; these are
+// the limits a report's body is held to.
+
+/**
+ * What one report request may hand this node to compute over. The screen's report is one member's, one pharmacy's,
+ * one prescriber's or one drug's claims, far inside these; a body at the server's 5 MB cap holds over 100,000 minimal
+ * claims.
+ */
+export const REPORT_LIMITS = {
+  /** Claims in one report. */
+  claims: 10_000,
+  /** Prior authorizations in one prior-authorization report. */
+  priorAuths: 1_000,
+  /** Values in any one list of a filter. */
+  filterValues: 1_000,
+  /** Characters in any one text value a report computes over. */
+  textChars: 128,
+} as const;
+
+/** The fields of a claim the reports read. Anything else a claim carries is passed through untouched. */
+const REPORT_CLAIM_FIELDS = [
+  'prescriptionHash', 'entryCommitment', 'patientPayCents', 'planPayCents', 'operationType', 'pharmacyWalletId',
+  'memberWalletId', 'prescriberWalletId', 'ndcHash', 'ingredientCostCents', 'dispensingFeeCents', 'quantityDispensed',
+  'dateOfService', 'ndc', 'gpi', 'daysSupply', 'fillNumber', 'brandName', 'therapeuticClass', 'tierLevel', 'dawCode',
+] as const satisfies readonly (keyof VerifiedClaim)[];
+
+/** The fields of a prior authorization the prior-authorization report reads. */
+const REPORT_PRIOR_AUTH_FIELDS = [
+  'ndcHash', 'memberWalletId', 'prescriberWalletId', 'approvalDate', 'expirationDate', 'approvedQuantity',
+] as const satisfies readonly (keyof PriorAuthContext)[];
+
+/** A filter's lists, each matched against every claim. */
+const REPORT_FILTER_LISTS = [
+  'pharmacyWalletIds', 'memberWalletIds', 'prescriberWalletIds', 'ndcs', 'gpis', 'tierLevels', 'therapeuticClasses', 'operationTypes',
+] as const satisfies readonly (keyof ReportFilter)[];
+
+/** A refused report request: 400 for a body of the wrong shape, 413 for one over REPORT_LIMITS. */
+interface ReportRefusal { status: 400 | 413; error: string }
+
+/**
+ * Why one value a report computes over is refused, or null: it is absent, null, a boolean, a number, or text within
+ * REPORT_LIMITS.textChars. Longer text is how a quantity a million digits long reached BigInt, and a date string was
+ * compared, as a number, with every claim.
+ */
+function reportValueError(where: string, v: unknown): ReportRefusal | null {
+  if (typeof v === 'string') {
+    return v.length > REPORT_LIMITS.textChars ? { status: 413, error: `${where} is longer than ${REPORT_LIMITS.textChars} characters` } : null;
+  }
+  if (v === undefined || v === null || typeof v === 'boolean' || typeof v === 'number') return null;
+  return { status: 400, error: `${where} must be a number or text` };
+}
+
+/** Why a report body's list of claims or prior authorizations is refused, or null when the report may read it. */
+function reportRecordsError(name: string, value: unknown, max: number, fields: readonly string[]): ReportRefusal | null {
+  if (!Array.isArray(value)) return { status: 400, error: `${name} must be a list` };
+  if (value.length > max) return { status: 413, error: `A report reads at most ${max} ${name}; this request has ${value.length}` };
+  for (let i = 0; i < value.length; i++) {
+    const record: unknown = value[i];
+    if (record === null || typeof record !== 'object' || Array.isArray(record)) return { status: 400, error: `${name}[${i}] is not a record` };
+    for (const field of fields) {
+      const refused = reportValueError(`${name}[${i}].${field}`, (record as Record<string, unknown>)[field]);
+      if (refused) return refused;
+    }
+  }
+  return null;
+}
+
+/**
+ * Why a report request's body is refused, or null when the report may run. `claims`, and `priorAuths` for the
+ * prior-authorization report, are lists within REPORT_LIMITS whose fields are numbers or short text; a filter is an
+ * object whose dates are numbers or short text and whose lists are within REPORT_LIMITS as well.
+ */
+export function reportBodyError(body: unknown, opts: { priorAuths?: boolean } = {}): ReportRefusal | null {
+  const b = (body !== null && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+  const claims = reportRecordsError('claims', b.claims, REPORT_LIMITS.claims, REPORT_CLAIM_FIELDS);
+  if (claims) return claims;
+  if (opts.priorAuths) {
+    const priorAuths = reportRecordsError('priorAuths', b.priorAuths, REPORT_LIMITS.priorAuths, REPORT_PRIOR_AUTH_FIELDS);
+    if (priorAuths) return priorAuths;
+  }
+  if (b.filter === undefined) return null;
+  if (b.filter === null || typeof b.filter !== 'object' || Array.isArray(b.filter)) return { status: 400, error: 'filter must be an object' };
+  const filter = b.filter as Record<string, unknown>;
+  // The date range is compared with every claim; the service also takes a bare { startDate, endDate } as one.
+  const dates: Array<[string, unknown]> = [['filter.startDate', filter.startDate], ['filter.endDate', filter.endDate]];
+  const range = filter.dateRange;
+  if (range !== undefined) {
+    if (range === null || typeof range !== 'object' || Array.isArray(range)) return { status: 400, error: 'filter.dateRange must be an object' };
+    const r = range as Record<string, unknown>;
+    dates.push(['filter.dateRange.startDate', r.startDate], ['filter.dateRange.endDate', r.endDate]);
+  }
+  for (const [where, v] of dates) {
+    const refused = reportValueError(where, v);
+    if (refused) return refused;
+  }
+  for (const list of REPORT_FILTER_LISTS) {
+    const values = filter[list];
+    if (values === undefined) continue;
+    if (!Array.isArray(values)) return { status: 400, error: `filter.${list} must be a list` };
+    if (values.length > REPORT_LIMITS.filterValues) {
+      return { status: 413, error: `filter.${list} holds at most ${REPORT_LIMITS.filterValues} values; this request has ${values.length}` };
+    }
+    for (let i = 0; i < values.length; i++) {
+      const refused = reportValueError(`filter.${list}[${i}]`, values[i]);
+      if (refused) return refused;
+    }
+  }
+  return null;
+}
+
 /**
  * Build all insurer routes.
  */
@@ -547,10 +668,30 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
 
   // ── Enrollment Processing ──────────────────────────────────
 
+  // How many codes one source may have this node ask an employer about in a minute, a source being the caller as
+  // server.callerKey writes it: an IPv4 address, the /64 of an IPv6 address, or behind a reverse proxy listed in
+  // ZKTRIDENT_TRUSTED_PROXIES, the client the proxy names. Each code that passes the route's own checks is sent to the
+  // issuing employer's validate oracle signed as the insurer, after a read of the sequencer's tenant registry unless an
+  // employer URL is configured. The oracle charges a request the insurer signed to no caller: it spends one of the 600
+  // answers a minute the oracle gives in all (validateOverall, employer-routes.ts), which every member's enrollment
+  // with that employer shares. Only a request that does not prove it is the insurer's is charged to its caller, and no
+  // relay of this node's is refused as a copy of another, since each is signed over a nonce of its own
+  // (redeemWithEmployers). With no limit here, one client sending ten junk codes a second would spend the 600, and
+  // every member's enrollment with that employer would be answered 502 (the employer returned 429) for as long as it
+  // kept on, at no cost to it, since nothing is kept. A member's enrollment sends one redemption, and another only
+  // after a failure the member sees: a wrong PIN, which the employer locks after five, or an employer or a sequencer
+  // that did not answer. A repeat of a redeemed code with its PIN hash is answered from the record, and a request
+  // refused for what it says asks no one, so neither counts. Ten a minute is more than one member's enrollment and its
+  // retries send, and a sixtieth of the oracle's 600, so it takes sixty sources to spend them. Members behind one
+  // address (a household, an office, a carrier's shared IPv4 address) share the ten. A client with many sources is the
+  // general rate limit's to answer (A-80).
+  const REDEMPTIONS_PER_SOURCE_PER_MINUTE = 10;
+  const redemptionsPerSource = new SlidingWindowLimiter(REDEMPTIONS_PER_SOURCE_PER_MINUTE, 60_000);
+
   routes.push({
     method: 'POST',
     path: '/enrollment/process',
-    handler: async (_req, res, _params, _query, body) => {
+    handler: async (req, res, _params, _query, body) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) {
         return server.sendResponse(res, 503, false, undefined, 'Insurer node not configured');
@@ -586,6 +727,14 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!signer) {
         return server.sendResponse(res, 500, false, undefined,
           'The insurer signing seed is not configured, so enrollment codes cannot be validated.');
+      }
+      // Counted here, before the tenant registry or any employer is asked: the employer's oracle sees every relay as the
+      // insurer's, so this limit is what keeps one client from spending the 600 answers a minute every member's
+      // enrollment with that employer shares.
+      if (!redemptionsPerSource.allow(server.callerKey(req))) {
+        res.setHeader('Retry-After', '60');
+        return server.sendResponse(res, 429, false, undefined,
+          'Too many enrollment codes from this address in the last minute. Try again in a minute.');
       }
       const targets = await resolveCodeTargets(server, code, b.employerId);
       if ('error' in targets) return server.sendResponse(res, targets.status, false, undefined, targets.error);
@@ -713,10 +862,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   // ── Recovery deposits — plan item A12b (PRD-1) ───────────────────────────────
   // A card carries one share and nothing that depends on the PIN; the other share, the salt and
   // the group and plan hashes are here, released only against the PIN verifier the device computed
-  // at enrollment, attempt-limited per card and locked after ten failures. Revocable.
+  // at enrollment, attempt-limited per card and locked after ten failures. Revocable. Each caller
+  // may ask 30 times a minute, a caller as server.callerKey names it: behind a reverse proxy the
+  // node trusts, each member's own address, where the proxy's would let one client's bad requests
+  // refuse every member's recovery.
   const RELEASE_LOCK_AFTER = 10;
   async function releaseOrRevoke(req: IncomingMessage, res: ServerResponse, body: unknown, mode: 'release' | 'revoke'): Promise<void> {
-    const caller = req.socket?.remoteAddress ?? 'unknown';
+    const caller = server.callerKey(req);
     if (!recoveryPerCaller(server).allow(caller)) {
       res.setHeader('Retry-After', '60');
       return server.sendResponse(res, 429, false, undefined, 'Too many recovery requests. Try again in a minute.');
@@ -1109,6 +1261,15 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   //  REPORTS (12 types — all POST with claims + optional filter)
   // ══════════════════════════════════════════════════════════
 
+  /*
+   * Found by the security posture check of 2026-10-24: these twelve routes took no credential, and each computed
+   * over whatever claims its body held, up to the server's 5 MB body cap. Over 100,000 minimal claims, a pivot of
+   * every distinct value against every other, or a quantity a million digits long for BigInt to parse held this
+   * node's one thread for as long as the caller liked, and the reports are plan-wide claim data besides. Every
+   * report now takes this node's admin credential, as the plan-wide reads above do, and its body is held to
+   * REPORT_LIMITS (reportBodyError) before anything is computed; a cross-tab is held to MAX_CROSS_TAB_CELLS too.
+   */
+
   // Helper type for report request bodies
   type ReportBody = {
     claims: VerifiedClaim[];
@@ -1118,11 +1279,14 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'POST',
     path: '/reports/claims-register',
+    adminOnly: true,
     handler: async (_req, res, _params, _query, body) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as ReportBody | undefined;
       if (!b?.claims) return server.sendResponse(res, 400, false, undefined, 'Missing claims');
+      const refused = reportBodyError(b);
+      if (refused) return server.sendResponse(res, refused.status, false, undefined, refused.error);
       try {
         server.sendResponse(res, 200, true, node.generateClaimsRegister(b.claims, b.filter));
       } catch (err) {
@@ -1134,11 +1298,14 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'POST',
     path: '/reports/pharmacy-activity',
+    adminOnly: true,
     handler: async (_req, res, _params, _query, body) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as ReportBody | undefined;
       if (!b?.claims) return server.sendResponse(res, 400, false, undefined, 'Missing claims');
+      const refused = reportBodyError(b);
+      if (refused) return server.sendResponse(res, refused.status, false, undefined, refused.error);
       try {
         server.sendResponse(res, 200, true, node.generatePharmacyReport(b.claims, b.filter));
       } catch (err) {
@@ -1150,11 +1317,14 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'POST',
     path: '/reports/prescriber-activity',
+    adminOnly: true,
     handler: async (_req, res, _params, _query, body) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as ReportBody | undefined;
       if (!b?.claims) return server.sendResponse(res, 400, false, undefined, 'Missing claims');
+      const refused = reportBodyError(b);
+      if (refused) return server.sendResponse(res, refused.status, false, undefined, refused.error);
       try {
         server.sendResponse(res, 200, true, node.generatePrescriberReport(b.claims, b.filter));
       } catch (err) {
@@ -1166,11 +1336,14 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'POST',
     path: '/reports/member-activity',
+    adminOnly: true,
     handler: async (_req, res, _params, _query, body) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as ReportBody | undefined;
       if (!b?.claims) return server.sendResponse(res, 400, false, undefined, 'Missing claims');
+      const refused = reportBodyError(b);
+      if (refused) return server.sendResponse(res, refused.status, false, undefined, refused.error);
       try {
         server.sendResponse(res, 200, true, node.generateMemberReport(b.claims, b.filter));
       } catch (err) {
@@ -1182,11 +1355,14 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'POST',
     path: '/reports/medication-utilization',
+    adminOnly: true,
     handler: async (_req, res, _params, _query, body) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as ReportBody | undefined;
       if (!b?.claims) return server.sendResponse(res, 400, false, undefined, 'Missing claims');
+      const refused = reportBodyError(b);
+      if (refused) return server.sendResponse(res, refused.status, false, undefined, refused.error);
       try {
         server.sendResponse(res, 200, true, node.generateMedicationUtilization(b.claims, b.filter));
       } catch (err) {
@@ -1198,11 +1374,14 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'POST',
     path: '/reports/financial-summary',
+    adminOnly: true,
     handler: async (_req, res, _params, _query, body) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as ReportBody | undefined;
       if (!b?.claims) return server.sendResponse(res, 400, false, undefined, 'Missing claims');
+      const refused = reportBodyError(b);
+      if (refused) return server.sendResponse(res, refused.status, false, undefined, refused.error);
       try {
         server.sendResponse(res, 200, true, node.generateFinancialSummary(b.claims, b.filter));
       } catch (err) {
@@ -1214,11 +1393,14 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'POST',
     path: '/reports/prior-auth',
+    adminOnly: true,
     handler: async (_req, res, _params, _query, body) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as { claims?: VerifiedClaim[]; priorAuths?: PriorAuthContext[]; filter?: ReportFilter } | undefined;
       if (!b?.claims || !b?.priorAuths) return server.sendResponse(res, 400, false, undefined, 'Missing claims or priorAuths');
+      const refused = reportBodyError(b, { priorAuths: true });
+      if (refused) return server.sendResponse(res, refused.status, false, undefined, refused.error);
       try {
         server.sendResponse(res, 200, true, node.generatePriorAuthReport(b.claims, b.priorAuths, b.filter));
       } catch (err) {
@@ -1230,11 +1412,14 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'POST',
     path: '/reports/reversals',
+    adminOnly: true,
     handler: async (_req, res, _params, _query, body) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as ReportBody | undefined;
       if (!b?.claims) return server.sendResponse(res, 400, false, undefined, 'Missing claims');
+      const refused = reportBodyError(b);
+      if (refused) return server.sendResponse(res, refused.status, false, undefined, refused.error);
       try {
         server.sendResponse(res, 200, true, node.generateReversalReport(b.claims, b.filter));
       } catch (err) {
@@ -1246,11 +1431,14 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'POST',
     path: '/reports/tier-analysis',
+    adminOnly: true,
     handler: async (_req, res, _params, _query, body) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as ReportBody | undefined;
       if (!b?.claims) return server.sendResponse(res, 400, false, undefined, 'Missing claims');
+      const refused = reportBodyError(b);
+      if (refused) return server.sendResponse(res, refused.status, false, undefined, refused.error);
       try {
         server.sendResponse(res, 200, true, node.generateTierAnalysis(b.claims, b.filter));
       } catch (err) {
@@ -1262,11 +1450,14 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'POST',
     path: '/reports/therapeutic-class',
+    adminOnly: true,
     handler: async (_req, res, _params, _query, body) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as ReportBody | undefined;
       if (!b?.claims) return server.sendResponse(res, 400, false, undefined, 'Missing claims');
+      const refused = reportBodyError(b);
+      if (refused) return server.sendResponse(res, refused.status, false, undefined, refused.error);
       try {
         server.sendResponse(res, 200, true, node.generateTherapeuticClassReport(b.claims, b.filter));
       } catch (err) {
@@ -1278,11 +1469,14 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'POST',
     path: '/reports/time-series',
+    adminOnly: true,
     handler: async (_req, res, _params, _query, body) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = body as { claims?: VerifiedClaim[]; bucket?: TimeBucket; filter?: ReportFilter } | undefined;
       if (!b?.claims) return server.sendResponse(res, 400, false, undefined, 'Missing claims');
+      const refused = reportBodyError(b);
+      if (refused) return server.sendResponse(res, refused.status, false, undefined, refused.error);
       try {
         server.sendResponse(res, 200, true, node.generateTimeSeries(b.claims, b.bucket, b.filter));
       } catch (err) {
@@ -1294,6 +1488,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'POST',
     path: '/reports/cross-tab',
+    adminOnly: true,
     handler: async (_req, res, _params, _query, body) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
@@ -1307,10 +1502,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!b?.claims || !b?.row || !b?.col || !b?.measure) {
         return server.sendResponse(res, 400, false, undefined, 'Missing claims, row, col, or measure');
       }
+      const refused = reportBodyError(b);
+      if (refused) return server.sendResponse(res, refused.status, false, undefined, refused.error);
       try {
         server.sendResponse(res, 200, true, node.generateCrossTab(b.claims, b.row, b.col, b.measure, b.filter));
       } catch (err) {
-        server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+        // More cells than MAX_CROSS_TAB_CELLS is the request's size, not this node's failure.
+        server.sendResponse(res, err instanceof ReportTooLargeError ? 413 : 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
       }
     },
   });
@@ -1363,7 +1561,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   // ══════════════════════════════════════════════════════════
   //  CREDENTIALING PIPELINE
   //
-  //  Production flow:
+  //  The flow:
   //    1. Provider submits application → POST /credentialing/apply
   //    2. Insurer verifies NPI/NCPDP   → POST /credentialing/verify/:id
   //    3. Insurer approves/denies      → POST /credentialing/approve/:id
@@ -1374,7 +1572,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   //  via l2_credentialProvider, skipping the application workflow.
   // ══════════════════════════════════════════════════════════
 
-  // In-memory application store (production: database-backed)
+  // The applications, kept in memory: a restart forgets the open ones, and their providers apply again.
   const applications = new Map<string, {
     applicationId: string;
     providerType: 'prescriber' | 'pharmacy';
@@ -1385,6 +1583,8 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     deaNumber?: string;
     stateOfLicense?: string;
     walletId?: string;
+    /** The caller as server.callerKey writes it: what the per-source limits count, and never listed. */
+    source: string;
     submittedAt: number;
     status: 'pending' | 'under_review' | 'verified' | 'approved' | 'denied';
     denialReason?: string;
@@ -1395,20 +1595,61 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   // In-flight approval guard — prevents concurrent approvals of the same application
   const approvalsInFlight = new Set<string>();
 
+  // The most applications open at once (neither approved nor denied): the route is open to anyone, so without a bound
+  // the store would grow with every request. It bounds memory, not how much of it one source fills; the per-source
+  // limits below do that.
+  const MAX_OPEN_APPLICATIONS = 1_000;
+
+  // What one source may file, a source being the caller as server.callerKey writes it: an IPv4 address; the /64 of an
+  // IPv6 address, since one host commonly holds a whole /64; or for a link-local address, fe80::/64 on the interface it
+  // arrived on, since any host on a link can take as many link-local addresses as it likes (addressKey, rate-limit.ts).
+  // A provider's office files a few. At most 10 of a source's applications are open at once, so it holds no more than
+  // 10 of the slots above however long staff take to decide them, and at most 20 are kept from it in an hour, so it
+  // cannot file again as fast as staff deny. Before these, one limit of 10 an hour counted each raw socket address: one
+  // IPv6 host filled every slot from addresses of its own /64 in seconds, and one address filing its 10 an hour kept
+  // the store full as staff denied (the review of A-89). A reverse proxy in front of this node is one source for
+  // everyone behind it unless ZKTRIDENT_TRUSTED_PROXIES lists it, and then each caller is the client the proxy names in
+  // X-Forwarded-For. A client with many sources (a swarm: about 100 IPv4 addresses or /64s fill every slot) still gets
+  // ten open from each, which is the general rate limit's to answer (A-80).
+  const MAX_OPEN_PER_SOURCE = 10;
+  const APPLICATIONS_PER_SOURCE_PER_HOUR = 20;
+  const applicationsPerSource = new SlidingWindowLimiter(APPLICATIONS_PER_SOURCE_PER_HOUR, 60 * 60_000);
+  // The Retry-After of every refusal past a limit, in seconds: a source's oldest counted application leaves the window
+  // within the hour, and an open slot comes back only as staff decide applications, on no schedule this route knows.
+  const APPLY_RETRY_AFTER_SECONDS = 60 * 60;
+
+  // The fields an applicant may leave out. One sent as null or empty is one not sent, as l2_registerEntity and
+  // l2_credentialProvider read it, and the stored application holds only those given.
+  const OPTIONAL_APPLICATION_FIELDS = ['specialty', 'pharmacyType', 'deaNumber', 'stateOfLicense', 'walletId'] as const;
+
+  // The application that holds an NPI, other than `except`: one verified or approved. An open application holds
+  // nothing: an NPI is public, so anyone can apply under one, and the insurer's staff see every application for it and
+  // verify the genuine one. Before this, the first application held its NPI, so a squatter who applied under a real
+  // provider's NPI locked that provider out, and the refusal told anyone whether an NPI had an application and in what
+  // status (the review of A-89). Every NPI kept is ten digits with its check digit (npiError, at the apply route), so
+  // comparing them as written compares NPIs: before that, an NPI with a trailing space or an invisible character was
+  // another string that read the same on a screen, held by nothing and holding nothing against the genuine one.
+  function holderOfNpi(npi: string, except?: string) {
+    for (const a of applications.values()) {
+      if (a.npi === npi && a.applicationId !== except && (a.status === 'verified' || a.status === 'approved')) return a;
+    }
+    return undefined;
+  }
+
   // POST /credentialing/apply — Provider submits application
   routes.push({
     method: 'POST',
     path: '/credentialing/apply',
-    handler: async (_req, res, _params, _query, body) => {
+    handler: async (req, res, _params, _query, body) => {
       const b = body as {
         providerType?: string;
         npi?: string;
         displayName?: string;
-        specialty?: string;
-        pharmacyType?: string;
-        deaNumber?: string;
-        stateOfLicense?: string;
-        walletId?: string;
+        specialty?: unknown;
+        pharmacyType?: unknown;
+        deaNumber?: unknown;
+        stateOfLicense?: unknown;
+        walletId?: unknown;
       } | undefined;
 
       if (!b?.providerType || !b?.npi || !b?.displayName) {
@@ -1417,13 +1658,48 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (b.providerType !== 'prescriber' && b.providerType !== 'pharmacy') {
         return server.sendResponse(res, 400, false, undefined, 'providerType must be "prescriber" or "pharmacy"');
       }
-
-      // Check for duplicate NPI
-      for (const app of applications.values()) {
-        if (app.npi === b.npi && app.status !== 'denied') {
-          return server.sendResponse(res, 409, false, undefined, `NPI ${b.npi} already has a ${app.status} application`);
-        }
+      // A-74's rule where an applicant enters: what the insurer's screens draw and an approval sends to the sequencer is
+      // a short line of plain text, a wallet ID is one as the network writes it, and an NPI is ten digits with its
+      // check digit, the one form the insurer compares (holderOfNpi) and the sequencer hashes into its registry's key.
+      const fieldProblem = displayNameError(b.displayName) ?? npiError(b.npi);
+      if (fieldProblem) return server.sendResponse(res, 400, false, undefined, fieldProblem);
+      const given: Partial<Record<typeof OPTIONAL_APPLICATION_FIELDS[number], string>> = {};
+      for (const field of OPTIONAL_APPLICATION_FIELDS) {
+        const value = b[field];
+        if (value === undefined || value === null || value === '') continue;
+        const problem = field === 'walletId' ? walletIdError(value) : displayNameError(value, field);
+        if (problem) return server.sendResponse(res, 400, false, undefined, problem);
+        given[field] = value as string;
       }
+      // The refusal says no more than that the NPI is taken; the network's provider directory lists a credentialed
+      // provider's NPI anyway.
+      if (holderOfNpi(b.npi)) {
+        return server.sendResponse(res, 409, false, undefined, 'This NPI is already verified or credentialed with the insurer');
+      }
+      // What the application says is answered first (400, 409), then what its source has filed (429), then what the
+      // insurer holds (503). Only an application kept counts against its source: the hour's count is read here and
+      // added to once nothing has refused it.
+      const source = server.callerKey(req);
+      let open = 0;
+      let openFromSource = 0;
+      for (const a of applications.values()) {
+        if (a.status === 'approved' || a.status === 'denied') continue;
+        open++;
+        if (a.source === source) openFromSource++;
+      }
+      if (openFromSource >= MAX_OPEN_PER_SOURCE) {
+        res.setHeader('Retry-After', String(APPLY_RETRY_AFTER_SECONDS));
+        return server.sendResponse(res, 429, false, undefined, 'Too many open credentialing applications from this address. Apply again once the insurer decides one.');
+      }
+      if (applicationsPerSource.count(source) >= APPLICATIONS_PER_SOURCE_PER_HOUR) {
+        res.setHeader('Retry-After', String(APPLY_RETRY_AFTER_SECONDS));
+        return server.sendResponse(res, 429, false, undefined, 'Too many credentialing applications from this address in the last hour. Try again in an hour.');
+      }
+      if (open >= MAX_OPEN_APPLICATIONS) {
+        res.setHeader('Retry-After', String(APPLY_RETRY_AFTER_SECONDS));
+        return server.sendResponse(res, 503, false, undefined, 'The insurer holds as many open credentialing applications as it keeps: apply again once some are decided');
+      }
+      applicationsPerSource.allow(source);
 
       const applicationId = `APP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const app = {
@@ -1431,11 +1707,8 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         providerType: b.providerType as 'prescriber' | 'pharmacy',
         npi: b.npi,
         displayName: b.displayName,
-        specialty: b.specialty,
-        pharmacyType: b.pharmacyType,
-        deaNumber: b.deaNumber,
-        stateOfLicense: b.stateOfLicense,
-        walletId: b.walletId,
+        ...given,
+        source,
         submittedAt: Date.now(),
         status: 'pending' as const,
       };
@@ -1460,9 +1733,14 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (app.status !== 'pending' && app.status !== 'under_review') {
         return server.sendResponse(res, 409, false, undefined, `Cannot verify in status: ${app.status}`);
       }
+      // Verifying one application for an NPI picks it from the others for that NPI.
+      const holder = holderOfNpi(app.npi, app.applicationId);
+      if (holder) {
+        return server.sendResponse(res, 409, false, undefined, `Application ${holder.applicationId} for the same NPI is already ${holder.status}`);
+      }
 
-      // In production: call NPPES API, check DEA, state license board, etc.
-      // For now: mark as verified
+      // The insurer's staff check the NPI, the DEA registration and the state license outside this system, then mark the
+      // application verified here.
       app.status = 'verified';
       app.verifiedAt = Date.now();
 
@@ -1489,6 +1767,12 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       }
       if (app.status !== 'verified' && app.status !== 'pending') {
         return server.sendResponse(res, 409, false, undefined, `Cannot approve in status: ${app.status}`);
+      }
+      // An approval may skip verification, so it too refuses an application whose NPI another holds: staff who verified
+      // the genuine application cannot credential the squatter's beside it.
+      const holder = holderOfNpi(app.npi, app.applicationId);
+      if (holder) {
+        return server.sendResponse(res, 409, false, undefined, `Application ${holder.applicationId} for the same NPI is already ${holder.status}`);
       }
 
       // Prevent concurrent approvals of the same application
@@ -1578,17 +1862,20 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     },
   });
 
-  // GET /credentialing/applications — List all applications (read-only)
+  // GET /credentialing/applications — every application, for the insurer's staff: each holds what its applicant entered,
+  // the NPI, the DEA number and the wallet ID among it, and not the source the per-source limits count, which is the
+  // applicant's network address rather than anything the applicant entered, and which no screen has a use for
   routes.push({
     method: 'GET',
     path: '/credentialing/applications',
+    adminOnly: true,
     handler: async (_req, res, _params, query) => {
       const statusFilter = query.get('status');
       let apps = Array.from(applications.values());
       if (statusFilter) apps = apps.filter(a => a.status === statusFilter);
       server.sendResponse(res, 200, true, {
         total: apps.length,
-        applications: apps,
+        applications: apps.map(({ source: _source, ...entered }) => entered),
       });
     },
   });
@@ -2147,14 +2434,14 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
    * its own application, by the ID its attestation carries, to tell the employer what to do; only this node holds the
    * plans an employer selected. Open, like the marketplace's other per-application reads: it answers plan IDs and nothing
    * about the employer or any member, and unlike the agreement route it leaves the agreement being signed untouched.
-   * Rate-limited per caller, because each answer reads the plans from the sequencer.
+   * Rate-limited per caller (server.callerKey), because each answer reads the plans from the sequencer.
    */
   const plansToAddPerCaller = new SlidingWindowLimiter(30, 60_000);
   routes.push({
     method: 'GET',
     path: '/employer-agreements/:applicationId/plans-to-add',
     handler: async (req, res, params) => {
-      if (!plansToAddPerCaller.allow(req.socket?.remoteAddress ?? 'unknown')) {
+      if (!plansToAddPerCaller.allow(server.callerKey(req))) {
         res.setHeader('Retry-After', '60');
         return server.sendResponse(res, 429, false, undefined, 'Too many requests. Try again in a minute.');
       }

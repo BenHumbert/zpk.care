@@ -3126,3 +3126,35 @@ walkthrough's cast also used as the cardholder ID shown in clear, a 33 s frozen 
 overflowed under the film's CSS zoom, so its close button was off screen), whiteboard notes printed over equations,
 and A-75 to A-77. All fixed before the re-take; regression batch 118 suites, 1350 tests; typecheck src 18, scripts 2.
 The owner asked for a short cut as well: a 7-minute version for pitching beside the 24-minute deep dive.
+
+**Addendum, 2026-10-24: the security posture check and its fixes (A-61, A-74 and A-78 to A-95).** The owner accepted
+the walkthrough's first voiced cut and shelved the re-takes. On the owner's request the system was then checked against
+the exploits published in the two weeks before 2026-10-24, and for how it stands against a swarm of rogue agents as one
+member, at the sequencer, and at the insurer and employer. The report stays local, since it describes exploitable bugs.
+It found A-78 to A-87 (two high, four medium, four low). The owner chose to fix those first, then option A of A-22's
+money half (the engine keeps making the fill proof; the sequencer and the phone verify it; the ledger's amounts are tied
+to the phone's proof), accepted the same day with all 17 of its spec's defaults (`docs/research/a22-option-a-spec.md`),
+then the sequencer's rate limits and D8. The owner added the out-of-the-box package as the last task.
+
+Four fixers in parallel worktrees fixed the check's items with A-61 and A-74; two independent reviews found seven more
+problems, fixed by hand. Five more rounds then ran as workflows: fixers that each owned their own files in the working
+tree, a sequential step that put each lane's sources back to their state before the round and confirmed every new test
+failed there, and reviewers whose every finding a skeptic tried to refute (26 confirmed, 2 refuted). Every confirmed
+finding was fixed or recorded. They found A-88 (inline handlers carrying values on five screens), A-89's later shape
+(credentialing per source, real NPIs), A-91 (a formulary removal under a search that published the wrong list), A-92
+(per-caller limits blind behind a proxy: `ZKTRIDENT_TRUSTED_PROXIES`, `callerKey`), A-93 (the enrollment relay one
+client could close), A-94 (the marketplace signup one client could close) and A-95 (open: the insurer's formulary page
+does not read back what it publishes). A read-only sweep of the 94 routes anyone can call widened A-80 and named four
+routes that need more than a limit.
+
+Scoreboard: 95 findings; 86 fixed; 9 open (A-22, A-25, A-33 under the interim lease, A-59, A-60, A-80, A-85, A-90,
+A-95), none critical. Verified: regression batch 131 suites, 1594 tests, all passing; typecheck src 18, scripts 2. Git:
+with this round, 77 commits on local `dev` (the fixes, then the option A spec), nothing pushed. Owner actions waiting
+(the owner's own): Node 22.23.4 or 24.22.1, removing the global npm 8, a VS Code update, a Chrome relaunch, Defender
+real-time protection.
+
+**Next:** the sweep's four routes, verified first (`l2_getAttestation`, which hands out any member's attestation that the
+drug-history reads accept; the engine's open `/interactive/l2-status`; the engine's unbounded request bodies; the
+member PIN backoff's race) and the rounds' low leftovers (A-92: a reset client counted as the shared unknown source, a
+gone client's budget timer; A-93: the device's 502 and 503 messages and the member screen's missing retry). Then option
+A, steps 1 to 8, with both harness runs at the end; then A-80 with D8, B4, A-59, A-60 and phase E; last, the package.

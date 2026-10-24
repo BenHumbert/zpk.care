@@ -28,6 +28,10 @@
  *   5. Selected Medication (detail card)
  *   6. Write Prescription (form + button)
  *   + ZK Detail sections (Prescription Credential, Forest, Data, Status)
+ *
+ * Every value from the engine's state or an engine reply (a display name, a wallet ID, a family or thread ID, a
+ * reason, an error) is escaped with escapeHtml (message-thread.js) before it is placed in the page: a member's name is
+ * whatever its device registered, and this page holds the operator token (A-61).
  */
 
 import {
@@ -119,9 +123,9 @@ export class PrescriberPhase {
                 <div class="entity-card ${isPcp ? 'pcp-assigned' : ''}" data-index="${p.index}">
                   ${isPcp ? '<span class="pcp-verified-badge">PCP</span>' : ''}
                   ${hasPrescriberNetwork ? '<span class="network-badge">In-Network</span>' : ''}
-                  <div class="entity-name" style="color: var(--color-prescriber);">Dr. ${p.firstName} ${p.lastName}, ${p.credential}</div>
-                  <div class="entity-detail">${p.specialty}</div>
-                  <div class="entity-detail">NPI: ${p.npi} | ${p.state}</div>
+                  <div class="entity-name" style="color: var(--color-prescriber);">Dr. ${escapeHtml(p.firstName)} ${escapeHtml(p.lastName)}, ${escapeHtml(p.credential)}</div>
+                  <div class="entity-detail">${escapeHtml(p.specialty)}</div>
+                  <div class="entity-detail">NPI: ${escapeHtml(p.npi)} | ${escapeHtml(p.state)}</div>
                 </div>
               `;
             }).join('')}
@@ -181,9 +185,9 @@ export class PrescriberPhase {
             ${pharmacies.map(p => `
               <div class="entity-card" data-index="${p.index}">
                 ${hasPharmacyNetwork ? '<span class="network-badge">In-Network</span>' : ''}
-                <div class="entity-name" style="color: var(--color-pharmacy);">${p.storeName}</div>
-                <div class="entity-detail">${p.pharmacyType}</div>
-                <div class="entity-detail">${p.city}, ${p.state}</div>
+                <div class="entity-name" style="color: var(--color-pharmacy);">${escapeHtml(p.storeName)}</div>
+                <div class="entity-detail">${escapeHtml(p.pharmacyType)}</div>
+                <div class="entity-detail">${escapeHtml(p.city)}, ${escapeHtml(p.state)}</div>
               </div>
             `).join('')}
           </div>
@@ -227,8 +231,8 @@ export class PrescriberPhase {
                   if (m.deaSchedule > 0) badges.push(`<span class="dea-badge dea-schedule-${m.deaSchedule}">C${m.deaSchedule}</span>`);
                   return `
                   <tr data-index="${i}" class="${paClass}${removedClass}">
-                    <td>${m.brandName}${badges.length ? ' ' + badges.join(' ') : ''}</td>
-                    <td>${m.strength}</td>
+                    <td>${escapeHtml(m.brandName)}${badges.length ? ' ' + badges.join(' ') : ''}</td>
+                    <td>${escapeHtml(m.strength)}</td>
                     <td><span class="tier-badge tier-${tier}">Tier ${tier}</span></td>
                     <td>${formatCents(copay)}</td>
                     <td>${paBadge}</td>
@@ -403,15 +407,15 @@ export class PrescriberPhase {
     for (const [familyId, members] of families) {
       if (members.length > 1) {
         // Family group header
-        html += `<optgroup label="${familyId} (${members.length} members)">`;
+        html += `<optgroup label="${escapeHtml(familyId)} (${members.length} members)">`;
         for (const m of members) {
           const badge = m.relationship || '';
-          html += `<option value="${m.walletId}">${m.displayName} [${badge}] (${m.walletIdDisplay || m.walletId})</option>`;
+          html += `<option value="${escapeHtml(m.walletId)}">${escapeHtml(m.displayName)} [${escapeHtml(badge)}] (${escapeHtml(m.walletIdDisplay || m.walletId)})</option>`;
         }
         html += `</optgroup>`;
       } else {
         const m = members[0];
-        html += `<option value="${m.walletId}">${m.displayName} (${m.walletIdDisplay || m.walletId})</option>`;
+        html += `<option value="${escapeHtml(m.walletId)}">${escapeHtml(m.displayName)} (${escapeHtml(m.walletIdDisplay || m.walletId)})</option>`;
       }
     }
     return html;
@@ -520,12 +524,12 @@ export class PrescriberPhase {
     document.getElementById('med-detail-body').innerHTML = `
       ${removedNotice}
       <div class="data-grid">
-        <div class="label">Brand Name</div><div class="value">${med.brandName}</div>
-        <div class="label">Generic Name</div><div class="value">${med.genericName}</div>
-        <div class="label">Strength</div><div class="value">${med.strength}</div>
-        <div class="label">Dosage Form</div><div class="value">${med.dosageForm}</div>
-        <div class="label">Route</div><div class="value">${med.route}</div>
-        <div class="label">NDC</div><div class="value mono">${med.ndc}</div>
+        <div class="label">Brand Name</div><div class="value">${escapeHtml(med.brandName)}</div>
+        <div class="label">Generic Name</div><div class="value">${escapeHtml(med.genericName)}</div>
+        <div class="label">Strength</div><div class="value">${escapeHtml(med.strength)}</div>
+        <div class="label">Dosage Form</div><div class="value">${escapeHtml(med.dosageForm)}</div>
+        <div class="label">Route</div><div class="value">${escapeHtml(med.route)}</div>
+        <div class="label">NDC</div><div class="value mono">${escapeHtml(med.ndc)}</div>
         <div class="label">Tier</div><div class="value"><span class="tier-badge tier-${tier}">Tier ${tier}</span></div>
         <div class="label">Copay</div><div class="value">${formatCents(copay)}</div>
         <div class="label">Prior Auth</div><div class="value">${paDisplay}</div>
@@ -533,8 +537,8 @@ export class PrescriberPhase {
         <div class="label">Max Qty/Fill</div><div class="value">${med.maxQuantityPerFill}</div>
         <div class="label">Max Day Supply</div><div class="value">${med.maxDaySupply}</div>
         <div class="label">NADAC Unit Price</div><div class="value">${nadacPerUnitLabel(med)}</div>
-        <div class="label">Manufacturer</div><div class="value">${med.manufacturer}</div>
-        <div class="label">Therapeutic Class</div><div class="value">${med.therapeuticClass}</div>
+        <div class="label">Manufacturer</div><div class="value">${escapeHtml(med.manufacturer)}</div>
+        <div class="label">Therapeutic Class</div><div class="value">${escapeHtml(med.therapeuticClass)}</div>
         <div class="label">DEA Schedule</div><div class="value">${deaDisplay}</div>
       </div>
       ${paAction}
@@ -587,15 +591,15 @@ export class PrescriberPhase {
 
       if (result.allowed) {
         container.innerHTML = `<div class="step-therapy-box step-therapy-met">
-          Step therapy satisfied${result.message ? ' — ' + result.message : ''}.
+          Step therapy satisfied${result.message ? ' — ' + escapeHtml(result.message) : ''}.
         </div>`;
       } else {
         const prereqs = result.prerequisiteMeds?.length
           ? result.prerequisiteMeds.join(', ')
           : result.prerequisiteClass || 'prerequisite medication';
         container.innerHTML = `<div class="step-therapy-box step-therapy-not-met">
-          <strong>Step therapy not met.</strong> ${result.message || ''}<br>
-          <span style="font-size: 12px;">Required prerequisite: ${prereqs}</span>
+          <strong>Step therapy not met.</strong> ${escapeHtml(result.message || '')}<br>
+          <span style="font-size: 12px;">Required prerequisite: ${escapeHtml(prereqs)}</span>
         </div>`;
       }
     } catch {
@@ -662,7 +666,7 @@ export class PrescriberPhase {
     } catch (err) {
       const paBox = document.querySelector('.pa-status-box');
       if (paBox) {
-        paBox.innerHTML = `<div style="color: var(--accent-red);">Error: ${err.message}</div>`;
+        paBox.innerHTML = `<div style="color: var(--accent-red);">Error: ${escapeHtml(err.message)}</div>`;
       }
       if (btn) btn.disabled = false;
     } finally {
@@ -737,12 +741,12 @@ export class PrescriberPhase {
         } else {
           rxRows = history.prescriptionHistory.map(rx => `
             <tr>
-              <td>${rx.medication}</td>
-              <td>${rx.strength}</td>
-              <td>${rx.prescriber}</td>
-              <td>${rx.pharmacy}</td>
+              <td>${escapeHtml(rx.medication)}</td>
+              <td>${escapeHtml(rx.strength)}</td>
+              <td>${escapeHtml(rx.prescriber)}</td>
+              <td>${escapeHtml(rx.pharmacy)}</td>
               <td><span class="tier-badge tier-${rx.tier}">Tier ${rx.tier}</span></td>
-              <td style="color: ${rx.status === 'FILLED' ? 'var(--accent-green)' : 'var(--accent-blue)'};">${rx.status}</td>
+              <td style="color: ${rx.status === 'FILLED' ? 'var(--accent-green)' : 'var(--accent-blue)'};">${escapeHtml(rx.status)}</td>
             </tr>
           `).join('');
         }
@@ -756,8 +760,8 @@ export class PrescriberPhase {
           <div style="margin-bottom: 16px;">
             <div style="font-weight: 600; font-size: 13px; color: var(--color-member); margin-bottom: 8px;">Eligibility</div>
             <div class="data-grid">
-              <div class="label">Plan</div><div class="value">${history.eligibility.planId}</div>
-              <div class="label">Status</div><div class="value" style="color: var(--accent-green);">${history.eligibility.coverageStatus}</div>
+              <div class="label">Plan</div><div class="value">${escapeHtml(history.eligibility.planId)}</div>
+              <div class="label">Status</div><div class="value" style="color: var(--accent-green);">${escapeHtml(history.eligibility.coverageStatus)}</div>
               <div class="label">Formulary</div><div class="value">${history.eligibility.formularyCount} medications</div>
             </div>
           </div>
@@ -801,7 +805,7 @@ export class PrescriberPhase {
         `;
       } catch (err) {
         document.getElementById('pcp-view-body').innerHTML = `
-          <div style="color: var(--accent-red); padding: 8px;">Failed to load member data: ${err.message}</div>
+          <div style="color: var(--accent-red); padding: 8px;">Failed to load member data: ${escapeHtml(err.message)}</div>
         `;
       }
     } else if (this.pcpPrescriberIndex !== null) {
@@ -854,12 +858,12 @@ export class PrescriberPhase {
       const rows = history.prescriptionHistory.map(rx => `
         <tr class="drug-history-row">
           <td>
-            <div style="font-weight: 600;">${rx.medication}</div>
-            <div style="font-size: 11px; color: var(--text-muted);">${rx.strength}</div>
+            <div style="font-weight: 600;">${escapeHtml(rx.medication)}</div>
+            <div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(rx.strength)}</div>
           </td>
           <td><span class="tier-badge tier-${rx.tier}">Tier ${rx.tier}</span></td>
           <td style="font-size: 12px;">Qty ${rx.quantity} / ${rx.refills} refills</td>
-          <td><span class="rx-status-badge rx-status-${rx.status.toLowerCase().replace('_', '-')}">${rx.status.replace('_', ' ')}</span></td>
+          <td><span class="rx-status-badge rx-status-${escapeHtml(rx.status.toLowerCase().replace('_', '-'))}">${escapeHtml(rx.status.replace('_', ' '))}</span></td>
           <td class="hash-proof-cell">
             <div class="hash-proof" title="PrescriptionData commitment — Poseidon.hash(7 fields)">
               <span class="hash-label">Rx</span>
@@ -883,9 +887,9 @@ export class PrescriberPhase {
               <span class="hash-detail-label">NDC Hash</span>
               <span class="hash-detail-value">${truncHash(rx.ndcHash)}</span>
               <span class="hash-detail-label" style="margin-left: 16px;">Prescriber</span>
-              <span class="hash-detail-value">${rx.prescriberWalletId}</span>
+              <span class="hash-detail-value">${escapeHtml(rx.prescriberWalletId)}</span>
               <span class="hash-detail-label" style="margin-left: 16px;">Pharmacy</span>
-              <span class="hash-detail-value">${rx.pharmacyWalletId}</span>
+              <span class="hash-detail-value">${escapeHtml(rx.pharmacyWalletId)}</span>
             </div>
           </td>
         </tr>
@@ -918,7 +922,7 @@ export class PrescriberPhase {
         </div>
       `;
     } catch (err) {
-      body.innerHTML = `<div style="color: var(--accent-red); padding: 8px;">Failed to load drug history: ${err.message}</div>`;
+      body.innerHTML = `<div style="color: var(--accent-red); padding: 8px;">Failed to load drug history: ${escapeHtml(err.message)}</div>`;
     }
   }
 
@@ -953,10 +957,10 @@ export class PrescriberPhase {
         for (const rx of member.prescriptionHistory) {
           allRxRows += `
             <tr>
-              <td><span class="family-badge ${(member.relationship || 'self').toLowerCase()}">${member.relationship || 'SELF'}</span> ${member.name}</td>
-              <td>${rx.medication} ${rx.strength}</td>
+              <td><span class="family-badge ${escapeHtml((member.relationship || 'self').toLowerCase())}">${escapeHtml(member.relationship || 'SELF')}</span> ${escapeHtml(member.name)}</td>
+              <td>${escapeHtml(rx.medication)} ${escapeHtml(rx.strength)}</td>
               <td><span class="tier-badge tier-${rx.tier}">Tier ${rx.tier}</span></td>
-              <td style="color: ${rx.status === 'FILLED' ? 'var(--accent-green)' : 'var(--accent-blue)'};">${rx.status}</td>
+              <td style="color: ${rx.status === 'FILLED' ? 'var(--accent-green)' : 'var(--accent-blue)'};">${escapeHtml(rx.status)}</td>
               <td>${rx.fill ? formatCents(rx.fill.patientPayCents) : '—'}</td>
             </tr>
           `;
@@ -969,13 +973,13 @@ export class PrescriberPhase {
 
       body.innerHTML = `
         <div style="margin-bottom: 12px;">
-          <div class="family-group-header">${fam.familyId} — ${fam.members.length} Members</div>
+          <div class="family-group-header">${escapeHtml(fam.familyId)} — ${fam.members.length} Members</div>
           <div class="family-member-cards" style="margin-top: 8px;">
             ${fam.members.map(m => `
               <div class="family-member-card">
-                <div class="family-member-name">${m.name}</div>
+                <div class="family-member-name">${escapeHtml(m.name)}</div>
                 <div class="family-member-detail">
-                  <span class="family-badge ${(m.relationship || 'self').toLowerCase()}">${m.relationship || 'SELF'}</span>
+                  <span class="family-badge ${escapeHtml((m.relationship || 'self').toLowerCase())}">${escapeHtml(m.relationship || 'SELF')}</span>
                 </div>
               </div>
             `).join('')}
@@ -1060,27 +1064,27 @@ export class PrescriberPhase {
         <div class="result-card">
           <div class="result-title">eScript Written Successfully</div>
           <div class="data-grid">
-            <div class="label">Prescription ID</div><div class="value highlight">${result.prescriptionId}</div>
-            <div class="label">Medication</div><div class="value">${result.medication.brandName} ${result.medication.strength}</div>
-            <div class="label">Prescriber</div><div class="value">${result.prescriber.name}, ${result.prescriber.credential}</div>
-            <div class="label">Pharmacy</div><div class="value">${result.pharmacy.name}</div>
-            <div class="label">Patient</div><div class="value">${result.member.name}</div>
-            <div class="label">Quantity</div><div class="value">${result.quantity}</div>
-            <div class="label">Refills</div><div class="value">${result.refills}</div>
-            <div class="label">Status</div><div class="value" style="color: var(--accent-green);">${result.status}</div>
-            <div class="label">Rx Hash</div><div class="value mono">${result.rxHash}</div>
+            <div class="label">Prescription ID</div><div class="value highlight">${escapeHtml(result.prescriptionId)}</div>
+            <div class="label">Medication</div><div class="value">${escapeHtml(result.medication.brandName)} ${escapeHtml(result.medication.strength)}</div>
+            <div class="label">Prescriber</div><div class="value">${escapeHtml(result.prescriber.name)}, ${escapeHtml(result.prescriber.credential)}</div>
+            <div class="label">Pharmacy</div><div class="value">${escapeHtml(result.pharmacy.name)}</div>
+            <div class="label">Patient</div><div class="value">${escapeHtml(result.member.name)}</div>
+            <div class="label">Quantity</div><div class="value">${escapeHtml(result.quantity)}</div>
+            <div class="label">Refills</div><div class="value">${escapeHtml(result.refills)}</div>
+            <div class="label">Status</div><div class="value" style="color: var(--accent-green);">${escapeHtml(result.status)}</div>
+            <div class="label">Rx Hash</div><div class="value mono">${escapeHtml(result.rxHash)}</div>
           </div>
           ${result.priorAuthId ? `
-            <div class="label">Prior Auth</div><div class="value" style="color: var(--accent-green);">${result.priorAuthId} (Approved)</div>
+            <div class="label">Prior Auth</div><div class="value" style="color: var(--accent-green);">${escapeHtml(result.priorAuthId)} (Approved)</div>
           ` : ''}
           ${result.stepTherapy ? `
             <div class="step-therapy-box step-therapy-met" style="margin-top: 8px;">
-              <strong>Step Therapy:</strong> ${result.stepTherapy.message || 'Satisfied'}
+              <strong>Step Therapy:</strong> ${escapeHtml(result.stepTherapy.message || 'Satisfied')}
             </div>
           ` : ''}
           ${result.deaWarnings?.length ? `
             <div class="dea-warning-box" style="margin-top: 8px;">
-              ${result.deaWarnings.map(w => `<div>${w}</div>`).join('')}
+              ${result.deaWarnings.map(w => `<div>${escapeHtml(w)}</div>`).join('')}
             </div>
           ` : ''}
           <div class="mt-4" style="font-size: 12px; color: var(--text-secondary);">
@@ -1111,7 +1115,7 @@ export class PrescriberPhase {
     } catch (err) {
       const resultDiv = document.getElementById('rx-result');
       resultDiv.classList.remove('hidden');
-      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 12px;">Error: ${err.message}</div>`;
+      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 12px;">Error: ${escapeHtml(err.message)}</div>`;
       this.app.setStatus('ready', 'Error');
       btn.disabled = false;
     } finally {
@@ -1151,12 +1155,12 @@ export class PrescriberPhase {
     }));
 
     const columns = [
-      { key: 'name', label: 'Patient Name' },
-      { key: 'walletId', label: 'Wallet ID', format: v => `<span class="mono" style="font-size: 11px;">${v}</span>` },
-      { key: 'group', label: 'Group' },
-      { key: 'family', label: 'Family' },
-      { key: 'relationship', label: 'Relationship' },
-      { key: 'lifecycle', label: 'Status', format: v => `<span style="color: ${lifecycleColor(v)}; font-weight: 600; font-size: 12px;">${lifecycleLabel(v)}</span>` },
+      { key: 'name', label: 'Patient Name', format: v => escapeHtml(v) },
+      { key: 'walletId', label: 'Wallet ID', format: v => `<span class="mono" style="font-size: 11px;">${escapeHtml(v)}</span>` },
+      { key: 'group', label: 'Group', format: v => escapeHtml(v) },
+      { key: 'family', label: 'Family', format: v => escapeHtml(v) },
+      { key: 'relationship', label: 'Relationship', format: v => escapeHtml(v) },
+      { key: 'lifecycle', label: 'Status', format: v => `<span style="color: ${lifecycleColor(v)}; font-weight: 600; font-size: 12px;">${escapeHtml(lifecycleLabel(v))}</span>` },
       { key: 'deductible', label: 'Deductible Used', align: 'right', format: v => formatCents(v) },
     ];
 
@@ -1201,12 +1205,12 @@ export class PrescriberPhase {
     });
 
     const columns = [
-      { key: 'id', label: 'PA ID', format: v => `<span class="mono" style="font-size: 11px;">${v}</span>` },
-      { key: 'patient', label: 'Patient' },
-      { key: 'medication', label: 'Medication' },
-      { key: 'strength', label: 'Strength' },
+      { key: 'id', label: 'PA ID', format: v => `<span class="mono" style="font-size: 11px;">${escapeHtml(v)}</span>` },
+      { key: 'patient', label: 'Patient', format: v => escapeHtml(v) },
+      { key: 'medication', label: 'Medication', format: v => escapeHtml(v) },
+      { key: 'strength', label: 'Strength', format: v => escapeHtml(v) },
       { key: 'tier', label: 'Tier', format: v => v != null ? `<span class="tier-badge tier-${v}">Tier ${v}</span>` : '--' },
-      { key: 'status', label: 'Status', format: v => `<span style="color: ${paStatusColor(v)}; font-weight: 600; font-size: 12px;">${v}</span>` },
+      { key: 'status', label: 'Status', format: v => `<span style="color: ${paStatusColor(v)}; font-weight: 600; font-size: 12px;">${escapeHtml(v)}</span>` },
       { key: 'requestedAt', label: 'Requested', format: v => v ? new Date(v).toLocaleTimeString() : '--' },
       { key: 'resolvedAt', label: 'Resolved', format: v => v ? new Date(v).toLocaleTimeString() : '--' },
     ];
@@ -1259,14 +1263,14 @@ export class PrescriberPhase {
     }));
 
     const columns = [
-      { key: 'id', label: 'Rx ID', format: v => `<span class="mono" style="font-size: 11px;">${v}</span>` },
-      { key: 'medication', label: 'Medication' },
-      { key: 'strength', label: 'Strength' },
-      { key: 'patient', label: 'Patient' },
-      { key: 'pharmacy', label: 'Pharmacy' },
+      { key: 'id', label: 'Rx ID', format: v => `<span class="mono" style="font-size: 11px;">${escapeHtml(v)}</span>` },
+      { key: 'medication', label: 'Medication', format: v => escapeHtml(v) },
+      { key: 'strength', label: 'Strength', format: v => escapeHtml(v) },
+      { key: 'patient', label: 'Patient', format: v => escapeHtml(v) },
+      { key: 'pharmacy', label: 'Pharmacy', format: v => escapeHtml(v) },
       { key: 'quantity', label: 'Qty', align: 'right' },
-      { key: 'refills', label: 'Refills' },
-      { key: 'status', label: 'Status', format: v => `<span style="color: ${statusColor(v)}; font-weight: 600; font-size: 12px;">${v}</span>` },
+      { key: 'refills', label: 'Refills', format: v => escapeHtml(v) },
+      { key: 'status', label: 'Status', format: v => `<span style="color: ${statusColor(v)}; font-weight: 600; font-size: 12px;">${escapeHtml(v)}</span>` },
       { key: 'patientPay', label: 'Patient Pay', align: 'right', format: v => v ? formatCents(v) : '--' },
       { key: 'planPay', label: 'Plan Pay', align: 'right', format: v => v ? formatCents(v) : '--' },
     ];
@@ -1310,7 +1314,7 @@ export class PrescriberPhase {
       statusCounts[rx.status] = (statusCounts[rx.status] || 0) + 1;
     }
     const statusRows = Object.entries(statusCounts).map(([s, c]) =>
-      `<div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border-subtle);"><span style="font-size: 12px;">${s}</span><span style="font-weight: 600;">${c}</span></div>`
+      `<div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border-subtle);"><span style="font-size: 12px;">${escapeHtml(s)}</span><span style="font-weight: 600;">${c}</span></div>`
     ).join('');
 
     const content = `
@@ -1376,8 +1380,8 @@ export class PrescriberPhase {
     }));
 
     const columns = [
-      { key: 'name', label: 'Patient' },
-      { key: 'walletId', label: 'Wallet ID', format: v => `<span class="mono" style="font-size: 11px;">${v}</span>` },
+      { key: 'name', label: 'Patient', format: v => escapeHtml(v) },
+      { key: 'walletId', label: 'Wallet ID', format: v => `<span class="mono" style="font-size: 11px;">${escapeHtml(v)}</span>` },
       { key: 'scripts', label: 'Scripts', align: 'right' },
       { key: 'uniqueMeds', label: 'Unique Meds', align: 'right' },
       { key: 'patientPay', label: 'Patient Pay', align: 'right', format: v => formatCents(v) },
@@ -1428,7 +1432,7 @@ export class PrescriberPhase {
     }));
 
     const columns = [
-      { key: 'name', label: 'Medication' },
+      { key: 'name', label: 'Medication', format: v => escapeHtml(v) },
       { key: 'tier', label: 'Tier', format: v => v !== null ? `<span class="tier-badge tier-${v}">Tier ${v}</span>` : '--' },
       { key: 'scripts', label: 'Scripts', align: 'right' },
       { key: 'patients', label: 'Patients', align: 'right' },
@@ -1475,7 +1479,7 @@ export class PrescriberPhase {
     }));
 
     const columns = [
-      { key: 'name', label: 'Pharmacy' },
+      { key: 'name', label: 'Pharmacy', format: v => escapeHtml(v) },
       { key: 'scripts', label: 'Scripts', align: 'right' },
       { key: 'patients', label: 'Patients', align: 'right' },
       { key: 'uniqueMeds', label: 'Unique Meds', align: 'right' },
@@ -1533,13 +1537,13 @@ export class PrescriberPhase {
     const patientWalletId = document.getElementById('patient-select')?.value;
     if (patientWalletId) {
       const patientName = dir[patientWalletId]?.displayName || 'Patient';
-      recipientOptions.push(`<option value="member:${patientWalletId}">${patientName} (Patient)</option>`);
+      recipientOptions.push(`<option value="member:${escapeHtml(patientWalletId)}">${escapeHtml(patientName)} (Patient)</option>`);
     }
     (state.enrolledMembers || []).filter(m => m.lifecycle !== 'REVOKED' && m.walletId !== patientWalletId).forEach(m => {
-      recipientOptions.push(`<option value="member:${m.walletId}">${m.displayName}</option>`);
+      recipientOptions.push(`<option value="member:${escapeHtml(m.walletId)}">${escapeHtml(m.displayName)}</option>`);
     });
     (state.demoData?.pharmacies || []).forEach(p => {
-      recipientOptions.push(`<option value="pharmacy:${p.index}">${p.storeName}</option>`);
+      recipientOptions.push(`<option value="pharmacy:${p.index}">${escapeHtml(p.storeName)}</option>`);
     });
     recipientOptions.push(`<option value="insurer:0">Insurer</option>`);
 
@@ -1579,17 +1583,17 @@ export class PrescriberPhase {
               const typeLabel = MSG_LABELS[lastMsg.messageType] || 'Msg';
               const timeStr = lastMsg.timestamp ? new Date(lastMsg.timestamp).toLocaleTimeString() : '';
               return `
-              <div class="prescriber-thread-item msg-thread-item" data-thread-id="${t.threadId}" data-wallet-id="${prescriberWalletId}" data-indices="${t.messages.map(m => m.messageIndex).join(',')}">
+              <div class="prescriber-thread-item msg-thread-item" data-thread-id="${escapeHtml(t.threadId)}" data-wallet-id="${escapeHtml(prescriberWalletId)}" data-indices="${escapeHtml(t.messages.map(m => m.messageIndex).join(','))}">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                   <div>
-                    <span class="msg-type-badge msg-type-${lastMsg.messageType}">${typeLabel}</span>
-                    <strong style="font-size: 12px; margin-left: 4px;">${otherName}</strong>
+                    <span class="msg-type-badge msg-type-${escapeHtml(lastMsg.messageType)}">${typeLabel}</span>
+                    <strong style="font-size: 12px; margin-left: 4px;">${escapeHtml(otherName)}</strong>
                     <span style="font-size: 11px; color: var(--text-muted); margin-left: 4px;">(${t.messages.length} message${t.messages.length > 1 ? 's' : ''})</span>
                   </div>
                   <span style="font-size: 11px; color: var(--text-muted);">${timeStr}</span>
                 </div>
                 <div style="font-size: 12px; color: var(--text-muted);">${lastMsg.hasEncryptedPayload ? 'Click to decrypt and view' : 'No content'}</div>
-                <div class="msg-thread-expanded hidden" data-thread-body="${t.threadId}"></div>
+                <div class="msg-thread-expanded hidden" data-thread-body="${escapeHtml(t.threadId)}"></div>
               </div>`;
             }).join('')}
           </div>
@@ -1661,7 +1665,7 @@ export class PrescriberPhase {
         document.getElementById('prescriber-msg-body')?.focus();
       });
     } catch (err) {
-      bodyDiv.innerHTML = `<div style="padding: 8px; color: var(--accent-red); font-size: 12px;">Decrypt failed: ${err.message}</div>`;
+      bodyDiv.innerHTML = `<div style="padding: 8px; color: var(--accent-red); font-size: 12px;">Decrypt failed: ${escapeHtml(err.message)}</div>`;
     }
   }
 
@@ -1709,11 +1713,11 @@ export class PrescriberPhase {
         <div class="result-card" style="margin-bottom: 12px;">
           <div class="result-title">Message Sent (Encrypted)</div>
           <div class="data-grid">
-            <div class="label">To</div><div class="value">${result.to}</div>
-            <div class="label">Subject</div><div class="value">${result.subject}</div>
+            <div class="label">To</div><div class="value">${escapeHtml(result.to)}</div>
+            <div class="label">Subject</div><div class="value">${escapeHtml(result.subject)}</div>
             <div class="label">Encrypted</div><div class="value">${result.ciphertextLength} bytes (AES-256-GCM)</div>
             <div class="label">Proof Time</div><div class="value">${(result.proofTimeMs / 1000).toFixed(2)}s</div>
-            <div class="label">Thread</div><div class="value mono" style="font-size: 11px;">${result.threadId || 'new'}</div>
+            <div class="label">Thread</div><div class="value mono" style="font-size: 11px;">${escapeHtml(result.threadId || 'new')}</div>
             <div class="label">Audit Hash</div><div class="value mono" style="font-size: 11px;">${result.auditChainHash ? result.auditChainHash.slice(0, 20) + '\u2026' : '\u2014'}</div>
           </div>
         </div>
@@ -1734,7 +1738,7 @@ export class PrescriberPhase {
     } catch (err) {
       const resultDiv = document.getElementById('prescriber-send-result');
       resultDiv.classList.remove('hidden');
-      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px;">Error: ${err.message}</div>`;
+      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px;">Error: ${escapeHtml(err.message)}</div>`;
       this.app.setStatus('ready', 'Error');
     } finally {
       btn.classList.remove('loading');
@@ -1787,7 +1791,7 @@ export class PrescriberPhase {
         <div class="label">Sequencer URL</div><div class="value mono">http://127.0.0.1:3030</div>
         <div class="label">Health</div><div class="value"><span style="color: var(--accent-red);">Disconnected</span></div>
       </div>
-      <div style="color: var(--accent-red); font-size: 12px; margin-top: 8px;">${err.message}</div>`;
+      <div style="color: var(--accent-red); font-size: 12px; margin-top: 8px;">${escapeHtml(err.message)}</div>`;
     }
   }
 }

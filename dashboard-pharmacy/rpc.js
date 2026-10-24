@@ -91,53 +91,23 @@ function post(path, body) { return request('POST', path, body); }
 
 // ── SSE Connection ────────────────────────────────────────────
 
+/*
+ * A-79: the pharmacy node's event stream answers only the node's administrator, and this page holds no node
+ * credential until provider sign-in (B4), so it opens no stream: the node could only refuse it. The workstation
+ * refreshes on its own timer, and the connection dot stays neutral. A page that holds its node's credential trades it
+ * for a single-use ticket (POST /events/ticket) and opens /events?ticket=..., as the prescriber page does.
+ */
 class SSEConnection {
   constructor() {
-    this.source = null;
     this.listeners = [];
-    this.reconnectTimer = null;
     this.connected = false;
-    this._delay = 1000;
   }
 
   connect() {
-    if (this.source) this.disconnect();
-    try {
-      this.source = new EventSource(BASE_URL + '/events');
-      this.source.onopen = () => {
-        this.connected = true;
-        this._delay = 1000;
-        this._notify({ type: '__connection', data: { connected: true } });
-      };
-      this.source.onmessage = (ev) => {
-        try {
-          const data = JSON.parse(ev.data);
-          this._notify(data);
-        } catch (_) {
-          this._notify({ type: 'raw', data: ev.data });
-        }
-      };
-      this.source.onerror = () => {
-        this.connected = false;
-        this._notify({ type: '__connection', data: { connected: false } });
-        this.source.close();
-        this.source = null;
-        this.reconnectTimer = setTimeout(() => this.connect(), this._delay);
-        this._delay = Math.min(this._delay * 2, 30000);
-      };
-    } catch (_) {
-      this.connected = false;
-      this.reconnectTimer = setTimeout(() => this.connect(), this._delay);
-      this._delay = Math.min(this._delay * 2, 30000);
-    }
+    this.disconnect();
   }
 
   disconnect() {
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    if (this.source) {
-      this.source.close();
-      this.source = null;
-    }
     this.connected = false;
   }
 
@@ -146,12 +116,6 @@ class SSEConnection {
     return () => {
       this.listeners = this.listeners.filter(l => l !== fn);
     };
-  }
-
-  _notify(event) {
-    for (const fn of this.listeners) {
-      try { fn(event); } catch (_) { /* ignore */ }
-    }
   }
 }
 
@@ -181,9 +145,9 @@ const API = {
       // params: { serviceProviderIdQualifier, serviceProviderId }
       return post('/onboarding/derive-wallet', params);
     },
-    enroll(params) {
-      // params: { insurerUrl? }
-      return post('/onboarding/enroll', params || {});
+    // No arguments: the node notifies the insurer its own configuration names (A-81).
+    enroll() {
+      return post('/onboarding/enroll', {});
     },
     compile() {
       return post('/onboarding/compile', {});

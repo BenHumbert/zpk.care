@@ -85,11 +85,11 @@ describe('Payment Received records the payment at the counter and says only that
 
   test('the card then shows Paid in the Dispensed column and still offers Reverse', () => {
     const { ctx, card } = counter();
-    expect(card()).toContain(`onclick="App.confirmPayment('RX-1')">Payment Received</button>`);
+    expect(card()).toContain('data-act="confirmPayment" data-key="RX-1">Payment Received</button>');
     ctx.confirmPayment('RX-1');
     const paid = card();
     expect(paid).toContain('>Paid</span>');
-    expect(paid).not.toContain('App.confirmPayment');
-    expect(paid).toContain(`App.reverseScript('RX-1')`);
+    expect(paid).not.toContain('confirmPayment');
+    expect(paid).toContain('data-act="reverseScript" data-key="RX-1"');
   });
 });

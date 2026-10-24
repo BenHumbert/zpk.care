@@ -90,7 +90,8 @@ function jsonable(v: unknown): unknown {
 export function makeHttp(trace: Trace, defaults: { headers?: Record<string, string>; timeoutMs?: number } = {}) {
   return async function http(method: string, url: string, body?: unknown, headers: Record<string, string> = {}): Promise<{ status: number; json: any; text: string }> {
     const h: Record<string, string> = { ...(defaults.headers || {}), ...headers };
-    if (body !== undefined) h['Content-Type'] = 'application/json';
+    // A body goes as JSON, and so does a write without one: the servers refuse a write that declares no type (NEW-5).
+    if (body !== undefined || (method !== 'GET' && method !== 'HEAD')) h['Content-Type'] = 'application/json';
     const t = Date.now();
     let status = 0, text = '';
     try {

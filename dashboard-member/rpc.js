@@ -26,6 +26,7 @@ const RPC = (() => {
   let sseListeners = [];
   let sseReconnectDelay = 1000;
   let sseReconnectTimer = null;
+  let sseAttempt = 0;
   let lastOnEvent = null;
   let rpcId = 0;
 
@@ -251,41 +252,61 @@ const RPC = (() => {
   }
 
   // ── Proof Submission ─────────────────────────────────
-  function submitProof(proofJson, metadata) {
-    var p = { proofJson };
-    if (metadata) p.entityMetadata = metadata;
-    return call('l2_submitProof', p);
+  // A proof travels alone: a wallet's name and kind are registered with its entity (RPC-04).
+  function submitProof(proofJson) {
+    return call('l2_submitProof', { proofJson });
   }
 
   function getRegistrationWitnesses() { return call('l2_getRegistrationWitnesses'); }
 
   // ── SSE ──────────────────────────────────────────────
+  /*
+   * A-79: this node's event stream answers only this device's session. An EventSource cannot send a header, so each
+   * connection first trades the session for a single-use ticket and opens the stream with it; every reconnect asks for
+   * a fresh one. The stream is this node's own, so it opens on this origin whatever sequencer URL is set. A locked
+   * device holds no session and opens nothing, and unlocking opens it again (enterApp); the node ends the stream when
+   * the session ends.
+   */
   function connectSSE(onEvent) {
     disconnectSSE();
     lastOnEvent = onEvent;
-    try {
-      sseConn = new EventSource(baseUrl + '/events');
-      sseConn.onopen = function () {
-        sseReconnectDelay = 1000;
-        sseListeners.forEach(function (fn) { fn('connected'); });
-      };
-      sseConn.onmessage = function (ev) {
-        try { if (onEvent) onEvent(JSON.parse(ev.data)); }
-        catch { if (onEvent) onEvent({ raw: ev.data }); }
-      };
-      sseConn.onerror = function () {
+    if (!deviceSession) return;
+    var attempt = sseAttempt;
+    fetch(location.origin + '/events/ticket', { method: 'POST', headers: deviceHeaders() })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (json) {
+        if (attempt !== sseAttempt) return;   // disconnected, or connected again, while the ticket was on its way
+        sseConn = new EventSource(location.origin + '/events?ticket=' + encodeURIComponent(json.data.ticket));
+        sseConn.onopen = function () {
+          sseReconnectDelay = 1000;
+          sseListeners.forEach(function (fn) { fn('connected'); });
+        };
+        sseConn.onmessage = function (ev) {
+          try { if (onEvent) onEvent(JSON.parse(ev.data)); }
+          catch { if (onEvent) onEvent({ raw: ev.data }); }
+        };
+        sseConn.onerror = function () {
+          sseListeners.forEach(function (fn) { fn('disconnected'); });
+          sseConn.close();
+          sseConn = null;
+          reconnectSSE();
+        };
+      })
+      .catch(function () {
+        if (attempt !== sseAttempt) return;
         sseListeners.forEach(function (fn) { fn('disconnected'); });
-        sseConn.close();
-        sseConn = null;
-        sseReconnectTimer = setTimeout(function () { connectSSE(lastOnEvent); }, sseReconnectDelay);
-        sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000);
-      };
-    } catch {
-      sseReconnectTimer = setTimeout(function () { connectSSE(lastOnEvent); }, sseReconnectDelay);
-      sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000);
-    }
+        reconnectSSE();
+      });
+  }
+  function reconnectSSE() {
+    sseReconnectTimer = setTimeout(function () { connectSSE(lastOnEvent); }, sseReconnectDelay);
+    sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000);
   }
   function disconnectSSE() {
+    sseAttempt++;
     if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
     if (sseConn) { sseConn.close(); sseConn = null; }
   }

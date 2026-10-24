@@ -75,9 +75,12 @@
     return s.length <= n ? s : s.slice(0, n) + '\u2026';
   }
 
+  // Cuts the text itself and returns it unescaped: a caller that draws into markup escapes the result once, one that
+  // sets text uses it as it is. Escaping before the cut could split an entity, and the callers that escaped again
+  // showed "&amp;" (A-88).
   function truncHash(h, n) {
     if (!h) return '--';
-    var s = esc(String(h));
+    var s = String(h);
     n = n || 16;
     if (s.length <= n) return s;
     return s.slice(0, 8) + '...' + s.slice(-6);
@@ -932,11 +935,11 @@
         rows.map(function (rx) {
           return '<tr>' +
             '<td>' + esc(fmtYMD(rx.dateOfService) || fmtDate(rx.timestamp)) + '</td>' +
-            '<td><span class="hash" title="' + esc(rx.memberWalletId || rx.patientWalletId) + '">' + truncHash(rx.memberWalletId || rx.patientWalletId) + '</span></td>' +
-            '<td><span class="hash" title="' + esc(rx.ndcHash) + '">' + truncHash(rx.ndcHash) + '</span></td>' +
-            '<td><span class="hash" title="' + esc(rx.pharmacyWalletId) + '">' + truncHash(rx.pharmacyWalletId) + '</span></td>' +
-            '<td>' + formatCents(rx.patientPayCents) + '</td>' +
-            '<td>' + formatCents(rx.planPayCents) + '</td>' +
+            '<td><span class="hash" title="' + esc(rx.memberWalletId || rx.patientWalletId) + '">' + esc(truncHash(rx.memberWalletId || rx.patientWalletId)) + '</span></td>' +
+            '<td><span class="hash" title="' + esc(rx.ndcHash) + '">' + esc(truncHash(rx.ndcHash)) + '</span></td>' +
+            '<td><span class="hash" title="' + esc(rx.pharmacyWalletId) + '">' + esc(truncHash(rx.pharmacyWalletId)) + '</span></td>' +
+            '<td>' + esc(formatCents(rx.patientPayCents)) + '</td>' +
+            '<td>' + esc(formatCents(rx.planPayCents)) + '</td>' +
             '</tr>';
         }).join('') +
         '</tbody></table>';
@@ -965,10 +968,10 @@
       listEl.innerHTML = patients.map(function (p) {
         var name = p.displayName || truncHash(p.walletId || p.memberWalletId, 16);
         return '<div class="patient-item" data-wallet="' + esc(p.walletId || p.memberWalletId) + '">' +
-          '<div class="patient-avatar">' + initials(name) + '</div>' +
+          '<div class="patient-avatar">' + esc(initials(name)) + '</div>' +
           '<div class="provider-info">' +
             '<div class="provider-name">' + esc(name) + '</div>' +
-            '<div class="provider-sub hash">' + truncHash(p.walletId || p.memberWalletId, 20) + '</div>' +
+            '<div class="provider-sub hash">' + esc(truncHash(p.walletId || p.memberWalletId, 20)) + '</div>' +
           '</div>' +
           '</div>';
       }).join('');
@@ -1018,10 +1021,10 @@
         rxHistory.map(function (rx) {
           return '<tr>' +
             '<td>' + esc(fmtYMD(rx.dateOfService)) + '</td>' +
-            '<td><span class="hash">' + truncHash(rx.ndcHash) + '</span></td>' +
-            '<td><span class="hash">' + truncHash(rx.pharmacyWalletId) + '</span></td>' +
-            '<td>' + formatCents(rx.patientPayCents) + '</td>' +
-            '<td>' + formatCents(rx.planPayCents) + '</td>' +
+            '<td><span class="hash">' + esc(truncHash(rx.ndcHash)) + '</span></td>' +
+            '<td><span class="hash">' + esc(truncHash(rx.pharmacyWalletId)) + '</span></td>' +
+            '<td>' + esc(formatCents(rx.patientPayCents)) + '</td>' +
+            '<td>' + esc(formatCents(rx.planPayCents)) + '</td>' +
             '</tr>';
         }).join('') +
         '</tbody></table>';
@@ -1161,13 +1164,46 @@
           '<td>' + esc(d.strength || '--') + '</td>' +
           '<td>' + esc(d.dosageForm || '--') + '</td>' +
           '<td>' + esc(d.route || '--') + '</td>' +
-          '<td><span class="badge tier-' + d.tierLevel + '">' + esc(tierLabel) + '</span></td>' +
+          '<td><span class="badge tier-' + esc(d.tierLevel) + '">' + esc(tierLabel) + '</span></td>' +
           '<td>$' + (d.copayAmount / 100).toFixed(2) + '</td>' +
           '<td>' + (d.nadacPerUnit != null ? '$' + Number(d.nadacPerUnit).toFixed(5) + ' / ' + esc(d.pricingUnit || 'unit') : '--') + '</td>' +
-          '<td><button class="btn btn-sm" onclick="window._showWitness(\'' + esc(d.ndcHash) + '\')" title="Show Merkle inclusion proof">Verify</button></td>' +
+          '<td><button class="btn btn-sm" data-witness="' + esc(d.ndcHash) + '" title="Show Merkle inclusion proof">Verify</button></td>' +
           '</tr>';
       }).join('') +
       '</tbody></table>' + paginationHtml;
+  }
+
+  /**
+   * A-88: a formulary row's Verify button carries the drug's hash in data-witness, read by this listener; the hash never
+   * rides inside an inline handler, where the browser decodes an escaped quote before the script runs.
+   */
+  function onWitnessClick(e) {
+    var btn = e.target && e.target.closest ? e.target.closest('[data-witness]') : null;
+    if (btn) window._showWitness(btn.dataset.witness);
+  }
+  document.addEventListener('click', onWitnessClick);
+
+  /**
+   * The proof window for one drug's formulary witness. Every value in it is the sequencer's answer as the node relays it,
+   * so each is drawn as text (A-90); a path hash is cut to 24 characters before it is escaped, so the cut never splits
+   * an entity.
+   */
+  function witnessModalHtml(data, ndcHash) {
+    var pathHtml = data.witnessPath.map(function (h, i) {
+      var dir = data.witnessIsLeft[i] ? 'L' : 'R';
+      return '<div style="font-size:11px;font-family:monospace;margin:2px 0"><span style="color:var(--text-muted)">[' + i + '] ' + dir + '</span> ' + esc(String(h).slice(0, 24)) + '...</div>';
+    }).join('');
+    return '<div style="background:var(--bg-secondary);border-radius:12px;padding:24px;max-width:520px;width:90%;max-height:80%;overflow-y:auto">' +
+      '<h3 style="margin:0 0 12px">Merkle Inclusion Proof</h3>' +
+      '<div style="margin-bottom:8px"><strong>Drug:</strong> ' + esc(data.drug ? data.drug.genericName : ndcHash) + '</div>' +
+      '<div style="margin-bottom:8px"><strong>Leaf Index:</strong> ' + esc(data.leafIndex) + '</div>' +
+      '<div style="margin-bottom:8px"><strong>Formulary Root:</strong></div>' +
+      '<div class="hash" style="font-size:11px;word-break:break-all;margin-bottom:12px">' + esc(data.formularyRoot) + '</div>' +
+      '<div style="margin-bottom:4px"><strong>Witness Path (' + data.witnessPath.length + ' nodes):</strong></div>' +
+      pathHtml +
+      '<div style="margin-top:16px;font-size:11px;color:var(--text-muted)">This 16-hash path proves this drug is committed in the formulary MerkleTree(16). ' +
+      'A ZK circuit can verify this witness against the root without revealing the full formulary.</div>' +
+      '<button class="btn btn-primary" onclick="this.closest(\'div[style*=fixed]\').remove()" style="margin-top:12px;width:100%">Close</button></div>';
   }
 
   // Show Merkle witness for a drug (proves it exists in the formulary tree)
@@ -1177,21 +1213,7 @@
       var modal = document.createElement('div');
       modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999';
       modal.onclick = function (e) { if (e.target === modal) modal.remove(); };
-      var pathHtml = data.witnessPath.map(function (h, i) {
-        var dir = data.witnessIsLeft[i] ? 'L' : 'R';
-        return '<div style="font-size:11px;font-family:monospace;margin:2px 0"><span style="color:var(--text-muted)">[' + i + '] ' + dir + '</span> ' + h.slice(0, 24) + '...</div>';
-      }).join('');
-      modal.innerHTML = '<div style="background:var(--bg-secondary);border-radius:12px;padding:24px;max-width:520px;width:90%;max-height:80%;overflow-y:auto">' +
-        '<h3 style="margin:0 0 12px">Merkle Inclusion Proof</h3>' +
-        '<div style="margin-bottom:8px"><strong>Drug:</strong> ' + esc(data.drug ? data.drug.genericName : ndcHash) + '</div>' +
-        '<div style="margin-bottom:8px"><strong>Leaf Index:</strong> ' + esc(data.leafIndex) + '</div>' +
-        '<div style="margin-bottom:8px"><strong>Formulary Root:</strong></div>' +
-        '<div class="hash" style="font-size:11px;word-break:break-all;margin-bottom:12px">' + esc(data.formularyRoot) + '</div>' +
-        '<div style="margin-bottom:4px"><strong>Witness Path (' + data.witnessPath.length + ' nodes):</strong></div>' +
-        pathHtml +
-        '<div style="margin-top:16px;font-size:11px;color:var(--text-muted)">This 16-hash path proves this drug is committed in the formulary MerkleTree(16). ' +
-        'A ZK circuit can verify this witness against the root without revealing the full formulary.</div>' +
-        '<button class="btn btn-primary" onclick="this.closest(\'div[style*=fixed]\').remove()" style="margin-top:12px;width:100%">Close</button></div>';
+      modal.innerHTML = witnessModalHtml(data, ndcHash);
       document.body.appendChild(modal);
     } catch (err) {
       toast('Witness error: ' + err.message, 'error');
@@ -1214,9 +1236,11 @@
     try {
       var data = await API.checkDrugCoverage(planId, ndc);
       var covered = data.onFormulary;
+      // The tier is the formulary entry's as the plan published it: the sequencer stores and gossips the entries unchecked,
+      // so it is drawn as text, like the hash beside it (A-90). The copay goes through Number, which leaves only a number.
       resultEl.innerHTML = '<div class="form-result ' + (covered ? 'success' : 'error') + '">' +
         '<strong>' + (covered ? 'COVERED' : 'NOT ON FORMULARY') + '</strong> — NDC: ' + esc(data.ndcHash) +
-        (data.tierLevel != null ? ' | Tier: ' + data.tierLevel : '') +
+        (data.tierLevel != null ? ' | Tier: ' + esc(data.tierLevel) : '') +
         (data.copay != null ? ' | Copay: $' + Number(data.copay).toFixed(2) : '') +
         '</div>';
     } catch (err) {
@@ -1236,12 +1260,12 @@
       if (el && Array.isArray(prescribers) && prescribers.length > 0) {
         el.innerHTML = prescribers.map(function (p) {
           return '<div class="provider-item">' +
-            '<div class="provider-avatar prescriber">' + initials(p.displayName) + '</div>' +
+            '<div class="provider-avatar prescriber">' + esc(initials(p.displayName)) + '</div>' +
             '<div class="provider-info">' +
               '<div class="provider-name">' + esc(p.displayName || 'Unknown') + '</div>' +
               '<div class="provider-sub">' + esc(p.specialty || 'General') + '</div>' +
             '</div>' +
-            '<div class="provider-wallet">' + truncHash(p.walletId, 14) + '</div>' +
+            '<div class="provider-wallet">' + esc(truncHash(p.walletId, 14)) + '</div>' +
             '</div>';
         }).join('');
       } else if (el) {
@@ -1263,7 +1287,7 @@
               '<div class="provider-name">' + esc(p.displayName || 'Unknown Pharmacy') + '</div>' +
               '<div class="provider-sub">' + esc(p.pharmacyType || p.group || '--') + '</div>' +
             '</div>' +
-            '<div class="provider-wallet">' + truncHash(p.walletId, 14) + '</div>' +
+            '<div class="provider-wallet">' + esc(truncHash(p.walletId, 14)) + '</div>' +
             '</div>';
         }).join('');
       } else if (el2) {
@@ -1329,7 +1353,7 @@
           preview = decodePayload(lp.ciphertext, lp.iv);
         }
         return '<div class="msg-contact-item" data-idx="' + i + '">' +
-          '<div class="msg-contact-avatar">' + initials(c.name) + '</div>' +
+          '<div class="msg-contact-avatar">' + esc(initials(c.name)) + '</div>' +
           '<div class="msg-contact-info">' +
             '<div class="msg-contact-name">' + esc(c.name) + '</div>' +
             '<div class="msg-contact-preview">' + esc(truncate(preview, 40)) + '</div>' +

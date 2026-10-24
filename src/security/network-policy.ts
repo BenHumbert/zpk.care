@@ -31,6 +31,8 @@
  * cluster, which needs mutual TLS between known peers instead. That is phase E, and it replaces
  * this rather than extending it.
  */
+import type { IncomingMessage } from 'http';
+import { normalizeAddress } from './rate-limit.js';
 
 /** Hosts a browser on this machine will present as an origin. */
 const LOCAL_HOSTS = ['localhost', '127.0.0.1'] as const;
@@ -59,7 +61,8 @@ export function resolveBindHost(env: NodeJS.ProcessEnv, role: string): string {
   if (host === '0.0.0.0' || host === '::') {
     console.warn(
       '  [net] %s is bound to %s, reachable from the whole network. Set ZKTRIDENT_HOST to ' +
-        '127.0.0.1 unless this host is meant to serve other machines.',
+        '127.0.0.1 unless this host is meant to serve other machines, and name the host they ' +
+        'reach it by in ZKTRIDENT_PUBLIC_HOSTS: beyond loopback it answers no other Host.',
       role, host,
     );
   }
@@ -115,6 +118,226 @@ export function corsOriginHeader(origin: string | undefined, allowed: string[]):
   if (allowed.includes('*')) return '*';
   if (!origin) return null;
   return allowed.includes(origin) ? origin : null;
+}
+
+/*
+ * ── What every listener checks before it routes ──────────────────────────────────────────
+ *
+ * Finding A-82, from the security posture check of 2026-10-24: no listener looked at the Host
+ * header, every one read a POST body as JSON whatever type it declared, and the pages a node or
+ * the explorer serves could be framed by any site.
+ *
+ * The Host header. A loopback bind keeps other machines out but not a web page. DNS rebinding
+ * points a name the attacker controls at 127.0.0.1; the browser then counts the attacker's page
+ * and this listener as one origin, so the page reads every answer whatever the CORS policy says.
+ * The browser still sends the attacker's name as Host, so a listener that answers only the names
+ * it is known by (loopback with its own port, its bind address, the public names a deployment
+ * configures) gives a rebound page nothing.
+ *
+ * The body's type. A browser sends a cross-site POST without asking first (no CORS preflight)
+ * when it declares text/plain, a form encoding or multipart, or no type at all. Every server here
+ * read the body as JSON whatever it declared, so a page on any site could post to an open route
+ * of a loopback node, or to the HR Tool. A method that carries a body now has to declare
+ * application/json, or the type its route reads instead (the CP 575 upload's PDF). Declaring it is
+ * what makes a browser ask first, and the CORS policy above answers that question.
+ *
+ * Framing. No other site may frame a page served here, where it could overlay the page to collect
+ * clicks.
+ */
+
+/** The names every listener answers to on this machine. */
+const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]'] as const;
+
+/** Bind addresses that name no single host. */
+const WILDCARD_BINDS = new Set(['0.0.0.0', '::', '[::]']);
+
+/**
+ * The Host names a deployment answers to beyond loopback: a reverse proxy's public name, or the
+ * address its peers on other machines use. `ZKTRIDENT_PUBLIC_HOSTS`, comma-separated, each `name`
+ * or `name:port`. None by default.
+ */
+export function resolvePublicHosts(env: NodeJS.ProcessEnv): string[] {
+  return (env.ZKTRIDENT_PUBLIC_HOSTS ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+}
+
+/** What a listener is known by, beside the loopback names. */
+export interface HostPolicy {
+  /** The address it is bound to. A specific address (not 0.0.0.0 or ::) is one of its names. */
+  bindHost?: string;
+  /** The names `resolvePublicHosts` read. */
+  publicHosts?: readonly string[];
+  /** Whether it speaks TLS: a Host with no port then means 443, otherwise 80. */
+  tls?: boolean;
+}
+
+/** Whether a Host value ends in a port: `name:port`, or `[v6]:port`. */
+function hasPort(authority: string): boolean {
+  return authority.startsWith('[') ? /\]:\d+$/.test(authority) : /:\d+$/.test(authority);
+}
+
+/**
+ * Whether a Host header names this listener on `port`, the port it accepted the connection on.
+ *
+ * A loopback name or the bind address matches with that port, or with no port when the port is
+ * the scheme's default. A configured public name matches as written, and one written without a
+ * port also matches with this port. A request with no Host matches nothing: every browser sends
+ * one.
+ */
+export function hostAllowed(host: string | undefined, port: number, policy: HostPolicy = {}): boolean {
+  if (!host) return false;
+  const authority = host.trim().toLowerCase();
+  const names: string[] = [...LOOPBACK_HOSTS];
+  const bind = policy.bindHost?.trim().toLowerCase();
+  if (bind && !WILDCARD_BINDS.has(bind)) names.push(bind.includes(':') && !bind.startsWith('[') ? `[${bind}]` : bind);
+  const defaultPort = policy.tls ? 443 : 80;
+  if (names.some((name) => authority === `${name}:${port}` || (port === defaultPort && authority === name))) return true;
+  return (policy.publicHosts ?? []).some((name) => authority === name || (!hasPort(name) && authority === `${name}:${port}`));
+}
+
+/** `hostAllowed` for a request, on the port it arrived on. */
+export function requestHostAllowed(req: IncomingMessage, policy: HostPolicy = {}): boolean {
+  return hostAllowed(req.headers.host, req.socket?.localPort ?? 0, policy);
+}
+
+/** The refusal of a request whose Host this listener does not answer to, sent as 421. */
+export const MISDIRECTED_REQUEST = 'Misdirected request: this server does not answer for that Host';
+
+/** The methods that carry a body. */
+const BODY_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+/** What a route reads its body as unless it declares another type. */
+export const JSON_BODY: readonly string[] = ['application/json'];
+
+/** The media type a request declares, lower-cased and without parameters; '' when it declares none. */
+export function requestMediaType(req: IncomingMessage): string {
+  const header = req.headers['content-type'];
+  return typeof header === 'string' ? header.split(';')[0].trim().toLowerCase() : '';
+}
+
+/**
+ * Whether a request declares a body type its route reads. A method that carries no body passes.
+ * A POST, PUT, PATCH or DELETE must declare one of `accepts` whether or not it sends a body: a
+ * bodyless POST with no type is one a browser also sends cross-site without asking, and an open
+ * route can act on it.
+ */
+export function bodyTypeAccepted(req: IncomingMessage, accepts: readonly string[] = JSON_BODY): boolean {
+  if (!BODY_METHODS.has((req.method ?? 'GET').toUpperCase())) return true;
+  return accepts.includes(requestMediaType(req));
+}
+
+/** The refusal of a body method that declares a type its route does not read, sent as 415. */
+export const UNSUPPORTED_BODY_TYPE = 'Unsupported Media Type: send the request body as application/json';
+
+/** The headers that keep a page served here out of another site's frames, as the sequencer sends them. */
+export const NO_FRAMING_HEADERS: Readonly<Record<string, string>> = Object.freeze({
+  'X-Frame-Options': 'DENY',
+  'Content-Security-Policy': "frame-ancestors 'none'",
+  'X-Content-Type-Options': 'nosniff',
+});
+
+/*
+ * ── Who a request comes from ─────────────────────────────────────────────────────────────
+ *
+ * From the review of the per-caller limits (A-89's): the insurer node counts what each caller files and asks (its
+ * credentialing applications, its card recovery requests, its reads of an employer's plans to add) and the employer
+ * node counts who asks its validate oracle, each by the caller's address. Behind a reverse proxy or a TLS terminator,
+ * which ZKTRIDENT_PUBLIC_HOSTS exists to serve, every request arrives from the proxy, so every caller was one: a
+ * source's ten open applications became the network's ten, and one client sending thirty bad card releases a minute
+ * had every member's card recovery refused.
+ *
+ * A proxy names the client it forwards for in X-Forwarded-For, appending the address it took the request from to
+ * whatever the request already carried. Any client can send the header too, so a listener reads it only when the
+ * request's socket is a proxy ZKTRIDENT_TRUSTED_PROXIES lists, and reads it from the right, where the trusted proxies
+ * wrote, never from the left, where the client may have.
+ */
+
+/**
+ * The reverse proxies in front of a listener, whose X-Forwarded-For it reads to find the client:
+ * `ZKTRIDENT_TRUSTED_PROXIES`, comma-separated, each an exact IPv4 or IPv6 address, returned as normalizeAddress writes
+ * them. None by default, and then every request is its socket's.
+ *
+ * Throws, naming the variable and the entry, when an entry is not one IP address. A host name, a range or an address
+ * with a port names no socket a listener can compare, and reading one as an address could trust what the operator
+ * did not mean to, so the node refuses to start, as it does for a peer URL it cannot accept.
+ */
+export function resolveTrustedProxies(env: NodeJS.ProcessEnv): string[] {
+  return trustedProxyList((env.ZKTRIDENT_TRUSTED_PROXIES ?? '').split(','), 'ZKTRIDENT_TRUSTED_PROXIES');
+}
+
+/**
+ * `entries` as a trusted-proxy list: each trimmed, blanks dropped, written as normalizeAddress writes it, once. Throws,
+ * naming `origin` and the entry, at one that is not an IP address.
+ */
+export function trustedProxyList(entries: readonly string[], origin: string): string[] {
+  const list: string[] = [];
+  for (const raw of entries) {
+    const entry = raw.trim();
+    if (!entry) continue;
+    const address = normalizeAddress(entry);
+    if (address === null) {
+      throw new Error(
+        `${origin}: "${entry}" is not an IP address. List each reverse proxy in front of this node by its exact ` +
+          'address, IPv4 (192.0.2.10) or IPv6 (2001:db8::10), with no port, brackets, host name or range.',
+      );
+    }
+    if (!list.includes(address)) list.push(address);
+  }
+  return list;
+}
+
+/**
+ * The address of the client a request speaks for, from its socket's address and its X-Forwarded-For header.
+ *
+ * A request whose socket is not a trusted proxy is the socket's, whatever X-Forwarded-For it carries, so a client
+ * cannot choose its own source. From a trusted proxy the header is walked from its right end, past each entry that is
+ * itself a trusted proxy, and the first address that is not one is the client: the address the nearest trusted proxy
+ * took the request from. A header whose every entry is a trusted proxy is the leftmost of them, a request one of the
+ * proxies made itself.
+ *
+ * An entry that is not an IP address ("unknown", a name, an address with a port or in brackets, an empty entry) stops
+ * the walk, and the request is the last trusted hop's: the proxy that wrote the entry, or handed it on. Reading past
+ * the entry would read what the client wrote and let it choose its source; stopping costs only that the clients of a
+ * proxy that writes no address are counted as that proxy, as they would be were it not trusted.
+ *
+ * Returns the socket's address as given when the socket is not a trusted proxy, and otherwise an address as
+ * normalizeAddress writes it.
+ */
+export function clientAddress(
+  socketAddress: string | undefined,
+  forwardedFor: string | string[] | undefined,
+  trustedProxies: readonly string[],
+): string | undefined {
+  if (trustedProxies.length === 0) return socketAddress;
+  const trusted = new Set<string>();
+  for (const proxy of trustedProxies) {
+    const address = normalizeAddress(proxy);
+    if (address !== null) trusted.add(address);
+  }
+  let hop = normalizeAddress(socketAddress);
+  if (hop === null || !trusted.has(hop)) return socketAddress;
+  // Node joins a header sent more than once with ', '; a list is joined the same way.
+  const header = Array.isArray(forwardedFor) ? forwardedFor.join(',') : forwardedFor;
+  if (!header) return hop;
+  const entries = header.split(',');
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = normalizeAddress(entries[i].trim());
+    if (entry === null) return hop;
+    if (!trusted.has(entry)) return entry;
+    hop = entry;
+  }
+  return hop;
+}
+
+/**
+ * Whether a listener bound to `host` answers this machine only: localhost, 127.0.0.0/8 or ::1. A listener given no
+ * host binds every interface.
+ */
+export function isLoopbackBind(host: string | undefined): boolean {
+  if (typeof host !== 'string') return false;
+  const name = host.trim().toLowerCase();
+  if (name === 'localhost') return true;
+  const address = normalizeAddress(name.startsWith('[') && name.endsWith(']') ? name.slice(1, -1) : name);
+  return address === '::1' || (address !== null && address.startsWith('127.'));
 }
 
 /*
@@ -285,4 +508,61 @@ export function resolveRpcProxyPolicy(env: NodeJS.ProcessEnv, role: string): Rpc
   }
 
   return { enabled: true, allowed: new Set(methods) };
+}
+
+/*
+ * ── Peer URLs ────────────────────────────────────────────────────────────────────────────
+ *
+ * A node that tells another node something — a provider telling the insurer it has enrolled —
+ * posts to the URL its own configuration names. The pharmacy's enrollment took that URL from the
+ * request body instead (A-81, found by the security posture check of 2026-10-24), so whatever
+ * could reach the port chose where the node sent its wallet ID and enrollment code: an address on
+ * this machine or its network that the caller could not reach itself, or a hostile server for the
+ * node's HTTP client to parse.
+ *
+ * A configured URL is checked as well, because a typo or a pasted value is configuration too.
+ */
+
+/** Whether a URL's host is this machine's loopback: `localhost`, 127.0.0.0/8 or `[::1]`, as `URL` normalizes them. */
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '[::1]' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname);
+}
+
+/**
+ * Why a peer URL is not one this node may call, or null when it is.
+ *
+ * Absolute `http:` or `https:` with a host, and nothing beside the path: no user name or password,
+ * which would travel with every request and be logged, and no query or fragment, since the caller
+ * appends its own path. Plain `http:` reaches this machine's loopback only. A peer on another host
+ * is reached over `https:`, so nothing on the network between can read or rewrite what is sent;
+ * the cluster's own links become mutual TLS in phase E.
+ */
+export function peerUrlError(raw: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return 'is not an absolute URL';
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return `uses ${url.protocol} rather than http: or https:`;
+  if (!url.hostname) return 'names no host';
+  if (url.username || url.password) return 'carries a user name or password';
+  if (url.search || url.hash) return 'carries a query or a fragment';
+  if (url.protocol === 'http:' && !isLoopbackHost(url.hostname)) {
+    return `reaches ${url.hostname} over plain http; a peer on another host is reached over https`;
+  }
+  return null;
+}
+
+/**
+ * A peer URL from the environment: undefined when the variable is unset or blank, the URL without
+ * its trailing slashes when `peerUrlError` accepts it. Throws, naming the variable, when it does
+ * not, so the node refuses to start rather than run without the peer it was configured to reach.
+ */
+export function resolvePeerUrl(env: NodeJS.ProcessEnv, name: string, role: string): string | undefined {
+  const raw = env[name]?.trim();
+  if (!raw) return undefined;
+  const reason = peerUrlError(raw);
+  if (reason) throw new Error(`${role}: ${name} ${reason}`);
+  return raw.replace(/\/+$/, '');
 }

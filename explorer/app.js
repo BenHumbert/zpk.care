@@ -66,9 +66,10 @@
     return '$' + (Number(c) / 100).toFixed(2);
   }
 
+  // Escapes for text and for attribute values, in double or single quotes.
   function esc(s) {
     if (!s) return '';
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   function toast(msg, type) {
@@ -259,26 +260,44 @@
     batches.forEach(function (b) {
       var num = b.batchNumber !== undefined ? b.batchNumber : (b.index || '--');
       var st = b.l1Status || b.status || '--';
-      html += '<tr onclick="window._showBatch(' + num + ')">' +
-        '<td class="mono">#' + num + '</td>' +
-        '<td>' + (b.registrationCount || 0) + '</td>' +
-        '<td>' + (b.transitionCount || 0) + '</td>' +
+      // A-88: a batch comes from the sequencer, and a replica's from its peers, so each value is escaped, and the batch
+      // number rides in data-batch for onRowClick, never inside an inline handler
+      html += '<tr data-batch="' + esc(String(num)) + '">' +
+        '<td class="mono">#' + esc(String(num)) + '</td>' +
+        '<td>' + esc(String(b.registrationCount || 0)) + '</td>' +
+        '<td>' + esc(String(b.transitionCount || 0)) + '</td>' +
         '<td>' + statusBadge(st) + '</td>' +
-        (compact ? '' : '<td class="mono">' + (b.proveTimeMs ? (b.proveTimeMs / 1000).toFixed(1) + 's' : '--') + '</td>' +
-          '<td><span class="hash">' + shortHash(b.globalStateRoot || b.stateRoot) + '</span></td>') +
-        '<td class="mono">' + (b.blockHeight || '--') + '</td>' +
+        (compact ? '' : '<td class="mono">' + esc(b.proveTimeMs ? (b.proveTimeMs / 1000).toFixed(1) + 's' : '--') + '</td>' +
+          '<td><span class="hash">' + esc(shortHash(b.globalStateRoot || b.stateRoot)) + '</span></td>') +
+        '<td class="mono">' + esc(String(b.blockHeight || '--')) + '</td>' +
         '<td class="text-muted" style="color:var(--text-muted)">' + fmtTime(b.createdAt || b.timestamp) + '</td></tr>';
     });
     html += '</tbody></table>';
     return html;
   }
 
-  window._showBatch = function (n) { showBatchDetail(n); };
+  /**
+   * A-88: every batch and receipt table names each row's batch in data-batch and its receipt in data-receipt, and this
+   * one listener opens them, for tables drawn at any time. The values come from the sequencer, and a replica's from its
+   * peers, so they never ride inside an inline handler; the batch number went into one unquoted.
+   */
+  function onRowClick(e) {
+    if (!e.target || !e.target.closest) return;
+    var batchRow = e.target.closest('[data-batch]');
+    if (batchRow) {
+      var n = Number(batchRow.dataset.batch);
+      if (Number.isSafeInteger(n) && n >= 0) showBatchDetail(n);
+      return;
+    }
+    var receiptRow = e.target.closest('[data-receipt]');
+    if (receiptRow) showReceiptDetail(receiptRow.dataset.receipt);
+  }
+  document.addEventListener('click', onRowClick);
 
   async function showBatchDetail(batchNum) {
     var panel = $('batch-detail-panel');
     panel.classList.remove('hidden');
-    $('batch-detail').innerHTML = '<div class="loading">Loading batch #' + batchNum + '...</div>';
+    $('batch-detail').innerHTML = '<div class="loading">Loading batch #' + esc(String(batchNum)) + '...</div>';
     try {
       var b = await RPC.getBatch(batchNum);
       if (!b) { $('batch-detail').innerHTML = '<div class="empty-state">Batch not found</div>'; return; }
@@ -328,19 +347,17 @@
     receipts.forEach(function (r) {
       var rid = r.receiptId || r.id || '--';
       var st = r.l1Status || r.status || '--';
-      html += '<tr onclick="window._showReceipt(\'' + esc(rid) + '\')">' +
+      html += '<tr data-receipt="' + esc(rid) + '">' +
         '<td><span class="mono truncate">' + esc(rid) + '</span></td>' +
-        '<td><span class="hash">' + shortHash(r.walletId) + '</span></td>' +
+        '<td><span class="hash">' + esc(shortHash(r.walletId)) + '</span></td>' +
         '<td>' + typeBadge(r.isRegistration) + '</td>' +
         '<td>' + statusBadge(st) + '</td>' +
-        '<td class="mono">' + (r.l1BatchNumber !== undefined && r.l1BatchNumber !== null ? '#' + r.l1BatchNumber : '--') + '</td>' +
+        '<td class="mono">' + (r.l1BatchNumber !== undefined && r.l1BatchNumber !== null ? '#' + esc(String(r.l1BatchNumber)) : '--') + '</td>' +
         '<td class="text-muted" style="color:var(--text-muted)">' + fmtTime(r.acceptedAt || r.timestamp) + '</td></tr>';
     });
     html += '</tbody></table>';
     return html;
   }
-
-  window._showReceipt = function (id) { showReceiptDetail(id); };
 
   async function showReceiptDetail(receiptId) {
     var panel = $('receipt-detail-panel');

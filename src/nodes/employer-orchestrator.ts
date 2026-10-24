@@ -24,8 +24,9 @@
  *   2. Checks the sequencer's live tenant registry to avoid duplicate spawns
  *   3. Allocates an ephemeral TCP port and a per-tenant admin token
  *   4. Spawns start-employer-nautilus.ts with the correct pinned identity
- *      (ZKTRIDENT_EMPLOYER_ID + ZKTRIDENT_EMPLOYER_PUBKEY_HEX + etc.), told this
- *      process's PID so it exits on its own if this process dies (A7)
+ *      (ZKTRIDENT_EMPLOYER_ID + ZKTRIDENT_EMPLOYER_PUBKEY_HEX + etc.) and none of
+ *      this process's secrets, told this process's PID so it exits on its own if
+ *      this process dies (A7)
  *   5. Waits for the employer node to boot, verify its attestation, and
  *      reach phase=ready
  *   6. Registers the tenant on the sequencer via l2_registerEmployerNode
@@ -44,6 +45,7 @@ import { createHash, randomBytes } from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { signedFetch, type SequencerSigner } from './sequencer-fetch.js';
+import { childEnvironment, NODE_ID_ENV } from '../security/node-roles.js';
 
 const thisDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -155,13 +157,79 @@ async function pollUntilHealthy(
 /** Generate a per-tenant admin token. Shown once to the employer on the
  *  marketplace activate screen; not recoverable from the orchestrator. */
 function generateAdminToken(employerId: string): string {
-  // prefix + 128-bit random, base36-encoded for readability
-  const rand = randomBytes(16).toString('hex');
-  return `${employerId.toLowerCase()}-admin-${rand.slice(0, 16)}`;
+  // the employer ID, then 128 random bits as 32 hex characters (the hex was once cut to 16: 64 bits)
+  return `${employerId.toLowerCase()}-admin-${randomBytes(16).toString('hex')}`;
 }
 
 function fingerprint(token: string): string {
   return createHash('sha256').update(token).digest('hex').slice(0, 16);
+}
+
+// ─── Tenant Environment ────────────────────────────────────
+
+/**
+ * What this process holds that is not on the secrets list, so `childEnvironment` would pass it on,
+ * but is not the tenant's: the insurer's node ID; its TLS certificate and key, which a tenant must
+ * not load (it serves plain HTTP on loopback, at the URL this module registers for it); the
+ * prover's API key, since an employer node proves nothing; the development flag, which the
+ * employer launcher never read, so a dev boot's flag stops here; and the insurer's listener
+ * settings, the public names it answers and the reverse proxies it trusts. Only the insurer
+ * reaches a tenant, at 127.0.0.1, and no proxy forwards to one, so a tenant answers no public name
+ * and trusts no proxy. Given the insurer's, every tenant answered the insurer's names, let any
+ * caller on this host choose its own source in X-Forwarded-For when the insurer's proxy was on
+ * this host, and warned at each boot of a proxy in front of it that was not there (the review of
+ * the trusted-proxy fix).
+ */
+const INSURER_ONLY_ENV_KEYS: readonly string[] = [
+  NODE_ID_ENV,
+  'ZKTRIDENT_TLS_CERT',
+  'ZKTRIDENT_TLS_KEY',
+  'ZKTRIDENT_PROVER_API_KEY',
+  'ZKTRIDENT_UNSECURE',
+  'ZKTRIDENT_PUBLIC_HOSTS',
+  'ZKTRIDENT_TRUSTED_PROXIES',
+];
+
+/** The same names upper-cased, as `tenantEnvironment` compares them. */
+const INSURER_ONLY_ENV_KEYS_UPPER: ReadonlySet<string> = new Set(INSURER_ONLY_ENV_KEYS.map((k) => k.toUpperCase()));
+
+interface TenantSettings {
+  port: number;
+  employerId: string;
+  employerPubKeyHex: string;
+  sequencerUrl: string;
+  insurerUrl: string;
+  adminToken: string;
+}
+
+/**
+ * The environment a tenant is started with. This process is the insurer's: it holds the insurer's
+ * attestation signing seed, its node key and its own admin token. Until the security posture check
+ * of 2026-10-24 a tenant was started with a copy of this process's environment, the seed and the
+ * node key included. As for every child the launcher starts (A9), `childEnvironment` strips the
+ * secrets, the settings above are dropped too, and what the tenant needs is passed by name. The
+ * host's environment and the operator's network-wide settings, such as the /rpc proxy switch,
+ * still reach it. A tenant gets no node key: an employer node calls no privileged sequencer
+ * method, and its launcher reads none.
+ */
+function tenantEnvironment(base: NodeJS.ProcessEnv, tenant: TenantSettings): Record<string, string> {
+  const inherited: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(base)) {
+    // upper-cased, as childEnvironment compares: on Windows zktrident_tls_key is the tenant's ZKTRIDENT_TLS_KEY
+    if (!INSURER_ONLY_ENV_KEYS_UPPER.has(key.toUpperCase())) inherited[key] = value;
+  }
+  return childEnvironment(inherited, {
+    ZKTRIDENT_PORT: String(tenant.port),
+    ZKTRIDENT_HOST: '127.0.0.1',
+    ZKTRIDENT_EMPLOYER_ID: tenant.employerId,
+    ZKTRIDENT_EMPLOYER_PUBKEY_HEX: tenant.employerPubKeyHex,
+    ZKTRIDENT_SEQUENCER_URL: tenant.sequencerUrl,
+    ZKTRIDENT_INSURER_URL: tenant.insurerUrl,
+    ZKTRIDENT_ADMIN_TOKEN: tenant.adminToken,
+    ZKTRIDENT_PARENT_PID: String(process.pid),
+    // No ZKTRIDENT_CORS_ORIGINS: the spawned node resolves the local dashboard
+    // origins itself. Passing '*' here opened every employer node to any origin.
+  });
 }
 
 // ─── Main Entry Point ──────────────────────────────────────
@@ -295,26 +363,11 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
   // A7: spawned from this node binary with tsx's loader rather than through `npx` and a shell, so
   // a tenant is one process instead of three, and told this process's PID so it can exit on its
   // own if this process dies without running its shutdown handlers (eight orphans from four runs
-  // were found alive on one machine). ZKTRIDENT_UNSECURE is not passed: the employer launcher never
-  // read it, and it is stripped from the inherited environment so a dev boot's flag stops here.
-  const { ZKTRIDENT_UNSECURE: _dropUnsecure, ...inheritedEnv } = process.env;
-  void _dropUnsecure;
+  // were found alive on one machine). Its environment carries none of this process's secrets.
   const employerScript = path.resolve(thisDir, 'start-employer-nautilus.ts');
   const employerChild = spawn(process.execPath, ['--import', 'tsx', employerScript], {
     cwd: process.cwd(),
-    env: {
-      ...inheritedEnv,
-      ZKTRIDENT_PORT: String(employerPort),
-      ZKTRIDENT_HOST: '127.0.0.1',
-      ZKTRIDENT_EMPLOYER_ID: employerId,
-      ZKTRIDENT_EMPLOYER_PUBKEY_HEX: employerPubKeyHex,
-      ZKTRIDENT_SEQUENCER_URL: sequencerUrl,
-      ZKTRIDENT_INSURER_URL: insurerUrl,
-      ZKTRIDENT_ADMIN_TOKEN: adminToken,
-      ZKTRIDENT_PARENT_PID: String(process.pid),
-      // No ZKTRIDENT_CORS_ORIGINS: the spawned node resolves the local dashboard
-      // origins itself. Passing '*' here opened every employer node to any origin.
-    },
+    env: tenantEnvironment(process.env, { port: employerPort, employerId, employerPubKeyHex, sequencerUrl, insurerUrl, adminToken }),
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   });

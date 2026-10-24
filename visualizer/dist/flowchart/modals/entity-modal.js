@@ -1162,7 +1162,7 @@ class EntityModal {
               nfcBtn.disabled = false;
               this.showStatus('nfc-write-status', 'Timed out waiting for tag. Try again.', 'error');
               cleanup();
-              fetch('/interactive/nfc/cancel', { method: 'POST' }).catch(() => {});
+              fetch('/interactive/nfc/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' } }).catch(() => {});
             }
           }, 60000);
         }).catch(err => {
@@ -1919,7 +1919,7 @@ class EntityModal {
     this.showStatus(statusEl, 'Forcing batch...', 'info');
 
     try {
-      const res = await fetch('/interactive/force-batch', { method: 'POST' });
+      const res = await fetch('/interactive/force-batch', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       const data = await res.json();
 
       if (data.ok) {
@@ -1938,7 +1938,7 @@ class EntityModal {
     this.showStatus(statusEl, 'Retrying failed batch...', 'info');
 
     try {
-      const res = await fetch('/interactive/retry-batch', { method: 'POST' });
+      const res = await fetch('/interactive/retry-batch', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       const data = await res.json();
 
       if (data.ok) {
@@ -1957,7 +1957,7 @@ class EntityModal {
     this.showStatus(statusEl, 'Simulating batch failure...', 'info');
 
     try {
-      const res = await fetch('/interactive/simulate-batch-failure', { method: 'POST' });
+      const res = await fetch('/interactive/simulate-batch-failure', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       const data = await res.json();
 
       if (data.ok) {
@@ -1976,7 +1976,7 @@ class EntityModal {
     this.showStatus(statusEl, 'Saving checkpoint...', 'info');
 
     try {
-      const res = await fetch('/interactive/save-checkpoint', { method: 'POST' });
+      const res = await fetch('/interactive/save-checkpoint', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       const data = await res.json();
 
       if (data.ok) {

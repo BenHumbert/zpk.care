@@ -63,6 +63,7 @@ import type { NfcReader, NfcTagEvent, NdefPayload } from './nfc-port.js';
 import type { NfcCredentialAttestation } from '../credentials/nfc-attestation.js';
 import { MEDICATIONS, PRESCRIBERS, PHARMACIES } from '../data/index.js';
 import { readRequestBody } from '../security/request-body.js';
+import { displayNameError } from '../security/free-text.js';
 
 type RouteHandler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 
@@ -355,12 +356,20 @@ export function registerInteractiveRoutes(
         sendError(res, 400, 'Missing required fields: walletId, ownershipProofJson (ProofGate.verifyMember proof made on the device)');
         return;
       }
+      // A-61: the name the device gives is what the operator console and the other screens list for this wallet,
+      // so it is held to a short line of plain text before the engine keeps it.
+      const displayName = params.displayName || 'Member';
+      const displayNameProblem = displayNameError(displayName);
+      if (displayNameProblem) {
+        sendError(res, 400, displayNameProblem);
+        return;
+      }
 
       // Step 2 commit two: the group and plan come from the insurer's approval, never from this body.
       const result = await service.registerMemberFromEnrollment({
         walletId: String(params.walletId),
         ownershipProofJson: params.ownershipProofJson,
-        displayName: params.displayName || 'Member',
+        displayName,
         relationship: params.relationship,
         publicKeyHex: params.publicKeyHex ? String(params.publicKeyHex) : undefined,
       });

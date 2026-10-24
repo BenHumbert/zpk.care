@@ -298,6 +298,8 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
     await unlockDevice(memberPort, TEST_PIN);
     prescriberPort = prescriberApp.getPort();
     pharmacyPort = pharmacyApp.getPort();
+    // A-81: the pharmacy notifies the insurer its configuration names; it refuses one in the request.
+    pharmacyApp.getConfig().insurerUrl = `http://127.0.0.1:${insurerPort}`;
   }, 30_000);
 
   // ── Teardown ───────────────────────────────────────────
@@ -394,7 +396,6 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
 
     r = await post(pharmacyPort, '/onboarding/enroll', {
       tokenId: 'TOKEN-PHARM-001',
-      insurerUrl: `http://127.0.0.1:${insurerPort}`,
     });
     expect(r.status).toBe(200);
   });

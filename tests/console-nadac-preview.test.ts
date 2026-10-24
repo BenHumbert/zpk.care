@@ -46,6 +46,12 @@ function consoleNadac(): Record<string, any> {
   return new Function(`'use strict';\n${body}\nreturn { ${[...new Set([...names, ...exported])].join(', ')} };`)();
 }
 
+/** The console's escaping (message-thread.js), from source: the phases escape what they place in the page (A-61). */
+function messageThread(): Record<string, unknown> {
+  const src = read('visualizer/src/js/interactive/message-thread.js');
+  return new Function(`'use strict';\n${src.replace(/^export\s+/gm, '')}\nreturn { escapeHtml, renderMessageBubbles };`)();
+}
+
 const formatCents = (c: number) => '$' + (c / 100).toFixed(2);
 
 /** The pharmacy phase class with its imports stubbed, and a page of element stubs it renders into. */
@@ -68,6 +74,7 @@ function pharmacyPhase(fetchStub: (url: string, init?: unknown) => Promise<unkno
     renderSectionCard: () => '', renderMetricRow: () => '', renderSortableTable: () => '', truncHash: (h: unknown) => String(h),
     loadInteractiveState: async () => ({}),
     ...nadac,
+    ...messageThread(),
     document: { getElementById: element, querySelectorAll: () => [] },
     fetch: fetchStub, setTimeout: () => 0,
   };

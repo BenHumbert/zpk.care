@@ -173,7 +173,7 @@ test('2. Review PDF fetches the document with the token and opens it as a PDF bl
   expect(Buffer.from(await blob.arrayBuffer()).toString('latin1').startsWith('%PDF')).toBe(true);
   const app = read('dashboard-insurer/app.js');
   expect(app).not.toContain('href="/marketplace/api/document/');
-  expect(app).toContain('App.reviewDoc(');
+  expect(app).toContain('data-act="reviewDoc" data-arg="');            // A-88: the button names it, onIdAction calls it
   expect(app).toContain('reviewDoc: reviewDoc');
 });
 
@@ -184,12 +184,13 @@ test('3. Force Batch is off the insurer screen, and a role the sequencer refuses
   const seq = await service(() => ({ status: 200, body: { jsonrpc: '2.0', id: 1, error: { code, message: 'Forbidden: role insurer may not call l2_forceBatch' } } }));
   const ins = await appServer(buildInsurerRoutes, { node: new InsurerNode({ role: 'insurer', sequencerUrl: seq.url }) });
   try {
-    const refused = await fetch(ins.url + '/admin/batch/force', { method: 'POST', headers: { Authorization: `Bearer ${TOKEN}` } });
+    const asAdmin = { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' };
+    const refused = await fetch(ins.url + '/admin/batch/force', { method: 'POST', headers: asAdmin });
     expect(refused.status).toBe(403);
     expect(((await refused.json()) as { error: string }).error).toMatch(/only the network operator/);
     expect(JSON.parse(seq.seen[0].body).method).toBe('l2_forceBatch');
     code = -32603; // any other failure is still an error of this node's
-    expect((await fetch(ins.url + '/admin/batch/force', { method: 'POST', headers: { Authorization: `Bearer ${TOKEN}` } })).status).toBe(500);
+    expect((await fetch(ins.url + '/admin/batch/force', { method: 'POST', headers: asAdmin })).status).toBe(500);
   } finally {
     await ins.stop();
   }

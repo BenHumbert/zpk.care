@@ -35,6 +35,19 @@
  * right PIN consumes a code and nothing else does; the oracle answers only a request the insurer
  * signed, over the body it actually received, once; the insurer asks exactly the employer the
  * prefix names, records a redemption against the wallet before anything else, and never fans out.
+ *
+ * Later, a review of the oracle's two rate limits found them in the wrong order. Every request
+ * was recorded against the overall limit of 600 a minute before its caller's limit of 60 was
+ * checked, so a caller its own limit had already refused kept spending the budget the insurer
+ * needs: one client sending 600 unsigned requests a minute (60 answered 401, 540 refused 429, all
+ * 600 counted) had the insurer's next signed request refused 429, and every enrollment with that
+ * employer failed for the minute. And the insurer, the one caller the oracle answers, had the
+ * same 60 a minute as any other, so its relays of every member's enrollment shared one small
+ * budget. Now a caller over its limit is refused by a count that records nothing, before any
+ * signature is checked; a request that does not prove it is the insurer's is charged to its
+ * caller alone; and one the insurer signed spends only the overall budget. The test that a
+ * caller is still refused after 60 such requests a minute passed on the route as it was; it holds
+ * the new order to that limit.
  */
 import fs from 'fs';
 import { hashString } from '../src/zkp/hash-utils.js';
@@ -106,11 +119,11 @@ function fakeRes(): { res: unknown; captured: () => Captured } {
   };
   return { res, captured: () => ({ status, payload }) };
 }
-/** Enough of an IncomingMessage for a handler: the URL, lower-cased headers and a peer address. */
-function fakeReq(opts: { url?: string; headers?: Record<string, string> } = {}) {
+/** Enough of an IncomingMessage for a handler: the URL, lower-cased headers and a peer address (127.0.0.1 unless given). */
+function fakeReq(opts: { url?: string; headers?: Record<string, string>; remoteAddress?: string } = {}) {
   const headers: Record<string, string> = {};
   for (const [k, v] of Object.entries(opts.headers ?? {})) headers[k.toLowerCase()] = v;
-  return { url: opts.url ?? '/', headers, socket: { remoteAddress: '127.0.0.1' } };
+  return { url: opts.url ?? '/', headers, socket: { remoteAddress: opts.remoteAddress ?? '127.0.0.1' } };
 }
 function find(routes: RouteRegistration[], method: string, p: string): RouteRegistration {
   const r = routes.find((x) => x.method === method && x.path === p);
@@ -124,6 +137,12 @@ async function call(
   const { res, captured } = fakeRes();
   await route.handler((args.req ?? fakeReq()) as any, res as any, args.params ?? {}, new URLSearchParams(), args.body);
   return captured();
+}
+/** The statuses of `n` calls made one after another. */
+async function statuses(n: number, send: (i: number) => Promise<Captured>): Promise<number[]> {
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) out.push((await send(i)).status);
+  return out;
 }
 function baseConfig(role: NautilusAppConfig['role'], stateDir: string, extra: Partial<NautilusAppConfig> = {}): NautilusAppConfig {
   return {
@@ -441,6 +460,10 @@ describe('the validate oracle answers only the insurer, and consumes what it val
     });
     return { req: fakeReq({ url: p, headers }), params: { tokenId: code }, body: over.deliver === undefined ? body : over.deliver };
   }
+  /** An unsigned validate call, from `remoteAddress`. */
+  function unsigned(code: string, remoteAddress = '127.0.0.1') {
+    return { req: fakeReq({ url: `/tokens/${code}/validate`, remoteAddress }), params: { tokenId: code }, body: { tokenPinHash: 'x' } };
+  }
 
   test('unsigned, it refuses before looking at the code', async () => {
     const e = await employerWithCode();
@@ -539,6 +562,55 @@ describe('the validate oracle answers only the insurer, and consumes what it val
     expect(r.payload.error).toMatch(/caller-chosen/);
   });
 
+  test('one client’s 600 unsigned requests in a minute leave the insurer’s next signed request answered', async () => {
+    const e = await employerWithCode();
+    const junk = await statuses(600, () => call(e.validate, unsigned(e.code, '203.0.113.7')));
+    expect(junk).toEqual([...Array(60).fill(401), ...Array(540).fill(429)]);
+    const r = await call(e.validate, signed(e.code, { tokenPinHash: hashTokenPIN(e.code, PIN) }));
+    expect([r.status, r.payload.data?.valid]).toEqual([200, true]);   // before: [429, undefined], the junk had spent the overall 600
+    expect(e.node.getTokenRecord(e.code)!.status).toBe('consumed');   // before: 'unused'
+  });
+
+  test('the insurer’s signed requests are not held to one caller’s 60 a minute', async () => {
+    const e = await employerWithCode();
+    const other = generateEnrollmentCode('SOMEONE-ELSE');
+    // Each over a body of its own, so each signature is new and none is refused as a replay.
+    const answered = await statuses(61, (i) => call(e.validate, signed(other, { tokenPinHash: `pin-hash-${i}` })));
+    expect(answered).toEqual(Array(61).fill(200));                     // before: the 61st was 429
+    const r = await call(e.validate, signed(e.code, { tokenPinHash: hashTokenPIN(e.code, PIN) }));
+    expect([r.status, r.payload.data?.valid]).toEqual([200, true]);   // before: [429, undefined]
+  });
+
+  test('the insurer’s signed requests spend the overall budget: 600 a minute are answered and the next waits', async () => {
+    const e = await employerWithCode();
+    const other = generateEnrollmentCode('SOMEONE-ELSE');
+    const answered = await statuses(600, (i) => call(e.validate, signed(other, { tokenPinHash: `pin-hash-${i}` })));
+    expect(answered).toEqual(Array(600).fill(200));                    // before: 429 from the 61st on
+    const over = await call(e.validate, signed(e.code, { tokenPinHash: hashTokenPIN(e.code, PIN) }));
+    expect([over.status, over.payload.error]).toEqual([429, 'Too many validation requests. Try again in a minute.']);
+    expect(e.node.getTokenRecord(e.code)!.status).toBe('unused');
+  });
+
+  test('a caller’s requests that do not prove they are the insurer’s are still refused 429 after 60 a minute', async () => {
+    const e = await employerWithCode();
+    expect(await statuses(30, () => call(e.validate, unsigned(e.code)))).toEqual(Array(30).fill(401));
+    // Signed with a key that is not the insurer's: charged as an unsigned request is.
+    const forged = await statuses(30, (i) => call(e.validate, signed(e.code, { tokenPinHash: `guess-${i}` }, ATTACKER_SEED)));
+    expect(forged).toEqual(Array(30).fill(401));
+    const over = await call(e.validate, unsigned(e.code));
+    expect([over.status, over.payload.error]).toEqual([429, 'Too many validation requests. Try again in a minute.']);
+    // The refusal comes before any signature is checked, so a flood costs no verification: while
+    // its caller is over the limit, a request the insurer signed waits too.
+    expect((await call(e.validate, signed(e.code, { tokenPinHash: hashTokenPIN(e.code, PIN) }))).status).toBe(429);
+    expect(e.node.getTokenRecord(e.code)!.status).toBe('unused');
+
+    // A node with no attestation cannot verify anyone, so what it is sent is charged to its caller too.
+    const bare = await employerWithCode({ attest: false });
+    const unverifiable = await statuses(60, (i) => call(bare.validate, signed(bare.code, { tokenPinHash: `pin-hash-${i}` })));
+    expect(unverifiable).toEqual(Array(60).fill(503));
+    expect((await call(bare.validate, signed(bare.code, { tokenPinHash: 'pin-hash-60' }))).status).toBe(429);
+  });
+
   test('the routes and methods that carried a wallet ID to the employer are gone', async () => {
     const server = new NautilusAppServer(baseConfig('employer', makeTempDir('a6-emp-')));
     const paths = buildEmployerRoutes(server).map((r) => `${r.method} ${r.path}`);
@@ -546,7 +618,11 @@ describe('the validate oracle answers only the insurer, and consumes what it val
     expect(paths).not.toContain('POST /tokens/:tokenId/submit');
     expect((EmployerNode.prototype as unknown as Record<string, unknown>).confirmEnrollment).toBeUndefined();
     expect((EmployerNode.prototype as unknown as Record<string, unknown>).submitTokenToInsurer).toBeUndefined();
+    // And the oracle that replaced them is limited per caller: a caller over its limit is refused by
+    // a count, before any signature is checked, and a request that does not prove it is the
+    // insurer's is charged to its caller.
     const src = fs.readFileSync('src/nodes/routes/employer-routes.ts', 'utf-8');
+    expect(src).toContain('validatePerCaller.count(caller) >= VALIDATE_PER_CALLER_PER_MINUTE');   // before: validateOverall.allow('*') || !validatePerCaller.allow(caller)
     expect(src).toContain('validatePerCaller.allow(caller)');
   });
 });
@@ -650,7 +726,8 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
     expect(probesB).toHaveLength(0);                            // never fanned out
     expect(probesA[0].verified).toBe(true);                     // a real insurer signature over the body
     expect(probesA[0].path).toBe(`/tokens/${codeA}/validate`);
-    expect(probesA[0].body).toBe(JSON.stringify({ tokenPinHash: 'pinhash-1' }));
+    // the relay names the PIN hash and a fresh nonce, so no two relays share a signature (A-93)
+    expect(JSON.parse(probesA[0].body)).toEqual({ tokenPinHash: 'pinhash-1', nonce: expect.stringMatching(/^[0-9a-f]{32}$/) });
   });
 
   test('the redemption is persisted immediately, with no wallet yet', async () => {

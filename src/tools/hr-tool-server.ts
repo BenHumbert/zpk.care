@@ -37,11 +37,13 @@
  *   - Failed imports only add entries after successful token generation
  *   - Error messages sanitized (no internal paths leaked)
  *   - Atomic file writes via core module
+ *   - A request must name this tool in its Host, and a write must declare JSON (A-82)
  *
  * Usage: npm run start:hr-tool   (on the HR admin's own machine — phase A item A7)
  *   PORT=5050 (default)
  *   HR_TOOL_DATA_DIR=./hr-tool-data (default)
  *   EMPLOYER_NODE_URL=http://localhost:4005 (default offered on the setup screen only)
+ *   ZKTRIDENT_PUBLIC_HOSTS= (Host names answered beyond loopback; none by default)
  *
  * The employer node URL and the admin token are entered once at POST /api/setup and stored
  * encrypted under the workspace passphrase. Neither is read from the environment any more.
@@ -50,6 +52,9 @@ import { createServer } from 'http';
 import { readFileSync, existsSync, readdirSync, mkdirSync, appendFileSync, writeFileSync } from 'fs';
 import { timingSafeEqual } from 'crypto';
 import { PersistedAttemptLimiter } from '../security/attempt-limiter.js';
+import {
+  resolvePublicHosts, requestHostAllowed, bodyTypeAccepted, MISDIRECTED_REQUEST, UNSUPPORTED_BODY_TYPE, type HostPolicy,
+} from '../security/network-policy.js';
 import { encryptWithPassphrase, decryptWithPassphrase, workspaceDirName } from './hr-tool-core.js';
 import { join, resolve, extname, sep } from 'path';
 import { fileURLToPath } from 'url';
@@ -79,6 +84,8 @@ import {
 import type { CorrelationTable, CorrelationEntry, TokenDistributionRecord, HrToolClientKey, WorkspaceMeta } from './hr-tool-core.js';
 
 const PORT = parseInt(process.env.PORT || '5050', 10);
+/** A-82: the names this tool answers to in a request's Host, beside loopback with its port. */
+const HOST_POLICY: HostPolicy = { bindHost: '127.0.0.1', publicHosts: resolvePublicHosts(process.env) };
 const DATA_DIR = process.env.HR_TOOL_DATA_DIR || './hr-tool-data';
 /** Wrong-passphrase counter: plaintext, no secrets, beside the encrypted workspaces (A7). */
 const attempts = new PersistedAttemptLimiter(join(DATA_DIR, 'attempts.json'));
@@ -1083,6 +1090,9 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
 // ─── Server ─────────────────────────────────────────────────
 
 const server = createServer(async (req, res) => {
+  // A-82: the request must name this tool in its Host, or a page rebound to loopback could drive the open workspace.
+  if (!requestHostAllowed(req, HOST_POLICY)) return errRes(res, 421, MISDIRECTED_REQUEST);
+
   const method = req.method || 'GET';
   const rawUrl = req.url || '/';
   const urlPath = rawUrl.split('?')[0];
@@ -1094,6 +1104,10 @@ const server = createServer(async (req, res) => {
   res.setHeader('Content-Security-Policy', "default-src 'self'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; script-src 'self'");
 
   if (method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+
+  // A-82: every write declares JSON, which this tool's page always sends. A form or text/plain post, or a bodyless
+  // one with no type, is what another site's page can send without asking first, to an unlocked workspace.
+  if (!bodyTypeAccepted(req)) return errRes(res, 415, UNSUPPORTED_BODY_TYPE);
 
   // API routes
   if (urlPath.startsWith('/api/')) {

@@ -35,8 +35,9 @@ import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync } from '
 import { join } from 'path';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
 import type { RouteRegistration } from '../nautilus-app-types.js';
-import type { EmployerApplication, EmployerAttestation, BenefitPlanConfig } from '../../l2/l2-types.js';
+import type { EmployerApplication, EmployerApplicationStatus, EmployerAttestation, BenefitPlanConfig } from '../../l2/l2-types.js';
 import { planAsPublished, publishedTermsOf } from '../../l2/plan-terms.js';
+import { SlidingWindowLimiter } from '../../security/rate-limit.js';
 import {
   computeAgreementCommitment,
   computeDocumentHash,
@@ -51,7 +52,15 @@ import {
 
 // ─── Shared Application Store (persisted to stateDir) ───────
 
-const applicationStore: Map<string, EmployerApplication> = new Map();
+/**
+ * An application as the store keeps it, with its source: the caller it came from as server.callerKey writes it, which
+ * the apply route's per-source limits count. The source is filed with the rest in marketplace-applications.json, so the
+ * limits hold across a restart, and never listed: every route that answers an application names the fields it returns.
+ * An application filed before sources were kept has none, and counts only toward the cap on open applications.
+ */
+type StoredApplication = EmployerApplication & { source?: string };
+
+const applicationStore: Map<string, StoredApplication> = new Map();
 const agreementCache: Map<string, { terms: AgreementTerms; commitment: string; documentHash: string; ts: number; attestationSeq: number }> = new Map();
 const docxCache: Map<string, Buffer> = new Map();
 
@@ -180,15 +189,41 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
     loadApplicationStore();
   }
 
-  // Rate limiting: max applications per minute
-  const recentApplications: number[] = [];
-  const MAX_APPS_PER_MINUTE = 10;
-
-  function checkRateLimit(): boolean {
-    const now = Date.now();
-    while (recentApplications.length > 0 && recentApplications[0] < now - 60_000) recentApplications.shift();
-    return recentApplications.length < MAX_APPS_PER_MINUTE;
-  }
+  /*
+   * What one source may file, and how many applications the insurer keeps open. A source is the caller as
+   * server.callerKey writes it (addressKey, rate-limit.ts): an IPv4 address, the /64 of an IPv6 address, or behind a
+   * reverse proxy listed in ZKTRIDENT_TRUSTED_PROXIES, the client the proxy names.
+   *
+   * These replace one limit on the whole route, ten applications kept a minute whoever sent them, and no bound on the
+   * applications kept. One client sending ten well-formed applications a minute (a fresh employerId, any 64-hex key) had
+   * every real employer refused 429, and each of its own was kept: written to marketplace-applications.json, the whole
+   * file rewritten each time, and listed for the insurer's staff to review, up to 14,400 a day. No ceiling on the whole
+   * route is kept: each source's limits bound what it files and the cap bounds what all of them leave open, so a
+   * route-wide ceiling would add only a refusal of every employer in a busy minute, which a few sources together could
+   * bring about at will.
+   *
+   * An application is open while it waits on the insurer: submitted, under_review or needs_documents. Every other status
+   * follows a decision (approved, signed and active only the insurer's staff approving it, denied the staff or a fourth
+   * document upload), and none of them counts. Counting approved and signed would hold a source's slot from the staff's
+   * approval until the employer activates, and a signed application cannot be denied, so one never activated would hold
+   * it for good.
+   *
+   * An employer applies once. A source with more than one open is an office applying for several companies, or an
+   * employer applying again before its first is decided. At most 3 of a source's applications are open at once, so it
+   * holds no more than 3 of the slots below however long staff take, and at most 6 are kept from it in an hour, so it
+   * cannot file again as fast as its applications are denied, by the staff or by its own fourth upload. At most 1,000
+   * are open at once, whoever filed them, which bounds the staff's review list and the open part of the file; the rest
+   * of the file is what has been decided. A client with many sources (a swarm) still gets 3 open from each, which is the
+   * general rate limit's to answer (A-80).
+   */
+  const OPEN_STATUSES: ReadonlySet<EmployerApplicationStatus> = new Set<EmployerApplicationStatus>(['submitted', 'under_review', 'needs_documents']);
+  const MAX_OPEN_APPLICATIONS = 1_000;
+  const MAX_OPEN_PER_SOURCE = 3;
+  const APPLICATIONS_PER_SOURCE_PER_HOUR = 6;
+  const applicationsPerSource = new SlidingWindowLimiter(APPLICATIONS_PER_SOURCE_PER_HOUR, 60 * 60_000);
+  // The Retry-After of every refusal past a limit, in seconds: a source's oldest counted application leaves the window
+  // within the hour, and an open slot comes back only as staff decide applications, on no schedule this route knows.
+  const APPLY_RETRY_AFTER_SECONDS = 60 * 60;
 
   // ══════════════════════════════════════════════════════════
   //  PLAN BROWSING (Public)
@@ -306,11 +341,12 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
   routes.push({
     method: 'POST',
     path: '/marketplace/api/apply',
-    handler: async (_req, res, _params, _query, body) => {
-      if (!checkRateLimit()) {
-        return server.sendResponse(res, 429, false, undefined, 'Too many applications. Try again in a minute.');
-      }
-
+    handler: async (req, res, _params, _query, body) => {
+      // The source is read before anything is awaited. Read after the sequencer's answer, as it was, it found no
+      // address for a client that half-closed its connection right after sending, since a closed socket has none, and
+      // the application was kept under 'unknown', the one key every such client shares (the review of the open-intake
+      // limits). The server keys each request as it arrives as well (callerKey); this route does not rely on that.
+      const source = server.callerKey(req);
       const b = body as any;
       if (!b?.companyName || !b?.contactName || !b?.contactEmail || !b?.employerId ||
           !b?.selectedPlanIds || !Array.isArray(b.selectedPlanIds) || b.selectedPlanIds.length === 0 ||
@@ -335,10 +371,35 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
         return server.sendResponse(res, 409, false, undefined, availability.reason || 'employerId is not available');
       }
 
+      // What the application says is answered first (400, 409), then what its source has filed (429), then what the
+      // insurer holds (503). Nothing is awaited from here to the store, so applications sent together are counted one
+      // after another, never all against one count. Only an application kept counts against its source: the hour's count
+      // is read here and added to once nothing has refused it.
+      let open = 0;
+      let openFromSource = 0;
+      for (const a of applicationStore.values()) {
+        if (!OPEN_STATUSES.has(a.status)) continue;
+        open++;
+        if (a.source === source) openFromSource++;
+      }
+      if (openFromSource >= MAX_OPEN_PER_SOURCE) {
+        res.setHeader('Retry-After', String(APPLY_RETRY_AFTER_SECONDS));
+        return server.sendResponse(res, 429, false, undefined, 'Too many open employer applications from this address. Apply again once the insurer decides one.');
+      }
+      if (applicationsPerSource.count(source) >= APPLICATIONS_PER_SOURCE_PER_HOUR) {
+        res.setHeader('Retry-After', String(APPLY_RETRY_AFTER_SECONDS));
+        return server.sendResponse(res, 429, false, undefined, 'Too many employer applications from this address in the last hour. Try again in an hour.');
+      }
+      if (open >= MAX_OPEN_APPLICATIONS) {
+        res.setHeader('Retry-After', String(APPLY_RETRY_AFTER_SECONDS));
+        return server.sendResponse(res, 503, false, undefined, 'The insurer holds as many open employer applications as it keeps: apply again once some are decided');
+      }
+      applicationsPerSource.allow(source);
+
       const applicationId = generateApplicationId();
       // Returned once, below, and never recoverable from the store or the logs.
       const claimSecret = generateClaimSecret();
-      const application: EmployerApplication = {
+      const application: StoredApplication = {
         applicationId,
         claimSecretHash: hashClaimSecret(claimSecret),
         employerId: b.employerId,
@@ -353,13 +414,13 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
         effectiveDate: b.effectiveDate.replace(/-/g, ''),
         enrollmentCap: Number(b.enrollmentCap),
         publicKeyHex: b.publicKeyHex,
+        source,
         submittedAt: Date.now(),
         status: 'submitted',
       };
 
       applicationStore.set(applicationId, application);
       saveApplicationStore();
-      recentApplications.push(Date.now());
       console.log('[marketplace] Application submitted: %s (%s)', applicationId, b.companyName);
 
       /*
@@ -409,6 +470,8 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
   routes.push({
     method: 'POST',
     path: '/marketplace/api/upload-document/:applicationId',
+    // The one route that reads a body other than JSON: the letter itself, which the handler reads and checks below.
+    bodyTypes: ['application/pdf'],
     handler: async (req, res, params) => {
       const app = applicationStore.get(params.applicationId);
       if (!app) return server.sendResponse(res, 404, false, undefined, 'Application not found');

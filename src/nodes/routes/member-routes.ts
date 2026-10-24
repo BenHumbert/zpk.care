@@ -411,7 +411,17 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         if (!resp.ok) {
           const text = await resp.text().catch(() => '');
           console.warn('[redeem] The insurer refused the enrollment code:', resp.status, text);
-          return server.sendResponse(res, resp.status === 429 ? 429 : 403, false, undefined,
+          // The insurer's 429 is its limit on the codes one network may send it in a minute, not a verdict on this code
+          // and PIN. Told the code and PIN were refused, a member who was only limited would try other PINs, and the
+          // employer locks a code after five wrong ones. So the member is told to wait, with the insurer's Retry-After
+          // when it gives one in seconds.
+          if (resp.status === 429) {
+            const retryAfter = resp.headers.get('retry-after');
+            if (retryAfter !== null && /^\d+$/.test(retryAfter)) res.setHeader('Retry-After', retryAfter);
+            return server.sendResponse(res, 429, false, undefined,
+              'Too many enrollment attempts came from this network. Try again in a minute.');
+          }
+          return server.sendResponse(res, 403, false, undefined,
             'The insurer did not accept this enrollment code and PIN.');
         }
         const json = await resp.json() as { data?: typeof answer } & NonNullable<typeof answer>;

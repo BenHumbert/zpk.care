@@ -30,6 +30,10 @@
  * Wallet binding:
  *   - Member's wallet: identified by prescription record (walletId)
  *   - Pharmacy's wallet: proven by ProofGate.verifyPharmacy (step 1 of fill)
+ *
+ * Every value from the engine's state, an engine reply or a pasted credential (a display name, a wallet ID, a status
+ * note, an error) is escaped with escapeHtml (message-thread.js) before it is placed in the page: a member's name is
+ * whatever its device registered, and this page holds the operator token (A-61).
  */
 
 import {
@@ -134,14 +138,14 @@ export class PharmacyPhase {
               <input type="text" id="pharm-nfc-input" class="mono"
                 placeholder="Tap NFC card or paste wallet ID..."
                 style="width: 100%; padding: 8px; font-size: 12px; background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 4px; color: var(--text-primary);"
-                value="${scanned && !this.scannedCredentialJson ? scanned : ''}" />
+                value="${escapeHtml(scanned && !this.scannedCredentialJson ? scanned : '')}" />
             </div>
             <div style="flex: 1; min-width: 250px;">
               <label style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Credential JSON (from Member tab)</label>
               <textarea id="pharm-credential-input" class="mono"
                 placeholder="Paste credential JSON here..."
                 style="width: 100%; padding: 8px; font-size: 11px; height: 60px; background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 4px; color: var(--text-primary); resize: vertical;"
-              >${this.scannedCredentialJson || ''}</textarea>
+              >${escapeHtml(this.scannedCredentialJson || '')}</textarea>
             </div>
           </div>
 
@@ -163,10 +167,10 @@ export class PharmacyPhase {
               ${this.scannedCredentialJson ? '<span style="font-size: 10px; padding: 2px 8px; background: var(--accent-green); color: #0d1117; border-radius: 4px; font-weight: 600;">ZK CREDENTIAL</span>' : '<span style="font-size: 10px; padding: 2px 8px; background: var(--accent-blue); color: #0d1117; border-radius: 4px; font-weight: 600;">WALLET ID</span>'}
             </div>
             <div class="data-grid">
-              <div class="label">Name</div><div class="value">${member.displayName}</div>
-              <div class="label">Wallet ID</div><div class="value mono" style="font-size: 11px;">${member.walletIdDisplay || member.walletId}</div>
-              <div class="label">Plan</div><div class="value">${member.planId || '\u2014'}</div>
-              <div class="label">Status</div><div class="value"><span style="color: ${member.lifecycle === 'REVOKED' ? 'var(--accent-red)' : 'var(--accent-green)'};">${member.lifecycle || 'ELIGIBLE'}</span></div>
+              <div class="label">Name</div><div class="value">${escapeHtml(member.displayName)}</div>
+              <div class="label">Wallet ID</div><div class="value mono" style="font-size: 11px;">${escapeHtml(member.walletIdDisplay || member.walletId)}</div>
+              <div class="label">Plan</div><div class="value">${escapeHtml(member.planId || '\u2014')}</div>
+              <div class="label">Status</div><div class="value"><span style="color: ${member.lifecycle === 'REVOKED' ? 'var(--accent-red)' : 'var(--accent-green)'};">${escapeHtml(member.lifecycle || 'ELIGIBLE')}</span></div>
             </div>
             <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">
               Fill Queue below is filtered to this patient's prescriptions.
@@ -174,7 +178,7 @@ export class PharmacyPhase {
           </div>
           ` : scanned ? `
           <div style="margin-top: 12px; padding: 10px 14px; background: rgba(239, 83, 80, 0.08); border: 1px solid rgba(239, 83, 80, 0.3); border-radius: 6px;">
-            <span style="color: var(--accent-red); font-size: 12px;">No enrolled member found for wallet ID: ${scanned.slice(0, 12)}\u2026</span>
+            <span style="color: var(--accent-red); font-size: 12px;">No enrolled member found for wallet ID: ${escapeHtml(scanned.slice(0, 12))}\u2026</span>
           </div>
           ` : ''}
 
@@ -251,7 +255,7 @@ export class PharmacyPhase {
 
     } catch (err) {
       if (resultDiv) {
-        resultDiv.innerHTML = `<div style="color: var(--accent-red); font-size: 12px; margin-top: 8px;">Invalid input: ${err.message}</div>`;
+        resultDiv.innerHTML = `<div style="color: var(--accent-red); font-size: 12px; margin-top: 8px;">Invalid input: ${escapeHtml(err.message)}</div>`;
       }
     }
   }
@@ -292,12 +296,12 @@ export class PharmacyPhase {
       if (isPending) {
         return `
           <tr style="opacity: 0.75;">
-            <td class="mono" style="font-size: 11px;">${rx.id}</td>
-            <td>${med.brandName} ${med.strength}</td>
+            <td class="mono" style="font-size: 11px;">${escapeHtml(rx.id)}</td>
+            <td>${escapeHtml(med.brandName)} ${escapeHtml(med.strength)}</td>
             <td><span class="tier-badge tier-${med.tier}">Tier ${med.tier}</span></td>
             <td>${rx.quantity}</td>
-            <td>${member ? member.displayName : '\u2014'}</td>
-            <td>Dr. ${prescriber.firstName} ${prescriber.lastName}</td>
+            <td>${member ? escapeHtml(member.displayName) : '\u2014'}</td>
+            <td>Dr. ${escapeHtml(prescriber.firstName)} ${escapeHtml(prescriber.lastName)}</td>
             <td>
               <span style="color: var(--accent-orange); font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
                 <span class="spinner-dot"></span> Generating ZK proofs${elapsed ? ` (${elapsed})` : ''}
@@ -309,15 +313,15 @@ export class PharmacyPhase {
 
       return `
         <tr>
-          <td class="mono" style="font-size: 11px;">${rx.id}</td>
-          <td>${med.brandName} ${med.strength}</td>
+          <td class="mono" style="font-size: 11px;">${escapeHtml(rx.id)}</td>
+          <td>${escapeHtml(med.brandName)} ${escapeHtml(med.strength)}</td>
           <td><span class="tier-badge tier-${med.tier}">Tier ${med.tier}</span></td>
           <td>${rx.quantity}</td>
-          <td>${member ? member.displayName : '\u2014'}</td>
-          <td>Dr. ${prescriber.firstName} ${prescriber.lastName}</td>
+          <td>${member ? escapeHtml(member.displayName) : '\u2014'}</td>
+          <td>Dr. ${escapeHtml(prescriber.firstName)} ${escapeHtml(prescriber.lastName)}</td>
           <td>
-            <button class="btn-action pharmacy btn-sm btn-dispense" data-rx-id="${rx.id}">Dispense</button>
-            <button class="btn-action btn-sm btn-reject-queue" data-rx-id="${rx.id}" style="background: var(--accent-red); color: #0d1117; margin-left: 4px;">Reject</button>
+            <button class="btn-action pharmacy btn-sm btn-dispense" data-rx-id="${escapeHtml(rx.id)}">Dispense</button>
+            <button class="btn-action btn-sm btn-reject-queue" data-rx-id="${escapeHtml(rx.id)}" style="background: var(--accent-red); color: #0d1117; margin-left: 4px;">Reject</button>
           </td>
         </tr>
       `;
@@ -397,7 +401,7 @@ export class PharmacyPhase {
         const med = state.demoData.medications[rx.medicationIndex];
         resultDiv.innerHTML = `
           <div style="padding: 8px 12px; background: rgba(255, 183, 77, 0.1); border: 1px solid rgba(255, 183, 77, 0.3); border-radius: 6px; font-size: 12px; color: var(--accent-yellow);">
-            ${med.brandName} ${med.strength} marked as <strong>DISPENSED</strong>. Ready for fill in the Fill Queue below.
+            ${escapeHtml(med.brandName)} ${escapeHtml(med.strength)} marked as <strong>DISPENSED</strong>. Ready for fill in the Fill Queue below.
           </div>
         `;
       }
@@ -471,15 +475,15 @@ export class PharmacyPhase {
       const isSelected = rx.id === this.selectedRxId;
       const statusClass = `rx-status-${rx.status.toLowerCase().replace('_', '-')}`;
       return `
-        <tr style="${isSelected ? 'background: rgba(255, 183, 77, 0.12);' : ''}" data-rx-id="${rx.id}">
-          <td class="mono" style="font-size: 11px;">${rx.id}</td>
-          <td>${med.brandName} ${med.strength}</td>
+        <tr style="${isSelected ? 'background: rgba(255, 183, 77, 0.12);' : ''}" data-rx-id="${escapeHtml(rx.id)}">
+          <td class="mono" style="font-size: 11px;">${escapeHtml(rx.id)}</td>
+          <td>${escapeHtml(med.brandName)} ${escapeHtml(med.strength)}</td>
           <td><span class="tier-badge tier-${med.tier}">Tier ${med.tier}</span></td>
           <td>${remaining} / ${rx.quantity}</td>
-          <td>${member ? member.displayName : '\u2014'}</td>
-          <td><span class="rx-status-badge ${statusClass}">${rx.status.replace('_', ' ')}</span></td>
+          <td>${member ? escapeHtml(member.displayName) : '\u2014'}</td>
+          <td><span class="rx-status-badge ${escapeHtml(statusClass)}">${escapeHtml(rx.status.replace('_', ' '))}</span></td>
           <td>
-            <button class="btn-action pharmacy btn-sm btn-select-fill" data-rx-id="${rx.id}"
+            <button class="btn-action pharmacy btn-sm btn-select-fill" data-rx-id="${escapeHtml(rx.id)}"
               ${isSelected ? 'style="opacity: 0.6;"' : ''}>
               ${isSelected ? '\u2713 Selected' : 'Select for Fill'}
             </button>
@@ -544,10 +548,10 @@ export class PharmacyPhase {
     return `
       <!-- Selected Prescription Header -->
       <div class="section-card" style="margin-top: 16px;">
-        <div class="card-header pharmacy">Fill Prescription &mdash; ${currentRx.id}</div>
+        <div class="card-header pharmacy">Fill Prescription &mdash; ${escapeHtml(currentRx.id)}</div>
         <div class="card-body">
           <div style="font-size: 13px; color: var(--text-secondary);">
-            Selected: <strong>${currentRx.id}</strong> &mdash; ${med.brandName} ${med.strength}
+            Selected: <strong>${escapeHtml(currentRx.id)}</strong> &mdash; ${escapeHtml(med.brandName)} ${escapeHtml(med.strength)}
             ${isPartial ? '<span class="rx-status-badge rx-status-partially-filled">PARTIALLY FILLED</span>' : ''}
           </div>
         </div>
@@ -555,31 +559,31 @@ export class PharmacyPhase {
 
       <!-- Pharmacy -->
       <div class="section-card">
-        <div class="card-header pharmacy">${pharmacy.storeName}</div>
+        <div class="card-header pharmacy">${escapeHtml(pharmacy.storeName)}</div>
         <div class="card-body">
           <div class="data-grid">
-            <div class="label">Type</div><div class="value">${pharmacy.pharmacyType}</div>
-            <div class="label">Address</div><div class="value">${pharmacy.address}, ${pharmacy.city}, ${pharmacy.state}</div>
+            <div class="label">Type</div><div class="value">${escapeHtml(pharmacy.pharmacyType)}</div>
+            <div class="label">Address</div><div class="value">${escapeHtml(pharmacy.address)}, ${escapeHtml(pharmacy.city)}, ${escapeHtml(pharmacy.state)}</div>
           </div>
         </div>
       </div>
 
       <!-- Incoming Prescription -->
       <div class="section-card">
-        <div class="card-header prescriber">Incoming Prescription &mdash; ${currentRx.id}</div>
+        <div class="card-header prescriber">Incoming Prescription &mdash; ${escapeHtml(currentRx.id)}</div>
         <div class="card-body">
           <div class="data-grid">
-            <div class="label">Drug</div><div class="value">${med.brandName} ${med.strength}</div>
-            <div class="label">NDC</div><div class="value mono">${med.ndc}</div>
+            <div class="label">Drug</div><div class="value">${escapeHtml(med.brandName)} ${escapeHtml(med.strength)}</div>
+            <div class="label">NDC</div><div class="value mono">${escapeHtml(med.ndc)}</div>
             <div class="label">Tier</div><div class="value"><span class="tier-badge tier-${med.tier}">Tier ${med.tier}</span></div>
             <div class="label">${billing.copayLabel}</div><div class="value">${formatCents(billing.copayCents)}</div>
             <div class="label">Qty Prescribed</div><div class="value">${formatQuantity(currentRx.quantity, med)}</div>
             ${isPartial ? `<div class="label">Qty Dispensed</div><div class="value">${formatQuantity(currentRx.quantityDispensed, med)}</div>` : ''}
             <div class="label">Qty Remaining</div><div class="value" ${isPartial ? 'style="color: var(--accent-yellow); font-weight: 600;"' : ''}>${formatQuantity(remainingQty, med)}</div>
             <div class="label">Refills</div><div class="value">${currentRx.refills || 0}</div>
-            <div class="label">Prescriber</div><div class="value">Dr. ${prescriber.firstName} ${prescriber.lastName}, ${prescriber.credential}</div>
-            <div class="label">Patient</div><div class="value">${member ? member.displayName : 'Unknown'}</div>
-            <div class="label">Status</div><div class="value"><span class="rx-status-badge rx-status-${currentRx.status.toLowerCase().replace('_', '-')}">${currentRx.status.replace('_', ' ')}</span></div>
+            <div class="label">Prescriber</div><div class="value">Dr. ${escapeHtml(prescriber.firstName)} ${escapeHtml(prescriber.lastName)}, ${escapeHtml(prescriber.credential)}</div>
+            <div class="label">Patient</div><div class="value">${member ? escapeHtml(member.displayName) : 'Unknown'}</div>
+            <div class="label">Status</div><div class="value"><span class="rx-status-badge rx-status-${escapeHtml(currentRx.status.toLowerCase().replace('_', '-'))}">${escapeHtml(currentRx.status.replace('_', ' '))}</span></div>
           </div>
           ${this.renderStatusHistory(currentRx)}
         </div>
@@ -590,8 +594,8 @@ export class PharmacyPhase {
         <div class="card-header member">Eligibility Verification &mdash; Before Fill</div>
         <div class="card-body">
           <div class="data-grid">
-            <div class="label">Member</div><div class="value">${member ? member.displayName : 'Unknown'}</div>
-            <div class="label">Plan</div><div class="value">${member ? member.planId : plan.planId}</div>
+            <div class="label">Member</div><div class="value">${member ? escapeHtml(member.displayName) : 'Unknown'}</div>
+            <div class="label">Plan</div><div class="value">${escapeHtml(member ? member.planId : plan.planId)}</div>
             <div class="label">Coverage</div><div class="value" style="color: var(--accent-green);">ELIGIBLE</div>
             <div class="label">On Formulary</div><div class="value" style="color: var(--accent-green);">YES</div>
           </div>
@@ -628,7 +632,7 @@ export class PharmacyPhase {
                 style="color: var(--accent-green); font-weight: 600; font-size: 12px;" />
             </div>
             <div class="form-group">
-              <label>Quantity to Dispense${med.pricingUnit ? ` (${med.pricingUnit})` : ''}</label>
+              <label>Quantity to Dispense${med.pricingUnit ? ` (${escapeHtml(med.pricingUnit)})` : ''}</label>
               <input type="number" id="fill-quantity" value="${remainingQty}" min="0.001" step="0.001" max="${remainingQty}" />
               ${quantityMilli(remainingQty) < quantityMilli(currentRx.quantity) ? `<div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Max: ${formatQuantity(remainingQty, med)} remaining</div>` : ''}
             </div>
@@ -683,9 +687,9 @@ export class PharmacyPhase {
       if (m.deaSchedule > 0) badges.push(`<span class="dea-badge dea-schedule-${m.deaSchedule}">C${m.deaSchedule}</span>`);
       return `
         <tr data-med-index="${i}" class="${paClass}${removedClass}" style="cursor: pointer;">
-          <td>${m.brandName}${badges.length ? ' ' + badges.join(' ') : ''}</td>
-          <td>${m.strength}</td>
-          <td>${m.dosageForm}</td>
+          <td>${escapeHtml(m.brandName)}${badges.length ? ' ' + badges.join(' ') : ''}</td>
+          <td>${escapeHtml(m.strength)}</td>
+          <td>${escapeHtml(m.dosageForm)}</td>
           <td><span class="tier-badge tier-${tier}">Tier ${tier}</span></td>
           <td>${formatCents(copay)}</td>
           <td>${nadacPerUnitLabel(m)}</td>
@@ -786,13 +790,13 @@ export class PharmacyPhase {
     document.getElementById('pharm-med-detail-body').innerHTML = `
       ${!active ? `<div style="padding: 8px 12px; background: rgba(244, 67, 54, 0.08); border: 1px solid rgba(244, 67, 54, 0.3); border-radius: 6px; margin-bottom: 12px; font-size: 12px; color: var(--accent-red);">This medication has been removed from the formulary.</div>` : ''}
       <div class="data-grid">
-        <div class="label">Brand Name</div><div class="value">${med.brandName}</div>
-        <div class="label">Generic Name</div><div class="value">${med.genericName}</div>
-        <div class="label">Strength</div><div class="value">${med.strength}</div>
-        <div class="label">Dosage Form</div><div class="value">${med.dosageForm}</div>
-        <div class="label">Route</div><div class="value">${med.route}</div>
-        <div class="label">NDC</div><div class="value mono">${med.ndc}</div>
-        <div class="label">NDC Formatted</div><div class="value mono">${med.ndcFormatted}</div>
+        <div class="label">Brand Name</div><div class="value">${escapeHtml(med.brandName)}</div>
+        <div class="label">Generic Name</div><div class="value">${escapeHtml(med.genericName)}</div>
+        <div class="label">Strength</div><div class="value">${escapeHtml(med.strength)}</div>
+        <div class="label">Dosage Form</div><div class="value">${escapeHtml(med.dosageForm)}</div>
+        <div class="label">Route</div><div class="value">${escapeHtml(med.route)}</div>
+        <div class="label">NDC</div><div class="value mono">${escapeHtml(med.ndc)}</div>
+        <div class="label">NDC Formatted</div><div class="value mono">${escapeHtml(med.ndcFormatted)}</div>
         <div class="label">Tier</div><div class="value"><span class="tier-badge tier-${tier}">Tier ${tier}</span></div>
         <div class="label">Copay</div><div class="value">${formatCents(copay)}</div>
         <div class="label">Prior Auth</div><div class="value">${paDisplay}</div>
@@ -800,8 +804,8 @@ export class PharmacyPhase {
         <div class="label">Max Qty/Fill</div><div class="value">${med.maxQuantityPerFill}</div>
         <div class="label">Max Day Supply</div><div class="value">${med.maxDaySupply}</div>
         <div class="label">NADAC Unit Price</div><div class="value">${nadacPerUnitLabel(med)}</div>
-        <div class="label">Manufacturer</div><div class="value">${med.manufacturer}</div>
-        <div class="label">Therapeutic Class</div><div class="value">${med.therapeuticClass}</div>
+        <div class="label">Manufacturer</div><div class="value">${escapeHtml(med.manufacturer)}</div>
+        <div class="label">Therapeutic Class</div><div class="value">${escapeHtml(med.therapeuticClass)}</div>
         <div class="label">DEA Schedule</div><div class="value">${deaDisplay}</div>
       </div>
     `;
@@ -817,7 +821,7 @@ export class PharmacyPhase {
 
     const memberOptions = enrolled
       .filter(m => m.lifecycle !== 'REVOKED')
-      .map(m => `<option value="${m.walletId}">${m.displayName} (${m.walletId ? m.walletId.slice(0, 8) + '\u2026' : '--'})</option>`)
+      .map(m => `<option value="${escapeHtml(m.walletId)}">${escapeHtml(m.displayName)} (${m.walletId ? escapeHtml(m.walletId.slice(0, 8)) + '\u2026' : '--'})</option>`)
       .join('');
 
     return `
@@ -901,9 +905,9 @@ export class PharmacyPhase {
     // Active medications table
     const medRows = uniqueMeds.map(m => `
       <tr>
-        <td>${m.brandName}</td>
-        <td>${m.strength}</td>
-        <td>${m.therapeuticClass || '--'}</td>
+        <td>${escapeHtml(m.brandName)}</td>
+        <td>${escapeHtml(m.strength)}</td>
+        <td>${escapeHtml(m.therapeuticClass || '--')}</td>
         <td>${m.tier != null ? `<span class="tier-badge tier-${m.tier}">Tier ${m.tier}</span>` : '--'}</td>
       </tr>
     `).join('');
@@ -998,8 +1002,8 @@ export class PharmacyPhase {
     }));
 
     const columns = [
-      { key: 'name', label: 'Patient' },
-      { key: 'walletId', label: 'Wallet ID', format: v => `<span class="mono" style="font-size: 11px;">${v}</span>` },
+      { key: 'name', label: 'Patient', format: v => escapeHtml(v) },
+      { key: 'walletId', label: 'Wallet ID', format: v => `<span class="mono" style="font-size: 11px;">${escapeHtml(v)}</span>` },
       { key: 'scripts', label: 'Scripts', align: 'right' },
       { key: 'uniqueMeds', label: 'Unique Meds', align: 'right' },
       { key: 'patientPay', label: 'Patient Pay', align: 'right', format: v => formatCents(v) },
@@ -1042,7 +1046,7 @@ export class PharmacyPhase {
     }));
 
     const columns = [
-      { key: 'name', label: 'Prescriber' },
+      { key: 'name', label: 'Prescriber', format: v => escapeHtml(v) },
       { key: 'scripts', label: 'Scripts', align: 'right' },
       { key: 'patients', label: 'Patients', align: 'right' },
       { key: 'uniqueMeds', label: 'Unique Meds', align: 'right' },
@@ -1087,7 +1091,7 @@ export class PharmacyPhase {
     }));
 
     const columns = [
-      { key: 'name', label: 'Medication' },
+      { key: 'name', label: 'Medication', format: v => escapeHtml(v) },
       { key: 'tier', label: 'Tier', format: v => v != null ? `<span class="tier-badge tier-${v}">Tier ${v}</span>` : '--' },
       { key: 'scripts', label: 'Scripts', align: 'right' },
       { key: 'patients', label: 'Patients', align: 'right' },
@@ -1121,14 +1125,14 @@ export class PharmacyPhase {
       const canReverse = rx.status === 'FILLED' || rx.status === 'PARTIALLY_FILLED';
       return `
         <tr>
-          <td class="mono" style="font-size: 11px;">${rx.id}</td>
-          <td>${med.brandName} ${med.strength}</td>
-          <td>${member ? member.displayName : '\u2014'}</td>
+          <td class="mono" style="font-size: 11px;">${escapeHtml(rx.id)}</td>
+          <td>${escapeHtml(med.brandName)} ${escapeHtml(med.strength)}</td>
+          <td>${member ? escapeHtml(member.displayName) : '\u2014'}</td>
           <td>${rx.quantityDispensed || 0} / ${rx.quantity}</td>
           <td>${rx.patientPayCents != null ? formatCents(rx.patientPayCents) : '\u2014'}</td>
           <td>${rx.planPayCents != null ? formatCents(rx.planPayCents) : '\u2014'}</td>
-          <td><span class="rx-status-badge ${statusClass}">${rx.status.replace('_', ' ')}</span></td>
-          <td>${canReverse ? `<button class="btn-reverse-rx" data-rx-id="${rx.id}" style="font-size: 11px; padding: 3px 10px; background: var(--accent-yellow); color: #0d1117; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Reverse</button>` : ''}</td>
+          <td><span class="rx-status-badge ${escapeHtml(statusClass)}">${escapeHtml(rx.status.replace('_', ' '))}</span></td>
+          <td>${canReverse ? `<button class="btn-reverse-rx" data-rx-id="${escapeHtml(rx.id)}" style="font-size: 11px; padding: 3px 10px; background: var(--accent-yellow); color: #0d1117; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Reverse</button>` : ''}</td>
         </tr>
       `;
     }).join('');
@@ -1172,12 +1176,12 @@ export class PharmacyPhase {
         ${history.map(h => `
           <div style="font-size: 11px; color: var(--text-secondary); padding: 2px 0; display: flex; gap: 8px;">
             <span class="mono">${new Date(h.timestamp).toLocaleTimeString()}</span>
-            <span><span class="rx-status-badge rx-status-${h.from.toLowerCase().replace('_', '-')}" style="font-size: 10px; padding: 1px 6px;">${h.from.replace('_', ' ')}</span>
+            <span><span class="rx-status-badge rx-status-${escapeHtml(h.from.toLowerCase().replace('_', '-'))}" style="font-size: 10px; padding: 1px 6px;">${escapeHtml(h.from.replace('_', ' '))}</span>
             \u2192
-            <span class="rx-status-badge rx-status-${h.to.toLowerCase().replace('_', '-')}" style="font-size: 10px; padding: 1px 6px;">${h.to.replace('_', ' ')}</span></span>
-            <span>${h.updatedBy}</span>
-            ${h.fillQuantity ? `<span>(qty: ${h.fillQuantity})</span>` : ''}
-            ${h.note ? `<span style="color: var(--text-muted);">\u2014 ${h.note}</span>` : ''}
+            <span class="rx-status-badge rx-status-${escapeHtml(h.to.toLowerCase().replace('_', '-'))}" style="font-size: 10px; padding: 1px 6px;">${escapeHtml(h.to.replace('_', ' '))}</span></span>
+            <span>${escapeHtml(h.updatedBy)}</span>
+            ${h.fillQuantity ? `<span>(qty: ${escapeHtml(h.fillQuantity)})</span>` : ''}
+            ${h.note ? `<span style="color: var(--text-muted);">\u2014 ${escapeHtml(h.note)}</span>` : ''}
           </div>
         `).join('')}
       </div>
@@ -1230,7 +1234,7 @@ export class PharmacyPhase {
         <div class="label">Sequencer URL</div><div class="value mono">http://127.0.0.1:3030</div>
         <div class="label">Health</div><div class="value"><span style="color: var(--accent-red);">Disconnected</span></div>
       </div>
-      <div style="color: var(--accent-red); font-size: 12px; margin-top: 8px;">${err.message}</div>`;
+      <div style="color: var(--accent-red); font-size: 12px; margin-top: 8px;">${escapeHtml(err.message)}</div>`;
     }
   }
 
@@ -1363,7 +1367,7 @@ export class PharmacyPhase {
       const resultDiv = document.getElementById('fill-result');
       if (resultDiv) {
         resultDiv.classList.remove('hidden');
-        resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 12px;">Error: ${err.message}</div>`;
+        resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 12px;">Error: ${escapeHtml(err.message)}</div>`;
       }
       this.app.setStatus('ready', 'Error');
     } finally {
@@ -1428,7 +1432,7 @@ export class PharmacyPhase {
         <h4 style="color: var(--accent-blue); margin: 16px 0 8px; font-size: 13px;">ADJUDICATION (ZK-enforced in-circuit)</h4>
         <div class="data-grid">
           <div class="label">Service Date</div><div class="value" style="color: var(--accent-green); font-weight: 600;">${serviceDateDisplay}</div>
-          <div class="label">Phase</div><div class="value">${result.adjudication.phase}</div>
+          <div class="label">Phase</div><div class="value">${escapeHtml(result.adjudication.phase)}</div>
           ${result.adjudication.ingredientCostCents != null ? `<div class="label">Ingredient (NADAC)</div><div class="value">${formatCents(result.adjudication.ingredientCostCents)}</div>` : ''}
           ${result.adjudication.dispensingFeeCents != null ? `<div class="label">Dispensing Fee</div><div class="value">${formatCents(result.adjudication.dispensingFeeCents)}${result.adjudication.pricing ? (result.adjudication.pricing.dispensingFeeSource === 'plan' ? ' (plan)' : ' (network default)') : ''}</div>` : ''}
           <div class="label">Total Cost</div><div class="value">${formatCents(result.adjudication.totalCostCents)}</div>
@@ -1437,7 +1441,7 @@ export class PharmacyPhase {
           <div class="label">Plan Pay</div><div class="value" style="color: var(--accent-green); font-weight: 700;">${formatCents(result.adjudication.planPayCents)}</div>
         </div>
         ${result.adjudication.familyPoolingApplied ? `
-          <div class="family-pooling-badge">Family Pooling Applied \u2014 ${result.adjudication.familyPoolingReason}</div>
+          <div class="family-pooling-badge">Family Pooling Applied \u2014 ${escapeHtml(result.adjudication.familyPoolingReason)}</div>
         ` : ''}
 
         <h4 style="color: var(--accent-blue); margin: 16px 0 8px; font-size: 13px;">ACCUMULATOR (BEFORE \u2192 AFTER)</h4>
@@ -1557,7 +1561,7 @@ export class PharmacyPhase {
     } catch (err) {
       const resultDiv = document.getElementById('fill-result');
       resultDiv.classList.remove('hidden');
-      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 12px;">Error: ${err.message}</div>`;
+      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 12px;">Error: ${escapeHtml(err.message)}</div>`;
       btn.disabled = false;
       btn.textContent = 'Reject';
     }
@@ -1597,13 +1601,13 @@ export class PharmacyPhase {
         resultDiv.classList.remove('hidden');
         resultDiv.innerHTML = `
           <div class="result-card">
-            <div class="result-title" style="color: var(--accent-yellow);">Claim Reversed \u2014 ${rxId}</div>
+            <div class="result-title" style="color: var(--accent-yellow);">Claim Reversed \u2014 ${escapeHtml(rxId)}</div>
             <div class="data-grid">
               <div class="label">Patient Refund</div><div class="value" style="color: var(--accent-green); font-weight: 700;">${formatCents(result.refund.patientRefundCents)}</div>
               <div class="label">Plan Refund</div><div class="value" style="color: var(--accent-green); font-weight: 700;">${formatCents(result.refund.planRefundCents)}</div>
               <div class="label">Total Refund</div><div class="value" style="font-weight: 700;">${formatCents(result.refund.totalRefundCents)}</div>
               <div class="label">Fill Reversed</div><div class="value">#${result.fillIndex + 1}</div>
-              <div class="label">Medication</div><div class="value">${result.medication.brandName} ${result.medication.strength}</div>
+              <div class="label">Medication</div><div class="value">${escapeHtml(result.medication.brandName)} ${escapeHtml(result.medication.strength)}</div>
               <div class="label">New Status</div><div class="value"><span class="rx-status-badge rx-status-reversed">REVERSED</span></div>
             </div>
 
@@ -1665,7 +1669,7 @@ export class PharmacyPhase {
     } catch (err) {
       if (resultDiv) {
         resultDiv.classList.remove('hidden');
-        resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 12px;">Error: ${err.message}</div>`;
+        resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 12px;">Error: ${escapeHtml(err.message)}</div>`;
       }
       btn.disabled = false;
       btn.textContent = 'Reverse';
@@ -1713,7 +1717,7 @@ export class PharmacyPhase {
     rxAtPharmacy.forEach(rx => { if (rx.memberWalletId) memberWalletSet.add(rx.memberWalletId); });
     for (const wid of memberWalletSet) {
       const m = state.enrolledMembers?.find(e => e.walletId === wid && e.lifecycle !== 'REVOKED');
-      if (m) recipientOptions.push(`<option value="member:${m.walletId}">${m.displayName} (Patient)</option>`);
+      if (m) recipientOptions.push(`<option value="member:${escapeHtml(m.walletId)}">${escapeHtml(m.displayName)} (Patient)</option>`);
     }
 
     // Unique prescribers who wrote Rx filled at this pharmacy
@@ -1721,7 +1725,7 @@ export class PharmacyPhase {
     rxAtPharmacy.forEach(rx => { if (rx.prescriberIndex !== undefined) prescriberSet.add(rx.prescriberIndex); });
     for (const idx of prescriberSet) {
       const p = state.demoData?.prescribers?.[idx];
-      if (p) recipientOptions.push(`<option value="prescriber:${idx}">Dr. ${p.firstName} ${p.lastName}</option>`);
+      if (p) recipientOptions.push(`<option value="prescriber:${idx}">Dr. ${escapeHtml(p.firstName)} ${escapeHtml(p.lastName)}</option>`);
     }
 
     return `
@@ -1760,17 +1764,17 @@ export class PharmacyPhase {
               const typeLabel = MSG_LABELS[lastMsg.messageType] || 'Msg';
               const timeStr = lastMsg.timestamp ? new Date(lastMsg.timestamp).toLocaleTimeString() : '';
               return `
-              <div class="pharmacy-thread-item msg-thread-item" data-thread-id="${t.threadId}" data-wallet-id="${pharmacyWalletId}" data-indices="${t.messages.map(m => m.messageIndex).join(',')}">
+              <div class="pharmacy-thread-item msg-thread-item" data-thread-id="${escapeHtml(t.threadId)}" data-wallet-id="${escapeHtml(pharmacyWalletId)}" data-indices="${escapeHtml(t.messages.map(m => m.messageIndex).join(','))}">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                   <div>
-                    <span class="msg-type-badge msg-type-${lastMsg.messageType}">${typeLabel}</span>
-                    <strong style="font-size: 12px; margin-left: 4px;">${otherName}</strong>
+                    <span class="msg-type-badge msg-type-${escapeHtml(lastMsg.messageType)}">${typeLabel}</span>
+                    <strong style="font-size: 12px; margin-left: 4px;">${escapeHtml(otherName)}</strong>
                     <span style="font-size: 11px; color: var(--text-muted); margin-left: 4px;">(${t.messages.length} message${t.messages.length > 1 ? 's' : ''})</span>
                   </div>
                   <span style="font-size: 11px; color: var(--text-muted);">${timeStr}</span>
                 </div>
                 <div style="font-size: 12px; color: var(--text-muted);">${lastMsg.hasEncryptedPayload ? 'Click to decrypt and view' : 'No content'}</div>
-                <div class="msg-thread-expanded hidden" data-thread-body="${t.threadId}"></div>
+                <div class="msg-thread-expanded hidden" data-thread-body="${escapeHtml(t.threadId)}"></div>
               </div>`;
             }).join('')}
           </div>
@@ -1842,7 +1846,7 @@ export class PharmacyPhase {
         document.getElementById('pharmacy-msg-body')?.focus();
       });
     } catch (err) {
-      bodyDiv.innerHTML = `<div style="padding: 8px; color: var(--accent-red); font-size: 12px;">Decrypt failed: ${err.message}</div>`;
+      bodyDiv.innerHTML = `<div style="padding: 8px; color: var(--accent-red); font-size: 12px;">Decrypt failed: ${escapeHtml(err.message)}</div>`;
     }
   }
 
@@ -1890,11 +1894,11 @@ export class PharmacyPhase {
         <div class="result-card" style="margin-bottom: 12px;">
           <div class="result-title">Message Sent (Encrypted)</div>
           <div class="data-grid">
-            <div class="label">To</div><div class="value">${result.to}</div>
-            <div class="label">Subject</div><div class="value">${result.subject}</div>
+            <div class="label">To</div><div class="value">${escapeHtml(result.to)}</div>
+            <div class="label">Subject</div><div class="value">${escapeHtml(result.subject)}</div>
             <div class="label">Encrypted</div><div class="value">${result.ciphertextLength} bytes (AES-256-GCM)</div>
             <div class="label">Proof Time</div><div class="value">${(result.proofTimeMs / 1000).toFixed(2)}s</div>
-            <div class="label">Thread</div><div class="value mono" style="font-size: 11px;">${result.threadId || 'new'}</div>
+            <div class="label">Thread</div><div class="value mono" style="font-size: 11px;">${escapeHtml(result.threadId || 'new')}</div>
             <div class="label">Audit Hash</div><div class="value mono" style="font-size: 11px;">${result.auditChainHash ? result.auditChainHash.slice(0, 20) + '\u2026' : '\u2014'}</div>
           </div>
         </div>
@@ -1915,7 +1919,7 @@ export class PharmacyPhase {
     } catch (err) {
       const resultDiv = document.getElementById('pharmacy-send-result');
       resultDiv.classList.remove('hidden');
-      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px;">Error: ${err.message}</div>`;
+      resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px;">Error: ${escapeHtml(err.message)}</div>`;
       this.app.setStatus('ready', 'Error');
     } finally {
       btn.classList.remove('loading');
@@ -1962,7 +1966,7 @@ export class PharmacyPhase {
       <div class="l2-receipt-card">
         <div class="receipt-title">L2 Receipt</div>
         <div class="receipt-grid">
-          <div class="rl">Receipt ID</div><div class="rv">${receipt.receiptId}</div>
+          <div class="rl">Receipt ID</div><div class="rv">${escapeHtml(receipt.receiptId)}</div>
           <div class="rl">Sequence #</div><div class="rv">${receipt.sequenceNumber}</div>
           <div class="rl">Status</div><div class="rv"><span class="l2-status-badge pending">pending</span></div>
         </div>

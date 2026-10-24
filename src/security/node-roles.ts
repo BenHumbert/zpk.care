@@ -192,7 +192,9 @@ export const SECRET_ENV_KEYS: readonly string[] = [
 export function childEnvironment(base: NodeJS.ProcessEnv, extra: Record<string, string | undefined>): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(base)) {
-    if (v === undefined || SECRET_ENV_KEYS.includes(k)) continue;
+    // names compare upper-cased: Windows reads environment names case-insensitively, so a secret set as
+    // zktrident_node_key_seed is a child's ZKTRIDENT_NODE_KEY_SEED
+    if (v === undefined || SECRET_ENV_KEYS_UPPER.has(k.toUpperCase())) continue;
     env[k] = v;
   }
   for (const [k, v] of Object.entries(extra)) {
@@ -200,6 +202,8 @@ export function childEnvironment(base: NodeJS.ProcessEnv, extra: Record<string, 
   }
   return env;
 }
+
+const SECRET_ENV_KEYS_UPPER: ReadonlySet<string> = new Set(SECRET_ENV_KEYS.map((k) => k.toUpperCase()));
 
 /** The node key a child was started with, or null when it was started without one. */
 export function nodeKeyFromEnv(env: NodeJS.ProcessEnv): { nodeId: string; seedHex: string } | null {

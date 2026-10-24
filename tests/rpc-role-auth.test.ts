@@ -68,7 +68,7 @@ describe('the operator\'s bearer', () => {
   test('still opens every admin method and route with node keys registered', async () => {
     const snap = await rpcWith(bearer, envelope('l2_requestSnapshot'));
     expect(passedTheGate(snap)).toBe(true);
-    const clear = await fetch(`${url}/viz/clear`, { method: 'POST', headers: bearer });
+    const clear = await fetch(`${url}/viz/clear`, { method: 'POST', headers: { ...bearer, 'Content-Type': 'application/json' } });
     expect(clear.status).toBe(200);
     const route = await fetch(`${url}/interactive/update-formulary`, { method: 'POST', headers: { ...bearer, 'Content-Type': 'application/json' }, body: '{"a":1}' });
     expect(route.status).toBe(200);
@@ -143,7 +143,7 @@ describe('a node\'s key', () => {
     const r = await rpcWith({ 'X-Admin-Signature': `${insurer.nodeId}:${ts}:${legacy}` }, body);
     expect(r.error?.code).toBe(RPC_UNAUTHORIZED);
     const constant = ed25519Sign(null, Buffer.from(`admin-endpoint|${createHash('sha256').update('{}').digest('hex')}|${ts}`), privateKeyFromSeedHex(insurer.seedHex)).toString('hex');
-    const route = await fetch(`${url}/viz/clear`, { method: 'POST', headers: { 'X-Admin-Signature': `${insurer.nodeId}:${ts}:${constant}` } });
+    const route = await fetch(`${url}/viz/clear`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Signature': `${insurer.nodeId}:${ts}:${constant}` } });
     expect(route.status).toBe(401);
   });
 });
@@ -158,7 +158,7 @@ describe('admin-gated HTTP routes', () => {
   });
 
   test('the insurer is refused an operator route with 403, and the member is refused the insurer\'s', async () => {
-    const r = await fetch(`${url}/viz/clear`, { method: 'POST', headers: signedBy(insurer, '', '/viz/clear') });
+    const r = await fetch(`${url}/viz/clear`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...signedBy(insurer, '', '/viz/clear') } });
     expect(r.status).toBe(403);
     expect((await r.json()).error).toMatch(/role insurer may not call POST \/viz\/clear/);
     const body = JSON.stringify({ ndcHash: '1' });

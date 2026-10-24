@@ -305,6 +305,8 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
     await unlockDevice(memberPort, TEST_PIN);
     prescriberPort = prescriberApp.getPort();
     pharmacyPort = pharmacyApp.getPort();
+    // A-81: the pharmacy notifies the insurer its configuration names; it refuses one in the request.
+    pharmacyApp.getConfig().insurerUrl = `http://127.0.0.1:${insurerPort}`;
   }, 60_000);
 
   // ── Teardown ──────────────────────────────────────────
@@ -601,9 +603,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
   });
 
   test('P4d — pharmacy enrolls', async () => {
-    const r = await post(pharmacyPort, '/onboarding/enroll', {
-      insurerUrl: `http://127.0.0.1:${insurerPort}`,
-    });
+    const r = await post(pharmacyPort, '/onboarding/enroll', {});
     expect(r.status).toBe(200);
     expect((r.body as any).data.phase).toBe('enrolled');
   });

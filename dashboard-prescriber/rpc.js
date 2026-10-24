@@ -23,6 +23,9 @@
 const API = (() => {
   let baseUrl = location.origin;
   let eventSource = null;
+  let sseHandlers = null;
+  let sseAttempt = 0;
+  let sseReconnectTimer = null;
   // This node's admin token: a patient's own price and prior authorization answer only this node's administrator until
   // provider sign-in (B4). Held in this page's memory only, never in browser storage, so it does not outlive the page
   // on a shared workstation and no other page or later user of the browser profile can read it back; it is typed
@@ -31,7 +34,10 @@ const API = (() => {
 
   function setBaseUrl(url) { baseUrl = url.replace(/\/$/, ''); }
   function getBaseUrl() { return baseUrl; }
-  function setAdminToken(token) { adminToken = token || ''; }
+  function setAdminToken(token) {
+    adminToken = token || '';
+    if (sseHandlers) connectSSE(sseHandlers.onEvent, sseHandlers.onError, sseHandlers.onOpen);   // the event stream opens with the token (A-79)
+  }
   function getAdminToken() { return adminToken; }
 
   // Strip __bigint__:NNN prefixes from serialized BigInt values
@@ -98,39 +104,59 @@ const API = (() => {
   let sseReconnectDelay = 1000;
   const SSE_MAX_DELAY = 30000;
 
+  /*
+   * A-79: this node's event stream answers only this node's admin token, which the page holds once it is typed. An
+   * EventSource cannot send a header, so each connection first trades the token for a single-use ticket and opens the
+   * stream with it; every reconnect asks for a fresh one. With no token nothing is opened, and setting one opens it.
+   */
   function connectSSE(onEvent, onError, onOpen) {
-    if (eventSource) {
-      eventSource.close();
-      eventSource = null;
+    const wasOpen = eventSource !== null;
+    disconnectSSE();
+    sseHandlers = { onEvent, onError, onOpen };
+    if (!adminToken) {
+      if (wasOpen && onError) onError();
+      return;
     }
-    try {
-      eventSource = new EventSource(`${baseUrl}/events`);
-      eventSource.onmessage = (e) => {
-        try {
-          const data = JSON.parse(e.data);
-          if (onEvent) onEvent(data);
-        } catch { /* ignore parse errors */ }
-      };
-      eventSource.onopen = () => {
-        sseReconnectDelay = 1000; // Reset on successful connection
-        if (onOpen) onOpen();
-      };
-      eventSource.onerror = () => {
+    const attempt = sseAttempt;
+    request('POST', '/events/ticket', {}, true)
+      .then((data) => {
+        if (attempt !== sseAttempt) return;   // disconnected, or connected again, while the ticket was on its way
+        eventSource = new EventSource(`${baseUrl}/events?ticket=${encodeURIComponent(data.ticket)}`);
+        eventSource.onmessage = (e) => {
+          try {
+            const event = JSON.parse(e.data);
+            if (onEvent) onEvent(event);
+          } catch { /* ignore parse errors */ }
+        };
+        eventSource.onopen = () => {
+          sseReconnectDelay = 1000; // Reset on successful connection
+          if (onOpen) onOpen();
+        };
+        eventSource.onerror = () => {
+          if (onError) onError();
+          eventSource.close();
+          eventSource = null;
+          reconnectSSE();
+        };
+      })
+      .catch(() => {
+        if (attempt !== sseAttempt) return;
         if (onError) onError();
-        eventSource.close();
-        eventSource = null;
-        // Reconnect with exponential backoff
-        setTimeout(() => connectSSE(onEvent, onError, onOpen), sseReconnectDelay);
-        sseReconnectDelay = Math.min(sseReconnectDelay * 2, SSE_MAX_DELAY);
-      };
-    } catch {
-      setTimeout(() => connectSSE(onEvent, onError, onOpen), sseReconnectDelay);
-      sseReconnectDelay = Math.min(sseReconnectDelay * 2, SSE_MAX_DELAY);
-    }
-    return eventSource;
+        reconnectSSE();
+      });
+  }
+
+  // Reconnect with exponential backoff
+  function reconnectSSE() {
+    sseReconnectTimer = setTimeout(() => {
+      if (sseHandlers) connectSSE(sseHandlers.onEvent, sseHandlers.onError, sseHandlers.onOpen);
+    }, sseReconnectDelay);
+    sseReconnectDelay = Math.min(sseReconnectDelay * 2, SSE_MAX_DELAY);
   }
 
   function disconnectSSE() {
+    sseAttempt++;
+    if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
     if (eventSource) {
       eventSource.close();
       eventSource = null;

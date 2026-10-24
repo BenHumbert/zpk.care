@@ -44,6 +44,7 @@ import type { NautilusAppServer } from '../nautilus-app-server.js';
 import { PROVING_BUDGET_MS, type RouteRegistration } from '../nautilus-app-types.js';
 import type { PharmacyLocalData } from '../../models/pharmacy.js';
 import { quantityError } from '../../fulfillment/nadac-pricing.js';
+import { peerUrlError } from '../../security/network-policy.js';
 import { sendWhileEngineStarts } from '../sequencer-fetch.js';
 
 const DOMAIN_TAG_PHARMACY = 2;
@@ -217,6 +218,18 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
     method: 'POST',
     path: '/onboarding/enroll',
     handler: async (_req, res, _params, _query, body) => {
+      /*
+       * A-81, found by the security posture check of 2026-10-24: this read `insurerUrl` from the
+       * request body and posted the wallet ID and the enrollment code to it, so anything that could
+       * reach the port chose where this node sent them. The insurer is the one this node's
+       * configuration names (ZKTRIDENT_INSURER_URL), as on the prescriber and member nodes. A body
+       * that names one is refused rather than ignored, so a caller that relied on it learns it is
+       * not used.
+       */
+      if (body !== null && typeof body === 'object' && Object.prototype.hasOwnProperty.call(body, 'insurerUrl')) {
+        return server.sendResponse(res, 400, false, undefined,
+          'insurerUrl is not accepted in a request: this node notifies the insurer its configuration names (ZKTRIDENT_INSURER_URL)');
+      }
       if (server.getOnboardingPhase() !== 'wallet_derived') {
         return server.sendResponse(res, 409, false, undefined, `Cannot enroll in phase: ${server.getOnboardingPhase()}`);
       }
@@ -225,7 +238,6 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       if (!data?.walletId) {
         return server.sendResponse(res, 409, false, undefined, 'Wallet not derived');
       }
-      const b = body as { insurerUrl?: string } | undefined;
 
       const node = new PharmacyNode({
         role: 'pharmacy',
@@ -236,15 +248,22 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       });
       server.setEntityNode(node);
 
-      // Notify insurer (non-blocking)
+      // Notify the configured insurer (non-blocking)
       let insurerNotified = false;
-      if (b?.insurerUrl) {
+      const insurerUrl = server.getConfig().insurerUrl || null;
+      const insurerUrlRefused = insurerUrl ? peerUrlError(insurerUrl) : null;
+      if (insurerUrlRefused) {
+        console.warn('[pharmacy-enroll] Insurer not notified: the configured insurer URL %s', insurerUrlRefused);
+      } else if (insurerUrl) {
         try {
           const enrollHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-          const resp = await fetch(`${b.insurerUrl}/enrollment/process`, {
+          const resp = await fetch(`${insurerUrl.replace(/\/+$/, '')}/enrollment/process`, {
             method: 'POST',
             headers: enrollHeaders,
             body: JSON.stringify({ walletId: data.walletId, tokenId: data.onboarding.tokenId, role: 'pharmacy' }),
+            // A redirect would carry the wallet ID to a host the configuration does not name.
+            redirect: 'error',
+            signal: AbortSignal.timeout(10_000),
           });
           insurerNotified = resp.ok;
         } catch (insErr: unknown) {
