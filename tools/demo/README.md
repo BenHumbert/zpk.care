@@ -130,7 +130,8 @@ and the sample letter) and `hr-tool-data/`. A failed take needs a new genesis bo
      scene `enrolling`. A hold lets go by itself after 15 minutes. A phone that reports a failure gets Retry (it
      resumes from the device's phase), twice at most.
    - After Dispense the director waits for the fill proof on the pharmacy screen (sped up) and reads the engine's
-     answer from the page's own `fill-status` responses (amounts only). From then on every amount is said from that
+     answer from the page's own `fill-status` responses (amounts, the job status, and the status and new root of the
+     wallet update the fill queued; nothing else). From then on every amount is said from that
      claim (`withClaim`). If the claim breaks what the lines assume, or differs from `castOf`'s prediction so that a
      voice still to come was never rendered, a take stops there, before any such line; a rehearsal logs it and goes on
      with the engine's numbers. The patient pay the pharmacy shows must be the engine's.
@@ -175,5 +176,5 @@ Still open:
    `node whiteboard-preview.mjs --texts` once they land, and every other `{ find }` / `{ findRe }` target in the
    first rehearsal (a miss is logged, never fatal).
 3. Selectors marked `TODO(selector)`: whether headless Chromium draws the CP 575 in its PDF viewer (else the letter's
-   tab is closed unfilmed), the receipt-to-batch index on the Leviathan dashboard, the plan form's dispensing-fee field.
+   tab is closed unfilmed).
 4. Gating `/interactive/console` and `/viz/history` landed (A-44); the insurer node's audit cards still need no token.

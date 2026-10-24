@@ -30,7 +30,8 @@ export function overlayScript(opts) {
     + '#__demoCursor{position:fixed;left:0;top:0;width:40px;height:40px;z-index:2147483647;pointer-events:none;transform:translate(-200px,-200px);will-change:transform' + (hideCursor ? ';display:none!important' : '') + '}'
     + '#__demoCursor svg{transition:transform .12s ease-out;transform-origin:6px 4px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.45))}'
     + '#__demoCursor.down svg{transform:scale(.82)}'
-    + '#__demoCaption{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:2147483646;pointer-events:none;max-width:82%;'
+    // centred by auto margins: left:50% with a translate would cap the caption at half the screen, under its max-width
+    + '#__demoCaption{position:fixed;left:0;right:0;bottom:22px;margin:0 auto;width:fit-content;z-index:2147483646;pointer-events:none;max-width:82%;'
     + 'background:rgba(12,12,14,.94);color:#f4f4f5;font:500 19px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;padding:12px 18px;border-radius:12px;'
     + 'border:1px solid rgba(255,255,255,.14);box-shadow:0 8px 24px rgba(0,0,0,.35);display:none}'
     + '#__demoCaption b{font-weight:700;margin-right:10px}'
@@ -40,7 +41,7 @@ export function overlayScript(opts) {
     + '#__demoBadge span{color:#a1a1aa;font-weight:500}'
     + '#__demoCard{position:fixed;left:18px;bottom:96px;z-index:2147483645;pointer-events:none;max-width:min(560px,46%);display:none;'
     + 'background:rgba(12,12,14,.92);color:#f4f4f5;font:500 15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;padding:12px 16px 13px;border-radius:10px;'
-    + 'border:1px solid rgba(255,255,255,.14);border-left:4px solid #9b9bff;box-shadow:0 8px 24px rgba(0,0,0,.35);animation:__demoCardIn .35s ease-out both}'
+    + 'border:1px solid rgba(255,255,255,.14);border-left:4px solid #9b9bff;box-shadow:0 8px 24px rgba(0,0,0,.35);animation:__demoCardIn .35s ease-out both;transition:bottom .25s ease-out}'
     + '#__demoCard h4{margin:0 0 5px;font:700 11px/1.2 ui-monospace,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#a5a5ff}'
     + '#__demoCard p{margin:2px 0}'
     + '@keyframes __demoCardIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}'
@@ -96,8 +97,12 @@ export function overlayScript(opts) {
           card.__shown = state.card;
         }
         card.style.display = 'block';
+        // a caption grows upward from bottom:22px as it wraps: the card moves up to stay clear of it (96px clears one
+        // line) and keeps its place while the caption is hidden between two lines
+        if (cap && state.say) card.style.bottom = Math.max(96, 22 + cap.offsetHeight + 12) + 'px';
       } else {
         card.style.display = 'none';
+        card.style.bottom = '';
         card.__shown = null;
       }
     }

@@ -2,7 +2,8 @@
  * The director's status card: a page for background steps that no product screen shows (the phone's 20-second
  * update loop, the registration behind the Enroll call, the batch countdown). It is honest about what it is: the
  * header and footer say that the video's director drew it from the network's own answers. Every value on it comes
- * from a read-only answer (lib/reads.mjs) and names the call it came from. It is offline (the board.mjs pattern):
+ * from a read-only answer (lib/reads.mjs) or from an answer a product page received and the director only read (its
+ * allowlisted fields, never a request body), and names the call it came from. It is offline (the board.mjs pattern):
  * its context aborts every request and the director feeds it with page.evaluate.
  *
  *   const card = await openStatusCard({ browser, recordVideoDir });          // or { context } to share one
@@ -30,11 +31,12 @@ body { background: radial-gradient(ellipse at 18% 0%, rgba(99,102,241,.16), tran
 h1 { margin:0; font:650 34px/1.15 var(--font); letter-spacing:-.01em } .sub { color:var(--muted); font-size:17px; margin-top:6px }
 .rows { display:grid; gap:12px; align-content:start; overflow:hidden }
 .row { display:grid; grid-template-columns:28px minmax(0,1fr) auto; gap:14px; align-items:center; background:var(--panel); border:1px solid var(--line);
-  border-radius:14px; padding:14px 18px; animation:in .45s ease both }
+  border-radius:14px; padding:10px 18px; animation:in .45s ease both }
 .row .dot { width:14px; height:14px; border-radius:50%; background:var(--dim); justify-self:center; box-shadow:0 0 0 4px rgba(111,120,145,.15) }
 .row.ok .dot { background:var(--ok); box-shadow:0 0 0 4px rgba(52,211,153,.16) } .row.wait .dot { background:var(--wait); box-shadow:0 0 0 4px rgba(251,191,36,.16); animation:pulse 1.4s ease-in-out infinite }
 .row.bad .dot { background:var(--bad) } .row.info .dot { background:var(--info) }
 .label { font-weight:600; font-size:18px } .src { color:var(--dim); font:12.5px/1.3 var(--mono); margin-top:3px }
+.end { text-align:right; max-width:520px } .end .src { white-space:normal }
 .value { font:600 19px/1.2 var(--mono); color:var(--fg); text-align:right; white-space:nowrap } .row.ok .value { color:var(--ok) } .row.wait .value { color:var(--wait) }
 .note { color:var(--muted); font-size:14px; margin-top:4px }
 .foot { position:absolute; left:40px; right:40px; bottom:28px; height:56px; display:flex; align-items:center; gap:12px; color:var(--muted); font-size:14.5px;
@@ -63,9 +65,12 @@ function render(r) {
   const mid = document.createElement('div');
   const l = document.createElement('div'); l.className = 'label'; l.textContent = r.label || ''; mid.appendChild(l);
   if (r.note) { const n = document.createElement('div'); n.className = 'note'; n.textContent = r.note; mid.appendChild(n); }
-  if (r.source) { const s = document.createElement('div'); s.className = 'src'; s.textContent = 'from ' + r.source; mid.appendChild(s); }
   el.appendChild(mid);
-  const v = document.createElement('div'); v.className = 'value'; v.textContent = r.value == null ? '' : String(r.value); el.appendChild(v);
+  // the source sits under the value, so a row is at most two lines tall and five rows fit under the title
+  const end = document.createElement('div'); end.className = 'end';
+  const v = document.createElement('div'); v.className = 'value'; v.textContent = r.value == null ? '' : String(r.value); end.appendChild(v);
+  if (r.source) { const s = document.createElement('div'); s.className = 'src'; s.textContent = 'from ' + r.source; end.appendChild(s); }
+  el.appendChild(end);
   el.__value = v;
 }
 window.card = {

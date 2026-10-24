@@ -365,7 +365,7 @@ export function screenCards(c) {
       ]
     },
     learnsPharmacy: { title: 'The pharmacy learns', color: learns, lines: ['What Avery pays, what the plan pays, and her running totals.', 'Never learns: her name.'] },
-    learnsLedger: { title: 'The ledger keeps', color: learns, lines: ['Wallet IDs, the drug-code hash, the date and the amounts.', 'Never: a name.'] },
+    learnsLedger: { title: 'The ledger keeps', color: learns, lines: ['Wallet IDs, the drug-code hash, the date and the amounts.', 'Beside them, in plain text: the drug’s code and name, tier, quantity and NADAC price.', 'Never: her name.'] },
     endCard: { title: 'About this film', lines: ['Voices are synthetic.', 'The people, the employer, the doctor and the pharmacy are fictional.'] }
   });
 }
@@ -619,7 +619,7 @@ export function storyLines(c) {
       answer: [L('pharmacist', `It will be, once you've met your deductible. Until then you pay what the drug costs, and this one's a generic. All of it counts toward your ${dollarWords(D)}.`, { pricing: true })],
       card: [L('member', 'Okay. Here you go.', { mood: MOOD.relieved })],
       counsel: [L('pharmacist', 'Take it after a meal, with plenty of water.', { mood: MOOD.kind })],
-      after: [N("The badge says Settlement Complete and the toast says a settlement proof was submitted. More exactly: the fill proof stayed in the engine, and the claim is parked on the sequencer, waiting for one more proof, from Avery's phone. Payment Received is the pharmacy's own note that she paid; it changes nothing on the network.")]
+      after: [N("The badge says Settlement Complete. More exactly: the fill proof stayed in the engine, and it takes one more proof, from Avery's phone, to put the claim on the ledger. Payment Received is the pharmacy's own note that she paid; it changes nothing on the network.")]
     },
     'board-settlement': {
       lines: [
@@ -692,14 +692,14 @@ export function storyLines(c) {
             { do: 'annotate', text: 'append-only, height 24', near: { card: '10', line: 2 }, side: 'right', color: 'blue', when: 0.8 }
           ]
         }),
-        N('Neither record holds a name. Both hold the money. And drug codes are a public list, so treat that hash as the drug.', {
-          board: [{ do: 'annotate', text: 'no names', color: 'green', size: 30 }]
+        N('Neither record holds her name. Both hold the money. And the drug is not hidden, by design: beside both records, the sequencer keeps its code and name in plain text, so the plan can track what it spends on each drug.', {
+          board: [{ do: 'annotate', text: 'no member names', color: 'green', size: 30 }]
         })
       ]
     },
     batch: {
       intro: [N(`This is the sequencer's own dashboard. In this boot it builds a batch every ${sayNumber(c.network.batchSeconds)} seconds, from at most two accepted proofs.`)],
-      batch: [N("This batch holds Avery's update. Its record carries the claims root, and two replicas apply the same proofs and reach the same roots.")]
+      batch: [N("This batch holds Avery's update. Its record carries the claims root. Two replicas copy the sequencer's receipt and new roots for every accepted proof; they don't re-check the proofs yet.")]
     },
     'board-batch': {
       lines: [

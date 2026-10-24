@@ -200,11 +200,13 @@ logFile = path.join(OUT, 'director.log');
 const reads = makeReads({ seqUrl: URLS.seq, memberUrl: URLS.member, operatorToken: secrets.operator, log: () => {} });
 const sniffer = new Sniffer({ log });
 /**
- * The pharmacy page's fill-status answers (it polls every 5 s): the engine's claim, read once the fill proof is done.
- * Amounts and status only; the pharmacy's answer carries no identity.
+ * The pharmacy page's fill-status answers (it polls every 5 s): the engine's claim, read once the fill proof is done,
+ * and the wallet update the fill queued for the phone (its status and the credential root the claim is parked against).
+ * Amounts, status and that root only; the pharmacy's answer carries no identity.
  */
 const FILL_FIELDS = ['adjudication.ingredientCostCents', 'adjudication.dispensingFeeCents', 'adjudication.totalCostCents', 'adjudication.patientPayCents',
-  'adjudication.planPayCents', 'adjudication.phase', 'accumulator.before', 'accumulator.after', 'quantityDispensed'];
+  'adjudication.planPayCents', 'adjudication.phase', 'accumulator.before', 'accumulator.after', 'quantityDispensed',
+  'walletUpdate.status', 'walletUpdate.newInventoryRoot'];
 const FILL_RULE = Object.freeze({
   name: 'fill', method: 'GET', path: /\/dispensing\/fill-status$/, secret: false,
   // the job's result is the engine's fill answer, or (older relays) that answer wrapped once more in { result }
@@ -546,7 +548,9 @@ function unrenderedAfter(sceneKey) {
  * Waits for the fill proof (the pharmacy page polls fill-status) and takes the claim from the engine's answer: every
  * line from here on is spoken from it (lib/claim-script.mjs withClaim). A claim that breaks what the lines say, or
  * that the voices were not rendered for, stops a take here, before any of those lines; a rehearsal logs it and goes on
- * with the engine's numbers. The patient pay the pharmacy shows must be the engine's.
+ * with the engine's numbers. The patient pay the pharmacy shows must be the engine's. The same answer names the wallet
+ * update the fill queued (take.fillUpdate): the phone proves it by itself within about half a minute, minutes before
+ * the status scenes, so they show it from this answer, not from a read made then.
  */
 async function learnClaim(since) {
   const { page: pg } = shot('pharmacy');
@@ -564,9 +568,11 @@ async function learnClaim(since) {
   await dispensed.locator('.script-issue-badge', { hasText: 'ZK Proved' }).waitFor({ timeout: 60000 }).catch(() => {});
   const predicted = cast;
   const res = answer.value?.data?.result;
+  const fillAnswer = res && res.adjudication ? res : res?.result;
+  take.fillUpdate = fillAnswer?.walletUpdate?.status ? fillAnswer.walletUpdate : null;
   let real;
   try {
-    real = withClaim(cast, res && res.adjudication ? res : res?.result);
+    real = withClaim(cast, fillAnswer);
   } catch (e) {
     // a rehearsal goes on with castOf's numbers (and says so); a take cannot say amounts it did not read
     mustHold(`the engine's claim could not be read from the fill answer (${e.message}); the lines keep castOf's prediction`);
@@ -782,6 +788,10 @@ const SCENE_RUN = {
     await zone.waitFor({ timeout: 15000 });
     await st.uploadVia(zone, assets.csv);
     await pg.locator('#csv-preview-panel table').waitFor({ timeout: 30000 });
+    // the preview and Step 3 open under the drop zone, below the fold: scroll down to the rows before they are counted,
+    // as a person would. To the last row: the table's header row already peeks in, and a partly shown element is only
+    // brought to the nearest edge (the table's last rows would sit under the caption)
+    await pg.locator('#csv-preview-panel tbody tr').last().scrollIntoViewIfNeeded();
     await speak('codes', 'preview');
     await Promise.all([speak('codes', 'expiry'), pg.locator('#imp-valid-until').fill(c.codes.validUntil)]);
     const since = Date.now();
@@ -791,7 +801,11 @@ const SCENE_RUN = {
     if (!mine || !mine.tokenId || !mine.tokenPIN) throw new Error('the import did not return a code and PIN for the member');
     secrets.code = mine.tokenId;
     secrets.pin = mine.tokenPIN;
-    await pg.locator('#csv-results-panel .table-wrap').waitFor({ timeout: 30000 }); // redacted on screen (lib/masks.mjs)
+    // the results open under Step 3, below the fold: scroll down to the codes and PINs (redacted on screen,
+    // lib/masks.mjs) before the card and the lines about them. To the table, not the panel: its title already peeks in
+    const pins = pg.locator('#csv-results-panel .table-wrap');
+    await pins.waitFor({ timeout: 30000 });
+    await pins.scrollIntoViewIfNeeded();
     await show('employer:hrtool', CARDS.learnsEmployerCodes, 20000);
     await speak('codes', 'after');
     await speak('codes', 'channels');
@@ -854,7 +868,9 @@ const SCENE_RUN = {
     take.walletId = w.value?.data?.walletId || null;
     if (!take.walletId) throw new Error('derive-wallet did not answer a wallet ID');
     await show('member', CARDS.learnsEmployerRedeem, 9000);
-    await sleep(1500); // 'Wallet derived' on screen, then step 5 shows 'Enrolling with insurer...' with its call held
+    // no line follows to keep the card on camera, and the board cut does not wait: hold for its reading time
+    // ('Wallet derived' on screen, then step 5 shows 'Enrolling with insurer...' with its call held)
+    await sleep(5000);
   },
 
   async enrolling() {
@@ -974,6 +990,9 @@ const SCENE_RUN = {
     await until('the member quote on the prescriber card', async () => (await quote.count()) > 0, { timeout: 60000, every: 500 }).catch(() => {});
     const quoted = Number(await pg.locator('#rx-est-member-pays').getAttribute('data-cents').catch(() => null));
     if (quoted !== c.claim.P) mustHold(`the prescriber card shows the member paying ${quoted} cents; the claim says ${c.claim.P}`);
+    // the card opens under Send Prescription, below the fold of the 1280x720 layout: scroll it to mid-screen (its Patient
+    // Pays label centred), where the whole card clears the header and the caption
+    await quote.getByText('Patient Pays', { exact: true }).evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'smooth' })).catch(() => {});
     await speak('prescribe', 'quote');
     await Promise.all([speak('prescribe', 'directions'), pg.locator('#rx-directions').fill(c.drug.directions)]);
     await Promise.all([speak('prescribe', 'refills'), pg.locator('#rx-refills').fill(String(c.drug.refills))]);
@@ -982,6 +1001,9 @@ const SCENE_RUN = {
     await pg.locator('#rx-write-btn').click();
     const badge = pg.locator('#rx-proof-badge');
     await badge.waitFor({ timeout: 60000 });
+    // the result (the Rx ID, this badge, then the proofs it lists) is drawn under the estimate card, below the fold:
+    // centred, not merely in view, so the captions and the lower-third at the bottom of the frame leave it clear
+    await pg.locator('#rx-write-result').evaluate((el) => el.scrollIntoView({ block: 'center' }));
     await speak('prescribe', 'sent');
     await st.card(CARDS.prescribeProofs.title, CARDS.prescribeProofs.lines, { ms: 20000 });
     await speak('prescribe', 'proofs');
@@ -1065,6 +1087,11 @@ const SCENE_RUN = {
     await dispense.hover().catch(() => {});
     await speak('verify-dispense', 'gate');
     await speak('verify-dispense', 'dispense');
+    // the credential root the fill's wallet update starts from, read before the click: the phone proves that update by
+    // itself long before the status scenes show it, and nothing else waits for her wallet here (the PCP route answers
+    // only once its own update is proved)
+    const before = await reads.walletState(take.walletId).catch(() => null);
+    take.inventoryBefore = before ? before.credentialInventoryRoot : null;
     take.dispenseAt = Date.now();
     await dispense.click();
     await closeDetail(pg);
@@ -1098,12 +1125,14 @@ const SCENE_RUN = {
   async 'status-update'() {
     await camera.cut('status');
     await status.update('clear');
-    await status.update('setTitle', { title: 'Meanwhile, on Avery’s phone', subtitle: 'The claim waits for one more proof, made on her phone' });
-    const m0 = await reads.member(take.walletId).catch(() => null);
-    const ws0 = await reads.walletState(take.walletId).catch(() => null);
-    take.inventoryBefore = ws0 ? ws0.credentialInventoryRoot : null;
-    await status.update('upsertRow', { id: 'pending', label: 'Wallet updates waiting for the phone', value: m0 ? String(m0.pendingWalletUpdates) : 'not read', tone: 'wait', source: '/interactive/state pendingWalletUpdates (allowlisted)', note: 'the phone checks for work every 20 seconds' });
-    if (ws0) await status.update('upsertRow', { id: 'inventory', label: 'Credential inventory root on the ledger', value: short(ws0.credentialInventoryRoot), tone: 'info', source: 'l2_getWalletState (operator read)', note: 'before the update' });
+    await status.update('setTitle', { title: 'Meanwhile, on Avery’s phone', subtitle: 'When the pharmacy dispensed, the claim waited for one more proof, made on her phone' });
+    // the phone proved the fill's update by itself within about half a minute of the fill answer (a minute or more after
+    // Dispense, since the engine queues it only once the fill proof is done), minutes before this scene: the
+    // card shows the update as the fill left it (the fill answer, the root read before Dispense); status-accepted reads
+    // where it stands now
+    const queued = take.fillUpdate ? (take.fillUpdate.status === 'pending' ? 1 : 0) : null;
+    await status.update('upsertRow', { id: 'pending', label: 'Wallet updates waiting for the phone', value: queued == null ? 'not read' : String(queued), tone: queued === 0 ? 'ok' : 'wait', source: 'GET /dispensing/fill-status (walletUpdate.status)', note: 'the phone checks for work every 20 seconds' });
+    if (take.inventoryBefore) await status.update('upsertRow', { id: 'inventory', label: 'Credential inventory root on the ledger', value: short(take.inventoryBefore), tone: 'info', source: 'l2_getWalletState (operator read, before Dispense)', note: 'before the update' });
     await speak('status-update', 'queued');
   },
 
@@ -1115,11 +1144,16 @@ const SCENE_RUN = {
       await status.update('upsertRow', pendingRow(m));
       return m && m.pendingWalletUpdates === 0 ? m : null;
     }, { timeout: 600000, every: 3000 }), { factor: 6 }));
+    // the header changes only after the wait: while the phone is still proving, status-update's header is still true
+    await status.update('setTitle', { title: 'The update is accepted', subtitle: `${PEOPLE.member.name}'s phone proved the update; the sequencer attached the parked claim` });
     const receipts = await reads.receiptsByWallet(take.walletId).catch(() => []);
     const claim = receipts.filter((r) => !r.isRegistration && r.claimLeafIndex != null).pop() || receipts.filter((r) => !r.isRegistration).pop();
     await status.update('upsertRow', { id: 'receipt', label: 'Wallet-update proof', value: claim ? `accepted · ${short(claim.receiptId)}` : 'not read', tone: claim ? 'ok' : 'wait', source: 'l2_getReceiptsByWallet (operator read)', note: claim && claim.claimLeafIndex != null ? `claim leaf ${claim.claimLeafIndex}` : undefined });
     const ws1 = await reads.walletState(take.walletId).catch(() => null);
-    if (ws1) await status.update('upsertRow', { id: 'inventory', label: 'Credential inventory root on the ledger', value: `${short(take.inventoryBefore)} → ${short(ws1.credentialInventoryRoot)}`, tone: 'ok', source: 'l2_getWalletState (operator read)', note: `nonce ${ws1.nonce}` });
+    // green only when the ledger holds the root the fill parked its claim against (the line says "exactly this root")
+    const parked = take.fillUpdate ? take.fillUpdate.newInventoryRoot : null;
+    if (ws1) await status.update('upsertRow', { id: 'inventory', label: 'Credential inventory root on the ledger', value: `${short(take.inventoryBefore)} → ${short(ws1.credentialInventoryRoot)}`, tone: ws1.credentialInventoryRoot === parked ? 'ok' : 'bad', source: 'l2_getWalletState (operator read)', note: `nonce ${ws1.nonce}` });
+    if (ws1 && ws1.credentialInventoryRoot !== parked) mustHold(`the ledger holds credential root ${short(ws1.credentialInventoryRoot)}; the fill parked its claim against ${short(parked)}`);
     await speak('status-accepted', 'accepted');
     if (m1 && m1.accumulator) await status.update('upsertRow', { id: 'acc', label: 'Her running totals (engine record)', value: `${cents(m1.accumulator.deductiblePaidCents)} · ${cents(m1.accumulator.oopPaidCents)} · ${cents(m1.accumulator.benefitUsedCents)}`, tone: 'info', source: '/interactive/state accumulator', note: 'toward the deductible · out of pocket · by the plan' });
     const stt = await reads.status().catch(() => null);
@@ -1132,22 +1166,23 @@ const SCENE_RUN = {
     await camera.cut('network');
     await pg.locator('.nav-tab[data-tab="batches"]').click();
     await speak('batch', 'intro');
-    // TODO(selector): the batch is matched by the receipt's l1BatchNumber / l2BlockNumber; confirm in a rehearsal
-    // that this is the index the dashboard's Batches table shows (window._showBatchDetail(<index>)).
+    // the receipt's l1BatchNumber is its batch's number, which that batch's row carries in data-batch;
+    // its l2BlockNumber can differ (an empty batch takes a number and no block)
     const r = await timed('batch-wait', () => camera.speedWhile(() => until('the claim to be batched', async () => {
       const rs = await reads.receiptsByWallet(take.walletId);
       const last = rs.filter((x) => !x.isRegistration).pop();
-      return last && (last.l1BatchNumber != null || last.l2BlockNumber != null) ? last : null;
+      return last && last.l1BatchNumber != null ? last : null;
     }, { timeout: 600000, every: 3000 }), { factor: 6 }));
+    // the tab draws its table when it opens, and Refresh redraws it only after two reads: wait for this batch's own
+    // row, never another (the table lists the newest first, and a later batch may already sit on top; the next line
+    // says this one holds her update)
     await pg.locator('#batch-refresh-btn').click();
-    const idx = r.l1BatchNumber ?? r.l2BlockNumber;
-    let row = pg.locator(`#batch-table tr[onclick*="_showBatchDetail(${idx})"]`);
-    if (!(await row.count())) row = pg.locator('#batch-table tr[onclick*="_showBatchDetail"]').first();
+    const row = pg.locator(`#batch-table tr[data-batch="${r.l1BatchNumber}"]`);
     await row.waitFor({ timeout: 30000 });
     await row.click();
     await pg.locator('#batch-modal').waitFor({ state: 'visible', timeout: 30000 });
     await speak('batch', 'batch');
-    await pg.locator('#batch-modal .batch-modal-header button').click().catch(() => {});
+    await pg.locator('#bm-close').click().catch(() => {});
   },
 
   async audit() {
@@ -1171,6 +1206,9 @@ const SCENE_RUN = {
     await pg.locator('a.nav-link[data-tab="claims"]').click();
     const claim = pg.locator('#claims-list .claim-card');
     await camera.speedWhile(() => until('the claim on the phone', async () => {
+      // the list reads "Loading..." until the member node answers (within its 30 s request budget); a count before then
+      // misses the card and costs a trip to Dashboard and the 8 s wait
+      await pg.locator('#claims-list .loading').waitFor({ state: 'detached', timeout: 30000 }).catch(() => {});
       if (await claim.count()) return true;
       await pg.locator('a.nav-link[data-tab="dashboard"]').click().catch(() => {});
       await pg.locator('a.nav-link[data-tab="claims"]').click().catch(() => {}); // the tab reads the claims when it opens
