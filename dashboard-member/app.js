@@ -317,11 +317,38 @@
   // ══════════════════════════════════════════════════════
   //  EJECT — full local state reset
   // ══════════════════════════════════════════════════════
+  /**
+   * What erasing the device costs the member's enrollment code, by the device's phase (the review of the relay fix,
+   * A-93). Until the insurer redeems the code, the employer still holds it unused and the same code and PIN enroll
+   * again; the confirm said a new code was needed whatever the phase, which sent a member whose code was never redeemed
+   * back to the employer for nothing. Once a wallet is enrolled with it the code is spent. In between, the insurer
+   * answers the same code and PIN again only while no wallet is enrolled with them, so a new code may be needed.
+   *
+   * The insurer's refusal leaves the device in key_generated as well, and the device answers every refusal alike: a
+   * wrong PIN, a code locked after five wrong ones, expired, revoked, already used, or one no employer recognizes. So
+   * once step 4 has seen one (`refused`, from the device's 403 to the redeem), the note says the insurer refused the code
+   * and a new one may be needed, never that the same code still works (the security review of the sweep fixes). Only
+   * this page knows of the refusal, since the device keeps no record of one, so a reload forgets it.
+   */
+  function startOverCodeNote(phase, refused) {
+    if (phase === 'awaiting_token' || phase === 'token_received' || phase === 'key_generated') {
+      if (refused) return 'The insurer refused your enrollment code and PIN, so you may need a NEW code from HR to start over.';
+      return 'Your enrollment code has not been redeemed, so you can start over with the same code and its PIN.';
+    }
+    if (phase === 'enrolled' || phase === 'compiling' || phase === 'ready') {
+      return 'You will need a NEW enrollment code from your employer to start over.';
+    }
+    if (phase) return 'This device already redeemed your enrollment code, so you may need a NEW one from your employer to start over.';
+    return 'If this device already redeemed your enrollment code, you may need a NEW one from your employer to start over.';
+  }
+
   async function ejectMember() {
+    var phase = '';
+    try { phase = await devicePhase(); } catch (_) { /* the device did not answer: the note says what depends on it */ }
     if (!confirm(
       'This will permanently erase all enrollment data on this device — ' +
       'including your wallet, enrollment key, and any saved credentials.\n\n' +
-      'You will need a NEW enrollment token from your employer to start over.\n\n' +
+      startOverCodeNote(phase, onboardState.codeRefused) + '\n\n' +
       'This cannot be undone unless you have an NFC backup card.\n\nContinue?'
     )) return;
 
@@ -365,7 +392,7 @@
     recoveryCards: null,
       pin: '', tokenId: '', enrollPIN: '', cardholderId: '', firstName: '', lastName: '', dob: '',
       enrollmentKey: '', walletId: '', preimageFields: null,
-      statusMessage: '', error: '',
+      statusMessage: '', error: '', keyError: '', codeRefused: false,
     };
     toast('All enrollment data erased. Starting fresh.', 'info');
     showScreen('landing-screen');
@@ -393,7 +420,7 @@
     recoveryCards: null,
     pin: '', tokenId: '', enrollPIN: '', cardholderId: '', firstName: '', lastName: '', dob: '',
     enrollmentKey: '', walletId: '', preimageFields: null,
-    statusMessage: '', error: '',
+    statusMessage: '', error: '', keyError: '', codeRefused: false,
   };
 
   function renderOnboardStep() {
@@ -525,8 +552,18 @@
         body.innerHTML =
           '<div class="onboard-title">Generating Enrollment Key</div>' +
           '<div class="onboard-desc">Creating a secure enrollment key and deriving your wallet ID...</div>' +
-          '<div class="onboard-status"><div class="spinner-lg"></div><div id="ob-keygen-msg">Generating cryptographic key...</div></div>';
-        setTimeout(function () { generateKeyAndWallet(); }, 400);
+          '<div class="onboard-status"><div class="spinner-lg"></div><div id="ob-keygen-msg">' +
+          (onboardState.keyError ? esc('Error: ' + onboardState.keyError) : 'Generating cryptographic key...') + '</div></div>' +
+          (onboardState.keyError ? '<div class="form-actions" style="margin-top:12px"><button class="btn" id="ob-keygen-retry">Retry</button></div>' : '');
+        if (onboardState.keyError) {
+          $('ob-keygen-retry').addEventListener('click', function () {
+            onboardState.keyError = '';
+            // Re-rendering step 4 without the error starts the one run, from the device's phase.
+            renderOnboardStep();
+          });
+        } else {
+          setTimeout(function () { generateKeyAndWallet(); }, 400);
+        }
         break;
 
       case 5: // Enrolling
@@ -591,23 +628,54 @@
     return html;
   }
 
-  async function generateKeyAndWallet() {
-    try {
-      // Step 1: Generate enrollment key on the server (Nautilus local state)
-      if ($('ob-keygen-msg')) $('ob-keygen-msg').textContent = 'Generating enrollment key on device...';
-      var keyRes = await fetch(location.origin + '/onboarding/generate-key', {
-        method: 'POST', headers: RPC.deviceHeaders(),
-        body: JSON.stringify({}),
-      }).then(function (r) { return r.json(); });
-      if (!keyRes.ok) throw new Error(errMsg(keyRes.error) || 'Key generation failed');
+  /**
+   * The parts of step 4 left from the device's phase (the review of the relay fix, A-93). Retry resumes here: once the
+   * key is made, generate-key answers 409, so a redeem the insurer could not answer is asked again without it. Every
+   * phase step 4 resumes from ends with the derivation.
+   */
+  function keyStepsFrom(phase) {
+    if (phase === 'token_received') return ['generate-key', 'redeem', 'derive'];
+    if (phase === 'key_generated') return ['redeem', 'derive'];
+    if (phase === 'code_redeemed') return ['derive'];
+    return [];
+  }
 
-      // C2: redeem the code with the insurer first; the wallet is bound to the group it answers.
-      if ($('ob-keygen-msg')) $('ob-keygen-msg').textContent = 'Redeeming the enrollment code with the insurer...';
-      var redeemRes = await fetch(location.origin + '/onboarding/redeem', {
-        method: 'POST', headers: RPC.deviceHeaders(),
-        body: JSON.stringify({ tokenPIN: onboardState.enrollPIN }),
-      }).then(function (r) { return r.json(); });
-      if (!redeemRes.ok) throw new Error(errMsg(redeemRes.error) || 'The insurer did not accept the enrollment code and PIN');
+  async function generateKeyAndWallet() {
+    // A failure step 4 can resume from gets a Retry. The insurer's refusal does not: the refused PIN sent again would only
+    // spend another of the five wrong PINs the employer allows a code. Nor does a phase step 4 cannot continue from.
+    var retry = true;
+    try {
+      var steps = keyStepsFrom(await devicePhase());
+      if (!steps.length) {
+        retry = false;
+        throw new Error('This device cannot continue enrollment from its current phase. Start over below.');
+      }
+
+      if (steps.indexOf('generate-key') >= 0) {
+        // Step 1: Generate enrollment key on the server (Nautilus local state)
+        if ($('ob-keygen-msg')) $('ob-keygen-msg').textContent = 'Generating enrollment key on device...';
+        var keyRes = await fetch(location.origin + '/onboarding/generate-key', {
+          method: 'POST', headers: RPC.deviceHeaders(),
+          body: JSON.stringify({}),
+        }).then(function (r) { return r.json(); });
+        if (!keyRes.ok) throw new Error(errMsg(keyRes.error) || 'Key generation failed');
+      }
+
+      if (steps.indexOf('redeem') >= 0) {
+        // C2: redeem the code with the insurer first; the wallet is bound to the group it answers.
+        if ($('ob-keygen-msg')) $('ob-keygen-msg').textContent = 'Redeeming the enrollment code with the insurer...';
+        var redeemResp = await fetch(location.origin + '/onboarding/redeem', {
+          method: 'POST', headers: RPC.deviceHeaders(),
+          body: JSON.stringify({ tokenPIN: onboardState.enrollPIN }),
+        });
+        var redeemRes = await redeemResp.json();
+        if (!redeemRes.ok) {
+          retry = redeemResp.status !== 403;
+          // Kept for Start over, which then says the insurer refused the code rather than that the same code still works.
+          if (redeemResp.status === 403) onboardState.codeRefused = true;
+          throw new Error(errMsg(redeemRes.error) || 'The insurer did not accept the enrollment code and PIN');
+        }
+      }
 
       // Step 2: Derive wallet via server-side Poseidon hashing (PHI sent to local device only)
       if ($('ob-keygen-msg')) $('ob-keygen-msg').textContent = 'Deriving wallet ID (Poseidon hash)...';
@@ -644,6 +712,10 @@
     } catch (e) {
       if ($('ob-keygen-msg')) $('ob-keygen-msg').textContent = 'Error: ' + e.message;
       toast('Key/wallet derivation failed: ' + e.message, 'error');
+      if (retry && onboardStep === 4) {
+        onboardState.keyError = e.message;
+        renderOnboardStep();
+      }
     }
   }
 

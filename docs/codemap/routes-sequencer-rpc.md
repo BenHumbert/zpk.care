@@ -112,8 +112,8 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 |---|---|---|---|---|---|
 | l2_getAuditLog | D1: the plan or the operator only | limit?(≤1000), offset? | audit log, events paginated | yes: AuditEvent.walletId (`src/audit/audit-types.ts:37-43`) | 1114-1125 |
 | l2_verifyChainIntegrity | OPEN | — | `AuditService.verifyReceiptChain` | no | 1127-1139 |
-| l2_verifyFinancialBalance | OPEN | — | `AuditService.verifyFinancialBalance` totals; D5: fills counted, reversals netted, every fill's split checked against its costs, and the chain's totals reconciled with the ledger's (`reconciled`, `ledger`); `valid` only when both hold | no (aggregates) | 1141-1157 |
-| l2_detectDuplicateClaims | OPEN | — | `AuditService.detectDuplicateClaims` → duplicateGroups; D5: fills only, keyed with the fill number | audit-derived groups (fields not verified here) | 1159-1169 |
+| l2_verifyFinancialBalance | D1 enumeration: the plan and the operator (A-102) | — | `AuditService.verifyFinancialBalance` totals; D5: fills counted, reversals netted, every fill's split checked against its costs, and the chain's totals reconciled with the ledger's (`reconciled`, `ledger`); `valid` only when both hold | no (aggregates) | 1141-1157 |
+| l2_detectDuplicateClaims | D1 enumeration: the plan and the operator (A-102) | — | `AuditService.detectDuplicateClaims` → duplicateGroups; D5: fills only, keyed with the fill number | audit-derived groups (fields not verified here) | 1159-1169 |
 
 ### Formulary / plans / coverage
 | Method | Auth | Params | Reads/writes | Member | Line |
@@ -204,7 +204,7 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 |---|---|---|---|---|---|
 | l2_reconstructAccumulator | D1: the wallet itself, the plan or operator, its named PCP, or a signed caller with the member’s attestation | walletId, planIdHash? | `seq.reconstructAccumulator` sums claim leaves | yes: deductiblePaid/oopPaid/benefitUsed cents, claim counts | 2143-2151; SEQ:2167 |
 | l2_requestAttestation | WALLET-SIGNED (A10b: only a request signed by `walletId`; lifecycle from `lifecycleStateOf`, revoked refused, unregistered null) | walletId, expirySeconds? | if wallet in `entityRegistry` → `registerKnownWallet`; `node.requestAttestation` signs {w, cc, ls=3, fr, ts, exp, n, pk, sig} when wallet has receipts/provider/messages/known flag, and writes `attestationCache[walletId]` | yes: signed attestation for wallet | 2155-2174; NODE:356-381; `src/credentials/nfc-attestation.ts:55-78` |
-| l2_getAttestation | OPEN (GAP I7) | walletId | reads `attestationCache` | yes | 2176-2189; NODE:383-385 |
+| l2_getAttestation | WALLET-SIGNED: the wallet itself only (A10b gate, A-96) | walletId | reads `attestationCache` | yes | 2176-2189; NODE:383-385 |
 | l2_getAttestationPublicKey | OPEN | — | authority Ed25519 pubkey | no | 2191-2198 |
 
 ### Peers / gossip

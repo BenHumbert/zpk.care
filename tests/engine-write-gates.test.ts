@@ -26,6 +26,13 @@
  * — need a credential while the chain's own state does not; `l2_recordFill` is not a method; the
  * admission registers answer the operator only; the event streams refuse an anonymous subscriber
  * and admit the operator's token and a node's signature.
+ *
+ * The engine's chain status, `/interactive/l2-status`, stayed open through D2 as if it were the
+ * chain's own state. It is not: every call lists every receipt's wallet and the whole audit log,
+ * each claim with its member, prescriber and pharmacy wallets, drug, date of service and amounts,
+ * the enumerations D1 gives the plan and the operator only. The sweep of the open routes
+ * (2026-10-24) found it. It now answers the operator, as the engine's other copies of those lists
+ * (`/node/all-receipts`, `/node/audit-log`) do; its one reader is the operator console.
  */
 import { Field, MerkleTree } from 'o1js';
 import { InMemoryStore } from '../src/storage/local-store.js';
@@ -47,13 +54,29 @@ const memberNode = generateNodeKey('member-node');
 let server: L2RpcServer;
 let url: string;
 
+/** The parties to the one claim on the stand-in chain. */
+const CLAIM = { memberWalletId: '700001', prescriberWalletId: '700002', pharmacyWalletId: '700003', ndcHash: '700004' };
+
 /**
  * An engine that does nothing: every method is a no-op, so a request that passes the gate ends in
  * whatever the handler makes of an empty answer (200 or 500) and never in 401 or 403, which is the
- * only distinction this suite draws.
+ * only distinction this suite draws. Its chain holds one claim, its receipt and its audit event, for
+ * the chain status to list.
  */
 function standInService() {
-  const svc = { getState() { return { compiled: true, enrolledMembers: [] }; } };
+  const sequencer = {
+    getAllReceipts: () => [{ receiptId: 'rcpt-1', walletId: CLAIM.memberWalletId, sequenceNumber: 1n, isRegistration: false, acceptedAt: 1, l1Status: 'pending' }],
+    getAllBatches: () => [],
+    getAuditLog: () => ({
+      events: [{
+        sequenceNumber: 1n, receiptId: 'rcpt-1', walletId: CLAIM.memberWalletId, timestamp: 1, l1Status: 'pending',
+        claimContext: { ...CLAIM, ingredientCostCents: 1234, dispensingFeeCents: 150, quantityDispensed: '30', dateOfService: 20261024 },
+      }],
+      genesisHash: '1', latestChainHash: '2', eventCount: 1n,
+    }),
+  };
+  const chain = { getStatus: () => ({ running: true, inFlightBatch: null }), getSequencer: () => sequencer };
+  const svc = { getState() { return { compiled: true, enrolledMembers: [] }; }, getL2Node() { return chain; } };
   return new Proxy(svc, { get(t, p) { if (p in t) return (t as any)[p]; return typeof p === 'string' && p !== 'then' ? () => undefined : undefined; } });
 }
 
@@ -137,9 +160,24 @@ describe('the engine\'s write routes', () => {
       expect([p, (await fetch(url + p)).status]).toEqual([p, 401]);
       expect([p, gated((await fetch(url + p, { headers: bearer })).status)]).toEqual([p, false]);
     }
-    for (const p of ['/interactive/l2-status', '/node/chain-state', '/node/chain-proof', '/node/all-batches', '/node/formulary']) {
+    for (const p of ['/node/chain-state', '/node/chain-proof', '/node/all-batches', '/node/formulary']) {
       expect([p, gated((await fetch(url + p)).status)]).toEqual([p, false]);
     }
+  });
+
+  test('the engine\'s chain status lists every wallet and each claim\'s parties, so it answers the operator only', async () => {
+    const p = '/interactive/l2-status';
+    const anonymous = await fetch(url + p);
+    expect(anonymous.status).toBe(401);                                                          // before: 200
+    expect(await anonymous.text()).not.toContain(CLAIM.memberWalletId);                          // before: the member's wallet, in its receipt and in its claim
+    // no node role reads it: the plan reads the same lists from the sequencer (l2_getAllReceipts, l2_getAuditLog)
+    expect((await fetch(url + p, { headers: byNode(pharmacyNode, 'GET', p) })).status).toBe(403); // before: 200
+    expect((await fetch(url + p, { headers: byNode(memberNode, 'GET', p) })).status).toBe(403);   // before: 200
+    const operator = await fetch(url + p, { headers: bearer });
+    expect(operator.status).toBe(200);
+    const status = await operator.json() as { receipts: Array<{ walletId: string }>; auditLog: { events: Array<{ claimContext?: Record<string, unknown> }> } };
+    expect(status.receipts.map((r) => r.walletId)).toEqual([CLAIM.memberWalletId]);
+    expect(status.auditLog.events[0].claimContext).toMatchObject(CLAIM);
   });
 });
 

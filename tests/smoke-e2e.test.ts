@@ -756,7 +756,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
   test('P8d — audit chain has 3 events and is valid', async () => {
     const [logR, intR] = await Promise.all([
       get(insurerPort, '/audit/log', AUTH),
-      get(insurerPort, '/audit/chain-integrity'),
+      get(insurerPort, '/audit/chain-integrity', AUTH),
     ]);
     expect(logR.status).toBe(200);
     expect((logR.body as any).data.events).toHaveLength(3);
@@ -916,31 +916,31 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
   });
 
   test('P12b — insurer sees pharmacy claims', async () => {
-    const r = await get(insurerPort, `/claims/pharmacy/${pharmacyWalletId}`);
+    const r = await get(insurerPort, `/claims/pharmacy/${pharmacyWalletId}`, AUTH);
     expect(r.status).toBe(200);
     expect((r.body as any).data.length).toBe(1);
   });
 
   test('P12c — insurer sees prescriber claims', async () => {
-    const r = await get(insurerPort, `/claims/prescriber/${prescriberWalletId}`);
+    const r = await get(insurerPort, `/claims/prescriber/${prescriberWalletId}`, AUTH);
     expect(r.status).toBe(200);
     expect((r.body as any).data.length).toBe(1);
   });
 
   test('P12d — insurer sees drug-level claims', async () => {
-    const r = await get(insurerPort, `/claims/drug/${testNdcHash}`);
+    const r = await get(insurerPort, `/claims/drug/${testNdcHash}`, AUTH);
     expect(r.status).toBe(200);
     expect((r.body as any).data.length).toBe(1);
   });
 
   test('P12e — audit chain integrity still valid', async () => {
-    const r = await get(insurerPort, '/audit/chain-integrity');
+    const r = await get(insurerPort, '/audit/chain-integrity', AUTH);
     expect(r.status).toBe(200);
     expect((r.body as any).data.isValid).toBe(true);
   });
 
   test('P12f — financial balance check', async () => {
-    const r = await get(insurerPort, '/audit/financial-balance');
+    const r = await get(insurerPort, '/audit/financial-balance', AUTH);
     expect(r.status).toBe(200);
     expect((r.body as any).data).toBeDefined();
   });

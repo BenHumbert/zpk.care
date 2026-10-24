@@ -42,6 +42,7 @@ import fs from 'fs';
 import path from 'path';
 import { timingSafeEqual, randomBytes } from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
+import type { Socket } from 'net';
 import type { EntityNodeBase } from './entity-node-base.js';
 import type { L2EventHandler, L2ChainEvent } from '../l2/l2-node.js';
 import { l2Stringify } from '../l2/l2-json.js';
@@ -193,6 +194,8 @@ export class NautilusAppServer {
   private readonly trustedProxies: readonly string[];
   /** Each routed request's callerKey, read as it arrived. Weak: an answered request takes its entry with it. */
   private readonly callerKeys: WeakMap<IncomingMessage, string> = new WeakMap();
+  /** The request budgets on each connection whose responses still wait their turn (endBudgetIfClosedWhileWaiting). */
+  private readonly waitingBudgets: WeakMap<Socket, Set<() => void>> = new WeakMap();
 
   // SSE
   private sseClients: Set<ServerResponse> = new Set();
@@ -470,8 +473,10 @@ export class NautilusAppServer {
    * A request this server routes is keyed once, as it arrives (handleRequest), and keeps that key. Node reads a
    * socket's address from the open connection and has none to give once the socket has closed, so a route that read it
    * only after an await found none for a client that half-closed its connection right after sending, and counted that
-   * client under 'unknown', the one key every such client shares (the review of the open-intake limits). A request the
-   * server did not route, as a test that calls a handler directly makes, is keyed from its socket as it stands.
+   * client under 'unknown', the one key every such client shares (the review of the open-intake limits). A request
+   * whose socket has no address even as it arrives is not routed, so no limit counts it under 'unknown' either
+   * (handleRequest; the review of the caller-key capture, A-92). A request the server did not route, as a test that
+   * calls a handler directly makes, is keyed from its socket as it stands.
    */
   callerKey(req: IncomingMessage): string {
     return this.callerKeys.get(req) ?? this.callerKeyNow(req);
@@ -587,6 +592,15 @@ export class NautilusAppServer {
 
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     // Who the request comes from is read first, while its socket is still open: a closed one has no address (callerKey).
+    // A socket with no address even now has lost its client already. On Linux, a client that writes a whole request and
+    // resets its connection (SO_LINGER 0) still has the request read, but the reset socket gives no address; routed,
+    // the request counted under 'unknown', the one key every such client shares, on every per-source limit (the review
+    // of the caller-key capture, A-92). The client is gone and nobody is left to answer, so the connection is destroyed
+    // and the request goes no further.
+    if (!req.socket?.remoteAddress) {
+      req.socket?.destroy();
+      return;
+    }
     this.callerKeys.set(req, this.callerKeyNow(req));
 
     // A-82: the request must name this node in its Host, or a page rebound to loopback could read every answer.
@@ -612,7 +626,15 @@ export class NautilusAppServer {
     };
     if (!isSSE) {
       armBudget(this.config.requestTimeoutMs ?? REQUEST_TIMEOUT_MS);
-      res.on('finish', () => { if (budgetTimer) clearTimeout(budgetTimer); });
+      // The budget ends with its response: as the response finishes, or as it closes, which is all a response does once
+      // its client has gone. Ended on finish alone, each request whose client half-closed or left kept its timer, and
+      // the request and response the timer holds, until the budget ran out, so a flood of them held as many (the review
+      // of the caller-key capture, A-92). A pipelined request's response still waiting its turn does not close with its
+      // connection, so the connection's closing ends that budget (endBudgetIfClosedWhileWaiting).
+      const endBudget = (): void => { if (budgetTimer) clearTimeout(budgetTimer); };
+      res.on('finish', endBudget);
+      res.on('close', endBudget);
+      if (!res.socket) this.endBudgetIfClosedWhileWaiting(req.socket, res, endBudget);
     }
 
     // CORS (A2): one shared policy. A disallowed or absent origin gets no header at all,
@@ -761,6 +783,24 @@ export class NautilusAppServer {
 
     // No route matched
     this.sendResponse(res, 404, false, undefined, 'Not found');
+  }
+
+  /**
+   * Ends a request's budget (`end`) if its connection closes while its response still waits its turn. Node gives a
+   * pipelined request's response the connection only once the responses ahead of it are done, and a connection that
+   * closes meanwhile closes the response that holds it and none of those waiting, which then neither finish nor close:
+   * each kept its timer, and its request and response, until the budget ran out (found checking the fix for the review
+   * of the caller-key capture, A-92). Once the response has the connection, its own close ends the budget. One listener
+   * on each connection, however many responses wait on it.
+   */
+  private endBudgetIfClosedWhileWaiting(socket: Socket, res: ServerResponse, end: () => void): void {
+    const waiting = this.waitingBudgets.get(socket) ?? new Set<() => void>();
+    if (!this.waitingBudgets.has(socket)) {
+      this.waitingBudgets.set(socket, waiting);
+      socket.once('close', () => { for (const endWaiting of waiting) endWaiting(); });
+    }
+    waiting.add(end);
+    res.once('socket', () => waiting.delete(end));
   }
 
   // ─── Built-in Endpoints ───────────────────────────────────

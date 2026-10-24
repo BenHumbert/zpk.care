@@ -3158,3 +3158,24 @@ drug-history reads accept; the engine's open `/interactive/l2-status`; the engin
 member PIN backoff's race) and the rounds' low leftovers (A-92: a reset client counted as the shared unknown source, a
 gone client's budget timer; A-93: the device's 502 and 503 messages and the member screen's missing retry). Then option
 A, steps 1 to 8, with both harness runs at the end; then A-80 with D8, B4, A-59, A-60 and phase E; last, the package.
+
+**Addendum, later on 2026-10-24: the sweep's follow-up rounds (A-96 to A-108).** Three more workflow rounds, each lane
+first verifying its claim. Round seven fixed the four routes the sweep said needed more than a limit: `l2_getAttestation`
+handed out any member's attestation, which the pharmacy's open `/nfc/scan` and D1's attestation reader accept, so a
+stranger could read a member's fills (A-96, reproduced); the engine's open `/interactive/l2-status` returned every wallet
+and the audit log (A-97); the engine read bodies of any size (A-98); the member PIN backoff could be raced (A-99). Its
+review found the insurer node's claim, audit and messaging reads open as the plan (A-100) and the engine naming any
+enrolled member for a junk proof (A-101, critical: a wallet tied to a name; fixed). Round eight fixed those, gated
+`l2_detectDuplicateClaims` (A-102), moved attestation reads to the wallet's own signature, and a confused-deputy sweep
+of every open route that borrows a node's identity found enrollment completion open to anyone holding a just-redeemed
+code (A-104), recovery deposits open to anyone (A-105) and the provider nodes' open book (A-106). Round nine fixed A-104
+and A-105, gated `l2_verifyFinancialBalance` (A-102), fixed the dispatcher's crash on built-in names (A-103) and kept
+provider nodes on loopback until B4. Recorded open: A-106 (mitigated; the fix is B4), A-107 (a portable credential is a
+bearer token; design), A-108 (the employer holds the PIN hash completion checks, and can redeem first).
+
+Scoreboard: 108 findings; 96 fixed; 12 open (A-22, A-25, A-33 under the interim lease, A-59, A-60, A-80, A-85, A-90,
+A-95, A-106 mitigated, A-107, A-108), none critical. Verified: regression batch 140 suites, 1701 tests, all passing;
+typecheck src 18, scripts 2. Git: with this commit, 78 commits on local `dev`, nothing pushed.
+
+**Next:** a short round ten (A-108's completion bound to a secret only the redeeming device holds; the explorer's audit
+cards worded as operator-only; the device's message for the insurer's per-code limit), then option A, steps 1 to 8.

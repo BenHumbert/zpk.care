@@ -30,7 +30,19 @@
  * with the launcher's environment PIN the flag was already true at boot and eject needed no PIN
  * at all. Each link is tested below, plus the attempt limiting that stops a six-digit PIN being
  * guessable in a day.
+ *
+ * The sweep of the open routes, 2026-10-24, found that limiting sidestepped by sending the guesses
+ * together, and reproduced it with a scratch probe. A check read the counter, ran scrypt and then
+ * wrote the counter, and nothing kept checks from overlapping: twenty wrong PINs sent at once were
+ * all judged, none was refused by the backoff, and the counter recorded one failure, so a six-digit
+ * PIN fell at scrypt speed again. What is true now: the checks against one state directory run one
+ * at a time, and each is counted before scrypt runs and cleared only when the PIN proves right. Of
+ * twenty wrong PINs sent together, the three free ones and the one that starts the backoff are
+ * judged and counted, and the other sixteen are refused unread, whether they come through unlock,
+ * verifyPin, two handles on one directory or the open unlock and eject routes; and a check cut
+ * short once scrypt has started is still counted.
  */
+import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -267,6 +279,54 @@ describe('verifyPin checks without unlocking', () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────────
+// Guesses sent together (the sweep of the open routes, 2026-10-24).
+// ───────────────────────────────────────────────────────────────────────────
+
+/** Whether a PIN check settled as judged wrong: unlock threw "Incorrect PIN", or verifyPin answered false. */
+const judgedWrong = (o: PromiseSettledResult<unknown>): boolean =>
+  o.status === 'fulfilled' ? o.value === false : /^Incorrect PIN/.test((o.reason as Error).message);
+/** Whether a PIN check was refused by the backoff before the PIN was read. */
+const refusedUnread = (o: PromiseSettledResult<unknown>): boolean =>
+  o.status === 'rejected' && o.reason instanceof PinAttemptThrottled;
+
+describe('guesses sent together wait their turn, and each is counted before scrypt runs', () => {
+  test('twenty wrong PINs sent to unlock at once: the three free ones and the one that starts the backoff are judged, each counted, and the other sixteen are refused unread', async () => {
+    const state = new NautilusLocalState(await enrolledDir());
+    const outcomes = await Promise.allSettled(Array.from({ length: 20 }, () => state.unlock(WRONG_PIN)));
+    const judged = outcomes.filter(judgedWrong).map((o) => ((o as PromiseRejectedResult).reason as Error).message);
+    expect(judged).toEqual([1, 2, 3, 4].map((n) => `Incorrect PIN. ${n} consecutive failed attempt(s).`));   // before: twenty, each "Incorrect PIN. 1 consecutive failed attempt(s)."
+    expect(outcomes.filter(refusedUnread)).toHaveLength(16);                                                 // before: 0
+    const status = await state.pinAttemptStatus();
+    expect(status.failures).toBe(4);                                                                          // before: 1
+    expect(status.retryAfterMs).toBeGreaterThan(0);                                                           // before: 0, one failure is a free one
+  });
+
+  test('unlock and verifyPin on two handles over one state directory wait in one line: ten of each sent at once are four judged and sixteen refused', async () => {
+    const dir = await enrolledDir();
+    const unlocking = new NautilusLocalState(dir);
+    const verifying = new NautilusLocalState(dir);
+    const outcomes = await Promise.allSettled(Array.from({ length: 20 }, (_, i) => (i % 2 ? verifying.verifyPin(WRONG_PIN) : unlocking.unlock(WRONG_PIN))));
+    expect([outcomes.filter(judgedWrong).length, outcomes.filter(refusedUnread).length]).toEqual([4, 16]);   // before: [20, 0]
+    expect((await verifying.pinAttemptStatus()).failures).toBe(4);                                           // before: 1
+  });
+
+  test('a check cut short once scrypt has started is still counted, and the right PIN still clears the count', async () => {
+    const state = new NautilusLocalState(await enrolledDir());
+    // A kill or a crash in the middle of scrypt, as a throw from inside it.
+    const scrypt = jest.spyOn(crypto, 'scryptSync').mockImplementation(() => { throw new Error('cut short'); });
+    try {
+      await expect(state.unlock(WRONG_PIN)).rejects.toThrow('cut short');
+      await expect(state.verifyPin(WRONG_PIN)).rejects.toThrow('cut short');
+    } finally {
+      scrypt.mockRestore();
+    }
+    expect((await state.pinAttemptStatus()).failures).toBe(2);   // before: 0, a check was counted only once scrypt had answered
+    await state.unlock(RIGHT_PIN);
+    expect((await state.pinAttemptStatus()).failures).toBe(0);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
 // The route, end to end: the chain the finding actually described.
 // ───────────────────────────────────────────────────────────────────────────
 
@@ -356,6 +416,37 @@ describe('POST /onboarding/eject cannot be reached with a junk PIN', () => {
     const res = await request(port, 'POST', '/onboarding/eject', { pin: RIGHT_PIN });
     expect(res.status).toBe(200);
     expect(fs.existsSync(stateFile())).toBe(false);
+  });
+});
+
+describe('wrong PINs sent together to the open unlock and eject routes', () => {
+  let port: number;
+  let stateDir: string;
+
+  beforeAll(async () => {
+    stateDir = await enrolledDir();
+    const config: NautilusAppConfig = {
+      role: 'member', port: 0, host: '127.0.0.1',
+      sequencerUrl: 'http://127.0.0.1:1',
+      stateDir, enableSSE: false, maxSseConnections: 0,
+      allowedOrigins: ['http://localhost:4001'],
+    };
+    const server = new NautilusAppServer(config);
+    servers.push(server);
+    server.registerRoutes(buildMemberRoutes(server));
+    await server.start();
+    port = server.getPort();
+  });
+
+  test('ten to each at once: four are judged and answered as wrong PINs, sixteen are refused 429 with Retry-After, and nothing is erased', async () => {
+    const answers = await Promise.all(Array.from({ length: 20 }, (_, i) =>
+      request(port, 'POST', i % 2 ? '/onboarding/eject' : '/onboarding/unlock', { pin: WRONG_PIN })));
+    const wrong = answers.filter((r) => /Incorrect PIN/.test(JSON.stringify(r.body)));
+    const limited = answers.filter((r) => r.status === 429);
+    expect([wrong.length, limited.length]).toEqual([4, 16]);   // before: [20, 0], every one judged
+    expect(wrong.every((r) => r.status === (/Nothing was erased/.test(JSON.stringify(r.body)) ? 401 : 400))).toBe(true);
+    expect(limited.every((r) => Number(r.headers['retry-after']) > 0)).toBe(true);
+    expect(fs.existsSync(path.join(stateDir, 'nautilus-state.enc'))).toBe(true);
   });
 });
 

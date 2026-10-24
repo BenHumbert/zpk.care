@@ -129,3 +129,12 @@ tests/pharmacy-enroll-insurer-url.test.ts
 tests/registry-wallet-id-and-name.test.ts
 tests/node-caller-address.test.ts
 tests/insurer-open-intake.test.ts
+tests/attestation-read-gate.test.ts
+tests/engine-body-limit.test.ts
+tests/member-enrollment-resume.test.ts
+tests/insurer-claim-routes-gate.test.ts
+tests/engine-member-oracles.test.ts
+tests/duplicate-claims-read-gate.test.ts
+tests/rpc-prototype-method-names.test.ts
+tests/enrollment-complete-binding.test.ts
+tests/provider-loopback-only.test.ts

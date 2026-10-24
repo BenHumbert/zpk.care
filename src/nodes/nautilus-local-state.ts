@@ -116,6 +116,35 @@ function backoffForFailures(failures: number): number {
   return Math.min(PIN_BACKOFF_BASE_MS * 2 ** steps, PIN_BACKOFF_MAX_MS);
 }
 
+/*
+ * ── One PIN check at a time (the sweep of the open routes, 2026-10-24) ─────────────────────────
+ *
+ * The counter only limits guesses that see the guesses before them. A check read the counter, ran
+ * scrypt and then wrote the counter, and nothing kept checks from overlapping: twenty wrong PINs
+ * sent at once to the open unlock or eject route all read the counter before any of them wrote it,
+ * so all twenty passed the backoff, all twenty ran scrypt, and the counter recorded one failure.
+ * Sent twenty at a time, a six-digit PIN fell at scrypt speed again, in about a day.
+ *
+ * So the checks against one state directory run one after another, and each is written to the
+ * counter before scrypt runs and cleared only when the PIN proves right. A guess queued behind
+ * another sees that one's failure and meets the backoff it set, and a check cut short once scrypt
+ * has started (the process killed, the call thrown) is still counted.
+ */
+const pinChecksInLine = new Map<string, Promise<void>>();
+
+/** Runs `check` once every PIN check already queued for `stateDir` has finished. */
+function inTurn<T>(stateDir: string, check: () => Promise<T>): Promise<T> {
+  const key = path.resolve(stateDir);
+  const run = (pinChecksInLine.get(key) ?? Promise.resolve()).then(check);
+  const finished = run.then(() => undefined, () => undefined);
+  pinChecksInLine.set(key, finished);
+  // The last check in line takes the line with it, so a directory no longer checked holds nothing.
+  void finished.then(() => {
+    if (pinChecksInLine.get(key) === finished) pinChecksInLine.delete(key);
+  });
+  return run;
+}
+
 // ─── State Schema ─────────────────────────────────────────────
 
 /** The plaintext state that gets encrypted */
@@ -184,6 +213,14 @@ interface EncryptedStateFile {
   data: string;
 }
 
+/** An envelope's fields as bytes, once they have the shape a state file this version wrote has. */
+interface EnvelopeParts {
+  salt: Buffer;
+  iv: Buffer;
+  ciphertext: Buffer;
+  authTag: Buffer;
+}
+
 // ─── NautilusLocalState ───────────────────────────────────────
 
 /**
@@ -240,49 +277,54 @@ export class NautilusLocalState {
       );
     }
 
-    await this.assertNotThrottled();
+    // One check at a time, counted before scrypt runs: see inTurn.
+    return inTurn(this.stateDir, async () => {
+      await this.assertNotThrottled();
 
-    // Load existing salt from file, or generate a new one
-    const filePath = path.join(this.stateDir, STATE_FILENAME);
-    let envelope: EncryptedStateFile | null = null;
-    try {
-      const raw = await fs.readFile(filePath, 'utf-8');
-      envelope = JSON.parse(raw) as EncryptedStateFile;
-      this.salt = Buffer.from(envelope.salt, 'hex');
-    } catch {
-      envelope = null;
-      this.salt = randomBytes(SALT_LENGTH);
-    }
+      // Load existing salt from file, or generate a new one
+      const filePath = path.join(this.stateDir, STATE_FILENAME);
+      let envelope: EncryptedStateFile | null = null;
+      try {
+        const raw = await fs.readFile(filePath, 'utf-8');
+        envelope = JSON.parse(raw) as EncryptedStateFile;
+        this.salt = Buffer.from(envelope.salt, 'hex');
+      } catch {
+        envelope = null;
+        this.salt = randomBytes(SALT_LENGTH);
+      }
 
-    const candidate = scryptSync(pin, this.salt, SCRYPT_KEY_LENGTH, {
-      N: SCRYPT_N,
-      r: SCRYPT_R,
-      p: SCRYPT_P,
-      maxmem: SCRYPT_MAXMEM,
-    }) as Buffer;
+      let parts: EnvelopeParts | null = null;
+      let failures = 0;
+      if (envelope) {
+        parts = this.envelopeParts(envelope);
+        if (!parts) {
+          // Not a wrong PIN, so it is not counted: the holder of a damaged file should not be
+          // locked out of their own device by the damage.
+          throw new Error(
+            'The state file could not be read. It is damaged or was written by another version.',
+          );
+        }
+        failures = (await this.recordPinFailure()).failures;
+      }
 
-    if (envelope) {
-      const verdict = this.tryDecrypt(envelope, candidate);
-      if (verdict === 'wrong-pin') {
+      const candidate = scryptSync(pin, this.salt, SCRYPT_KEY_LENGTH, {
+        N: SCRYPT_N,
+        r: SCRYPT_R,
+        p: SCRYPT_P,
+        maxmem: SCRYPT_MAXMEM,
+      }) as Buffer;
+
+      if (parts && !this.opens(parts, candidate)) {
         candidate.fill(0);
-        const record = await this.recordPinFailure();
         throw new Error(
-          `Incorrect PIN. ${record.failures} consecutive failed attempt(s).`,
+          `Incorrect PIN. ${failures} consecutive failed attempt(s).`,
         );
       }
-      if (verdict === 'corrupt') {
-        // Not a wrong PIN, so it is not counted: the holder of a damaged file should not be
-        // locked out of their own device by the damage.
-        candidate.fill(0);
-        throw new Error(
-          'The state file could not be read. It is damaged or was written by another version.',
-        );
-      }
-    }
 
-    this.derivedKey = candidate;
-    this.pinVerified = true;
-    await this.clearPinFailures();
+      this.derivedKey = candidate;
+      this.pinVerified = true;
+      await this.clearPinFailures();
+    });
   }
 
   /**
@@ -296,70 +338,75 @@ export class NautilusLocalState {
    */
   async verifyPin(pin: string): Promise<boolean> {
     if (!pin || pin.length < MIN_PIN_LENGTH) return false;
-    await this.assertNotThrottled();
 
-    const filePath = path.join(this.stateDir, STATE_FILENAME);
-    let envelope: EncryptedStateFile;
-    try {
-      envelope = JSON.parse(await fs.readFile(filePath, 'utf-8')) as EncryptedStateFile;
-    } catch {
-      // No state file, so there is no PIN to check against and nothing to protect.
-      return false;
-    }
+    // One check at a time, counted before scrypt runs: see inTurn.
+    return inTurn(this.stateDir, async () => {
+      await this.assertNotThrottled();
 
-    const candidate = scryptSync(pin, Buffer.from(envelope.salt, 'hex'), SCRYPT_KEY_LENGTH, {
-      N: SCRYPT_N,
-      r: SCRYPT_R,
-      p: SCRYPT_P,
-      maxmem: SCRYPT_MAXMEM,
-    }) as Buffer;
+      const filePath = path.join(this.stateDir, STATE_FILENAME);
+      let envelope: EncryptedStateFile;
+      try {
+        envelope = JSON.parse(await fs.readFile(filePath, 'utf-8')) as EncryptedStateFile;
+      } catch {
+        // No state file, so there is no PIN to check against and nothing to protect.
+        return false;
+      }
+      const parts = this.envelopeParts(envelope);
+      if (!parts) return false; // corrupt — not the caller's fault, not counted
 
-    const verdict = this.tryDecrypt(envelope, candidate);
-    candidate.fill(0);
-
-    if (verdict === 'ok') {
-      await this.clearPinFailures();
-      return true;
-    }
-    if (verdict === 'wrong-pin') {
       await this.recordPinFailure();
+      const candidate = scryptSync(pin, parts.salt, SCRYPT_KEY_LENGTH, {
+        N: SCRYPT_N,
+        r: SCRYPT_R,
+        p: SCRYPT_P,
+        maxmem: SCRYPT_MAXMEM,
+      }) as Buffer;
+
+      const right = this.opens(parts, candidate);
+      candidate.fill(0);
+
+      if (right) {
+        await this.clearPinFailures();
+        return true;
+      }
       return false;
-    }
-    return false; // corrupt — not the caller's fault, not counted
+    });
   }
 
   /**
-   * Does `key` decrypt `envelope`? Distinguishes a wrong PIN from a damaged file, because only
-   * the first should count against the attempt limit.
+   * The envelope's fields, or null when the file is damaged. Read before any key is derived,
+   * because only a wrong PIN counts against the attempt limit and a damaged file is not one.
    */
-  private tryDecrypt(
-    envelope: EncryptedStateFile,
-    key: Buffer,
-  ): 'ok' | 'wrong-pin' | 'corrupt' {
-    let iv: Buffer;
-    let ciphertext: Buffer;
-    let authTag: Buffer;
+  private envelopeParts(envelope: EncryptedStateFile): EnvelopeParts | null {
     try {
-      iv = Buffer.from(envelope.iv, 'hex');
+      const salt = Buffer.from(envelope.salt, 'hex');
+      const iv = Buffer.from(envelope.iv, 'hex');
       const withTag = Buffer.from(envelope.data, 'hex');
-      if (iv.length !== IV_LENGTH || withTag.length <= AUTH_TAG_LENGTH) return 'corrupt';
-      ciphertext = withTag.subarray(0, withTag.length - AUTH_TAG_LENGTH);
-      authTag = withTag.subarray(withTag.length - AUTH_TAG_LENGTH);
+      if (iv.length !== IV_LENGTH || withTag.length <= AUTH_TAG_LENGTH) return null;
+      return {
+        salt,
+        iv,
+        ciphertext: withTag.subarray(0, withTag.length - AUTH_TAG_LENGTH),
+        authTag: withTag.subarray(withTag.length - AUTH_TAG_LENGTH),
+      };
     } catch {
-      return 'corrupt';
+      return null;
     }
+  }
 
+  /** Does `key` decrypt the envelope these parts came from? */
+  private opens(parts: EnvelopeParts, key: Buffer): boolean {
     try {
-      const decipher = createDecipheriv('aes-256-gcm', key, iv);
-      decipher.setAuthTag(authTag);
-      const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+      const decipher = createDecipheriv('aes-256-gcm', key, parts.iv);
+      decipher.setAuthTag(parts.authTag);
+      const plaintext = Buffer.concat([decipher.update(parts.ciphertext), decipher.final()]);
       // The tag already proves the key; parsing proves the plaintext is state and not something
       // that merely authenticated.
       JSON.parse(plaintext.toString('utf-8'));
-      return 'ok';
+      return true;
     } catch {
       // GCM authentication failed, which with a well-formed envelope means the key is wrong.
-      return 'wrong-pin';
+      return false;
     }
   }
 
@@ -390,6 +437,7 @@ export class NautilusLocalState {
     }
   }
 
+  /** Counts an attempt as failed. Called before scrypt runs; a PIN that proves right clears it. */
   private async recordPinFailure(): Promise<PinAttemptRecord> {
     const previous = await this.readPinAttempts();
     const failures = (previous?.failures ?? 0) + 1;
@@ -403,8 +451,8 @@ export class NautilusLocalState {
       await fs.mkdir(this.stateDir, { recursive: true });
       await fs.writeFile(this.pinAttemptsPath(), JSON.stringify(record), { mode: 0o600 });
     } catch {
-      // A counter that cannot be written must not block a legitimate unlock; the attempt still
-      // failed, and the caller is still told so.
+      // A counter that cannot be written must not block a legitimate unlock; a wrong PIN is still
+      // refused, and the caller is still told so.
     }
     return record;
   }

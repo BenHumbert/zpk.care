@@ -102,12 +102,12 @@ member-node.ts registers no routes; it wraps L2Client: compilePrograms (MN:68-79
 | 7 | GET /audit/log | open | node | getAuditLog | — | IR:521-539 |
 | 8 | GET /chain-proof | open | node | getChainProof | — | IR:541-553 |
 | 9 | GET /claims/member/:walletId | open | node | l2_getClaimsByMember(any wallet) (IN:158-161) | — | IR:559-571 |
-| 10 | GET /claims/prescriber/:walletId | open | node | l2_getClaimsByPrescriber (IN:164-169) | — | IR:573-585 |
-| 11 | GET /claims/pharmacy/:walletId | open | node | l2_getClaimsByPharmacy (IN:172-177) | — | IR:587-599 |
-| 12 | GET /claims/drug/:ndcHash | open | node | l2_getClaimsByNdc (IN:180-183) | — | IR:601-613 |
-| 13 | GET /audit/chain-integrity | open | node | getAuditLog + AuditService (IN:344-347) | — | IR:619-631 |
-| 14 | GET /audit/financial-balance | open | node | IN:350-353 | — | IR:633-645 |
-| 15 | GET /audit/duplicate-claims | open | node | IN:356-359 | — | IR:647-659 |
+| 10 | GET /claims/prescriber/:walletId | ADMIN (A-100) | node | l2_getClaimsByPrescriber (IN:164-169) | — | IR:573-585 |
+| 11 | GET /claims/pharmacy/:walletId | ADMIN (A-100) | node | l2_getClaimsByPharmacy (IN:172-177) | — | IR:587-599 |
+| 12 | GET /claims/drug/:ndcHash | ADMIN (A-100) | node | l2_getClaimsByNdc (IN:180-183) | — | IR:601-613 |
+| 13 | GET /audit/chain-integrity | ADMIN (A-100) | node | getAuditLog + AuditService (IN:344-347) | — | IR:619-631 |
+| 14 | GET /audit/financial-balance | ADMIN (A-100) | node | IN:350-353 | — | IR:633-645 |
+| 15 | GET /audit/duplicate-claims | ADMIN (A-100) | node | IN:356-359 | — | IR:647-659 |
 | 16 | POST /audit/full | ADMIN | onChainState + rosterEntries in body | getAuditLog, getAllBatches (IN:362-374) | — | IR:661-692 |
 | 17-28 | POST /reports/{claims-register, pharmacy-activity, prescriber-activity, member-activity, medication-utilization, financial-summary, prior-auth, reversals, tier-analysis, therapeutic-class, time-series, cross-tab} | open | node; `claims` in body (prior-auth also `priorAuths`; cross-tab `row, col, measure`) | none — pure computation over caller-supplied claims (IN:227-339); `getVerifiedClaims` stub returns [] (IR:54-64) | — | IR:704-902 |
 | 29 | POST /admin/formulary/publish | ADMIN | planIdHash, formularyRoot, entriesJson | L2Client storeFormulary (IN:379-385) | — | IR:908-922 |
@@ -127,8 +127,8 @@ member-node.ts registers no routes; it wraps L2Client: compilePrograms (MN:68-79
 | 43 | PUT /plans/:planId | ADMIN | fee and amounts as row 42 (absent keeps the plan's value) | storePlan via `updatePlan`; the body's roots, `published` and `publishedTerms` are dropped, so an edit stays a draft until published again and members stay on the published terms | — | IR:1721-1748 |
 | 44 | DELETE /plans/:planId | ADMIN | — | deletePlan (IN:116-119) | — | IR:1444-1459 |
 | 45 | POST /plans/:planId/publish | ADMIN | plan exists | /rpc `l2_publishPlanOverlay`, Bearer admin; the plan's own formulary built; `markPlanPublished(planId, roots, plan)` (A-51) | — (answers `published`, `draftPending` and, when a newer draft was saved meanwhile, a message saying it is not published) | IR:1768-1833 |
-| 46 | GET /messaging/wallet/:walletId?limit≤500 | open | node | l2_getMessagesByWallet(any wallet) (IN:188-190) — ciphertext envelopes | — | IR:1527-1542 |
-| 47 | GET /messaging/thread/:threadIdHash | open | node | getMessagesByThread (EB:236-238) | — | IR:1544-1559 |
+| 46 | GET /messaging/wallet/:walletId?limit≤500 | ADMIN (A-100) | node | l2_getMessagesByWallet(any wallet) (IN:188-190) — ciphertext envelopes | — | IR:1527-1542 |
+| 47 | GET /messaging/thread/:threadIdHash | ADMIN (A-100) | node | getMessagesByThread (EB:236-238) | — | IR:1544-1559 |
 | 48 | GET /messaging/status | open | node | getMessageStoreRoot (EB:248-250) | — | IR:1561-1573 |
 | 49 | GET /prior-auth/pending | ADMIN | node | `GET /interactive/prior-auths?status=PENDING` signed with the insurer node key (`callEngine`), oldest first. `priorAuthView` passes only id, status, member (the wallet cut to 8 and 4 digits), drugName, ndc, quantity, pricingUnit, prescriberName, requestedAt, reason, resolvedAt and decisionReason, and drops a row with no usable ID or status. The gate's 401 or role 403, or a missing route, becomes 502 | nothing (since 2026-10-19) | IR:1988 |
 | 50 | GET /prior-auth/decisions?limit | ADMIN | node; limit 1 to 100, default 20 | `GET /interactive/prior-auths?status=RESOLVED`, newest first, the same view | nothing (since 2026-10-19) | IR:2003 |

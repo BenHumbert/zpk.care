@@ -105,8 +105,9 @@ const RPC = (() => {
     return call('l2_getAuditLog', { limit: limit || 200, offset: offset || 0 }, true);
   }
   function verifyChainIntegrity()   { return call('l2_verifyChainIntegrity'); }
-  function verifyFinancialBalance() { return call('l2_verifyFinancialBalance'); }
-  function detectDuplicateClaims()  { return call('l2_detectDuplicateClaims'); }
+  // D1: the balance totals and the duplicate groups come from the audit log, so each check answers a credential, as the log does.
+  function verifyFinancialBalance() { return call('l2_verifyFinancialBalance', {}, true); }
+  function detectDuplicateClaims()  { return call('l2_detectDuplicateClaims', {}, true); }
 
   // ── Claims ───────────────────────────────────────
   function getClaimsByMember(w)     { return call('l2_getClaimsByMember', { walletId: w }); }

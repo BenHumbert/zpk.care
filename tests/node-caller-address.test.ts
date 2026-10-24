@@ -42,9 +42,20 @@
  * key every closed socket shares, and not under its source: one client could hold its own three open applications and
  * three more under 'unknown', and those three refused every other client that closed the same way.
  *
+ * Reading the key as the request arrives left two faults. On Linux, a client that writes a whole request and resets its
+ * connection (SO_LINGER 0) arrives with no address at all: the kernel keeps the request readable after the reset, but
+ * getpeername fails on the reset socket, and Node asks for a socket's address only when something first reads it. The
+ * node routed such a request all the same, keyed 'unknown', so every client that left that way was one source on every
+ * per-source limit. And the node ended a request's budget only as its response finished, which a response whose client
+ * has gone never does: each request whose client half-closed or left held its timer, 30 seconds by default, and the
+ * request and response the timer holds, until the timer fired, and a flood of such requests held as many. A pipelined
+ * request whose response still waited behind an unanswered one did not even see its connection close.
+ *
  * How it was found: the review of the per-caller limits (the review of A-89's fixes), which asked what a socket's
  * address is behind the proxy RUNNING.md describes; the warning's advice and the link-local key by the review of the
- * trusted-proxy fix; the half-close by the review of the open-intake limits.
+ * trusted-proxy fix; the half-close by the review of the open-intake limits; the reset and the held timers by the
+ * review of the caller-key capture (A-92), which reproduced the reset on WSL2, and the pipelined response by checking
+ * its fix.
  *
  * What is true now: ZKTRIDENT_TRUSTED_PROXIES lists the proxies in front of a node by exact IP address, normalized
  * (resolveTrustedProxies), and an entry that is not one IP address stops the node at boot. From a listed proxy, a node
@@ -57,7 +68,10 @@
  * both for localhost, which Node binds to whichever of the two it resolves first. A link-local caller is keyed as
  * fe80::/64 on the interface it arrived on: one source for each of the node's links. A node reads each request's key as
  * the request arrives, before routing, and callerKey answers that key for as long as the request lasts, whatever becomes
- * of its socket; the marketplace's apply route reads its caller before it awaits anything as well.
+ * of its socket; the marketplace's apply route reads its caller before it awaits anything as well. A request whose
+ * socket has no address as it arrives is not routed: its client is gone, so the node destroys the connection, and no
+ * limit counts the request. A request's budget ends as its response finishes or closes, and a pipelined request's
+ * budget ends as its connection closes while its response still waits for it.
  *
  * The route tests call the handlers buildInsurerRoutes and buildEmployerRoutes make on a real NautilusAppServer, which is
  * never started, with stand-in requests whose socket address and headers each test sets, so they need no IPv6 socket and
@@ -66,8 +80,12 @@
  * node with a route of its own that reads callerKey only once the request's socket has closed, and sends from a raw
  * socket that ends its side of the connection with the request. The apply route's test calls buildMarketplaceRoutes'
  * handler the same way as the others, and its stand-in sequencer clears the request's socket address before it answers,
- * as a socket's closing does.
+ * as a socket's closing does. The test of a request with no address drives the node's own routing (handleRequest) with
+ * stand-in requests whose socket has none: on Windows a reset discards the request unread, so no real socket arrives
+ * that way there. The budget tests start a node whose route never answers and count the budgets it holds as a
+ * raw-socket client leaves, on a clock whose setTimeout and clearTimeout alone are faked (jest.getTimerCount).
  */
+import { EventEmitter } from 'events';
 import fs from 'fs';
 import http from 'http';
 import net from 'net';
@@ -99,8 +117,8 @@ afterAll(() => {
 });
 
 /**
- * A node for `role`. Every test but the half-close test leaves it unstarted and calls its routes directly. It answers no
- * public name and trusts no proxy unless `over` says so, whatever this process's environment holds.
+ * A node for `role`. Most tests leave it unstarted and call its routes directly; the half-close and budget tests start
+ * it. It answers no public name and trusts no proxy unless `over` says so, whatever this process's environment holds.
  */
 function nodeFor(role: 'insurer' | 'employer', over: Partial<NautilusAppConfig> = {}): NautilusAppServer {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'caller-address-'));
@@ -411,9 +429,7 @@ describe('the employer\'s validate oracle counts each caller as callerKey names 
 
 describe('a request keeps the source it arrived from, though its socket closes before a route reads it', () => {
   test('a client that half-closes right after its request is its own source to a route that reads callerKey once the socket has closed', async () => {
-    // A response whose socket has closed never finishes, so the node's request budget for it runs to its end; a short
-    // budget ends with the test.
-    const server = nodeFor('insurer', { requestTimeoutMs: 100 });
+    const server = nodeFor('insurer');
     const keyed = new Promise<string>((resolve) => {
       server.registerRoutes([{
         method: 'POST',
@@ -485,6 +501,146 @@ describe('POST /marketplace/api/apply counts the source an application came from
     expect([fourth.status, fourth.error]).toEqual([429, EMPLOYER_OPEN_FROM_SOURCE]);   // before: [201, undefined], a fourth open from one client
     // Another client whose socket closes the same way is a source of its own, not refused for the first one's three.
     expect((await leaving('203.0.113.9')).status).toBe(201);                             // before: 429, unknown held three
+  });
+});
+
+// ── A client already gone ──────────────────────────────────
+
+/** The node's own routing, which a started node runs on each request it reads. */
+interface Routing { handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> }
+
+describe('a request whose socket has no address as it arrives goes no further: its client has gone, as a reset leaves it on Linux', () => {
+  /** A response as handleRequest sees Node's: it keeps each status it is sent, and finishes, then closes, as it ends. */
+  class RoutedResponse extends EventEmitter {
+    writableEnded = false;
+    constructor(readonly socket: object, private readonly answered: number[]) { super(); }
+    setHeader(): this { return this; }
+    writeHead(status: number): this { this.answered.push(status); return this; }
+    end(): this { this.writableEnded = true; this.emit('finish'); this.emit('close'); return this; }
+  }
+
+  test('it reaches no handler, counts against no source and has its connection closed, where a request with an address is routed', async () => {
+    const server = nodeFor('insurer');
+    const routes = buildInsurerRoutes(server);
+    const reached: string[] = [];
+    server.registerRoutes([...routes, {
+      method: 'GET',
+      path: '/caller',
+      handler: async (req, res) => {
+        reached.push(server.callerKey(req));
+        server.sendResponse(res, 200, true);
+      },
+    }]);
+    const answered: number[] = [];
+    let closed = 0;
+    /** Routes a GET of `url` arriving on a socket at `remoteAddress`; none, as Linux gives a reset socket, when undefined. */
+    const arrive = (url: string, remoteAddress: string | undefined): Promise<void> => {
+      const socket = { remoteAddress, localPort: 4004, destroy: (): void => { closed++; } };
+      const req = { url, method: 'GET', headers: { host: '127.0.0.1:4004' }, socket };
+      const res = new RoutedResponse(socket, answered);
+      return (server as unknown as Routing).handleRequest(req as unknown as IncomingMessage, res as unknown as ServerResponse);
+    };
+
+    // A request whose socket has an address is routed as it always was.
+    await arrive('/caller', '203.0.113.7');
+    expect([reached, answered, closed]).toEqual([['203.0.113.7'], [200], 0]);
+
+    for (let i = 0; i < 30; i++) await arrive('/employer-agreements/EMPAPP-NONE/plans-to-add', undefined);
+    await arrive('/caller', undefined);
+    expect(reached).toEqual(['203.0.113.7']);   // before: ['203.0.113.7', 'unknown'], routed under the one key every such client shares
+    expect(answered).toEqual([200]);            // before: thirty 503s and a 200 more, sent to clients that had gone
+    expect(closed).toBe(31);                    // before: 0, the node routed each request instead
+    // The plans-to-add limit counts thirty reads a minute from each source; routed, those thirty spent 'unknown''s minute.
+    const plans = routeOf(routes, 'GET', '/employer-agreements/:applicationId/plans-to-add');
+    expect((await call(plans, from(undefined), undefined, { applicationId: 'EMPAPP-NONE' })).status).toBe(503);   // before: 429
+  });
+});
+
+describe('a request whose client goes away ends its budget as its connection closes, not when the budget runs out', () => {
+  // Only setTimeout and clearTimeout are faked. The node's request budget is all that calls them here, so
+  // jest.getTimerCount() is the number of budgets the node holds, and Node's own sockets keep their real timers.
+  beforeEach(() => {
+    jest.useFakeTimers({
+      doNotFake: ['Date', 'hrtime', 'nextTick', 'performance', 'queueMicrotask', 'requestAnimationFrame',
+        'cancelAnimationFrame', 'requestIdleCallback', 'cancelIdleCallback', 'setImmediate', 'clearImmediate',
+        'setInterval', 'clearInterval'],
+    });
+  });
+  afterEach(() => { jest.useRealTimers(); });
+
+  /** A whole POST /work, as a raw-socket client writes it. */
+  const work = (port: number): string =>
+    `POST /work HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}`;
+  interface Working { budgetsHeld: number; connectionClosed: Promise<void> }
+
+  /**
+   * A node whose POST /work never answers, as a route still proving when its client leaves. Each request it starts on
+   * is kept with the budgets the node held as the route started, the request's own among them, and the route gives up
+   * once its connection has closed.
+   */
+  function nodeAtWork(): { server: NautilusAppServer; working: Working[]; started: (n: number) => Promise<void> } {
+    const server = nodeFor('insurer');
+    const working: Working[] = [];
+    let check = (): void => undefined;
+    server.registerRoutes([{
+      method: 'POST',
+      path: '/work',
+      handler: async (req) => {
+        const connectionClosed = new Promise<void>((resolve) => {
+          if (req.socket.closed) resolve();
+          else req.socket.once('close', () => resolve());
+        });
+        working.push({ budgetsHeld: jest.getTimerCount(), connectionClosed });
+        check();
+        await connectionClosed;
+      },
+    }]);
+    /** Resolves once the route has started on `n` requests in all. */
+    const started = (n: number): Promise<void> => new Promise((resolve) => {
+      check = () => { if (working.length >= n) resolve(); };
+      check();
+    });
+    return { server, working, started };
+  }
+
+  test('a client that half-closes, or resets, while its route works frees the request\'s timer as soon as its connection closes', async () => {
+    const { server, working, started } = nodeAtWork();
+    await server.start();
+    try {
+      const port = server.getPort();
+      for (const leaving of ['half-closes', 'resets'] as const) {
+        const client = net.connect(port, '127.0.0.1', () => {
+          if (leaving === 'half-closes') client.end(work(port));
+          else client.write(work(port));
+        });
+        client.on('error', () => { /* the reset's own */ });
+        await started(working.length + 1);
+        const request = working[working.length - 1];
+        expect([leaving, request.budgetsHeld]).toEqual([leaving, 1]);
+        if (leaving === 'resets') client.resetAndDestroy();
+        await request.connectionClosed;
+        expect([leaving, jest.getTimerCount()]).toEqual([leaving, 0]);   // before: ['half-closes', 1], the timer held until its budget ran out
+      }
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test('a request pipelined behind one still working, whose response waits for the connection, frees its timer as the connection closes', async () => {
+    const { server, working, started } = nodeAtWork();
+    await server.start();
+    try {
+      const port = server.getPort();
+      const client = net.connect(port, '127.0.0.1', () => client.write(work(port) + work(port)));
+      client.on('error', () => { /* the reset's own */ });
+      await started(2);
+      expect(working[1].budgetsHeld).toBe(2);
+      client.resetAndDestroy();
+      await Promise.all(working.map((request) => request.connectionClosed));
+      expect(jest.getTimerCount()).toBe(0);   // before: 2, both held until their budgets ran out; the response's close alone freed the first
+    } finally {
+      await server.stop();
+    }
   });
 });
 

@@ -25,6 +25,11 @@
  * moment it is created; the balance check counts claims, nets reversals and flags a split that does not
  * add up; the RPC reconciles the chain with the ledger. The engine's fill job handler no longer answers a
  * new dispense with a finished job's result.
+ *
+ * The sequencer's read gate answers the duplicate check, whose groups name wallets, and the balance check
+ * the plan and the operator only (D1). This suite asked both with no credential, so once they were gated
+ * it read the refusal instead of the result (the review of round eight of the security fixes,
+ * 2026-10-24); it asks them with the operator's bearer now.
  */
 import { Field, MerkleTree, Poseidon } from 'o1js';
 import { InMemoryStore } from '../src/storage/local-store.js';
@@ -202,8 +207,8 @@ describe('the RPC and the engine\'s fill job', () => {
   };
   const standIn = new Proxy(service, { get(t, p) { if (p in t) return (t as any)[p]; return typeof p === 'string' && p !== 'then' ? () => undefined : undefined; } });
   const bearer = { Authorization: `Bearer ${OPERATOR}` };
-  const rpc = async (method: string, params: Record<string, unknown> = {}) => {
-    const r = await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+  const rpc = async (method: string, params: Record<string, unknown> = {}, headers: Record<string, string> = {}) => {
+    const r = await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
     return (await r.json()) as { result?: any; error?: { message: string } };
   };
   const fill = (prescriptionId: string) => fetch(`${url}/interactive/fill`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...bearer }, body: JSON.stringify({ prescriptionId }) });
@@ -225,7 +230,7 @@ describe('the RPC and the engine\'s fill job', () => {
     await seq.submitProof(mockProof(WALLET_A, REG_ROOT[0], REG_ROOT[1]), claim());
     await seq.submitProof(mockProof(WALLET_A, REG_ROOT[1], REG_ROOT[2]), claim({ ndcHash: NDC_B, patientPayCents: '2000', planPayCents: '2700' }));
     await seq.submitProof(mockProof(WALLET_A, REG_ROOT[2], REG_ROOT[3]), claim({ ndcHash: NDC_B, patientPayCents: '2000', planPayCents: '2700', operationType: '2' }));
-    const r = (await rpc('l2_verifyFinancialBalance')).result;
+    const r = (await rpc('l2_verifyFinancialBalance', {}, bearer)).result;
     expect(r.totalClaims).toBe(2);
     expect(r.reversals).toBe(1);
     expect(r.totalPatientPayCents).toBe(1000);
@@ -234,7 +239,7 @@ describe('the RPC and the engine\'s fill job', () => {
     expect(r.reconciled).toBe(true);
     expect(r.balanced).toBe(true);
     expect(r.valid).toBe(true);
-    expect((await rpc('l2_detectDuplicateClaims')).result?.hasDuplicates).toBe(false);
+    expect((await rpc('l2_detectDuplicateClaims', {}, bearer)).result?.hasDuplicates).toBe(false);
   });
 
   test('a fill request after a failed attempt starts a new job instead of being answered with the old error; a running job is shared', async () => {

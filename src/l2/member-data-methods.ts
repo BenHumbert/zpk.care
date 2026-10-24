@@ -56,6 +56,27 @@ export interface MemberDataSpec {
  * active. Not 'pcp': the sequencer's PCP links keep every prescriber a member ever named and do not follow a provider's
  * status, so they would let a former or suspended primary-care prescriber read the member's price and prior
  * authorizations.
+ *
+ * The duplicate-claims check (l2_detectDuplicateClaims) is an enumeration too: it groups the audit log's fills by wallet,
+ * drug, date of service and fill number, so each group it returns says that a wallet filled a drug on a day. It answered
+ * anyone until the security review of the sweep fixes (2026-10-24). So is the balance check (l2_verifyFinancialBalance),
+ * though it names no wallet. Its running totals of patient pay, plan pay, ingredient cost and dispensing fee move by one
+ * claim's amounts each time the sequencer accepts a proof, and the event stream, which every member, prescriber and
+ * pharmacy node key may open (D2), names the wallet and the receipt of each one, so a key that read the totals around
+ * each event had every wallet's claim amounts, and the receipt IDs of fills that do not add up named their wallets. It
+ * answered anyone until the review of round eight of the security fixes (2026-10-24), which reproduced that with a
+ * pharmacy key. The chain-integrity check stays open: it returns the number of audit events, which the stream and the
+ * sequencer's status publish anyway, and the sequence numbers of links that do not hash, which carry no amount, drug or
+ * day. A broken link is the sequencer's own record failing to hash, which anyone may check; what the check costs to run
+ * is A-80's to limit, per caller.
+ *
+ * The member's attestation (l2_getAttestation) is not in this table, whose reads the plan and the operator always pass.
+ * It is the member's identity at a pharmacy counter, the tap that the attestation reader above and the pharmacy's
+ * counter routes accept, so the sequencer gives it to the wallet's own signature only, as it issues one (A10b,
+ * L2RpcServer.WALLET_SIGNED_METHODS). Until the sweep of the open routes (2026-10-24) it answered anyone who named the
+ * wallet; read here, it then answered the plan and the operator, until the security review of that fix. The member's
+ * device reads its own through its node's proxy, signed as the wallet; a pharmacy receives it from the member's tap, not
+ * from the sequencer.
  */
 export const MEMBER_DATA_METHODS: Readonly<Record<string, MemberDataSpec>> = {
   l2_getClaimsByMember: { subject: 'wallet', param: 'walletId', readers: ['self', 'pcp', 'attestation'] },
@@ -75,6 +96,8 @@ export const MEMBER_DATA_METHODS: Readonly<Record<string, MemberDataSpec>> = {
   l2_getClaimsByNdc: { subject: 'enumeration', readers: [] },
   l2_getAllReceipts: { subject: 'enumeration', readers: [] },
   l2_getAuditLog: { subject: 'enumeration', readers: [] },
+  l2_detectDuplicateClaims: { subject: 'enumeration', readers: [] },
+  l2_verifyFinancialBalance: { subject: 'enumeration', readers: [] },
   l2_getReceipt: { subject: 'receipt', param: 'receiptId', readers: ['self'] },
   l2_getClaimWithProof: { subject: 'leaf', param: 'leafIndex', readers: ['self'] },
   l2_estimateCost: { subject: 'optional-wallet', param: 'walletId', readers: ['self', 'prescriber', 'attestation'] },

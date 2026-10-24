@@ -736,7 +736,7 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
     expect(data.redeemedEnrollmentCodes?.[codeA]?.pinHash).toBe('pinhash-1');
   });
   test('complete binds the wallet to the redemption and records the enrollment with the canonical code', async () => {
-    const r = await call(main.complete, { body: { walletId: '11', tokenId: codeA.toLowerCase() } });
+    const r = await call(main.complete, { body: { walletId: '11', tokenId: codeA.toLowerCase(), tokenPinHash: 'pinhash-1' } });
     expect(r.status).toBe(200);
     expect(r.payload.data.enrolled).toBe(true);
     expect(r.payload.data.tokenId).toBe(codeA);                 // stored canonical, not as typed
@@ -757,7 +757,7 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
     expect(again.payload.data.groupIdHash).toBe(G1);
     // Simulate a crash between the completion and the registry write: the same wallet completes again.
     ((main.server as unknown as { __enrollmentRegistry: Map<string, unknown> }).__enrollmentRegistry).delete('11');
-    const r = await call(main.complete, { body: { walletId: '11', tokenId: codeA } });
+    const r = await call(main.complete, { body: { walletId: '11', tokenId: codeA, tokenPinHash: 'pinhash-1' } });
     expect(r.status).toBe(200);
     expect(probesA).toHaveLength(1);
   });
@@ -845,7 +845,7 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
     answerA = () => ({ status: 200, body: { ok: true, data: { valid: true, groupIdHash: G1, planIdHash: P1, familyIdHash: 'FAM-PLAINTEXT-1', consumed: true } } });
     const code = generateEnrollmentCode('EMP-A');
     expect((await call(main.process, { body: { tokenId: code, tokenPinHash: 'pin-fam' } })).status).toBe(200);
-    expect((await call(main.complete, { body: { walletId: '33', tokenId: code } })).status).toBe(200);
+    expect((await call(main.complete, { body: { walletId: '33', tokenId: code, tokenPinHash: 'pin-fam' } })).status).toBe(200);
     const last = approvals[approvals.length - 1] as Record<string, unknown>;
     expect(last.walletId).toBe('33');
     expect(last.familyIdHash).toBeNull();
@@ -860,7 +860,7 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
       const code = generateEnrollmentCode('EMP-A');
       expect((await call(main.process, { body: { tokenId: code, tokenPinHash: `pin-${unpublished.published}` } })).status).toBe(200);
       const before = approvals.length;
-      const r = await call(main.complete, { body: { walletId: unpublished.published ? '44' : '45', tokenId: code } });
+      const r = await call(main.complete, { body: { walletId: unpublished.published ? '44' : '45', tokenId: code, tokenPinHash: `pin-${unpublished.published}` } });
       expect(r.status).toBe(409);
       expect(r.payload.error).toMatch(/not published/);
       expect(approvals.length).toBe(before);

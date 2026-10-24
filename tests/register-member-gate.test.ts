@@ -5,6 +5,12 @@
  * what these routes touch. `approve-member` takes the operator's bearer or the insurer's key and
  * refuses a member's key; `register-member` answers 403 for a wallet nobody approved, 409 when the
  * gate finds no registration on the ledger, and passes through once both hold.
+ *
+ * The stand-in checks the device's ownership proof before the approval and the ledger, the order the
+ * engine keeps since the security review of the sweep fixes (2026-10-24): the engine read a wallet's
+ * name, its approval and its place on the ledger before it verified the proof, so one junk proof drew
+ * a different answer for each wallet. tests/engine-member-oracles.test.ts checks that order on the
+ * real engine.
  */
 import { Field, MerkleTree } from 'o1js';
 import { InMemoryStore } from '../src/storage/local-store.js';
@@ -41,7 +47,8 @@ function standInService() {
     },
     approvalFor(walletId: string) { return approvals.get(walletId); },
     async registerMemberFromEnrollment(opts: { walletId: string; ownershipProofJson: string; displayName: string }) {
-      // the same order the engine applies: approval, then the ledger, then the rest
+      // the same order the engine applies: the ownership proof, then the approval, then the ledger, then the rest
+      if (opts.ownershipProofJson !== PROOF) throw new RegistrationRefused(403, 'The ownership proof does not verify');
       if (!approvals.has(opts.walletId)) throw new RegistrationRefused(403, 'This wallet has no insurer approval: complete enrollment with the insurer first');
       if (!registered.has(opts.walletId)) throw new RegistrationRefused(409, 'The wallet is not registered on the ledger yet: submit the registration proof first');
       return { walletId: opts.walletId, displayName: opts.displayName, planId: approvals.get(opts.walletId)!.planId };
@@ -66,7 +73,7 @@ async function post(p: string, body: unknown, headers: Record<string, string> = 
   return { status: r.status, json };
 }
 const approval = { walletId: '123456789', groupIdHash: '777', planIdHash: '888', planId: 'PLAN-E2E-TEST', employerId: 'EMP-1' };
-// B2: the engine takes the device's ownership proof, never the preimage; the stand-in does not read it
+// B2: the engine takes the device's ownership proof, never the preimage; the stand-in takes this one for a proof that verifies
 const PROOF = '{"stand-in":true}';
 
 beforeAll(async () => {
@@ -142,5 +149,14 @@ describe('register-member', () => {
     expect(fam.json.error).toMatch(/insurer approval/);
     const emp = await post('/interactive/register-member', { walletId: approval.walletId, ownershipProofJson: PROOF, displayName: 'Alice', employeeId: 'E-1' });
     expect(emp.status).toBe(400);
+  });
+
+  test('a proof that does not verify draws one refusal for an unknown wallet and an approved, registered one: the route reads nothing of the wallet first', async () => {
+    service.__registered.add(approval.walletId);
+    const forged = '{"forged":true}';
+    const unknown = await post('/interactive/register-member', { walletId: '43', ownershipProofJson: forged, displayName: 'Mallory' });
+    const known = await post('/interactive/register-member', { walletId: approval.walletId, ownershipProofJson: forged, displayName: 'Mallory' });
+    expect(unknown).toEqual({ status: 403, json: { error: 'The ownership proof does not verify' } });
+    expect(known).toEqual(unknown);
   });
 });

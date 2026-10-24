@@ -820,6 +820,10 @@ async function main(): Promise<void> {
   }
 
   // Phase 2: Provider nodes + member (employer + HR Tool are on-demand)
+  // A provider node answers only on this machine until provider sign-in (B4) and refuses a wider bind, so it is started
+  // on loopback with none of the listener settings this process may hold for the insurer's public names, as an employer
+  // tenant is (A-92); otherwise a network launched with ZKTRIDENT_HOST=0.0.0.0 would come up without its providers.
+  const PROVIDER_LISTENER = { ZKTRIDENT_HOST: '127.0.0.1', ZKTRIDENT_PUBLIC_HOSTS: '', ZKTRIDENT_TRUSTED_PROXIES: '' };
   console.log('');
   console.log('  ── Boot Phase 2: Provider nodes + member ──');
 
@@ -827,6 +831,7 @@ async function main(): Promise<void> {
   // Will poll l2_getProvider to confirm credentialing before ready
   spawnEntity('prescriber', 'start-prescriber-nautilus.ts', 4002, {
     ZKTRIDENT_SEED_PRESCRIBER: '0',
+    ...PROVIDER_LISTENER,
     // its own admin token for its own patient-data routes; the operator's token never leaves this process
     ...(prescriberAdminToken ? { ZKTRIDENT_ADMIN_TOKEN: prescriberAdminToken } : {}),
   });
@@ -835,6 +840,7 @@ async function main(): Promise<void> {
   // Will poll l2_getProvider to confirm credentialing before ready
   spawnEntity('pharmacy', 'start-pharmacy-nautilus.ts', 4003, {
     ZKTRIDENT_SEED_PHARMACY: '0',
+    ...PROVIDER_LISTENER,
   });
 
   // NOTE: Employer nodes and HR Tools are NOT spawned at boot time.

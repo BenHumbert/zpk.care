@@ -55,7 +55,7 @@
  *   GET  /interactive/badge/:key       — get specific badge payload
  */
 import type { IncomingMessage, ServerResponse } from 'http';
-import type { L2RpcServer } from '../l2/l2-rpc-server.js';
+import { DEFAULT_RPC_SERVER_OPTIONS, type L2RpcServer } from '../l2/l2-rpc-server.js';
 import type { AdjudicationService, ConsoleEvent } from './interactive-service.js';
 import { RegistrationRefused } from './interactive-service.js';
 import { priceDispense, statedCostMismatch, quantityError } from '../fulfillment/nadac-pricing.js';
@@ -64,6 +64,7 @@ import type { NfcCredentialAttestation } from '../credentials/nfc-attestation.js
 import { MEDICATIONS, PRESCRIBERS, PHARMACIES } from '../data/index.js';
 import { readRequestBody } from '../security/request-body.js';
 import { displayNameError } from '../security/free-text.js';
+import { walletIdError } from '../security/wallet-id.js';
 
 type RouteHandler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 
@@ -72,6 +73,15 @@ export const PROVERS_STARTING_MESSAGE = 'The claims engine is still starting its
 
 /** The Retry-After, in seconds, of that answer and of GET /interactive/ready while the engine is not ready to prove. */
 export const PROVERS_RETRY_AFTER_SECONDS = 10;
+
+/**
+ * The most bytes an engine route reads from a request body: the sequencer's own limit, the one its gates read a signed
+ * request's body under (DEFAULT_RPC_SERVER_OPTIONS.maxBodyBytes, which the launcher keeps), so a body meets the same
+ * limit whichever reader comes first. The engine read with no limit until the sweep of the open routes (2026-10-24):
+ * register-member and verify-credential take no credential, so one request could make the sequencer hold any amount of
+ * text, then parse it.
+ */
+export const ENGINE_BODY_LIMIT_BYTES = DEFAULT_RPC_SERVER_OPTIONS.maxBodyBytes;
 
 export function registerInteractiveRoutes(
   server: L2RpcServer,
@@ -182,12 +192,24 @@ export function registerInteractiveRoutes(
    * credential too, as does the `/node/*` mirror of the sequencer's reads, which until D2 answered any
    * wallet's claims and the identity dump to anyone; the chain's own state, proof, batches and
    * formulary name no wallet and stay open.
+   *
+   * Neither open write tells its caller anything about a member until a proof says it may (the security review of the
+   * sweep fixes, 2026-10-24): the engine verifies register-member's ownership proof before it reads the wallet's name,
+   * its approval or its place on the ledger, and verify-credential names a member only by the wallet its verified proof
+   * carries, never by the credential's unverified copy of that output.
+   *
+   * The engine's chain status (l2-status) is one of the member-data reads, though it stayed open until the sweep of the
+   * open routes (2026-10-24): every call lists every receipt's wallet and the whole audit log, each claim with its
+   * member, prescriber and pharmacy wallets, drug and amounts, the enumerations D1 gives the plan and the operator. No
+   * node role lists it, so it answers the operator, whose console's sequencer tab is its one reader, as the engine's
+   * other copies of those lists (/node/all-receipts, /node/audit-log) do; the plan reads them from the sequencer itself
+   * (l2_getAllReceipts, l2_getAuditLog).
    */
   const OPEN_POSTS = new Set(['/interactive/register-member', '/interactive/verify-credential']);
   const GATED_READS = new Set([
     '/interactive/member-history', '/interactive/family-history', '/interactive/threads',
     '/interactive/prescriptions-by-pharmacy', '/interactive/fill-status', '/interactive/step-therapy-check',
-    '/interactive/enroll-status', '/interactive/prior-auths',
+    '/interactive/enroll-status', '/interactive/prior-auths', '/interactive/l2-status',
   ]);
   const OPEN_NODE_READS = new Set(['/node/chain-state', '/node/chain-proof', '/node/all-batches', '/node/formulary']);
   /**
@@ -229,6 +251,23 @@ export function registerInteractiveRoutes(
     };
   }
 
+  /**
+   * A write route's handler behind the engine's body limit: a body that declares more than ENGINE_BODY_LIMIT_BYTES is
+   * answered 413 before any of it is read, so nothing of it is parsed, and Node discards the rest once the answer is
+   * sent, so the connection serves the next request. A body sent in chunks declares no length; readBody reads it no
+   * further than the same limit, where the shared reader closes the connection.
+   */
+  function withinBodyLimit(handler: RouteHandler): RouteHandler {
+    return async (req: IncomingMessage, res: ServerResponse) => {
+      const declared = Number(req.headers['content-length']);
+      if (declared > ENGINE_BODY_LIMIT_BYTES) {
+        sendError(res, 413, `The engine reads a request body of at most ${ENGINE_BODY_LIMIT_BYTES} bytes; this one declares ${declared}`);
+        return;
+      }
+      return handler(req, res);
+    };
+  }
+
   // The prescriber's pre-script estimate (l2_estimateCost with a walletId) is this engine's quote for that member,
   // reached through one narrow call that can become an RPC when the engine moves into its own process, together with the
   // member's consent the read gate asks before a prescriber reads it (B5: the named primary-care prescriber, or one the
@@ -238,8 +277,8 @@ export function registerInteractiveRoutes(
     mayPrescribe: (request) => service.prescribingConsentFor(request.memberWalletId, request.prescriberWalletId, request.ndcHash) !== null,
   });
 
-  // Helper: register route with the admin gate (A11, D2), the wallet gate for wallet routes, the proving budget for
-  // every write route, and the readiness gate for the routes that make proofs
+  // Helper: register route with the admin gate (A11, D2), the wallet gate for wallet routes, the proving budget and the
+  // body limit for every write route, and the readiness gate for the routes that make proofs
   function reg(method: string, path: string, handler: RouteHandler): void {
     const upper = method.toUpperCase();
     const walletSigned = WALLET_ROUTES[`${upper}:${path}`];
@@ -248,6 +287,9 @@ export function registerInteractiveRoutes(
     if (OPEN_READS.has(path) && (upper !== 'GET' || providerSigned || walletSigned || ADMIN_ROUTES.has(path) || GATED_READS.has(path))) {
       throw new Error(`${upper} ${path} is an open read (OPEN_READS) and is never registered behind a gate`);
     }
+    // The body limit sits inside the readiness gate: a route that makes proofs still answers 503 first while its provers
+    // start, and neither reads the body.
+    if (upper === 'POST') handler = withinBodyLimit(handler);
     const route = upper === 'POST' && PROVING_ROUTES.has(path) ? untilProvingReady(upper, path, handler) : handler;
     if (providerSigned) {
       server.registerRoute(method, path, route, timeoutMs ? { providerSigned, timeoutMs } : { providerSigned });
@@ -354,6 +396,14 @@ export function registerInteractiveRoutes(
       }
       if (!params.walletId || typeof params.ownershipProofJson !== 'string') {
         sendError(res, 400, 'Missing required fields: walletId, ownershipProofJson (ProofGate.verifyMember proof made on the device)');
+        return;
+      }
+      // The engine's first step is BigInt(walletId), which reads every digit it is given and reads '0x3e9' or ' 1001' as
+      // wallet 1001, so the ID is held to the form the network writes (A-74) before anything parses it (the sweep of the
+      // open routes, 2026-10-24).
+      const walletIdProblem = walletIdError(params.walletId);
+      if (walletIdProblem) {
+        sendError(res, 400, walletIdProblem);
         return;
       }
       // A-61: the name the device gives is what the operator console and the other screens list for this wallet,
@@ -1598,7 +1648,8 @@ export function registerInteractiveRoutes(
 
   // ─── L2 Chain Routes ──────────────────────────────────────
 
-  // GET /interactive/l2-status
+  // GET /interactive/l2-status — the chain status the operator console's sequencer tab shows; the operator's only
+  // (GATED_READS): it lists every receipt's wallet and the whole audit log with each claim's parties
   reg('GET', '/interactive/l2-status', async (_req: IncomingMessage, res: ServerResponse) => {
     const rawStatus = service.getL2Node().getStatus();
     const seq = service.getL2Node().getSequencer();
@@ -2476,9 +2527,11 @@ export function getConsoleEmitter(server: L2RpcServer): (event: ConsoleEvent) =>
 
 // ─── Helpers ────────────────────────────────────────────
 
-// One read per request: a signed request's body was already read by the admin gate (A9).
+// One read per request: a signed request's body was already read by the admin gate (A9), under the sequencer's limit;
+// any other is read here under the same one, past which the shared reader stops and closes the connection rather than
+// keep the rest (a body that declares more was answered 413 before its handler ran: withinBodyLimit).
 function readBody(req: IncomingMessage): Promise<string> {
-  return readRequestBody(req);
+  return readRequestBody(req, ENGINE_BODY_LIMIT_BYTES);
 }
 
 function sendError(res: ServerResponse, status: number, message: string): void {

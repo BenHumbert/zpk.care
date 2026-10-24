@@ -31,9 +31,21 @@
  * (tests/insurer-pricing-route.test.ts). The node-credential rule stays for any member-data read a non-member node's
  * proxy is configured to forward.
  *
+ * The sweep of the open routes (2026-10-24) put the member's attestation (l2_getAttestation) in the table: it is the
+ * tap that opens the member's drug history, and it had answered anyone who named the wallet. A proxy configured to
+ * forward it then forwarded it only for the node's administrator, and the sequencer read it under the node's key as the
+ * plan. The security review of the sweep fixes (2026-10-24) found that no node's key should read it: the plan's key and
+ * the operator's credentials took the member's identity at the counter, though A10b refuses them one when they ask the
+ * sequencer to issue it. Now the attestation answers only the wallet's own signature, as issuing one does, and has left
+ * the table, so no node's proxy can lend it: the sequencer refuses the node's key whoever reached the port, the node's
+ * administrator included. No role's own list forwards it but the member's, whose proxy answers only the device and signs
+ * as the wallet (tests/attestation-read-gate.test.ts). The same review put the duplicate-claims check in the table, since
+ * its groups name wallets (tests/duplicate-claims-read-gate.test.ts).
+ *
  * A real sequencer RPC server with a stand-in engine quote behind it, an insurer node configured as
  * start-insurer-nautilus.ts configures it (proxy on by default, its node key registered with the insurer role), and a
- * second insurer node whose proxy is configured to forward the quote, to show the node-credential rule itself.
+ * second insurer node whose proxy is configured to forward the quote, to show the node-credential rule itself, and the
+ * attestation, to show that no node's credential opens it.
  */
 import fs from 'fs';
 import os from 'os';
@@ -69,12 +81,18 @@ beforeAll(async () => {
   const { hashString } = await import('../src/zkp/hash-utils.js');
   const { NautilusAppServer } = await import('../src/nodes/nautilus-app-server.js');
   const { resolveRpcProxyPolicy } = await import('../src/security/network-policy.js');
+  const { LIFECYCLE_ELIGIBLE } = await import('../src/engine/lifecycle.js');
   L2RpcServerClass = L2RpcServer;
   ndcHash = hashString(ABACAVIR).toString();
 
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
   const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-proxy-reads' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
   node.getSequencer().getFormularyService().loadFromNadac(formularyRaw);
+  // The member holds a registration on the ledger and an attestation the sequencer signed for it. Issued in-process:
+  // over RPC it answers only the member's own signature (A10b), and this file has no member key.
+  await node.enableAttestations();
+  node.getSequencer().adminMutate('test: provision the member', ({ provision }) => { provision(Field(BigInt(MEMBER)), LIFECYCLE_ELIGIBLE); });
+  if (node.requestAttestation(MEMBER)?.w !== MEMBER) throw new Error('the fixture attestation was not issued');
   rpcServer = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
   const insurerKey = generateNodeKey('insurer-node');
   rpcServer.registerNodeKey(insurerKey.nodeId, insurerKey.publicKeyHex, 'insurer');
@@ -101,13 +119,14 @@ beforeAll(async () => {
   await insurer.start();
   insurerUrl = `http://127.0.0.1:${insurer.getPort()}`;
 
-  // An insurer node whose proxy is configured to forward the quote, a member-data read: the A-49 rule itself
+  // An insurer node whose proxy is configured to forward the quote, a member-data read (the A-49 rule itself), and the
+  // member's attestation, which answers only the wallet's own signature
   const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'proxy-reads-'));
   dirs.push(dir2);
   forwarding = new NautilusAppServer({
     role: 'insurer', port: 0, host: '127.0.0.1', sequencerUrl: seqUrl, stateDir: dir2, enableSSE: false, maxSseConnections: 0,
     allowedOrigins: [], adminToken: INSURER_ADMIN, nodeKey: { nodeId: insurerKey.nodeId, seedHex: insurerKey.seedHex },
-    rpcProxy: { enabled: true, allowed: new Set(['l2_estimateCost']) },
+    rpcProxy: { enabled: true, allowed: new Set(['l2_estimateCost', 'l2_getAttestation']) },
   } as any);
   await forwarding.start();
   forwardingUrl = `http://127.0.0.1:${forwarding.getPort()}`;
@@ -129,6 +148,15 @@ async function quoteVia(nodeUrl: string, params: Record<string, unknown>, header
     method: 'POST',
     headers: { 'Content-Type': type, ...headers },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_estimateCost', params }),
+  });
+  return { status: r.status, json: await r.json() };
+}
+/** POST the attestation read to a node's /rpc, as a page on an allowed origin would. */
+async function attestationVia(nodeUrl: string, params: Record<string, unknown>, headers: Record<string, string> = {}): Promise<{ status: number; json: any }> {
+  const r = await fetch(`${nodeUrl}/rpc`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getAttestation', params }),
   });
   return { status: r.status, json: await r.json() };
 }
@@ -200,6 +228,19 @@ describe('a proxy configured to forward a member-data read forwards it only for 
   });
 });
 
+describe('the member\'s attestation, the tap that opens its drug history, is no node\'s to lend', () => {
+  test('a proxy configured to forward it gets the sequencer\'s refusal, for a caller with no credential and for the node\'s administrator alike', async () => {
+    const anonymous = await attestationVia(forwardingUrl, { walletId: MEMBER });
+    expect(anonymous.json.result).toBeUndefined();       // before the sweep: the member's signed attestation, forwarded under the node's key
+    expect(anonymous.json.error).toMatchObject({ code: -32003 }); // before: -32004, the proxy's own refusal of a D1 read
+    expect(anonymous.json.error.message).toMatch(/not by wallet 790000000000/); // before: the proxy's refusal, which named no wallet
+    const admin = await attestationVia(forwardingUrl, { walletId: MEMBER }, { Authorization: `Bearer ${INSURER_ADMIN}` });
+    expect(admin.json.result).toBeUndefined();           // before: the member's attestation, read under the insurer node's key as the plan
+    expect(admin.json.error).toMatchObject({ code: -32003 }); // before: no error
+    expect(admin.json.error.message).toMatch(/signed by insurer-node, not by wallet 790000000000/); // before: no error
+  });
+});
+
 describe('the table the proxy reads is the sequencer\'s own', () => {
   test('L2RpcServer enforces the table in member-data-methods.ts, and a call reads member data only when it names one', async () => {
     const { MEMBER_DATA_METHODS, callReadsMemberData } = await import('../src/l2/member-data-methods.js');
@@ -209,6 +250,8 @@ describe('the table the proxy reads is the sequencer\'s own', () => {
     expect(callReadsMemberData('l2_estimateCost', { walletId: '', ndcHash })).toBe(false);
     expect(callReadsMemberData('l2_getClaimsByMember', { walletId: MEMBER })).toBe(true);
     expect(callReadsMemberData('l2_getAuditLog', {})).toBe(true);
+    expect(callReadsMemberData('l2_getAttestation', { walletId: MEMBER })).toBe(false); // before: true, a D1 read the plan's key passes, so the administrator's forward read it
+    expect(callReadsMemberData('l2_detectDuplicateClaims', {})).toBe(true); // before: false, though its groups name wallets
     expect(callReadsMemberData('l2_getPlans', {})).toBe(false);
     expect(callReadsMemberData('constructor', {})).toBe(false);
   });

@@ -25,7 +25,9 @@
  * Configuration via environment variables:
  *
  *   ZKTRIDENT_PORT             — Server port (default: 4003)
- *   ZKTRIDENT_HOST             — Bind address (default: 127.0.0.1, loopback only)
+ *   ZKTRIDENT_HOST             — Bind address (default: 127.0.0.1). Loopback only (127.0.0.0/8, ::1 or
+ *                                localhost) until provider sign-in (B4): any other address stops the node
+ *   ZKTRIDENT_PUBLIC_HOSTS     — Not answered here until provider sign-in (B4); the node says so at boot
  *   ZKTRIDENT_SEQUENCER_URL    — Leviathan sequencer URL (default: http://localhost:3030)
  *   ZKTRIDENT_STATE_DIR        — Encrypted state directory (default: ./nautilus-data)
  *   ZKTRIDENT_TLS_CERT         — Path to PEM certificate file (optional)
@@ -56,11 +58,53 @@ import type { NautilusAppConfig } from './nautilus-app-types.js';
 import type { NautilusStateData } from './nautilus-local-state.js';
 import { buildPharmacyRoutes } from './routes/pharmacy-routes.js';
 import { PharmacyNode } from './pharmacy-node.js';
-import { resolveBindHost, resolveAllowedOrigins, resolveRpcProxyPolicy, resolvePeerUrl } from '../security/network-policy.js';
+import {
+  resolveBindHost, resolveAllowedOrigins, resolveRpcProxyPolicy, resolvePeerUrl, resolvePublicHosts, isLoopbackBind,
+} from '../security/network-policy.js';
 
 // ─── Environment ─────────────────────────────────────────────
 
 const env = process.env;
+
+/*
+ * Loopback only until provider sign-in (B4). This node's routes take no credential, so whoever reaches its port reads
+ * the pharmacy's book and acts as the pharmacy. GET /dispensing and the rest of its history, and GET /messaging/*, read
+ * the sequencer signed as this pharmacy's wallet, and GET /prescriptions/list reads the engine signed with this node's
+ * key; both admit the pharmacy, so the answers carry member wallet IDs, drugs, quantities, dates, copays and message
+ * metadata, and the fill, reversal and message routes write in its name the same way (the confused-deputy sweep of the
+ * review of round eight of the security fixes, 2026-10-24). Bound to loopback, only this machine can ask. Bound to any
+ * other address, so can every machine that reaches it: the Host check (A-82) turns away a rebound browser page, not a
+ * client that names a loopback Host. So the node refuses to start on any address but loopback, an empty ZKTRIDENT_HOST
+ * included, for which Node binds every interface.
+ *
+ * Nor does it answer a public name. A reverse proxy on this host would bring other machines to the same routes, and the
+ * node cannot tell whether the proxy asks them for anything, so the names in ZKTRIDENT_PUBLIC_HOSTS get 421 here. That
+ * turns away a proxy that passes on the client's Host. One that sends a loopback Host instead, as nginx does unless
+ * told otherwise, cannot be told from a browser on this machine, which is why the refusal also says not to use one.
+ * The names do not stop the node: on a loopback bind a name exposes nothing by itself, and the launcher that starts the
+ * whole network (start-leviathan.ts) passes its own environment to every node it starts, so a name the insurer answers
+ * behind its TLS proxy reaches this node too.
+ */
+if (env.ZKTRIDENT_HOST !== undefined && !isLoopbackBind(env.ZKTRIDENT_HOST)) {
+  console.error(
+    '  [FATAL] pharmacy node: ZKTRIDENT_HOST is "%s", not a loopback address. Until provider sign-in (B4) its routes ' +
+      "answer anyone who reaches its port: they return this pharmacy's book (member wallet IDs, drugs, quantities, " +
+      'dates, copays, messages) and fill, reverse and send messages in its name, so it must not be reachable beyond ' +
+      'this machine. Unset ZKTRIDENT_HOST or set it to 127.0.0.1, ::1 or localhost, and use the dashboard on this ' +
+      'machine. Do not put a reverse proxy in front of it either: until then the node answers no public name.',
+    env.ZKTRIDENT_HOST,
+  );
+  process.exit(1);
+}
+const unansweredPublicHosts = resolvePublicHosts(env);
+if (unansweredPublicHosts.length > 0) {
+  console.warn(
+    '  [net] pharmacy node: ZKTRIDENT_PUBLIC_HOSTS lists %s, and this node answers none of them. Until provider ' +
+      'sign-in (B4) its routes answer anyone who reaches its port, so no reverse proxy may bring other machines to ' +
+      'it: it answers only its loopback names (localhost, 127.0.0.1, [::1]).',
+    unansweredPublicHosts.join(', '),
+  );
+}
 
 // A-81: the insurer this node notifies at enrollment is named here and nowhere else, never by a
 // request. A URL that the peer-URL check refuses stops the node at boot.
@@ -76,6 +120,8 @@ const config: NautilusAppConfig = {
   role: 'pharmacy',
   port: parseInt(env.ZKTRIDENT_PORT ?? '4003', 10),
   host: resolveBindHost(env, 'pharmacy node'),
+  // None until provider sign-in (B4), whatever ZKTRIDENT_PUBLIC_HOSTS says (above).
+  publicHosts: [],
   sequencerUrl: env.ZKTRIDENT_SEQUENCER_URL ?? 'http://localhost:3030',
   stateDir: env.ZKTRIDENT_STATE_DIR ?? './nautilus-data',
   tlsCert: env.ZKTRIDENT_TLS_CERT,

@@ -19,6 +19,12 @@
  *
  * Left panel: Real-time SSE console stream with type filters.
  * Right panel: Sequencer status, action buttons, receipts, batches, audit chain.
+ *
+ * Every read and action here answers the network operator only. The console stream carries the
+ * operator's token in its URL, since an EventSource sends no header; the chain status, which lists
+ * every receipt's wallet and the audit log (the operator's since the sweep of the open routes,
+ * 2026-10-24), and the actions carry it in the header operator-auth.js attaches to every
+ * /interactive/ request this page makes, asking for the token when the sequencer refuses one.
  */
 
 import { API_BASE, fetchJson, truncHash } from './node-common.js';
@@ -144,6 +150,7 @@ function updateHealth(connected) {
 
 async function fetchL2Status() {
   try {
+    // the operator's read: operator-auth.js puts the token on it (imported above, and by node-common.js)
     const data = await fetchJson('/interactive/l2-status');
     renderStatus(data.status);
     renderActions();

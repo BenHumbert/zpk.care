@@ -78,6 +78,17 @@
  * the status it answered, and its check is untouched. The clock is held at one millisecond while the copies are
  * relayed. The member's device is a member node with a code accepted and its key generated, whose redeem route calls a
  * real insurer node, which relays to a stand-in employer that issued nothing.
+ *
+ * The review of that fix (A-93) found the device still answered the insurer's 5xx as a refusal. The insurer answers 502
+ * when the employer refused it, could not be reached or was busy, or the sequencer could not be reached, and 503 when no
+ * employer is registered yet; none of them is a verdict on the code and PIN, and the device answered each 403, "The
+ * insurer did not accept this enrollment code and PIN.", so a member whose code was fine was told it was refused and
+ * might try other PINs until the employer locked the code. What is true now: the device answers the insurer's 5xx with
+ * 502, a message that says the insurer could not check the code now and to try again later, and the insurer's
+ * Retry-After when it sends one in seconds. The device stays where it was, so the same PIN is redeemed once the insurer
+ * can check it. A 4xx refusal keeps the refused message. In those tests the insurer is a real insurer node relaying to an
+ * employer that is not listening, to a stand-in employer that answers 429 or 503, or, with no employer configured, to
+ * the employers a stand-in sequencer lists, which are none; one stand-in insurer answers 503 with a Retry-After.
  */
 import fs from 'fs';
 import http from 'http';
@@ -105,6 +116,8 @@ const TOO_MANY_CODES = 'Too many enrollment codes from this address in the last 
 const REFUSED = 'The insurer did not accept this enrollment code and PIN.';
 /** What a member's device answers when the insurer's per-source limit refuses it. */
 const TOO_MANY_ATTEMPTS = 'Too many enrollment attempts came from this network. Try again in a minute.';
+/** What a member's device answers when the insurer answers 5xx: an employer or the sequencer did not answer it, or no employer is registered. */
+const COULD_NOT_CHECK = 'The insurer could not check this enrollment code now. Try again later.';
 /** The insurer's request-signing seed. The real employer node's attestation names the key it derives. */
 const INSURER_SEED = 'insurer-signing-seed-for-open-intake';
 const OPEN_FROM_SOURCE = 'Too many open employer applications from this address. Apply again once the insurer decides one.';
@@ -170,17 +183,21 @@ async function statuses(n: number, send: (i: number) => Promise<Answer>): Promis
   return out;
 }
 
+/** How a stand-in answers one request: a status, any headers beside the JSON content type, and a JSON body. */
+interface Reply { status: number; headers?: Record<string, string>; body: unknown }
+
 /**
  * A JSON service on loopback, started before the tests of the block that calls this (a describe, or the whole file) and
- * stopped after them, that answers every request 200 with what `answer` returns for its path.
+ * stopped after them, that answers each request as `reply` says for its path.
  */
-function standIn(answer: (path: string) => unknown) {
+function replying(reply: (path: string) => Reply) {
   let url = '';
   const service = http.createServer((req, res) => {
     req.resume();
     req.on('end', () => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(answer(req.url ?? '/')));
+      const r = reply(req.url ?? '/');
+      res.writeHead(r.status, { 'Content-Type': 'application/json', ...r.headers });
+      res.end(JSON.stringify(r.body));
     });
   });
   beforeAll(async () => {
@@ -194,9 +211,17 @@ function standIn(answer: (path: string) => unknown) {
   return { url: () => url };
 }
 
-/** A fresh insurer node, whose limits start empty, that relays the codes it is sent to the employer at `employerUrl`. */
-function relayingInsurer(employerUrl: string): NautilusAppServer {
-  const server = insurerNode({ employerUrl, insurerSigningSeed: INSURER_SEED });
+/** A stand-in, as replying makes one, that answers every request 200 with what `answer` returns for its path. */
+function standIn(answer: (path: string) => unknown) {
+  return replying((p) => ({ status: 200, body: answer(p) }));
+}
+
+/**
+ * A fresh insurer node, whose limits start empty, that relays the codes it is sent to the employer at `employerUrl`, or
+ * with none, to the employer the sequencer it is configured with lists for the code.
+ */
+function relayingInsurer(employerUrl: string | undefined, over: Partial<NautilusAppConfig> = {}): NautilusAppServer {
+  const server = insurerNode({ ...(employerUrl ? { employerUrl } : {}), insurerSigningSeed: INSURER_SEED, ...over });
   // The route refuses until an insurer node is configured and reads nothing from it, so anything stands in.
   server.setEntityNode({ setWalletSignerSource: () => undefined } as unknown as EntityNodeBase);
   return server;
@@ -371,9 +396,9 @@ describe('POST /enrollment/process: relays of one code and PIN hash signed in on
 
 // ── What a member's device says ─────────────────────────────
 
-/** An insurer node started on loopback, as a member's device reaches it, relaying codes to the employer at `employerUrl`. */
-async function startedInsurer(employerUrl: string): Promise<{ url: string; stop: () => Promise<void> }> {
-  const server = relayingInsurer(employerUrl);
+/** An insurer node started on loopback, as a member's device reaches it, relaying codes as relayingInsurer says. */
+async function startedInsurer(employerUrl: string | undefined, over: Partial<NautilusAppConfig> = {}): Promise<{ url: string; stop: () => Promise<void> }> {
+  const server = relayingInsurer(employerUrl, over);
   server.registerRoutes(buildInsurerRoutes(server));
   await server.start();
   return { url: `http://127.0.0.1:${server.getPort()}`, stop: () => server.stop() };
@@ -381,9 +406,10 @@ async function startedInsurer(employerUrl: string): Promise<{ url: string; stop:
 
 /**
  * A member's device, never started, with an enrollment code accepted and its key generated, as the member's screen leaves
- * it before redeeming: its redeem route, which sends the code and a hash of the PIN to the insurer at `insurerUrl`.
+ * it before redeeming: its redeem route, which sends the code and a hash of the PIN to the insurer at `insurerUrl`, and
+ * the phase the device is in.
  */
-async function memberDevice(insurerUrl: string): Promise<(tokenPIN: string) => Promise<Answer>> {
+async function memberDevice(insurerUrl: string): Promise<((tokenPIN: string) => Promise<Answer>) & { phase: () => string }> {
   const server = appNode('member', { insurerUrl });
   const routes = buildMemberRoutes(server);
   const device = from('127.0.0.1');
@@ -391,10 +417,10 @@ async function memberDevice(insurerUrl: string): Promise<(tokenPIN: string) => P
   expect((await call(routeOf(routes, 'POST', '/onboarding/accept-token'), device, { tokenId: generateEnrollmentCode('EMP-NOBODY') })).status).toBe(200);
   expect((await call(routeOf(routes, 'POST', '/onboarding/generate-key'), device, {})).status).toBe(200);
   const redeem = routeOf(routes, 'POST', '/onboarding/redeem');
-  return (tokenPIN) => call(redeem, device, { tokenPIN });
+  return Object.assign((tokenPIN: string) => call(redeem, device, { tokenPIN }), { phase: () => server.getOnboardingPhase() as string });
 }
 
-describe('POST /onboarding/redeem: what a member\'s device says when the insurer refuses its code', () => {
+describe('POST /onboarding/redeem: what a member\'s device says when the insurer does not redeem its code', () => {
   /** The employer the insurer relays to: a stand-in that issued nothing, so every code is "Token not found". */
   const nobody = standIn(() => ({ ok: true, data: { valid: false, reason: 'Token not found' } }));
 
@@ -408,6 +434,60 @@ describe('POST /onboarding/redeem: what a member\'s device says when the insurer
       expect(refused.map((r) => [r.status, r.error, r.retryAfter])).toEqual(Array(10).fill([403, REFUSED, undefined]));
       const limited = await redeem('48213980');
       expect([limited.status, limited.error, limited.retryAfter]).toEqual([429, TOO_MANY_ATTEMPTS, '60']);   // before: [429, REFUSED, undefined]
+    } finally {
+      await insurer.stop();
+    }
+  });
+
+  /** An employer too busy to answer the insurer: it answers every relay 429, as its overall limit does. */
+  const busy = replying(() => ({ status: 429, body: { ok: false, error: 'Too many validation requests. Try again in a minute.' } }));
+  /** A sequencer that lists no employer node, as before any employer has finished activation. */
+  const noEmployers = standIn(() => ({ jsonrpc: '2.0', id: 1, result: [] }));
+  /** An insurer that answers every request 503 with a Retry-After of two minutes. */
+  const unavailable = replying(() => ({ status: 503, headers: { 'Retry-After': '120' }, body: { ok: false, error: 'Service unavailable' } }));
+  /** An employer that answers the insurer 503, as one with no attestation loaded does, until a test brings it back; then it redeems every code. */
+  let employerDown = true;
+  const recovering = replying(() => (employerDown
+    ? { status: 503, body: { ok: false, error: 'This employer node has no attestation loaded, so it cannot tell who the insurer is. Refresh the attestation first.' } }
+    : { status: 200, body: { ok: true, data: { valid: true, groupIdHash: '11', planIdHash: '22', consumed: true } } }));
+
+  test('an employer the insurer cannot reach, or one too busy to answer it, has the insurer answer 502, and the device answers 502, saying the insurer could not check the code now; a code the employer refuses is still refused', async () => {
+    const insurers = await Promise.all([startedInsurer('http://127.0.0.1:1'), startedInsurer(busy.url()), startedInsurer(nobody.url())]);
+    try {
+      const [unreachable, tooBusy, refusing] = await Promise.all(insurers.map((i) => memberDevice(i.url)));
+      const notListening = await unreachable('48213970');
+      expect([notListening.status, notListening.error, notListening.retryAfter]).toEqual([502, COULD_NOT_CHECK, undefined]);   // before: [403, REFUSED, undefined]
+      const limited = await tooBusy('48213970');
+      expect([limited.status, limited.error]).toEqual([502, COULD_NOT_CHECK]);                                               // before: [403, REFUSED]
+      const refused = await refusing('48213970');
+      expect([refused.status, refused.error]).toEqual([403, REFUSED]);
+    } finally {
+      await Promise.all(insurers.map((i) => i.stop()));
+    }
+  });
+
+  test('an insurer with no employer registered answers 503, and the device answers 502 the same way, with the insurer\'s Retry-After when it sends one', async () => {
+    const insurer = await startedInsurer(undefined, { sequencerUrl: noEmployers.url() });
+    try {
+      const none = await (await memberDevice(insurer.url))('48213970');
+      expect([none.status, none.error, none.retryAfter]).toEqual([502, COULD_NOT_CHECK, undefined]);           // before: [403, REFUSED, undefined]
+    } finally {
+      await insurer.stop();
+    }
+    const waiting = await (await memberDevice(unavailable.url()))('48213970');
+    expect([waiting.status, waiting.error, waiting.retryAfter]).toEqual([502, COULD_NOT_CHECK, '120']);        // before: [403, REFUSED, undefined]
+  });
+
+  test('the code was fine all along: the device stays where it was, and once the employer answers the insurer again the same PIN redeems it', async () => {
+    const insurer = await startedInsurer(recovering.url());
+    try {
+      const redeem = await memberDevice(insurer.url);
+      const down = await redeem('48213970');
+      expect([down.status, down.error]).toEqual([502, COULD_NOT_CHECK]);   // before: [403, REFUSED]
+      expect(redeem.phase()).toBe('key_generated');
+      employerDown = false;
+      const back = await redeem('48213970');
+      expect([back.status, back.data?.phase]).toEqual([200, 'code_redeemed']);
     } finally {
       await insurer.stop();
     }

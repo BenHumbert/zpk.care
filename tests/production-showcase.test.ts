@@ -488,7 +488,7 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
   });
 
   test('P8 — audit chain integrity holds', async () => {
-    const r = await get(insurerPort, '/audit/chain-integrity');
+    const r = await get(insurerPort, '/audit/chain-integrity', { Authorization: `Bearer ${TEST_ADMIN_TOKEN}` });
     expect(r.status).toBe(200);
     expect((r.body as any).data.isValid).toBe(true);
   });
@@ -846,7 +846,7 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
   // ════════════════════════════════════════════════════════
 
   test('P18 — audit chain integrity holds after all operations', async () => {
-    const r = await get(insurerPort, '/audit/chain-integrity');
+    const r = await get(insurerPort, '/audit/chain-integrity', { Authorization: `Bearer ${TEST_ADMIN_TOKEN}` });
     expect(r.status).toBe(200);
     expect((r.body as any).data.isValid).toBe(true);
   });

@@ -122,15 +122,16 @@ const API = (() => {
 
   function getChainProof() { return request('GET', '/chain-proof'); }
 
-  function verifyChainIntegrity() { return request('GET', '/audit/chain-integrity'); }
-  function verifyFinancialBalance() { return request('GET', '/audit/financial-balance'); }
-  function detectDuplicateClaims() { return request('GET', '/audit/duplicate-claims'); }
+  // The three checks read the audit log as the plan, so each takes the node's admin token; the chain proof is open.
+  function verifyChainIntegrity() { return request('GET', '/audit/chain-integrity', undefined, true); }
+  function verifyFinancialBalance() { return request('GET', '/audit/financial-balance', undefined, true); }
+  function detectDuplicateClaims() { return request('GET', '/audit/duplicate-claims', undefined, true); }
 
-  // ---- Entity-filtered claims ----
+  // ---- Entity-filtered claims (the node's admin token: every claim names its member) ----
   function getMemberClaims(walletId) { return request('GET', '/claims/member/' + encodeURIComponent(walletId), undefined, true); }
-  function getPrescriberClaims(walletId) { return request('GET', '/claims/prescriber/' + encodeURIComponent(walletId)); }
-  function getPharmacyClaims(walletId) { return request('GET', '/claims/pharmacy/' + encodeURIComponent(walletId)); }
-  function getDrugClaims(ndcHash) { return request('GET', '/claims/drug/' + encodeURIComponent(ndcHash)); }
+  function getPrescriberClaims(walletId) { return request('GET', '/claims/prescriber/' + encodeURIComponent(walletId), undefined, true); }
+  function getPharmacyClaims(walletId) { return request('GET', '/claims/pharmacy/' + encodeURIComponent(walletId), undefined, true); }
+  function getDrugClaims(ndcHash) { return request('GET', '/claims/drug/' + encodeURIComponent(ndcHash), undefined, true); }
 
   // ---- Reports (the node's admin credential; a refusal is thrown with the node's reason) ----
   function generateReport(type, body) { return request('POST', '/reports/' + encodeURIComponent(type), body, true); }
@@ -239,9 +240,9 @@ const API = (() => {
   function deletePlan(planId) { return request('DELETE', '/plans/' + encodeURIComponent(planId), {}, true); }
   function publishPlan(planId) { return request('POST', '/plans/' + encodeURIComponent(planId) + '/publish', {}, true); }
 
-  // ---- Messaging ----
-  function getMessagesByWallet(walletId) { return request('GET', '/messaging/wallet/' + encodeURIComponent(walletId)); }
-  function getMessagesByThread(threadIdHash) { return request('GET', '/messaging/thread/' + encodeURIComponent(threadIdHash)); }
+  // ---- Messaging (a wallet's messages and a thread take the node's admin token; the store's status is open) ----
+  function getMessagesByWallet(walletId) { return request('GET', '/messaging/wallet/' + encodeURIComponent(walletId), undefined, true); }
+  function getMessagesByThread(threadIdHash) { return request('GET', '/messaging/thread/' + encodeURIComponent(threadIdHash), undefined, true); }
   function getMessageStoreStatus() { return request('GET', '/messaging/status'); }
 
   // ---- SSE ----

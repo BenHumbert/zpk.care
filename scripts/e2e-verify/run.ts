@@ -489,9 +489,15 @@ async function main() {
   // B2: the engine takes no identity preimage at all, from anyone
   const withPreimage = await http('POST', `${SEQ}/interactive/register-member`, { walletId: malloryWallet, preimageFields: mallory.map(f => f.toString()), displayName: 'Mallory' });
   trace.check('The engine refuses an identity preimage outright (B2)', withPreimage.status === 400 && /never sent/.test(JSON.stringify(withPreimage.json ?? withPreimage.text ?? '')), '400, never sent', `${withPreimage.status} ${JSON.stringify(withPreimage.json ?? withPreimage.text ?? '').slice(0, 120)}`);
+  // The engine verifies the ownership proof before it reads anything about the wallet, so a forged registration is
+  // refused for its proof, with the same answer for every wallet, and no longer hears that the insurer never approved
+  // this one (the security review of the sweep fixes, 2026-10-24); nothing is kept for the wallet.
   const forged = await http('POST', `${SEQ}/interactive/register-member`, { walletId: malloryWallet, ownershipProofJson: '{}', displayName: 'Mallory' });
-  trace.check('register-member refuses a wallet the insurer never approved (A-6)', forged.status === 403, 403, forged.status);
-  trace.check('…and says why without provisioning anything', /insurer approval/.test(JSON.stringify(forged.json ?? forged.text ?? '')), 'no insurer approval', forged.json ?? forged.text);
+  const forgedSaid = JSON.stringify(forged.json ?? forged.text ?? '');
+  trace.check('register-member refuses a forged registration for its proof (A-6)', forged.status === 400 && /ownership proof could not be read/.test(forgedSaid), '400, the ownership proof could not be read', `${forged.status} ${forgedSaid.slice(0, 120)}`);
+  const membersNow = unwrap((await httpAdmin('GET', `${SEQ}/interactive/state`)).json)?.enrolledMembers;
+  const keptForMallory = Array.isArray(membersNow) && membersNow.some((m: any) => m.walletId === malloryWallet);
+  trace.check('…and keeps nothing for that wallet', Array.isArray(membersNow) && !keptForMallory, 'no member record', !Array.isArray(membersNow) ? 'engine state not read' : keptForMallory ? 'a member record' : 'none');
   const receipts = await rpc('l2_getReceiptsByWallet', { walletId });
   const recList = receipts.result?.receipts ?? receipts.result ?? [];
   trace.check('Sequencer issued a receipt for the registration proof', Array.isArray(recList) && recList.length > 0, '≥1 receipt', recList?.length ?? receipts);
@@ -844,13 +850,16 @@ async function main() {
 
   // ── 10. Audit and accumulator reconstruction ────────────────
   trace.begin('insurer', 'Run the audit checks and rebuild the accumulator from claims');
+  // The sequencer answers the duplicate check, whose groups name wallets, and the balance check the plan and the
+  // operator only (D1), so the harness runs the audit checks as the operator; it ran them with no credential until
+  // the review of round eight of the security fixes (2026-10-24).
   for (const m of ['l2_verifyChainIntegrity', 'l2_verifyFinancialBalance', 'l2_detectDuplicateClaims']) {
-    const a = await rpc(m, {}, false);
+    const a = await rpc(m);
     const ok = a.result && (a.result.valid === true || a.result.ok === true || a.result.passed === true || (Array.isArray(a.result.duplicates) && a.result.duplicates.length === 0) || a.result.balanced === true);
     trace.check(`${m}`, !!ok, 'pass', a.result ?? a.error);
   }
   // D5 (A-26): the audit chain binds the money, and it agrees with the ledger
-  const moneyAudit = (await rpc('l2_verifyFinancialBalance', {}, false)).result ?? {};
+  const moneyAudit = (await rpc('l2_verifyFinancialBalance')).result ?? {};
   const filed = results.claims.filter((c: any) => c.adjudication);
   trace.check('The audit chain counts every claim filed', Number(moneyAudit.totalClaims) === filed.length, filed.length, moneyAudit.totalClaims);
   trace.check('The audit chain\'s patient pay is the sum billed', String(moneyAudit.totalPatientPayCents) === filed.reduce((s: bigint, c: any) => s + BigInt(c.adjudication.patientPayCents), 0n).toString(), 'sum of patient pay', moneyAudit.totalPatientPayCents);

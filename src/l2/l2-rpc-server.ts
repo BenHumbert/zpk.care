@@ -923,8 +923,12 @@ export class L2RpcServer {
       return this.sendRpcError(res, 0, RPC_PARSE_ERROR, 'Invalid JSON');
     }
 
-    // Validate JSON-RPC structure
-    if (!rpcReq.jsonrpc || rpcReq.jsonrpc !== '2.0' || !rpcReq.method || rpcReq.id === undefined) {
+    // Validate JSON-RPC structure: an object, its method a name, its params (when sent) an object or a list. A null body,
+    // a method sent as a list (["toString"] is "toString" to a property lookup) and params sent as a string each threw
+    // before the dispatcher's try below, in this check or in the gates that read them, and the caller got an HTTP 500
+    // instead of this answer (the review of round eight of the security fixes, 2026-10-24).
+    if (rpcReq === null || typeof rpcReq !== 'object' || rpcReq.jsonrpc !== '2.0' || typeof rpcReq.method !== 'string' || !rpcReq.method
+      || rpcReq.id === undefined || (rpcReq.params !== undefined && rpcReq.params !== null && typeof rpcReq.params !== 'object')) {
       return this.sendRpcError(res, rpcReq?.id ?? 0, RPC_INVALID_REQUEST,
         'Invalid JSON-RPC 2.0 request');
     }
@@ -1398,6 +1402,9 @@ export class L2RpcServer {
       }
 
       case 'l2_verifyChainIntegrity': {
+        // Open: the number of events, which the event stream and l2_getStatus publish anyway, and the sequence numbers of
+        // links that do not hash, which carry no amount, drug or day. MEMBER_DATA_METHODS says why the balance check below
+        // is gated and this one is not; what it costs to run is A-80's to limit.
         const ciLog = this.node instanceof L2Leviathan
           ? this.node.getAuditLog()
           : this.node.getSequencer().getAuditLog();
@@ -1416,6 +1423,10 @@ export class L2RpcServer {
           ? this.node.getAuditLog()
           : this.node.getSequencer().getAuditLog();
         const fbResult = AuditService.verifyFinancialBalance(fbLog.events);
+        // The read gate answers this the plan and the operator only, as it does the audit log the totals come from
+        // (MEMBER_DATA_METHODS). The totals move by one claim's amounts with each proof the event stream announces by
+        // wallet and receipt, so read around each event they gave any key that may open the stream every wallet's claim
+        // amounts; until the review of round eight of the security fixes (2026-10-24) they answered anyone.
         // D5: the chain's money must equal the ledger's; a divergence is what A-10 described, made visible.
         const ledger = this.node instanceof L2Leviathan ? this.node.getClaimTotals() : this.node.getSequencer().getClaimAccumulator().getTotals();
         const reconciled = ledger.claimCount === fbResult.totalClaims && ledger.reversalCount === fbResult.reversals
@@ -1437,6 +1448,9 @@ export class L2RpcServer {
       }
 
       case 'l2_detectDuplicateClaims': {
+        // Each group names a wallet, a drug and a day of service, so the read gate answers this the plan and the operator
+        // only, as it does the audit log the groups come from (MEMBER_DATA_METHODS); until the security review of the
+        // sweep fixes (2026-10-24) it answered anyone.
         const ddLog = this.node instanceof L2Leviathan
           ? this.node.getAuditLog()
           : this.node.getSequencer().getAuditLog();
@@ -2513,6 +2527,10 @@ export class L2RpcServer {
       }
 
       case 'l2_getAttestation': {
+        // The member's attestation is the tap that D1's attestation reader and the pharmacy's counter routes accept, so
+        // the wallet gate answers it to the wallet's own signature only, as it answers a request for one
+        // (WALLET_SIGNED_METHODS). Until the sweep of the open routes (2026-10-24) it answered anyone who named the
+        // wallet, and then, as a D1 read, the plan and the operator, until the security review of that fix.
         if (!('getAttestation' in this.node)) {
           throw new Error('Attestation not available on this node type');
         }
@@ -2956,17 +2974,25 @@ export class L2RpcServer {
    */
   /**
    * The methods that speak for a wallet, and the parameter that names it (A10b). A request to one
-   * of these is signed by that wallet's registered signing key or it is refused.
+   * of these is signed by that wallet's registered signing key or it is refused. Reading the
+   * member's attestation is one of them: the attestation speaks for the wallet at a pharmacy
+   * counter, so it answers only the signature that may have one issued. As a D1 read it answered
+   * the plan and the operator too, whom this gate refuses an attestation (the security review of
+   * the sweep fixes, 2026-10-24).
    */
   static readonly WALLET_SIGNED_METHODS: Readonly<Record<string, string>> = {
     l2_storeMessage: 'message.senderWalletId',
     l2_registerPcpAssignment: 'memberWalletId',
     l2_requestAttestation: 'walletId',
+    l2_getAttestation: 'walletId',
   };
 
   /** The wallet a request speaks for: undefined for a method outside the list, '' when the parameter is missing. */
   static walletSpokenFor(method: string, params: unknown): string | undefined {
-    const where = L2RpcServer.WALLET_SIGNED_METHODS[method];
+    // An own key only, as memberDataSpecOf reads the D1 table: a method named toString, constructor or __proto__ found
+    // Object.prototype's member here, and splitting it threw before the dispatcher's try, so the caller got an HTTP 500
+    // where an unknown method gets its JSON-RPC error (the review of round eight of the security fixes, 2026-10-24).
+    const where = Object.prototype.hasOwnProperty.call(L2RpcServer.WALLET_SIGNED_METHODS, method) ? L2RpcServer.WALLET_SIGNED_METHODS[method] : undefined;
     if (!where) return undefined;
     let value: unknown = params;
     for (const key of where.split('.')) {
@@ -3143,7 +3169,7 @@ export class L2RpcServer {
     if (!who.ok) return who;
     const p = who.principal;
     if (p.kind === 'operator' || (p.kind === 'node' && (p.role === 'insurer' || p.role === 'operator'))) return who;
-    if (enumeration) return { ok: false, status: 403, message: `Forbidden — ${method} lists wallets across members and answers the plan or the operator only` };
+    if (enumeration) return { ok: false, status: 403, message: `Forbidden — ${method} reads across members and answers the plan or the operator only` };
     if (thread) return who; // the handler returns only this caller's own messages
     const short = (id: string) => (id.length > 12 ? `${id.slice(0, 12)}…` : id);
     if (p.kind === 'wallet') {

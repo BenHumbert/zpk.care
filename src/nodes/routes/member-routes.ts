@@ -49,12 +49,19 @@ import { MemberNode } from '../member-node.js';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
 import { PROVING_BUDGET_MS, type RouteRegistration } from '../nautilus-app-types.js';
 import type { MemberLocalData } from '../../models/member.js';
-import { PinAttemptThrottled } from '../nautilus-local-state.js';
+import { PinAttemptThrottled, type NautilusStateData } from '../nautilus-local-state.js';
 import { planAsPublished } from '../../l2/plan-terms.js';
 import type { BenefitPlanConfig } from '../../l2/l2-types.js';
 
 /** Domain tag for members */
 const DOMAIN_TAG_MEMBER = 0;
+
+/**
+ * The redemption as the device keeps it until the insurer completes the enrollment: the insurer's answer, and the PIN
+ * hash the code was redeemed with, which the completion presents so the insurer knows it comes from the device that
+ * redeemed the code (round nine). The device drops the hash once it is enrolled.
+ */
+type KeptRedemption = NonNullable<NautilusStateData['enrollment']> & { tokenPinHash?: string };
 
 /**
  * Build all member routes. The server reference is captured in closures
@@ -410,16 +417,26 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         });
         if (!resp.ok) {
           const text = await resp.text().catch(() => '');
-          console.warn('[redeem] The insurer refused the enrollment code:', resp.status, text);
+          console.warn('[redeem] The insurer did not redeem the enrollment code:', resp.status, text);
+          const retryAfter = resp.headers.get('retry-after');
+          const wait = retryAfter !== null && /^\d+$/.test(retryAfter) ? retryAfter : null;
           // The insurer's 429 is its limit on the codes one network may send it in a minute, not a verdict on this code
           // and PIN. Told the code and PIN were refused, a member who was only limited would try other PINs, and the
           // employer locks a code after five wrong ones. So the member is told to wait, with the insurer's Retry-After
           // when it gives one in seconds.
           if (resp.status === 429) {
-            const retryAfter = resp.headers.get('retry-after');
-            if (retryAfter !== null && /^\d+$/.test(retryAfter)) res.setHeader('Retry-After', retryAfter);
+            if (wait) res.setHeader('Retry-After', wait);
             return server.sendResponse(res, 429, false, undefined,
               'Too many enrollment attempts came from this network. Try again in a minute.');
+          }
+          // Its 5xx is no verdict either (the review of the relay fix, A-93): the employer refused the insurer, could not
+          // be reached or was busy, the sequencer could not be reached, or no employer is registered yet. Answered 403
+          // like a refusal, it sent a member whose code was fine to try other PINs as well. So the member is told the
+          // code could not be checked now and to try again later, with the insurer's Retry-After when it gives one.
+          if (resp.status >= 500) {
+            if (wait) res.setHeader('Retry-After', wait);
+            return server.sendResponse(res, 502, false, undefined,
+              'The insurer could not check this enrollment code now. Try again later.');
           }
           return server.sendResponse(res, 403, false, undefined,
             'The insurer did not accept this enrollment code and PIN.');
@@ -433,7 +450,8 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       if (!answer?.groupIdHash || !/^\d+$/.test(answer.groupIdHash) || !answer.planIdHash || !/^\d+$/.test(answer.planIdHash)) {
         return server.sendResponse(res, 502, false, undefined, 'The insurer answered without the group and plan this code enrols into.');
       }
-      data.enrollment = { groupIdHash: answer.groupIdHash, planIdHash: answer.planIdHash, employerId: answer.employerId ?? null, redeemedAt: Date.now() };
+      const kept: KeptRedemption = { groupIdHash: answer.groupIdHash, planIdHash: answer.planIdHash, employerId: answer.employerId ?? null, redeemedAt: Date.now(), tokenPinHash };
+      data.enrollment = kept;
       data.onboarding.phase = 'code_redeemed';
       await state.save(data);
       server.setOnboardingPhase('code_redeemed');
@@ -597,6 +615,8 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
        * issued (PRD-1): each carries one share of the key and a random id, nothing that depends on
        * the PIN; the other shares, the identity salt, the group and plan hashes and a PIN verifier
        * computed here go to the insurer with the completion. The device keeps the card ids only.
+       * The completion carries the PIN hash the code was redeemed with, kept since the redemption:
+       * the insurer completes a code only for the device that redeemed it (round nine).
        */
       const b = body as { recoveryPin?: string } | undefined;
       let insurerNotified = false;
@@ -607,6 +627,11 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         }
         if (!data.identitySalt || !isIdentitySalt(data.identitySalt)) {
           return server.sendResponse(res, 409, false, undefined, 'The wallet was derived without an identity salt; derive it again');
+        }
+        const tokenPinHash = (data.enrollment as KeptRedemption).tokenPinHash;
+        if (!tokenPinHash) {
+          return server.sendResponse(res, 409, false, undefined,
+            'This device keeps no PIN hash for its enrollment code, which the insurer needs to complete it: start over and redeem the same code and PIN again');
         }
         try {
           validateRecoveryPin(b?.recoveryPin);
@@ -629,6 +654,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
             body: JSON.stringify({
               walletId: data.walletId,
               tokenId: data.onboarding.tokenId,
+              tokenPinHash,
               role: 'member',
               recoveryDeposits: issued.deposits,
             }),
@@ -636,6 +662,14 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
           if (!resp.ok) {
             const errBody = await resp.text().catch(() => '');
             console.warn('[enroll] Insurer rejected the enrollment:', resp.status, errBody);
+            // The insurer's 429 counts attempts with this code or from this network, not a verdict on the code: the
+            // member is told to wait, with its Retry-After, rather than that the code was refused.
+            if (resp.status === 429) {
+              const retryAfter = resp.headers.get('retry-after');
+              if (retryAfter !== null && /^\d+$/.test(retryAfter)) res.setHeader('Retry-After', retryAfter);
+              return server.sendResponse(res, 429, false, undefined,
+                'Too many attempts to complete an enrollment with this code or from this network. Try again later.');
+            }
             return server.sendResponse(res, 403, false, undefined,
               'Enrollment rejected by insurer. Check your enrollment code and PIN.');
           }
@@ -655,7 +689,11 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       if (issued) {
         // card ids only: a share never rests on this device
         data.recoveryCards = issued.cards.map((c) => ({ cardId: c.id, issuedAt: Date.now() }));
-        if (data.enrollment) data.enrollment.completedAt = Date.now();
+        if (data.enrollment) {
+          data.enrollment.completedAt = Date.now();
+          // the redemption is completed, so the PIN hash that bound it to this device is no longer needed
+          delete (data.enrollment as KeptRedemption).tokenPinHash;
+        }
       }
       await state.save(data);
       // Create MemberNode and advance in-memory phase (deferred from before insurer validation)
@@ -875,7 +913,9 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       const identitySalt = data.identitySalt;
       const issued = state.useEnrollmentKey((key) => issueRecoveryCards({ enrollmentKey: key, recoveryPin, identitySalt, groupIdHash, planIdHash, domainTag: 0 }));
       try {
-        const resp = await fetch(`${insurerUrl.replace(/\/+$/, '')}/recovery/deposit`, {
+        // Signed as the wallet (round nine): the insurer files a deposit only for a request its wallet signed, checked
+        // against the key the sequencer registered for the wallet at enrollment.
+        const resp = await server.walletSignedFetch(`${insurerUrl.replace(/\/+$/, '')}/recovery/deposit`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ walletId: data.walletId, deposits: issued.deposits }),
         });

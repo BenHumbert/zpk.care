@@ -530,8 +530,11 @@ async function verifyAll(credentialWallet: string, people: Person[]) {
       String(recon?.oopPaidCents) === String(eng?.oopPaidCents) && String(recon?.deductiblePaidCents) === String(eng?.deductiblePaidCents),
       { engineOop: eng?.oopPaidCents, engineDeductible: eng?.deductiblePaidCents }, { ledgerOop: String(recon?.oopPaidCents), ledgerDeductible: String(recon?.deductiblePaidCents), claims: String(recon?.claimCount) });
   }
+  // The sequencer answers the duplicate check, whose groups name wallets, and the balance check the plan and the
+  // operator only (D1), so the harness runs the audit checks as the operator; it ran them with no credential until
+  // the review of round eight of the security fixes (2026-10-24).
   for (const mth of ['l2_verifyChainIntegrity', 'l2_verifyFinancialBalance', 'l2_detectDuplicateClaims']) {
-    const a = (await rpc(mth)).result;
+    const a = (await rpc(mth, {}, main.http, true)).result;
     t.check(mth, !!a && (a.valid === true || a.balanced === true || (Array.isArray(a.duplicates) && a.duplicates.length === 0) || a.ok === true), 'pass', a);
   }
 

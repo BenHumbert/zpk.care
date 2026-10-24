@@ -684,7 +684,7 @@ describe('Smoke — L2Node + 4 Nautilus Apps (HTTP routes)', () => {
     const log = (result.body as any).data;
     expect(log.events).toHaveLength(3);
     // Chain integrity is a separate endpoint
-    const integrity = await get(insurerPort, '/audit/chain-integrity');
+    const integrity = await get(insurerPort, '/audit/chain-integrity', { Authorization: `Bearer ${TEST_ADMIN_TOKEN}` });
     expect(integrity.status).toBe(200);
     expect((integrity.body as any).data.isValid).toBe(true);
   });

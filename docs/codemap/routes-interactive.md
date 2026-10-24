@@ -79,7 +79,7 @@ Columns: Auth = OPEN (no check in handler or server) or ADMIN (above). Checks = 
 |---|---|---|---|---|---|---|---|
 | GET | /interactive/state | OPEN. GAP: I1/I5/I6 — see field list below | — | getState | — | — | R:121-139; S:6031-6345 |
 | GET | /interactive/console | operator only: bearer, or `?token=` for a browser EventSource (the sequencer's stream gate); no node role lists it. Was OPEN | — | SSE of ConsoleEvent (also printed to stdout) | — | — | R:203-217 |
-| GET | /interactive/l2-status | OPEN | — | seq.getAllReceipts / getAllBatches / getAuditLog; node.getStatus | — | — | R:1159-1198 |
+| GET | /interactive/l2-status | GATED (A-97) | — | seq.getAllReceipts / getAllBatches / getAuditLog; node.getStatus | — | — | R:1159-1198 |
 | GET | /node/state | credential (D2), was OPEN | — | getState + seed prescriber (NPI, DEA), pharmacy (NPI, NCPDP, address, phone), medication arrays; since 2026-10-19 each medication also carries `nadacPerUnit` and `pricingUnit` (R:1665), which the pharmacy console's NADAC column reads | — | — | R:1303-1349 |
 | GET | /node/claims-by-member | credential (D2), was OPEN. GAP: I7 member claim history by walletId | walletId | seq.getClaimsByMember | — | — | R:1351-1374; SEQ:2107 |
 | GET | /node/claims-by-prescriber | credential (D2), was OPEN | walletId | seq.getClaimsByPrescriber | — | — | R:1376-1399; SEQ:2117 |

@@ -214,8 +214,10 @@ const RPC = (() => {
   }
   function getChainProof() { return call('l2_getChainProof'); }
   function verifyChainIntegrity() { return call('l2_verifyChainIntegrity'); }
-  function verifyFinancialBalance() { return call('l2_verifyFinancialBalance'); }
-  function detectDuplicateClaims() { return call('l2_detectDuplicateClaims'); }
+  // D1: the balance check's totals and the duplicate check's groups come from the audit log and answer the plan or the
+  // operator as it does, so the page sends the operator's token for them too
+  function verifyFinancialBalance() { return call('l2_verifyFinancialBalance', {}, true); }
+  function detectDuplicateClaims() { return call('l2_detectDuplicateClaims', {}, true); }
 
   // ── Claims ─────────────────────────────────────────────
   function getClaimsByMember(w) { return call('l2_getClaimsByMember', { walletId: w }); }

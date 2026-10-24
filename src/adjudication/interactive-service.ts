@@ -65,7 +65,7 @@ import { quoteNadacPrice, priceDispense, statedCostMismatch, formatFillPrice, NE
 
 // Credentials
 import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY, CREDENTIAL_TYPE_PRESCRIPTION } from '../credentials/credential-data.js';
-import { CredentialProgram, CredentialOperationProof } from '../credentials/credential-program.js';
+import { CredentialProgram, CredentialOperationProof, type CredentialOperationOutput } from '../credentials/credential-program.js';
 import { serializeCredential, verifyCredentialOffline } from '../credentials/portable-credential.js';
 import type { PortableCredential } from '../credentials/portable-credential.js';
 import { SequencerAttestationAuthority } from '../credentials/nfc-attestation.js';
@@ -2228,7 +2228,9 @@ export class AdjudicationService {
   /**
    * The device's proof that the wallet is theirs (ProofGate.verifyMember over the six salted fields),
    * verified against the compiled verification key — never `proof.verify()`, which only sets a flag.
-   * The engine keeps the proof for the portable credential and never sees a preimage (B2).
+   * The engine keeps the proof for the portable credential and never sees a preimage (B2). Its
+   * refusals depend on the request alone, never on what the engine knows of the wallet:
+   * registerMemberFromEnrollment asks it before it reads anything about the wallet.
    */
   private async verifyOwnershipProof(walletId: string, json: unknown): Promise<string> {
     if (typeof json !== 'string' || json.length === 0) {
@@ -2461,7 +2463,16 @@ export class AdjudicationService {
     const walletId = Field(BigInt(opts.walletId));
     const walletIdStr = opts.walletId.slice(0, 12) + '...';
 
-    // Already registered?
+    // B2: the engine never sees the preimage. The device proves it owns the wallet; the proof is
+    // verified here against ProofGate's verification key and kept for the portable credential.
+    // It is verified before anything about the wallet is read. The route takes no other credential,
+    // so until the proof verifies no answer may tell one wallet from another: the engine answered an
+    // enrolled wallet with its display name, and said whether the insurer had approved a wallet and
+    // whether the ledger held it, to any caller with any proof (the security review of the sweep
+    // fixes, 2026-10-24). Every refusal before this point depends on the request alone.
+    const ownershipProofJson = await this.verifyOwnershipProof(opts.walletId, opts.ownershipProofJson);
+
+    // Already registered? The device has just proved the wallet is its own.
     if (this.enrolledMembers.has(opts.walletId)) {
       const existing = this.enrolledMembers.get(opts.walletId)!;
       return { walletId: opts.walletId, displayName: existing.displayName, alreadyRegistered: true };
@@ -2483,10 +2494,6 @@ export class AdjudicationService {
     }
 
     this.emit('info', 'register', `Registering externally-enrolled member: ${opts.displayName} (${walletIdStr})`);
-
-    // B2: the engine never sees the preimage. The device proves it owns the wallet; the proof is
-    // verified here against ProofGate's verification key and kept for the portable credential.
-    const ownershipProofJson = await this.verifyOwnershipProof(opts.walletId, opts.ownershipProofJson);
 
     // Step 2 commit two (C2, A-9): the limits come from the plan the insurer approved, read from the
     // sequencer's plan store, and the network from that plan's overlay.
@@ -6878,14 +6885,38 @@ export class AdjudicationService {
     this.emit('proof', 'credential', 'Verifying credential proof offline...', 'start');
     const start = performance.now();
 
-    const valid = await verifyCredentialOffline(credential, this.credentialProgramVk);
+    // The answer speaks about the output the verified proof carries, never about the credential's publicOutput: that
+    // is a copy kept for inspection, and no verification reads it. The member was looked up by the copy, so a junk
+    // proof carrying a member's wallet answered with the member's name, and a proof that verifies, carried with a copy
+    // naming another wallet, answered valid with the other member's name and prescriptions (the security review of the
+    // sweep fixes, 2026-10-24). A copy that differs from the proven output in any field is refused, and the answer for
+    // a credential that does not verify names no member.
+    const proven = await this.provenCredentialOutput(credential, this.credentialProgramVk);
     const elapsed = performance.now() - start;
+    const output = proven ? portableOutputOf(proven) : null;
+    const copy = (credential.publicOutput ?? {}) as Record<string, unknown>;
+    const copyMatches = output !== null && Object.entries(output).every(([field, value]) => copy[field] === value);
 
-    this.emit('proof', 'credential', valid ? 'Credential VALID' : 'Credential INVALID', 'complete', elapsed);
+    this.emit('proof', 'credential', copyMatches ? 'Credential VALID' : 'Credential INVALID', 'complete', elapsed);
 
-    // Cross-reference wallet ID against enrolled members
+    if (!output || !copyMatches) {
+      const reason = output
+        ? "The credential's publicOutput is not the output its proof carries"
+        : 'The credential proof does not verify, or the credential has expired';
+      this.emit('info', 'credential', `  Result: INVALID — ${reason}`);
+      this.emitViz('viz:pharmacy:credential_scan', 'fulfillment', {
+        actor: 'Pharmacy',
+        actorType: 'pharmacy',
+        target: '',
+        targetType: 'member',
+        data: { valid: false, proofType: credential.proofType, elapsedMs: elapsed },
+      });
+      return { valid: false, reason, verificationTimeMs: elapsed };
+    }
+
+    // Cross-reference the proven wallet ID against enrolled members
     let memberDisplayName: string | undefined;
-    const walletId = credential.publicOutput.walletId;
+    const walletId = output.walletId;
     for (const [_, m] of this.enrolledMembers) {
       if (m.walletId.toString() === walletId) {
         memberDisplayName = m.displayName;
@@ -6895,41 +6926,35 @@ export class AdjudicationService {
 
     // Collect fillable prescriptions for this member (stateless — not stored)
     const memberPrescriptions: Record<string, unknown>[] = [];
-    if (valid && walletId) {
-      for (const [_, rx] of this.prescriptions) {
-        if (rx.memberWalletId === walletId &&
-            (rx.status === 'ADJUDICATED' || rx.status === 'FILLED' || rx.status === 'PARTIALLY_FILLED' || rx.status === 'DISPENSED')) {
-          const med = this.getMedicationByNdcHash(rx.ndcHash);
-          const pharm = PHARMACIES[rx.pharmacyIndex];
-          memberPrescriptions.push({
-            id: rx.id,
-            medication: med.brandName,
-            medicationStrength: med.strength,
-            ndcHash: rx.ndcHash,
-            pharmacyIndex: rx.pharmacyIndex,
-            pharmacyName: pharm.storeName,
-            quantity: rx.quantity,
-            quantityDispensed: rx.quantityDispensed,
-            status: rx.status,
-            refills: rx.refills,
-            refillsUsed: rx.refillsUsed,
-          });
-        }
+    for (const [_, rx] of this.prescriptions) {
+      if (rx.memberWalletId === walletId &&
+          (rx.status === 'ADJUDICATED' || rx.status === 'FILLED' || rx.status === 'PARTIALLY_FILLED' || rx.status === 'DISPENSED')) {
+        const med = this.getMedicationByNdcHash(rx.ndcHash);
+        const pharm = PHARMACIES[rx.pharmacyIndex];
+        memberPrescriptions.push({
+          id: rx.id,
+          medication: med.brandName,
+          medicationStrength: med.strength,
+          ndcHash: rx.ndcHash,
+          pharmacyIndex: rx.pharmacyIndex,
+          pharmacyName: pharm.storeName,
+          quantity: rx.quantity,
+          quantityDispensed: rx.quantityDispensed,
+          status: rx.status,
+          refills: rx.refills,
+          refillsUsed: rx.refillsUsed,
+        });
       }
     }
 
-    if (valid) {
-      this.emit('info', 'credential', `  Result: VALID`);
-      this.emit('info', 'credential', `  Proof type: ${credential.proofType}`);
-      this.emit('info', 'credential', `  Wallet ID: ${walletId}`);
-      if (memberDisplayName) {
-        this.emit('info', 'credential', `  Member: ${memberDisplayName} (matched)`);
-      }
-      if (memberPrescriptions.length > 0) {
-        this.emit('info', 'credential', `  Available prescriptions: ${memberPrescriptions.length}`);
-      }
-    } else {
-      this.emit('info', 'credential', '  Result: INVALID — proof verification failed');
+    this.emit('info', 'credential', `  Result: VALID`);
+    this.emit('info', 'credential', `  Proof type: ${credential.proofType}`);
+    this.emit('info', 'credential', `  Wallet ID: ${walletId}`);
+    if (memberDisplayName) {
+      this.emit('info', 'credential', `  Member: ${memberDisplayName} (matched)`);
+    }
+    if (memberPrescriptions.length > 0) {
+      this.emit('info', 'credential', `  Available prescriptions: ${memberPrescriptions.length}`);
     }
 
     // Emit credential scan VizEvent
@@ -6938,18 +6963,32 @@ export class AdjudicationService {
       actorType: 'pharmacy',
       target: memberDisplayName ?? '',
       targetType: 'member',
-      data: { valid, walletId, proofType: credential.proofType, elapsedMs: elapsed },
+      data: { valid: true, walletId, proofType: credential.proofType, elapsedMs: elapsed },
     });
 
     return {
-      valid,
-      publicOutput: credential.publicOutput,
+      valid: true,
+      publicOutput: output,
       proofType: credential.proofType,
       memberDisplayName,
-      memberWalletId: valid ? walletId : undefined,
+      memberWalletId: walletId,
       memberPrescriptions,
       verificationTimeMs: elapsed,
     };
+  }
+
+  /**
+   * The output a portable credential's proof carries, once the proof verifies; null for a proof that does not verify
+   * or cannot be read, and for a credential past its expiry. verifyCredentialOffline verifies the proof it rebuilds
+   * from proofJson; the output is read from the same JSON rebuilt the same way, so it is the statement that verified.
+   */
+  private async provenCredentialOutput(credential: PortableCredential, verificationKey: string): Promise<CredentialOperationOutput | null> {
+    if (!(await verifyCredentialOffline(credential, verificationKey))) return null;
+    try {
+      return (await CredentialOperationProof.fromJSON(credential.proofJson)).publicOutput;
+    } catch {
+      return null;
+    }
   }
 
   // ─── NFC Attestation Methods ─────────────────────────────
@@ -8157,6 +8196,17 @@ function serializeCredentialData(cred: CredentialData): Record<string, string> {
     expiresAt: fieldToStr(cred.expiresAt),
     revoked: fieldToStr(cred.revoked),
     commitment: fieldToStr(cred.commitment()),
+  };
+}
+
+/** A credential proof's output written as a portable credential writes its publicOutput copy (serializeCredential). */
+function portableOutputOf(output: CredentialOperationOutput): PortableCredential['publicOutput'] {
+  return {
+    walletId: fieldToStr(output.walletId),
+    operationType: fieldToStr(output.operationType),
+    credentialCommitment: fieldToStr(output.credentialCommitment),
+    oldInventoryRoot: fieldToStr(output.oldInventoryRoot),
+    newInventoryRoot: fieldToStr(output.newInventoryRoot),
   };
 }
 

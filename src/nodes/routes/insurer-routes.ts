@@ -22,8 +22,8 @@
  *
  * Capabilities:
  *   - System-wide queries (receipts, batches, audit log, chain proof)
- *   - Entity-filtered claim queries (member, prescriber, pharmacy, drug)
- *   - Full audit suite (chain integrity, financial balance, duplicates)
+ *   - Entity-filtered claim queries (member, prescriber, pharmacy, drug), behind the node's admin credential
+ *   - Full audit suite (chain integrity, financial balance, duplicates), behind the node's admin credential
  *   - 12 report types (claims register, pharmacy/prescriber/member activity, etc.), behind the node's admin credential
  *   - Admin operations (formulary publish, force batch, enrollment processing)
  *   - The prior-authorization queue: the engine's pending requests, approved or denied by the insurer
@@ -35,7 +35,8 @@ import type { BenefitPlanConfig } from '../insurer-node.js';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
 import { PROVING_BUDGET_MS, type RouteRegistration } from '../nautilus-app-types.js';
 import type { KeyObject } from 'crypto';
-import { signRequest } from '../../security/signed-request.js';
+import { ReplayCache, signRequest, signerIdFromHeaders, verifySignedRequest } from '../../security/signed-request.js';
+import { cachedRequestBody } from '../../security/request-body.js';
 import { randomBytes, timingSafeEqual } from 'crypto';
 import { hashString } from '../../zkp/hash-utils.js';
 import { buildPlanFormulary, planNetworkRoot, type PlanFormulary } from '../../onboarding/plan-formulary.js';
@@ -74,7 +75,10 @@ import { ReportTooLargeError } from '../../reporting/reporting-service.js';
 interface RedeemedCode {
   /** The wallet bound at /enrollment/complete; null between redemption and completion (C2). */
   walletId: string | null;
-  /** The PIN hash the code was redeemed with, so a repeat from the same device is answered and a code-only holder is not. */
+  /**
+   * The PIN hash the code was redeemed with: a repeat from the same device is answered, the completion must present it
+   * (round nine), and a holder of the code alone gets neither.
+   */
   pinHash: string | null;
   employerId: string | null;
   groupIdHash: string | null;
@@ -688,6 +692,23 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   const REDEMPTIONS_PER_SOURCE_PER_MINUTE = 10;
   const redemptionsPerSource = new SlidingWindowLimiter(REDEMPTIONS_PER_SOURCE_PER_MINUTE, 60_000);
 
+  // Round nine: the PIN hash a code was redeemed with completes its enrollment (/enrollment/complete), and a repeat of
+  // the redemption is answered against it. An enrollment PIN is eight digits, so a holder of the code alone who could
+  // present hashes freely would find the PIN in at most 10^8 tries, and with it enroll a wallet of their own if the
+  // member stopped between redeeming and completing. So a code may be presented with a PIN hash it was not redeemed
+  // with five times an hour, the five wrong PINs the employer allows a code, counting a completion refused for any
+  // reason (no such redemption, another PIN hash, another wallet) and a repeat of a redemption with another PIN hash.
+  // Past that both routes answer 429 for the code without comparing anything, to the device that redeemed it as well,
+  // for the rest of the hour: the trade the employer's lock after five wrong PINs makes for good. Completion counts
+  // every code alike, redeemed or not, so its limit says nothing about which codes were redeemed. A refused completion
+  // also counts against its source, ten a minute, so one client cannot fill this node's memory with counts for codes it
+  // makes up.
+  const PIN_HASH_MISSES_PER_CODE_PER_HOUR = 5;
+  const pinHashMisses = new SlidingWindowLimiter(PIN_HASH_MISSES_PER_CODE_PER_HOUR, 3_600_000);
+  const REFUSED_COMPLETIONS_PER_SOURCE_PER_MINUTE = 10;
+  const refusedCompletionsPerSource = new SlidingWindowLimiter(REFUSED_COMPLETIONS_PER_SOURCE_PER_MINUTE, 60_000);
+  const TOO_MANY_FOR_CODE = 'Too many attempts with this enrollment code in the last hour. Try again in an hour.';
+
   routes.push({
     method: 'POST',
     path: '/enrollment/process',
@@ -717,7 +738,14 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       const redeemed = redeemedCodes(server);
       const prior = redeemed.get(code);
       if (prior) {
+        // A repeat with another PIN hash is a guess at the PIN that completes the code, so it counts against the code
+        // (pinHashMisses), and past the limit no hash is compared.
+        if (pinHashMisses.count(code) >= PIN_HASH_MISSES_PER_CODE_PER_HOUR) {
+          res.setHeader('Retry-After', '3600');
+          return server.sendResponse(res, 429, false, undefined, TOO_MANY_FOR_CODE);
+        }
         if (!prior.pinHash || !sameHex(prior.pinHash, b.tokenPinHash)) {
+          pinHashMisses.allow(code);
           return server.sendResponse(res, 403, false, undefined, 'Enrollment denied: this enrollment code has already been used.');
         }
         console.log('[enrollment] Code already redeemed with this PIN; answering the same group and plan');
@@ -759,15 +787,28 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   });
 
   // ── Enrollment completion: the wallet, and the recovery deposits (C2, A12b) ──
+  /*
+   * Round nine (the confused-deputy sweep of round eight, 2026-10-24): only the device that redeemed a code completes
+   * it. Completion took the code and a wallet ID and nothing else, so between a member's redemption and the device's
+   * completion anyone who knew the code alone could complete it for a wallet of their own: this node approved that
+   * wallet with the engine, signed with its own key, into the member's plan, group and family, and the member's device
+   * was then refused the code as used. Its answers also told codes apart: 404 for a code never redeemed, 403 for one
+   * completed for another wallet, 200 for one awaiting its device. Now the device sends the PIN hash it redeemed the
+   * code with, which this node kept with the redemption and which only a holder of the PIN can make. A request without
+   * it or with another, for a code no device redeemed, or for a wallet other than the one the code enrolled, is answered
+   * the same 403, and the code waits for its device. Each refusal is a guess at the PIN, so it counts against the code
+   * and the source (pinHashMisses, refusedCompletionsPerSource).
+   */
+  const NOT_COMPLETED = 'Enrollment denied: this enrollment code has not been redeemed with this PIN, or has already been used.';
   routes.push({
     method: 'POST',
     path: '/enrollment/complete',
-    handler: async (_req, res, _params, _query, body) => {
+    handler: async (req, res, _params, _query, body) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) {
         return server.sendResponse(res, 503, false, undefined, 'Insurer node not configured');
       }
-      const b = body as { tokenId?: string; walletId?: string; role?: string; recoveryDeposits?: unknown } | undefined;
+      const b = body as { tokenId?: string; tokenPinHash?: string; walletId?: string; role?: string; recoveryDeposits?: unknown } | undefined;
       if (typeof b?.walletId !== 'string' || !DECIMAL.test(b.walletId)) {
         return server.sendResponse(res, 400, false, undefined, 'Missing walletId');
       }
@@ -775,12 +816,22 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         return server.sendResponse(res, 400, false, undefined, 'An enrollment code is required.');
       }
       const code = canonicalizeEnrollmentCode(b.tokenId) ?? b.tokenId.trim();
-      const rec = redeemedCodes(server).get(code);
-      if (!rec) {
-        return server.sendResponse(res, 404, false, undefined, 'This enrollment code has not been redeemed. Redeem it first.');
+      const source = server.callerKey(req);
+      if (refusedCompletionsPerSource.count(source) >= REFUSED_COMPLETIONS_PER_SOURCE_PER_MINUTE) {
+        res.setHeader('Retry-After', '60');
+        return server.sendResponse(res, 429, false, undefined,
+          'Too many refused enrollment completions from this address in the last minute. Try again in a minute.');
       }
-      if (rec.walletId && rec.walletId !== b.walletId) {
-        return server.sendResponse(res, 403, false, undefined, 'Enrollment denied: this enrollment code has already been used.');
+      if (pinHashMisses.count(code) >= PIN_HASH_MISSES_PER_CODE_PER_HOUR) {
+        res.setHeader('Retry-After', '3600');
+        return server.sendResponse(res, 429, false, undefined, TOO_MANY_FOR_CODE);
+      }
+      const rec = redeemedCodes(server).get(code);
+      const presented = typeof b.tokenPinHash === 'string' ? b.tokenPinHash : '';
+      if (!rec || !rec.pinHash || presented.length === 0 || !sameHex(rec.pinHash, presented) || (rec.walletId && rec.walletId !== b.walletId)) {
+        refusedCompletionsPerSource.allow(source);
+        pinHashMisses.allow(code);
+        return server.sendResponse(res, 403, false, undefined, NOT_COMPLETED);
       }
       const deposits = b.recoveryDeposits === undefined ? [] : parseDeposits(b.recoveryDeposits);
       if (deposits === null) {
@@ -914,16 +965,91 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   }
   routes.push({ method: 'POST', path: '/recovery/release', handler: (req, res, _p, _q, body) => releaseOrRevoke(req, res, body, 'release') });
   routes.push({ method: 'POST', path: '/recovery/revoke', handler: (req, res, _p, _q, body) => releaseOrRevoke(req, res, body, 'revoke') });
+
+  /*
+   * Deposits for cards issued after enrollment (a lost card replaced, or one revoked) come from the member's own device,
+   * signed as the wallet (round nine). The route took the wallet ID from the body and nothing else, and answered 201 for a
+   * wallet this node enrolled and 404 for any other, so anyone could tell which wallet IDs the insurer had enrolled and
+   * file deposits of their own against any of them, without limit; and with a card's ID, which is on the card, replace
+   * its deposit, after which the member's card released nothing and a card the member had revoked released what the
+   * caller filed (the confused-deputy sweep of round eight, 2026-10-24). None of that recovers the member's wallet, since
+   * a release hands back only what was filed and a card's share recombines only with its own, but the route spoke for the
+   * member without the member. Now the device signs the request with the wallet's own key (A10b), and this node verifies
+   * the signature over the body it received against the key the sequencer registered for that wallet, inside the window
+   * and once. Only the device holds that key: it derives it from the enrollment key, and a recovered device derives the
+   * same one. The member's attestation would not do, since it is the tap a pharmacy reads from the member's card, so
+   * anyone who has read the card holds it. A request not signed so and a signed one for a wallet this node did not enroll
+   * get the same 403, and enrollment is looked at only once the signature holds, so only the wallet learns its own.
+   */
+  const DEPOSIT_REFUSED = 'Recovery deposits are filed only by an enrolled wallet, signed with its own key.';
+  /** How long one read of the sequencer's entity registry answers for, so a stream of deposits reads it once in ten seconds. */
+  const SIGNING_KEYS_TTL_MS = 10_000;
+  let signingKeys: { byWallet: Map<string, string>; readAt: number } | null = null;
+  let signingKeysReading: Promise<Map<string, string> | null> | null = null;
+  const depositSignatures = new ReplayCache();
+
+  /** The wallets' signing keys as the sequencer registered them, read with this node's key; null when it could not be read. */
+  async function readSigningKeys(): Promise<Map<string, string> | null> {
+    try {
+      const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+      // The plan reads the entity registry (D1, node-roles.ts); each entry carries the key its wallet registered.
+      const resp = await server.signedFetch(`${seqUrl}/viz/entities`, { signal: AbortSignal.timeout(5000) });
+      if (!resp.ok) return null;
+      const entities = await resp.json() as unknown;
+      const byWallet = new Map<string, string>();
+      for (const e of Array.isArray(entities) ? entities as Array<{ walletId?: unknown; signingPublicKeyHex?: unknown }> : []) {
+        if (e && typeof e.walletId === 'string' && typeof e.signingPublicKeyHex === 'string') byWallet.set(e.walletId, e.signingPublicKeyHex);
+      }
+      signingKeys = { byWallet, readAt: Date.now() };
+      return byWallet;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Whether a request is the wallet's own: signed by `walletId` with the key the sequencer registered for it, over the
+   * body this node received, inside the window and not presented before. Undefined when the sequencer could not be read.
+   */
+  async function signedByWallet(req: IncomingMessage, body: unknown, walletId: string): Promise<boolean | undefined> {
+    if (signerIdFromHeaders(req.headers) !== walletId) return false;
+    let keys = signingKeys && Date.now() - signingKeys.readAt < SIGNING_KEYS_TTL_MS ? signingKeys.byWallet : null;
+    if (!keys) {
+      signingKeysReading ??= readSigningKeys().finally(() => { signingKeysReading = null; });
+      keys = await signingKeysReading;
+    }
+    if (!keys) return undefined;
+    let path: string;
+    try { path = new URL(req.url ?? '/', 'http://localhost').pathname; } catch { path = req.url ?? '/'; }
+    // The bytes that arrived when the server read them; a handler called with a parsed body alone has its JSON.
+    const received = cachedRequestBody(req);
+    const text = received ? await received : body === undefined ? '' : JSON.stringify(body);
+    return verifySignedRequest({
+      method: 'POST', path, headers: req.headers, expectedSignerId: walletId, publicKeyHex: keys.get(walletId) ?? '',
+      body: text, replayCache: depositSignatures,
+    }).ok;
+  }
+
   routes.push({
     method: 'POST',
     path: '/recovery/deposit',
-    handler: async (_req, res, _params, _query, body) => {
+    handler: async (req, res, _params, _query, body) => {
+      // The recovery routes' limit per caller: a signed request costs a read of the sequencer's registry, at most one in
+      // ten seconds.
+      if (!recoveryPerCaller(server).allow(server.callerKey(req))) {
+        res.setHeader('Retry-After', '60');
+        return server.sendResponse(res, 429, false, undefined, 'Too many recovery requests. Try again in a minute.');
+      }
       const b = body as { walletId?: string; deposits?: unknown } | undefined;
       if (typeof b?.walletId !== 'string' || !DECIMAL.test(b.walletId)) return server.sendResponse(res, 400, false, undefined, 'Missing walletId');
-      const registry = (server as any).__enrollmentRegistry as Map<string, unknown> | undefined;
-      if (!registry?.has(b.walletId)) return server.sendResponse(res, 404, false, undefined, 'No enrollment for this wallet');
       const deposits = parseDeposits(b.deposits);
       if (!deposits || deposits.length === 0) return server.sendResponse(res, 400, false, undefined, 'deposits must be a non-empty list');
+      const signed = await signedByWallet(req, body, b.walletId);
+      if (signed === undefined) {
+        return server.sendResponse(res, 502, false, undefined, 'Cannot reach the sequencer to check the wallet\'s signature. Try again later.');
+      }
+      const registry = (server as any).__enrollmentRegistry as Map<string, unknown> | undefined;
+      if (!signed || !registry?.has(b.walletId)) return server.sendResponse(res, 403, false, undefined, DEPOSIT_REFUSED);
       const filed = fileDeposits(server, b.walletId, deposits);
       await persistRecoveryDeposits(server);
       server.sendResponse(res, 201, true, { recoveryCards: filed });
@@ -1064,6 +1190,8 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'GET',
     path: '/batches/all',
+    // Open: a batch carries roots, counts and its proofs and names no wallet, and the sequencer answers l2_getAllBatches
+    // to any caller, as the engine's copy (/node/all-batches) does.
     handler: async (_req, res, _params, query) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
@@ -1102,6 +1230,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'GET',
     path: '/chain-proof',
+    // Open, as /batches/all is: roots and a proof, no wallet, and the sequencer answers l2_getChainProof to any caller.
     handler: async (_req, res) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
@@ -1136,9 +1265,19 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     },
   });
 
+  /*
+   * The prescriber, pharmacy and drug reads are D1 reads as well: the sequencer answers l2_getClaimsByPrescriber and
+   * l2_getClaimsByPharmacy only to the provider itself, the plan and the operator, and l2_getClaimsByNdc only to the plan
+   * and the operator, and this node asks each with the plan's key. A-43 gated the member read above and left these three
+   * open, though every claim view they return names its member's wallet beside the drug, its name, the date of service
+   * and the amounts. So anything that reached this port, the origin that also serves the marketplace's public pages,
+   * read the claims of every member a pharmacy filled for, a prescriber wrote for or a drug went to (the security review
+   * of the sweep fixes, 2026-10-24). Each takes this node's admin credential now, as the member read does.
+   */
   routes.push({
     method: 'GET',
     path: '/claims/prescriber/:walletId',
+    adminOnly: true, // D1: read as the plan, and each claim names its member (see above)
     handler: async (_req, res, params) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
@@ -1153,6 +1292,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'GET',
     path: '/claims/pharmacy/:walletId',
+    adminOnly: true, // D1: read as the plan, and each claim names its member (see /claims/prescriber/:walletId)
     handler: async (_req, res, params) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
@@ -1167,6 +1307,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'GET',
     path: '/claims/drug/:ndcHash',
+    adminOnly: true, // D1: an enumeration the sequencer answers only the plan and the operator
     handler: async (_req, res, params) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
@@ -1182,9 +1323,19 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   //  AUDIT
   // ══════════════════════════════════════════════════════════
 
+  /*
+   * The three checks below read the sequencer's whole audit log (l2_getAuditLog), an enumeration it answers only the plan
+   * and the operator, with this node's key, and took no credential (the security review of the sweep fixes, 2026-10-24).
+   * The duplicate check answered anyone each suspected duplicate's member wallet, drug and date of service with its
+   * receipts. The balance and chain checks answer totals, counts, sequence numbers and receipt IDs, which name no member,
+   * but each call still read every member's audit events as the plan and computed over all of them on this node's one
+   * thread, the chain check hashing each one again, for any caller as often as it liked. All three take this node's admin
+   * credential now, as /audit/log and /audit/full do.
+   */
   routes.push({
     method: 'GET',
     path: '/audit/chain-integrity',
+    adminOnly: true, // reads every member's audit events as the plan (see above)
     handler: async (_req, res) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
@@ -1199,6 +1350,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'GET',
     path: '/audit/financial-balance',
+    adminOnly: true, // reads every member's audit events as the plan (see /audit/chain-integrity)
     handler: async (_req, res) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
@@ -1213,6 +1365,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'GET',
     path: '/audit/duplicate-claims',
+    adminOnly: true, // each duplicate names its member's wallet, drug and date of service
     handler: async (_req, res) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
@@ -2472,9 +2625,17 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   //  MESSAGING (Read-Only — system-wide queries)
   // ══════════════════════════════════════════════════════════
 
+  /*
+   * This node holds no wallet, so it reads a wallet's messages and a thread with its own key, which the sequencer answers
+   * as the plan: every message the wallet sent or received, or every message in the thread, each naming its sender's and
+   * recipient's wallets beside the payload. Both took no credential (the security review of the sweep fixes, 2026-10-24)
+   * and take this node's admin credential now. The store's status stays open: its root and message count name no wallet,
+   * and the sequencer answers l2_getMessageStoreRoot to any caller.
+   */
   routes.push({
     method: 'GET',
     path: '/messaging/wallet/:walletId',
+    adminOnly: true, // D1: any wallet's messages, read as the plan
     handler: async (_req, res, params, query) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
@@ -2492,6 +2653,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   routes.push({
     method: 'GET',
     path: '/messaging/thread/:threadIdHash',
+    adminOnly: true, // D1: the whole thread, read as the plan
     handler: async (_req, res, params, query) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
