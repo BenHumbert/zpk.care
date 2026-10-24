@@ -321,18 +321,39 @@
    * What erasing the device costs the member's enrollment code, by the device's phase (the review of the relay fix,
    * A-93). Until the insurer redeems the code, the employer still holds it unused and the same code and PIN enroll
    * again; the confirm said a new code was needed whatever the phase, which sent a member whose code was never redeemed
-   * back to the employer for nothing. Once a wallet is enrolled with it the code is spent. In between, the insurer
-   * answers the same code and PIN again only while no wallet is enrolled with them, so a new code may be needed.
+   * back to the employer for nothing. Once a wallet is enrolled with it the code is spent. In between, the insurer has
+   * recorded the redemption, so a new code may be needed.
    *
    * The insurer's refusal leaves the device in key_generated as well, and the device answers every refusal alike: a
    * wrong PIN, a code locked after five wrong ones, expired, revoked, already used, or one no employer recognizes. So
    * once step 4 has seen one (`refused`, from the device's 403 to the redeem), the note says the insurer refused the code
    * and a new one may be needed, never that the same code still works (the security review of the sweep fixes). Only
    * this page knows of the refusal, since the device keeps no record of one, so a reload forgets it.
+   *
+   * Round ten made erasing cost more (A-108): the device keeps a secret from its first redemption of the code until the
+   * insurer completes the code, the insurer answers a repeat of the redemption only for that secret's commitment, and
+   * erasing the device destroys the secret. So a redemption the insurer recorded but whose answer never reached the
+   * device, which answered 502 and stayed in key_generated, is finished by this device's Retry and by nothing after Start
+   * over, and the note promised the same code there (the review of round ten of the security fixes). The note now
+   * promises the same code only where no redemption can have been sent from this device: in awaiting_token or
+   * token_received, which come before the device makes its secret, on a page that has sent no redeem (`sent`, set as
+   * step 4 sends one). In key_generated, once step 4 has sent one, any answer short of the insurer's refusal (a 502,
+   * another 5xx, a 429, no answer, or none yet) leaves what the insurer recorded unknown, so the note says the insurer
+   * may have recorded the code, that Retry is the way on, and that starting over may mean a new code from HR. A page that
+   * has sent none cannot tell whether a device in key_generated did (after a reload, or in another tab), and step 4 sends
+   * the redeem as soon as the key is made, so the note says one may have been sent and a new code may be needed; so does
+   * a page whose redeem went to a device since erased from another tab, which is back before its key.
    */
-  function startOverCodeNote(phase, refused) {
+  function startOverCodeNote(phase, refused, sent) {
     if (phase === 'awaiting_token' || phase === 'token_received' || phase === 'key_generated') {
       if (refused) return 'The insurer refused your enrollment code and PIN, so you may need a NEW code from HR to start over.';
+      if (sent && phase === 'key_generated') {
+        return 'This device sent your enrollment code to the insurer without learning whether it was recorded. If it was, ' +
+          'only this device can finish enrolling with it, so Retry is the way on: starting over may mean asking HR for a NEW code.';
+      }
+      if (sent || phase === 'key_generated') {
+        return 'This device may already have sent your enrollment code to the insurer, so you may need a NEW code from HR to start over.';
+      }
       return 'Your enrollment code has not been redeemed, so you can start over with the same code and its PIN.';
     }
     if (phase === 'enrolled' || phase === 'compiling' || phase === 'ready') {
@@ -348,7 +369,7 @@
     if (!confirm(
       'This will permanently erase all enrollment data on this device — ' +
       'including your wallet, enrollment key, and any saved credentials.\n\n' +
-      startOverCodeNote(phase, onboardState.codeRefused) + '\n\n' +
+      startOverCodeNote(phase, onboardState.codeRefused, onboardState.redeemSent) + '\n\n' +
       'This cannot be undone unless you have an NFC backup card.\n\nContinue?'
     )) return;
 
@@ -392,7 +413,7 @@
     recoveryCards: null,
       pin: '', tokenId: '', enrollPIN: '', cardholderId: '', firstName: '', lastName: '', dob: '',
       enrollmentKey: '', walletId: '', preimageFields: null,
-      statusMessage: '', error: '', keyError: '', codeRefused: false,
+      statusMessage: '', error: '', keyError: '', codeRefused: false, redeemSent: false,
     };
     toast('All enrollment data erased. Starting fresh.', 'info');
     showScreen('landing-screen');
@@ -420,7 +441,7 @@
     recoveryCards: null,
     pin: '', tokenId: '', enrollPIN: '', cardholderId: '', firstName: '', lastName: '', dob: '',
     enrollmentKey: '', walletId: '', preimageFields: null,
-    statusMessage: '', error: '', keyError: '', codeRefused: false,
+    statusMessage: '', error: '', keyError: '', codeRefused: false, redeemSent: false,
   };
 
   function renderOnboardStep() {
@@ -664,6 +685,9 @@
       if (steps.indexOf('redeem') >= 0) {
         // C2: redeem the code with the insurer first; the wallet is bound to the group it answers.
         if ($('ob-keygen-msg')) $('ob-keygen-msg').textContent = 'Redeeming the enrollment code with the insurer...';
+        // Kept for Start over before the redeem goes: from here the insurer may record the code for this device alone,
+        // whatever comes back short of its refusal, and erasing the device would lose it (the review of round ten).
+        onboardState.redeemSent = true;
         var redeemResp = await fetch(location.origin + '/onboarding/redeem', {
           method: 'POST', headers: RPC.deviceHeaders(),
           body: JSON.stringify({ tokenPIN: onboardState.enrollPIN }),

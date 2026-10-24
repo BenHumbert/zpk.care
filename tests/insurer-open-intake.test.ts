@@ -89,6 +89,13 @@
  * can check it. A 4xx refusal keeps the refused message. In those tests the insurer is a real insurer node relaying to an
  * employer that is not listening, to a stand-in employer that answers 429 or 503, or, with no employer configured, to
  * the employers a stand-in sequencer lists, which are none; one stand-in insurer answers 503 with a Retry-After.
+ *
+ * The review of round nine of the security fixes, 2026-10-24, bound an enrollment's completion to a secret the
+ * redeeming device keeps (A-108, tests/enrollment-complete-binding.test.ts), so every redemption now carries the
+ * SHA-256 of that secret, and the redemptions sent here directly carry one. A redemption without it is refused 400 for
+ * what it says: it asks no employer and counts against nothing. The same review found the device telling the insurer's
+ * per-network 429 apart from its 429 for a code with too many wrong attempts, which enrollment-complete-binding tests;
+ * the per-network one keeps the message tested here.
  */
 import fs from 'fs';
 import http from 'http';
@@ -120,6 +127,8 @@ const TOO_MANY_ATTEMPTS = 'Too many enrollment attempts came from this network. 
 const COULD_NOT_CHECK = 'The insurer could not check this enrollment code now. Try again later.';
 /** The insurer's request-signing seed. The real employer node's attestation names the key it derives. */
 const INSURER_SEED = 'insurer-signing-seed-for-open-intake';
+/** The commitment a redemption carries to the secret its device keeps for the completion (A-108): any 64 hex will do here. */
+const COMMITMENT = 'c0'.repeat(32);
 const OPEN_FROM_SOURCE = 'Too many open employer applications from this address. Apply again once the insurer decides one.';
 const HOURLY = 'Too many employer applications from this address in the last hour. Try again in an hour.';
 const FULL = 'The insurer holds as many open employer applications as it keeps: apply again once some are decided';
@@ -249,7 +258,7 @@ describe('POST /enrollment/process: the codes one source may have the insurer as
   /** The redemption route of a fresh insurer node, whose limits start empty, with the stand-in configured as its employer. */
   const redemption = () => redemptionAt(employer.url());
   /** A code no employer issued, as a client trying codes sends one. */
-  const junk = () => ({ tokenId: generateEnrollmentCode('EMP-NOBODY'), tokenPinHash: '4242' });
+  const junk = () => ({ tokenId: generateEnrollmentCode('EMP-NOBODY'), tokenPinHash: '4242', completionCommitment: COMMITMENT });
 
   test('a source past ten codes a minute is answered 429 with Retry-After and relays nothing, and another source\'s code still reaches the employer', async () => {
     const redeem = redemption();
@@ -272,21 +281,24 @@ describe('POST /enrollment/process: the codes one source may have the insurer as
     expect((await redeem(from('2001:db8:85a3:13::1'), junk())).status).toBe(403);
   });
 
-  test('a request refused for what it says, and a repeat of a redeemed code with its PIN hash, which is answered from the record, count against nothing', async () => {
+  test('a request refused for what it says, and a repeat of a redeemed code with its PIN hash and commitment, which is answered from the record, count against nothing', async () => {
     const redeem = redemption();
     const source = from('203.0.113.20');
-    // What the pharmacy and prescriber nodes send when they enroll (a wallet and a code, no PIN hash), and no code at all.
+    // What the pharmacy and prescriber nodes send when they enroll (a wallet and a code, no PIN hash), no code at all,
+    // and a code and PIN hash with no commitment to the device's secret (A-108).
+    const before = asked.length;
     for (let i = 0; i < 6; i++) {
       expect((await redeem(source, { walletId: '42', tokenId: generateEnrollmentCode('EMP-NOBODY'), role: 'pharmacy' })).status).toBe(400);
       expect((await redeem(source, { tokenPinHash: '4242' })).status).toBe(400);
+      expect((await redeem(source, { tokenId: generateEnrollmentCode('EMP-NOBODY'), tokenPinHash: '4242' })).status).toBe(400);   // before: 403, relayed to the employer and counted against the source
     }
+    expect(asked.length - before).toBe(0);   // before: 6, each code without a commitment relayed
     const code = generateEnrollmentCode('EMP-ISSUER');
     issued.add(code);
-    const before = asked.length;
-    const first = await redeem(source, { tokenId: code, tokenPinHash: '4242' });
+    const first = await redeem(source, { tokenId: code, tokenPinHash: '4242', completionCommitment: COMMITMENT });
     expect([first.status, first.data?.redeemed]).toEqual([200, true]);
     for (let i = 0; i < 12; i++) {
-      const again = await redeem(source, { tokenId: code, tokenPinHash: '4242' });
+      const again = await redeem(source, { tokenId: code, tokenPinHash: '4242', completionCommitment: COMMITMENT });
       expect([again.status, again.data?.repeated]).toEqual([200, true]);
     }
     expect(asked.length - before).toBe(1);
@@ -358,7 +370,7 @@ describe('POST /enrollment/process: relays of one code and PIN hash signed in on
   /** The PIN hash the employer node's one code is bound to, which the member it was issued to sends. */
   const MEMBER_PIN_HASH = 'pin-hash-of-the-member-the-code-was-issued-to';
   /** A code no employer issued, and a PIN hash, as many sources send them at once. */
-  const copy = () => ({ tokenId: generateEnrollmentCode('EMP-NOBODY'), tokenPinHash: '4242' });
+  const copy = () => ({ tokenId: generateEnrollmentCode('EMP-NOBODY'), tokenPinHash: '4242', completionCommitment: COMMITMENT });
 
   test('two sources sending one code and PIN hash at once have the insurer sign two different relays, and the employer answers each on its merits', async () => {
     const employer = await startedEmployer(MEMBER_PIN_HASH);
@@ -386,7 +398,7 @@ describe('POST /enrollment/process: relays of one code and PIN hash signed in on
       const answers = await inOneMillisecond(Date.now(), () => Promise.all(Array.from({ length: 61 }, (_, i) => redeem(from(`198.51.100.${100 + i}`), body))));
       expect(answers.filter((r) => r.status === 403 && r.error === NOT_RECOGNIZED)).toHaveLength(61);   // before: 1, the other 60 answered 502
       expect(employer.received.filter((r) => r.status === 401)).toHaveLength(0);   // before: 60, each a copy refused as a replay and charged to the insurer's caller key
-      const member = await redeem(from('203.0.113.60'), { tokenId: employer.code, tokenPinHash: MEMBER_PIN_HASH });
+      const member = await redeem(from('203.0.113.60'), { tokenId: employer.code, tokenPinHash: MEMBER_PIN_HASH, completionCommitment: COMMITMENT });
       expect([member.status, member.data?.redeemed]).toEqual([200, true]);   // before: [502, undefined], the employer having refused the insurer 429 before checking its signature
     } finally {
       await employer.stop();

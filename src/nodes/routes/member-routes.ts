@@ -28,6 +28,7 @@
  *   - secureMemberDerivation() immediately scrubs the input
  *   - The enrollment key NEVER appears in any API response
  */
+import { createHash, randomBytes } from 'crypto';
 import { Encoding, Field, Poseidon } from 'o1js';
 import { generateEnrollmentKey, generateIdentitySalt } from '../../wallets/wallet-derivation.js';
 import { hashString, isIdentitySalt } from '../../zkp/hash-utils.js';
@@ -49,19 +50,17 @@ import { MemberNode } from '../member-node.js';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
 import { PROVING_BUDGET_MS, type RouteRegistration } from '../nautilus-app-types.js';
 import type { MemberLocalData } from '../../models/member.js';
-import { PinAttemptThrottled, type NautilusStateData } from '../nautilus-local-state.js';
+import { PinAttemptThrottled } from '../nautilus-local-state.js';
 import { planAsPublished } from '../../l2/plan-terms.js';
 import type { BenefitPlanConfig } from '../../l2/l2-types.js';
 
 /** Domain tag for members */
 const DOMAIN_TAG_MEMBER = 0;
 
-/**
- * The redemption as the device keeps it until the insurer completes the enrollment: the insurer's answer, and the PIN
- * hash the code was redeemed with, which the completion presents so the insurer knows it comes from the device that
- * redeemed the code (round nine). The device drops the hash once it is enrolled.
- */
-type KeptRedemption = NonNullable<NautilusStateData['enrollment']> & { tokenPinHash?: string };
+/** A-108: the commitment the redemption carries for a completion secret, the SHA-256 of its 32 bytes in hex. */
+function completionCommitmentOf(secret: string): string {
+  return createHash('sha256').update(Buffer.from(secret, 'hex')).digest('hex');
+}
 
 /**
  * Build all member routes. The server reference is captured in closures
@@ -381,6 +380,8 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
   // wallet's inputs. The insurer redeems the code with the issuing employer (A6) and answers the
   // group and plan hashes; the wallet is bound to them at derivation, and `/onboarding/enroll`
   // then binds the wallet to this redemption. The device never sends a wallet before it has one.
+  // The redemption carries the commitment to a secret the device keeps, and the completion the
+  // secret itself, so the insurer completes the code for this device alone (A-108).
   routes.push({
     method: 'POST',
     path: '/onboarding/redeem',
@@ -408,24 +409,42 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         Field(0),
         ...Encoding.stringToFields(b.tokenPIN),
       ]).toString();
+      // A-108: the secret the completion presents is made at the code's first redemption and saved before the insurer
+      // is asked. Every redemption carries its SHA-256, which the insurer keeps and relays to no employer, so one asked
+      // again (the insurer's answer never arrived, or the device stopped before it saved it) carries the commitment the
+      // insurer recorded and is answered from its record. A secret made afresh for each attempt would leave a redemption
+      // the insurer had recorded completable by no one.
+      if (!data.completionSecret) {
+        data.completionSecret = randomBytes(32).toString('hex');
+        await state.save(data);
+      }
+      const completionCommitment = completionCommitmentOf(data.completionSecret);
       let answer: { groupIdHash?: string; planIdHash?: string; employerId?: string | null } | undefined;
       try {
         const resp = await fetch(`${insurerUrl.replace(/\/+$/, '')}/enrollment/process`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tokenId: data.onboarding.tokenId, tokenPinHash, role: 'member' }),
+          body: JSON.stringify({ tokenId: data.onboarding.tokenId, tokenPinHash, completionCommitment, role: 'member' }),
         });
         if (!resp.ok) {
           const text = await resp.text().catch(() => '');
           console.warn('[redeem] The insurer did not redeem the enrollment code:', resp.status, text);
           const retryAfter = resp.headers.get('retry-after');
           const wait = retryAfter !== null && /^\d+$/.test(retryAfter) ? retryAfter : null;
-          // The insurer's 429 is its limit on the codes one network may send it in a minute, not a verdict on this code
-          // and PIN. Told the code and PIN were refused, a member who was only limited would try other PINs, and the
-          // employer locks a code after five wrong ones. So the member is told to wait, with the insurer's Retry-After
-          // when it gives one in seconds.
+          // The insurer's 429 is no verdict on this code and PIN. Told the code and PIN were refused, a member who was
+          // only limited would try other PINs, and the employer locks a code after five wrong ones. So the member is told
+          // to wait, with the insurer's Retry-After when it gives one in seconds. One such 429 is the insurer's limit on
+          // the codes one network may send it in a minute. The other (the review of round nine, A-108) is its limit on
+          // wrong attempts with this code, which refuses the code for up to an hour from every network and which the
+          // insurer marks with an errorCode; told to try again in a minute, a member would keep retrying for the hour.
           if (resp.status === 429) {
             if (wait) res.setHeader('Retry-After', wait);
+            let errorCode: unknown;
+            try { errorCode = (JSON.parse(text) as { data?: { errorCode?: unknown } } | null)?.data?.errorCode; } catch { errorCode = undefined; }
+            if (errorCode === 'TOO_MANY_FOR_CODE') {
+              return server.sendResponse(res, 429, false, undefined,
+                'This enrollment code has had too many wrong attempts in the last hour. Try again in an hour, or ask HR for a new code.');
+            }
             return server.sendResponse(res, 429, false, undefined,
               'Too many enrollment attempts came from this network. Try again in a minute.');
           }
@@ -450,8 +469,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       if (!answer?.groupIdHash || !/^\d+$/.test(answer.groupIdHash) || !answer.planIdHash || !/^\d+$/.test(answer.planIdHash)) {
         return server.sendResponse(res, 502, false, undefined, 'The insurer answered without the group and plan this code enrols into.');
       }
-      const kept: KeptRedemption = { groupIdHash: answer.groupIdHash, planIdHash: answer.planIdHash, employerId: answer.employerId ?? null, redeemedAt: Date.now(), tokenPinHash };
-      data.enrollment = kept;
+      data.enrollment = { groupIdHash: answer.groupIdHash, planIdHash: answer.planIdHash, employerId: answer.employerId ?? null, redeemedAt: Date.now() };
       data.onboarding.phase = 'code_redeemed';
       await state.save(data);
       server.setOnboardingPhase('code_redeemed');
@@ -615,8 +633,9 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
        * issued (PRD-1): each carries one share of the key and a random id, nothing that depends on
        * the PIN; the other shares, the identity salt, the group and plan hashes and a PIN verifier
        * computed here go to the insurer with the completion. The device keeps the card ids only.
-       * The completion carries the PIN hash the code was redeemed with, kept since the redemption:
-       * the insurer completes a code only for the device that redeemed it (round nine).
+       * The completion carries the secret whose commitment every redemption of the code carried,
+       * kept since the first: the insurer completes a code only for the device that redeemed it
+       * (round nine), and the PIN hash it once took is one the employer holds as well (A-108).
        */
       const b = body as { recoveryPin?: string } | undefined;
       let insurerNotified = false;
@@ -628,10 +647,11 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
         if (!data.identitySalt || !isIdentitySalt(data.identitySalt)) {
           return server.sendResponse(res, 409, false, undefined, 'The wallet was derived without an identity salt; derive it again');
         }
-        const tokenPinHash = (data.enrollment as KeptRedemption).tokenPinHash;
-        if (!tokenPinHash) {
+        // Without the secret no one can complete the code, this device included: the insurer holds only its commitment.
+        const completionSecret = data.completionSecret;
+        if (!completionSecret) {
           return server.sendResponse(res, 409, false, undefined,
-            'This device keeps no PIN hash for its enrollment code, which the insurer needs to complete it: start over and redeem the same code and PIN again');
+            'This device keeps no completion secret for its enrollment code, and the insurer completes a code only for the device that redeemed it: ask HR for a new code and start over');
         }
         try {
           validateRecoveryPin(b?.recoveryPin);
@@ -654,7 +674,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
             body: JSON.stringify({
               walletId: data.walletId,
               tokenId: data.onboarding.tokenId,
-              tokenPinHash,
+              completionSecret,
               role: 'member',
               recoveryDeposits: issued.deposits,
             }),
@@ -689,11 +709,9 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       if (issued) {
         // card ids only: a share never rests on this device
         data.recoveryCards = issued.cards.map((c) => ({ cardId: c.id, issuedAt: Date.now() }));
-        if (data.enrollment) {
-          data.enrollment.completedAt = Date.now();
-          // the redemption is completed, so the PIN hash that bound it to this device is no longer needed
-          delete (data.enrollment as KeptRedemption).tokenPinHash;
-        }
+        if (data.enrollment) data.enrollment.completedAt = Date.now();
+        // the redemption is completed, so the secret that bound it to this device is no longer needed
+        delete data.completionSecret;
       }
       await state.save(data);
       // Create MemberNode and advance in-memory phase (deferred from before insurer validation)

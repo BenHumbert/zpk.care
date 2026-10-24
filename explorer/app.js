@@ -587,11 +587,29 @@
   // ══════════════════════════════════════════════════════
   //  AUDIT
   // ══════════════════════════════════════════════════════
+
+  /*
+   * The balance and duplicate-claims checks, and the audit log they read, return every member's claims, so the sequencer
+   * answers them to the plan and the operator only (D1; A-102 for the two checks). This page is the public view and holds
+   * no token, so the sequencer refuses those reads to every viewer, the operator included, and the two cards said ERROR,
+   * as though the checks had broken (the review of round nine of the security fixes, 2026-10-24). A refusal for want of a
+   * credential now says whose read it is and where they make it; any other failure is still an error. The chain-integrity
+   * check is open, and answers here.
+   */
+
+  /** Whether the sequencer refused a call for want of a credential: none or a wrong one (-32003), or one whose role does not reach the call (-32004). */
+  function refusedForCredential(err) {
+    return !!err && (err.code === -32003 || err.code === -32004);
+  }
+
   async function loadAudit() {
-    // Reset check cards
+    // Reset check cards. One that says its check is the plan's and the operator's keeps saying it: the chain moving on
+    // does not change that, and this page, holding no token, would be refused again.
     ['audit-chain-val', 'audit-finance-val', 'audit-dup-val'].forEach(function (id) {
+      var card = $(id).closest('.stat-card');
+      if (card.querySelector('.plan-and-operator')) return;
       $(id).textContent = 'Check';
-      $(id).closest('.stat-card').className = 'stat-card stat-clickable';
+      card.className = 'stat-card stat-clickable';
     });
 
     // Audit log
@@ -611,7 +629,11 @@
       });
       html += '</tbody></table></div>';
       $('audit-log-container').innerHTML = log.length ? html : '<div class="empty-state">No audit events</div>';
-    } catch { $('audit-log-container').innerHTML = '<div class="empty-state">Audit log unavailable</div>'; }
+    } catch (e) {
+      $('audit-log-container').innerHTML = '<div class="empty-state">' + (refusedForCredential(e)
+        ? esc('The audit log holds every member\'s claims, so the sequencer gives it to the plan and the operator only: the plan reads it on its Audit tab, the operator on its network screen, under Audit & Chain.')
+        : 'Audit log unavailable') + '</div>';
+    }
 
     // Chain proof
     try {
@@ -646,28 +668,51 @@
     });
     $('audit-dup-card').addEventListener('click', async function () {
       var card = this, val = $('audit-dup-val');
-      card.className = 'stat-card stat-clickable check-running';
-      val.textContent = '...';
+      startCheck(card, val);
       try {
         var res = await RPC.detectDuplicateClaims();
         var dups = Array.isArray(res) ? res.length : (res && res.duplicates ? res.duplicates.length : 0);
         card.className = 'stat-card stat-clickable ' + (dups === 0 ? 'check-pass' : 'check-fail');
         val.textContent = dups === 0 ? 'CLEAN' : dups + ' found';
-      } catch { card.className = 'stat-card stat-clickable check-fail'; val.textContent = 'ERROR'; }
+      } catch (e) { showCheckFailure(card, val, e); }
     });
   }
 
-  async function runAuditCheck(card, valEl, rpcFn, checkFn) {
+  /** A check card about to ask the sequencer: it drops what it said before, the plan-and-operator note included. */
+  function startCheck(card, valEl) {
+    var note = card.querySelector('.plan-and-operator');
+    if (note) note.remove();
     card.className = 'stat-card stat-clickable check-running';
     valEl.textContent = '...';
+  }
+
+  /**
+   * A check the sequencer did not answer. Refused for want of a credential, the card says the check is the plan's and the
+   * operator's and where they run it, under its value; any other failure is an error. A second refusal, from a
+   * double-click, rewrites the one note.
+   */
+  function showCheckFailure(card, valEl, err) {
+    if (!refusedForCredential(err)) {
+      card.className = 'stat-card stat-clickable check-fail';
+      valEl.textContent = 'ERROR';
+      return;
+    }
+    card.className = 'stat-card stat-clickable';
+    valEl.textContent = 'Plan & operator';
+    var note = card.querySelector('.plan-and-operator') || card.appendChild(document.createElement('div'));
+    note.className = 'stat-detail plan-and-operator';
+    note.textContent = 'It reads every member\'s claims, so the sequencer answers it to the plan and the operator only: the plan runs it on its Audit tab, the operator on its network screen, under Audit & Chain.';
+  }
+
+  async function runAuditCheck(card, valEl, rpcFn, checkFn) {
+    startCheck(card, valEl);
     try {
       var res = await rpcFn();
       var ok = checkFn(res);
       card.className = 'stat-card stat-clickable ' + (ok ? 'check-pass' : 'check-fail');
       valEl.textContent = ok ? 'PASS' : 'FAIL';
-    } catch {
-      card.className = 'stat-card stat-clickable check-fail';
-      valEl.textContent = 'ERROR';
+    } catch (e) {
+      showCheckFailure(card, valEl, e);
     }
   }
 

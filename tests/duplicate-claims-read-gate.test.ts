@@ -47,10 +47,24 @@
  * duplicate check. The chain-integrity check stays open: the number of audit events it returns is what the stream and
  * the sequencer's status publish anyway, and the sequence numbers of links that do not hash carry no amount, drug or day.
  *
+ * The review of round nine of the security fixes (2026-10-24) found that the explorer's page never holds a token: nothing
+ * in its page or its scripts sets one, and the explorer adds none, so the page's rpc.js has none to send. In a browser
+ * the balance and duplicate cards answered ERROR to every viewer, the operator included, as though the checks had
+ * broken, and the audit log beneath them said it was unavailable. The explorer's tests passed only because they set a
+ * token on the page's rpc.js themselves.
+ *
+ * The explorer is the public view, so it still takes no token. When the sequencer refuses one of those reads for want of
+ * a credential (-32003, or -32004 for a credential whose role does not reach it), the card says the check is the plan's
+ * and the operator's and where each runs it (the plan on its Audit tab, the operator on its network screen), and the
+ * audit log says the same of itself; a card keeps saying it through the tab's refresh, since asking again is refused
+ * again. Any other failure still shows as an error, and the chain-integrity card still answers. The explorer's proxy
+ * still relays a credential that a request carries, which the tests show with the operator's bearer sent through it.
+ *
  * A real sequencer RPC server with the accept-all transition verifier, holding the same fill at two pharmacies on one day
  * and a fill whose split does not add up; the explorer as its own process, as the launcher runs it, relaying to that
- * server, with the explorer's rpc.js as its page loads it; and the network screen's rpc.js as that server serves it. No
- * compile, no proof.
+ * server, with the explorer's rpc.js as its page loads it, and its Audit tab's code as app.js has it, run against
+ * stand-ins for the tab's cards and panels; and the network screen's rpc.js as that server serves it. No compile, no
+ * proof.
  */
 import fs from 'fs';
 import net from 'net';
@@ -59,7 +73,7 @@ import { spawn, type ChildProcess } from 'child_process';
 import { Field, Poseidon } from 'o1js';
 import { InMemoryStore } from '../src/storage/local-store.js';
 import { L2Node } from '../src/l2/l2-node.js';
-import { L2RpcServer, RPC_UNAUTHORIZED, RPC_FORBIDDEN } from '../src/l2/l2-rpc-server.js';
+import { L2RpcServer, RPC_UNAUTHORIZED, RPC_FORBIDDEN, RPC_INTERNAL_ERROR, RPC_METHOD_NOT_FOUND } from '../src/l2/l2-rpc-server.js';
 import { MEMBER_DATA_METHODS, callReadsMemberData } from '../src/l2/member-data-methods.js';
 import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 import { generateNodeKey, roleMayCall } from '../src/security/node-roles.js';
@@ -298,21 +312,19 @@ describe('the explorer', () => {
     return { RPC, sent };
   }
 
-  test('its page sends the operator token it holds for the duplicate check, as for the audit log, and its proxy relays it', async () => {
-    const { RPC, sent } = explorerPage();
-    RPC.setAdminToken(OPERATOR);
-    const res = await RPC.detectDuplicateClaims();
-    expect(sent[sent.length - 1].Authorization).toBe(`Bearer ${OPERATOR}`); // before: no Authorization header, so the gated check refused the page
-    expect(res.duplicates.map((g: { key: string }) => g.key)).toEqual([GROUP_KEY]);
-    expect((await RPC.getAuditLog(10)).events).toHaveLength(3);
-  });
+  /** A request to the explorer's /rpc carrying the given headers, as any client that reaches the explorer may send one. */
+  async function throughExplorer(headers: Record<string, string>, body: string) {
+    const r = await fetch(`http://127.0.0.1:${explorer!.port}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body });
+    return (await r.json()) as { result?: any; error?: { code: number; message: string } };
+  }
 
-  test('its page sends the operator token it holds for the balance check too, and its proxy relays it', async () => {
-    const { RPC, sent } = explorerPage();
-    RPC.setAdminToken(OPERATOR);
-    const res = await RPC.verifyFinancialBalance();
-    expect(sent[sent.length - 1].Authorization).toBe(`Bearer ${OPERATOR}`); // before: no Authorization header, which the gated check refuses
-    expect(res).toMatchObject({ ...TOTALS, imbalancedClaims: [imbalancedReceipt] });
+  test('its proxy relays a credential a request carries: the operator\'s bearer sent through it is answered with the group, the totals and the audit log', async () => {
+    const groups = await throughExplorer(bearer, duplicates());
+    expect(groups.result.duplicates.map((g: { key: string }) => g.key)).toEqual([GROUP_KEY]);
+    expect((await throughExplorer(bearer, balance())).result).toMatchObject({ ...TOTALS, imbalancedClaims: [imbalancedReceipt] });
+    expect((await throughExplorer(bearer, envelope('l2_getAuditLog', { limit: 10 }))).result.events).toHaveLength(3);
+    // the sequencer decides what the relayed credential opens: a wrong bearer is refused through the proxy as at the sequencer
+    expect((await throughExplorer({ Authorization: 'Bearer not-the-operator' }, duplicates())).error?.code).toBe(RPC_UNAUTHORIZED);
   });
 
   test('a page with no token gets the refusals through the proxy, not the member\'s group or the totals, and the chain check\'s answer', async () => {
@@ -321,6 +333,147 @@ describe('the explorer', () => {
     await expect(RPC.verifyFinancialBalance()).rejects.toThrow(/Unauthorized/); // before: the totals, to any page that reached the explorer
     expect(sent.map((h) => h.Authorization)).toEqual([undefined, undefined]);
     expect(await RPC.verifyChainIntegrity()).toMatchObject({ valid: true, totalEvents: 3 });
+  });
+
+  describe('its Audit tab', () => {
+    const EXPLORER_APP = fs.readFileSync(path.join(REPO, 'explorer', 'app.js'), 'utf8').replace(/\r\n/g, '\n');
+
+    /** A top-level function of app.js: from its declaration to the first line that is exactly "  }". */
+    function lift(name: string): string {
+      const at = EXPLORER_APP.indexOf('\n  function ' + name + '(');
+      if (at < 0) throw new Error('no function ' + name);
+      return EXPLORER_APP.slice(at + 1, EXPLORER_APP.indexOf('\n  }\n', at) + 4);
+    }
+    /** The Audit tab's code, as app.js has it between its AUDIT and NETWORK banners. */
+    function auditSection(): string {
+      const start = EXPLORER_APP.indexOf('\n  //  AUDIT\n');
+      const end = EXPLORER_APP.indexOf('\n  //  NETWORK\n');
+      if (start < 0 || end < start) throw new Error('no Audit section in explorer/app.js');
+      return EXPLORER_APP.slice(start + 1, end);
+    }
+
+    /** A stand-in for an element of the tab: what its code reads and sets of a card, a card's value or note, and a panel. */
+    class Stand {
+      className: string;
+      textContent = '';
+      innerHTML = '';
+      parent: Stand | null = null;
+      children: Stand[] = [];
+      clicks: Array<(this: Stand) => unknown> = [];
+      constructor(className = '') { this.className = className; }
+      /** The one selector form the tab's code uses: a class name. */
+      matches(selector: string): boolean { return this.className.split(/\s+/).includes(selector.replace(/^\./, '')); }
+      closest(selector: string): Stand | null {
+        for (let n: Stand | null = this; n; n = n.parent) if (n.matches(selector)) return n;
+        return null;
+      }
+      querySelector(selector: string): Stand | null {
+        for (const child of this.children) {
+          const hit = child.matches(selector) ? child : child.querySelector(selector);
+          if (hit) return hit;
+        }
+        return null;
+      }
+      appendChild(child: Stand): Stand { child.parent = this; this.children.push(child); return child; }
+      remove(): void {
+        if (this.parent) this.parent.children = this.parent.children.filter((c) => c !== this);
+        this.parent = null;
+      }
+      addEventListener(type: string, fn: (this: Stand) => unknown): void { if (type === 'click') this.clicks.push(fn); }
+    }
+
+    type Check = 'chain' | 'finance' | 'dup';
+    /**
+     * The tab's code as app.js has it, with app.js's own helpers, against stand-ins for its three check cards and its two
+     * panels, as index.html lays them out, and with the RPC given: by default the explorer's rpc.js as its page loads it,
+     * holding no token, as the page never does, and relaying through the explorer to the sequencer.
+     */
+    function auditTab(RPC: Record<string, unknown> = explorerPage().RPC) {
+      const els: Record<string, Stand> = {};
+      for (const check of ['chain', 'finance', 'dup']) {
+        const card = (els[`audit-${check}-card`] = new Stand('stat-card stat-clickable'));
+        card.appendChild(new Stand('stat-label'));
+        const value = (els[`audit-${check}-val`] = card.appendChild(new Stand('stat-value')));
+        value.textContent = 'Check';
+      }
+      els['audit-log-container'] = new Stand('panel-body flush');
+      els['audit-proof-container'] = new Stand('panel-body');
+      const helpers = ['esc', 'shortHash', 'fmtTime', 'fmtCents', 'typeBadge', 'detailRow'].map(lift);
+      const tab = new Function('$', 'RPC', 'document', `'use strict';\n${helpers.join('\n')}\n${auditSection()}\nreturn { loadAudit, setupAuditChecks };`)(
+        (id: string) => els[id], RPC, { createElement: () => new Stand() }) as { loadAudit: () => Promise<void>; setupAuditChecks: () => void };
+      tab.setupAuditChecks();
+      /** What a check card shows: its value, its classes, and the note beneath the value when it carries one. */
+      const card = (check: Check) => {
+        const c = els[`audit-${check}-card`];
+        const note = c.querySelector('.stat-detail');
+        return { value: els[`audit-${check}-val`].textContent, classes: c.className, note: note ? note.textContent : null };
+      };
+      /** Clicks a check card as a viewer does, and waits until it has stopped asking. */
+      const click = async (check: Check) => {
+        const c = els[`audit-${check}-card`];
+        await Promise.all(c.clicks.map((fn) => fn.call(c)));
+        for (const deadline = Date.now() + 10_000; els[`audit-${check}-val`].textContent === '...' && Date.now() < deadline;) {
+          await new Promise((r) => setTimeout(r, 20));
+        }
+        return card(check);
+      };
+      return { loadAudit: tab.loadAudit, click, card, log: () => els['audit-log-container'].innerHTML };
+    }
+
+    test('holding no token, as the page never does, it says the balance and duplicate checks are the plan\'s and the operator\'s and where they run them, not ERROR; the chain check still answers', async () => {
+      // nothing in the page sets a token and the explorer adds none, so every viewer, the operator included, asks anonymously
+      for (const file of ['index.html', 'app.js']) {
+        expect([file, fs.readFileSync(path.join(REPO, 'explorer', file), 'utf8').includes('setAdminToken')]).toEqual([file, false]);
+      }
+      const page = explorerPage();
+      const tab = auditTab(page.RPC);
+      for (const check of ['finance', 'dup'] as const) {
+        const shown = await tab.click(check);
+        expect([check, shown.value]).toEqual([check, 'Plan & operator']);              // before: 'ERROR', to every viewer, as though the check had broken
+        expect([check, shown.classes]).toEqual([check, 'stat-card stat-clickable']);   // before: 'stat-card stat-clickable check-fail', a failed check's red
+        expect([check, shown.note]).toEqual([check, expect.stringContaining('the sequencer answers it to the plan and the operator only')]); // before: null, nothing said whose check it is
+        expect([check, shown.note]).toEqual([check, expect.stringContaining('the plan runs it on its Audit tab, the operator on its network screen, under Audit & Chain')]); // before: null, nor where they run it
+      }
+      expect(await tab.click('chain')).toEqual({ value: 'PASS', classes: 'stat-card stat-clickable check-pass', note: null });
+      expect(page.sent.map((h) => h.Authorization)).toEqual([undefined, undefined, undefined]);
+    });
+
+    test('its audit log, refused to the page as to any anonymous caller, says whose it is and where they read it, not that it is unavailable', async () => {
+      const tab = auditTab();
+      await tab.loadAudit();
+      expect(tab.log()).toContain('so the sequencer gives it to the plan and the operator only'); // before: 'Audit log unavailable', as though it were down
+      expect(tab.log()).toContain('the plan reads it on its Audit tab, the operator on its network screen, under Audit &amp; Chain'); // before: 'Audit log unavailable'
+      expect(tab.log()).not.toContain(MEMBER);
+    });
+
+    test('a card that says so keeps saying it through the tab\'s refresh, which resets an answered check, and asking again clears it once the check answers', async () => {
+      const real = explorerPage().RPC;
+      let answers = false;
+      const tab = auditTab({ ...real, verifyFinancialBalance: () => (answers ? Promise.resolve({ balanced: true }) : real.verifyFinancialBalance()) });
+      await tab.click('finance');
+      await tab.click('chain');
+      await tab.loadAudit();                               // the refresh the page runs on this tab every three seconds
+      expect(tab.card('finance')).toEqual({ value: 'Plan & operator', classes: 'stat-card stat-clickable', note: expect.stringContaining('the plan and the operator only') }); // before: { value: 'Check', note: null }, gone within three seconds
+      expect(tab.card('chain')).toEqual({ value: 'Check', classes: 'stat-card stat-clickable', note: null });
+      answers = true;
+      expect(await tab.click('finance')).toEqual({ value: 'PASS', classes: 'stat-card stat-clickable check-pass', note: null });
+    });
+
+    test('a refusal to a credential whose role does not reach a check says the same; any other failure is still ERROR, and the log still unavailable', async () => {
+      const failing = (message: string, code?: number) => () => Promise.reject(Object.assign(new Error(message), code === undefined ? {} : { code }));
+      const tab = auditTab({
+        verifyFinancialBalance: failing('Forbidden — l2_verifyFinancialBalance reads across members and answers the plan or the operator only', RPC_FORBIDDEN),
+        detectDuplicateClaims: failing('"Sequencer unreachable: fetch failed"'),   // the explorer's 502, which carries no code
+        verifyChainIntegrity: failing('Internal error', RPC_INTERNAL_ERROR),
+        getAuditLog: failing('Method not available through the explorer: l2_getAuditLog', RPC_METHOD_NOT_FOUND),
+        getChainProof: () => Promise.resolve(null),
+      });
+      expect((await tab.click('finance')).value).toBe('Plan & operator');     // before: 'ERROR'
+      expect(await tab.click('dup')).toEqual({ value: 'ERROR', classes: 'stat-card stat-clickable check-fail', note: null });
+      expect(await tab.click('chain')).toEqual({ value: 'ERROR', classes: 'stat-card stat-clickable check-fail', note: null });
+      await tab.loadAudit();
+      expect(tab.log()).toBe('<div class="empty-state">Audit log unavailable</div>');
+    });
   });
 });
 

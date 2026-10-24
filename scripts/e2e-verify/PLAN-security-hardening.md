@@ -3179,3 +3179,21 @@ typecheck src 18, scripts 2. Git: with this commit, 78 commits on local `dev`, n
 
 **Next:** a short round ten (A-108's completion bound to a secret only the redeeming device holds; the explorer's audit
 cards worded as operator-only; the device's message for the insurer's per-code limit), then option A, steps 1 to 8.
+
+**Addendum, end of 2026-10-24: rounds ten and eleven (A-108 fixed; A-109 and A-110 recorded).** Enrollment completion
+now takes a secret only the redeeming device holds: a commitment sent at redemption, saved on the device before it asks,
+and the secret presented at completion; the PIN hash, which the employer also holds, completes nothing, and the record is
+claimed for its wallet before anything is awaited, so one code binds one wallet. The device gives the per-code limit its
+own message, Start over no longer promises a code once a redemption was sent, and the explorer's audit cards say they
+are for the plan and the operator. Recorded for the owner: A-109 (the employer makes every PIN and runs the code check,
+so it can redeem in its employee's place; a PIN it does not know closes it) and A-110 (the public explorer cannot show
+what D1 gates: an operator tool, or public views only). One low edge stays in A-108's row: a lost engine answer lifts the
+claim with the code unbound.
+
+Scoreboard: 110 findings; 97 fixed; 13 open (A-22, A-25, A-33 under the interim lease, A-59, A-60, A-80, A-85, A-90,
+A-95, A-106 mitigated, A-107, A-109, A-110), none critical. Verified: regression batch 140 suites, 1714 tests, all
+passing; typecheck src 18, scripts 2. Git: with this commit, 79 commits on local `dev`, nothing pushed.
+
+**Next:** option A, steps 1 to 8 (`docs/research/a22-option-a-spec.md`), with both harness runs at the end; then A-80
+with D8, B4 (which closes A-106 and A-107), A-59, A-60 and phase E; last, the package. Decisions waiting on the owner:
+A-109 (who sets the enrollment PIN; keep the per-code limit?) and A-110 (what the explorer is for).

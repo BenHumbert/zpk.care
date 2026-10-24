@@ -48,8 +48,19 @@
  * caller alone; and one the insurer signed spends only the overall budget. The test that a
  * caller is still refused after 60 such requests a minute passed on the route as it was; it holds
  * the new order to that limit.
+ *
+ * The review of round nine of the security fixes, 2026-10-24, found that the PIN hash, which the
+ * completion had to present, is one the employer holds for every code it issues, so the employer
+ * could complete its employee's just-redeemed code for a wallet of its own (A-108). Now every
+ * redemption here carries the SHA-256 of a secret the device keeps, and every completion the
+ * secret. What is true now, and pinned here: the insurer keeps the commitment with the redemption
+ * and persists it, a restart included, so the device's completion is still answered after one;
+ * the probe to the employer carries the PIN hash and its nonce and nothing of the commitment; and
+ * a repeat of the redemption with another commitment is refused as the code used. What the binding
+ * is for is tested in tests/enrollment-complete-binding.test.ts.
  */
 import fs from 'fs';
+import { createHash, randomBytes } from 'crypto';
 import { hashString } from '../src/zkp/hash-utils.js';
 import os from 'os';
 import path from 'path';
@@ -646,6 +657,14 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
   };
   let plansAnswer = (): unknown[] => [PLAN_1];
   const approvals: unknown[] = [];
+  /** A secret as a device makes one for a code, and the SHA-256 of it every redemption carries (A-108). */
+  const completionPair = (): { secret: string; commitment: string } => {
+    const secret = randomBytes(32).toString('hex');
+    return { secret, commitment: createHash('sha256').update(Buffer.from(secret, 'hex')).digest('hex') };
+  };
+  /** The device's secret for codeA, and a commitment for redemptions whose completion no test asks for. */
+  const DEVICE_A = completionPair();
+  const ANY_COMMITMENT = completionPair().commitment;
   const VALID = () => ({ status: 200, body: { ok: true, data: { valid: true, groupIdHash: G1, planIdHash: P1, familyIdHash: F1, consumed: true } } });
   const NOT_FOUND = () => ({ status: 200, body: { ok: true, data: { valid: false, reason: 'Token not found' } } });
   const servers: http.Server[] = [];
@@ -716,7 +735,7 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
 
   test('the prefix routes the probe to the issuing employer only, signed as the insurer', async () => {
     // C2: the code is redeemed before the member has a wallet; the insurer answers the group and plan.
-    const r = await call(main.process, { body: { tokenId: codeA.toLowerCase(), tokenPinHash: 'pinhash-1' } });
+    const r = await call(main.process, { body: { tokenId: codeA.toLowerCase(), tokenPinHash: 'pinhash-1', completionCommitment: DEVICE_A.commitment } });
     expect(r.status).toBe(200);
     expect(r.payload.data.redeemed).toBe(true);
     expect(r.payload.data.employerId).toBe('EMP-A');
@@ -726,17 +745,19 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
     expect(probesB).toHaveLength(0);                            // never fanned out
     expect(probesA[0].verified).toBe(true);                     // a real insurer signature over the body
     expect(probesA[0].path).toBe(`/tokens/${codeA}/validate`);
-    // the relay names the PIN hash and a fresh nonce, so no two relays share a signature (A-93)
+    // the relay names the PIN hash and a fresh nonce, so no two relays share a signature (A-93), and nothing of the
+    // device's commitment, which the employer must never hold (A-108)
     expect(JSON.parse(probesA[0].body)).toEqual({ tokenPinHash: 'pinhash-1', nonce: expect.stringMatching(/^[0-9a-f]{32}$/) });
   });
 
   test('the redemption is persisted immediately, with no wallet yet', async () => {
-    const data = main.server.getLocalState().getState() as unknown as { redeemedEnrollmentCodes?: Record<string, { walletId: string | null; pinHash: string | null }> };
+    const data = main.server.getLocalState().getState() as unknown as { redeemedEnrollmentCodes?: Record<string, { walletId: string | null; pinHash: string | null; completionCommitment?: string }> };
     expect(data.redeemedEnrollmentCodes?.[codeA]?.walletId).toBeNull();
     expect(data.redeemedEnrollmentCodes?.[codeA]?.pinHash).toBe('pinhash-1');
+    expect(data.redeemedEnrollmentCodes?.[codeA]?.completionCommitment).toBe(DEVICE_A.commitment);   // before: undefined, nothing bound the completion to the device
   });
   test('complete binds the wallet to the redemption and records the enrollment with the canonical code', async () => {
-    const r = await call(main.complete, { body: { walletId: '11', tokenId: codeA.toLowerCase(), tokenPinHash: 'pinhash-1' } });
+    const r = await call(main.complete, { body: { walletId: '11', tokenId: codeA.toLowerCase(), completionSecret: DEVICE_A.secret } });
     expect(r.status).toBe(200);
     expect(r.payload.data.enrolled).toBe(true);
     expect(r.payload.data.tokenId).toBe(codeA);                 // stored canonical, not as typed
@@ -750,30 +771,33 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
   });
 
   test('the same device retrying is idempotent and does not ask the employer again', async () => {
-    // A device that died between redemption and derivation presents the same code and PIN hash.
-    const again = await call(main.process, { body: { tokenId: codeA, tokenPinHash: 'pinhash-1' } });
+    // A device that died between redemption and derivation presents the same code, PIN hash and commitment.
+    const again = await call(main.process, { body: { tokenId: codeA, tokenPinHash: 'pinhash-1', completionCommitment: DEVICE_A.commitment } });
     expect(again.status).toBe(200);
     expect(again.payload.data.repeated).toBe(true);
     expect(again.payload.data.groupIdHash).toBe(G1);
     // Simulate a crash between the completion and the registry write: the same wallet completes again.
     ((main.server as unknown as { __enrollmentRegistry: Map<string, unknown> }).__enrollmentRegistry).delete('11');
-    const r = await call(main.complete, { body: { walletId: '11', tokenId: codeA, tokenPinHash: 'pinhash-1' } });
+    const r = await call(main.complete, { body: { walletId: '11', tokenId: codeA, completionSecret: DEVICE_A.secret } });
     expect(r.status).toBe(200);
     expect(probesA).toHaveLength(1);
   });
 
-  test('any other wallet or any other PIN hash presenting the used code is refused, without asking the employer', async () => {
+  test('any other wallet, any other PIN hash or any other commitment presenting the used code is refused, without asking the employer', async () => {
     const otherWallet = await call(main.complete, { body: { walletId: '22', tokenId: codeA } });
     expect(otherWallet.status).toBe(403);
     expect(otherWallet.payload.error).toMatch(/already been used/);
-    const otherPin = await call(main.process, { body: { tokenId: codeA, tokenPinHash: 'pinhash-other' } });
+    const otherPin = await call(main.process, { body: { tokenId: codeA, tokenPinHash: 'pinhash-other', completionCommitment: DEVICE_A.commitment } });
     expect(otherPin.status).toBe(403);
     expect(otherPin.payload.error).toMatch(/already been used/);
+    // The PIN hash the code was redeemed with, which its employer holds, with a commitment of someone else's.
+    const otherCommitment = await call(main.process, { body: { tokenId: codeA, tokenPinHash: 'pinhash-1', completionCommitment: ANY_COMMITMENT } });
+    expect([otherCommitment.status, otherCommitment.payload.error]).toEqual([403, 'Enrollment denied: this enrollment code has already been used.']);   // before: [200, undefined], answered from the record
     expect(probesA).toHaveLength(1);
   });
 
   test('a code whose prefix matches no registered employer is refused without asking anyone', async () => {
-    const r = await call(main.process, { body: { walletId: 'W3', tokenId: generateEnrollmentCode('NOBODY'), tokenPinHash: 'x' } });
+    const r = await call(main.process, { body: { walletId: 'W3', tokenId: generateEnrollmentCode('NOBODY'), tokenPinHash: 'x', completionCommitment: ANY_COMMITMENT } });
     expect(r.status).toBe(403);
     expect(r.payload.error).toMatch(/not recognized by any registered employer/);
     expect(probesA.length + probesB.length).toBe(1);
@@ -782,20 +806,20 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
   test('a wrong PIN is the employer’s verdict and is not recorded as a redemption', async () => {
     answerA = () => ({ status: 200, body: { ok: true, data: { valid: false, reason: 'Invalid enrollment PIN (4 attempts remaining)' } } });
     const code = generateEnrollmentCode('EMP-A');
-    const r = await call(main.process, { body: { walletId: 'W4', tokenId: code, tokenPinHash: 'wrong' } });
+    const r = await call(main.process, { body: { walletId: 'W4', tokenId: code, tokenPinHash: 'wrong', completionCommitment: ANY_COMMITMENT } });
     expect(r.status).toBe(403);
     expect(r.payload.error).toMatch(/Invalid enrollment PIN/);
     expect(probesA).toHaveLength(2);
     // Not redeemed, so the next attempt asks the employer again rather than refusing as "used".
     answerA = VALID;
-    const again = await call(main.process, { body: { walletId: 'W4', tokenId: code, tokenPinHash: 'right' } });
+    const again = await call(main.process, { body: { walletId: 'W4', tokenId: code, tokenPinHash: 'right', completionCommitment: ANY_COMMITMENT } });
     expect(again.status).toBe(200);
     expect(probesA).toHaveLength(3);
   });
 
   test('an employer that will not answer the insurer is a 502, never read as a verdict', async () => {
     answerB = () => ({ status: 401, body: { ok: false, error: 'This oracle answers only the insurer: the signature does not verify.' } });
-    const r = await call(main.process, { body: { walletId: 'W5', tokenId: generateEnrollmentCode('EMP-B'), tokenPinHash: 'x' } });
+    const r = await call(main.process, { body: { walletId: 'W5', tokenId: generateEnrollmentCode('EMP-B'), tokenPinHash: 'x', completionCommitment: ANY_COMMITMENT } });
     expect(r.status).toBe(502);
     expect(r.payload.error).toMatch(/returned 401/);
     answerB = NOT_FOUND;
@@ -804,10 +828,10 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
   test('an identifier that is not a code is never fanned out: only a named employer is asked', async () => {
     const before = probesA.length + probesB.length;
     const bBefore = probesB.length;
-    const r1 = await call(main.process, { body: { walletId: 'W6', tokenId: 'TOKEN-001', tokenPinHash: 'x' } });
+    const r1 = await call(main.process, { body: { walletId: 'W6', tokenId: 'TOKEN-001', tokenPinHash: 'x', completionCommitment: ANY_COMMITMENT } });
     expect(r1.status).toBe(403);
     expect(probesA.length + probesB.length).toBe(before);
-    const r2 = await call(main.process, { body: { walletId: 'W6', tokenId: 'TOKEN-001', tokenPinHash: 'x', employerId: 'EMP-B' } });
+    const r2 = await call(main.process, { body: { walletId: 'W6', tokenId: 'TOKEN-001', tokenPinHash: 'x', completionCommitment: ANY_COMMITMENT, employerId: 'EMP-B' } });
     expect(r2.status).toBe(403);
     expect(r2.payload.error).toMatch(/not recognized by its employer/);
     expect(probesB).toHaveLength(bBefore + 1);
@@ -817,20 +841,23 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
   test('without a signing seed the insurer refuses rather than probing unsigned', async () => {
     const other = await insurer(makeTempDir('a6-ins-noseed-'), undefined);
     const before = probesA.length;
-    const r = await call(other.process, { body: { walletId: 'W7', tokenId: generateEnrollmentCode('EMP-A'), tokenPinHash: 'x' } });
+    const r = await call(other.process, { body: { walletId: 'W7', tokenId: generateEnrollmentCode('EMP-A'), tokenPinHash: 'x', completionCommitment: ANY_COMMITMENT } });
     expect(r.status).toBe(500);
     expect(r.payload.error).toMatch(/signing seed/);
     expect(probesA).toHaveLength(before);
   });
 
-  test('redeemed codes survive a restart', async () => {
+  test('redeemed codes survive a restart, with the commitment that completes them', async () => {
     const restarted = await insurer(stateDir, INSURER_SEED);
     const before = probesA.length;
-    const otherPin = await call(restarted.process, { body: { tokenId: codeA, tokenPinHash: 'pinhash-9' } });
+    const otherPin = await call(restarted.process, { body: { tokenId: codeA, tokenPinHash: 'pinhash-9', completionCommitment: DEVICE_A.commitment } });
     expect(otherPin.status).toBe(403);
     expect(otherPin.payload.error).toMatch(/already been used/);
     const otherWallet = await call(restarted.complete, { body: { walletId: '99', tokenId: codeA } });
     expect(otherWallet.status).toBe(403);
+    // The device that redeemed it, completing again after the restart, is still answered.
+    const own = await call(restarted.complete, { body: { walletId: '11', tokenId: codeA, completionSecret: DEVICE_A.secret } });
+    expect(own.status).toBe(200);   // before: 403, the completion took the PIN hash
     expect(probesA).toHaveLength(before);
   });
 
@@ -844,8 +871,9 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
   test('a family the employer names in anything but a hash is no family: the plain ID never reaches the engine (A-34)', async () => {
     answerA = () => ({ status: 200, body: { ok: true, data: { valid: true, groupIdHash: G1, planIdHash: P1, familyIdHash: 'FAM-PLAINTEXT-1', consumed: true } } });
     const code = generateEnrollmentCode('EMP-A');
-    expect((await call(main.process, { body: { tokenId: code, tokenPinHash: 'pin-fam' } })).status).toBe(200);
-    expect((await call(main.complete, { body: { walletId: '33', tokenId: code, tokenPinHash: 'pin-fam' } })).status).toBe(200);
+    const family = completionPair();
+    expect((await call(main.process, { body: { tokenId: code, tokenPinHash: 'pin-fam', completionCommitment: family.commitment } })).status).toBe(200);
+    expect((await call(main.complete, { body: { walletId: '33', tokenId: code, completionSecret: family.secret } })).status).toBe(200);
     const last = approvals[approvals.length - 1] as Record<string, unknown>;
     expect(last.walletId).toBe('33');
     expect(last.familyIdHash).toBeNull();
@@ -858,9 +886,10 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
     for (const unpublished of [{ ...PLAN_1, formularyRoot: '1', publishedTerms: undefined }, { ...PLAN_1, published: false, publishedTerms: undefined }]) {
       plansAnswer = () => [unpublished];
       const code = generateEnrollmentCode('EMP-A');
-      expect((await call(main.process, { body: { tokenId: code, tokenPinHash: `pin-${unpublished.published}` } })).status).toBe(200);
+      const own = completionPair();
+      expect((await call(main.process, { body: { tokenId: code, tokenPinHash: `pin-${unpublished.published}`, completionCommitment: own.commitment } })).status).toBe(200);
       const before = approvals.length;
-      const r = await call(main.complete, { body: { walletId: unpublished.published ? '44' : '45', tokenId: code, tokenPinHash: `pin-${unpublished.published}` } });
+      const r = await call(main.complete, { body: { walletId: unpublished.published ? '44' : '45', tokenId: code, completionSecret: own.secret } });
       expect(r.status).toBe(409);
       expect(r.payload.error).toMatch(/not published/);
       expect(approvals.length).toBe(before);

@@ -37,7 +37,7 @@ import { PROVING_BUDGET_MS, type RouteRegistration } from '../nautilus-app-types
 import type { KeyObject } from 'crypto';
 import { ReplayCache, signRequest, signerIdFromHeaders, verifySignedRequest } from '../../security/signed-request.js';
 import { cachedRequestBody } from '../../security/request-body.js';
-import { randomBytes, timingSafeEqual } from 'crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import { hashString } from '../../zkp/hash-utils.js';
 import { buildPlanFormulary, planNetworkRoot, type PlanFormulary } from '../../onboarding/plan-formulary.js';
 import { publishedTermsOf } from '../../l2/plan-terms.js';
@@ -75,11 +75,15 @@ import { ReportTooLargeError } from '../../reporting/reporting-service.js';
 interface RedeemedCode {
   /** The wallet bound at /enrollment/complete; null between redemption and completion (C2). */
   walletId: string | null;
-  /**
-   * The PIN hash the code was redeemed with: a repeat from the same device is answered, the completion must present it
-   * (round nine), and a holder of the code alone gets neither.
-   */
+  /** The PIN hash the code was redeemed with: a repeat of the redemption must present it, with the commitment below. */
   pinHash: string | null;
+  /**
+   * A-108: the SHA-256, in hex, of a secret the redeeming device made and keeps. The completion must present the secret,
+   * and a repeat of the redemption this commitment, so only that device does either. Unlike the PIN hash, which the
+   * employer holds for every code it issues, it is never sent to the employer. Absent on a record written before it,
+   * which nothing completes.
+   */
+  completionCommitment?: string;
   employerId: string | null;
   groupIdHash: string | null;
   planIdHash: string | null;
@@ -190,6 +194,11 @@ function sameHex(a: string, b: string): boolean {
   const ab = Buffer.from(a, 'utf8');
   const bb = Buffer.from(b, 'utf8');
   return ab.length === bb.length && timingSafeEqual(ab, bb);
+}
+/** A-108: the commitment a completion secret answers, the SHA-256 of its 32 bytes in hex; null for anything that is not 32 bytes of hex. */
+function commitmentOf(secret: unknown): string | null {
+  if (typeof secret !== 'string' || !HEX64.test(secret)) return null;
+  return createHash('sha256').update(Buffer.from(secret, 'hex')).digest('hex');
 }
 /** The insurer's request signer, derived once from the configured seed (the A9 key). */
 function insurerSigner(server: NautilusAppServer): { privateKey: KeyObject } | null {
@@ -692,22 +701,30 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   const REDEMPTIONS_PER_SOURCE_PER_MINUTE = 10;
   const redemptionsPerSource = new SlidingWindowLimiter(REDEMPTIONS_PER_SOURCE_PER_MINUTE, 60_000);
 
-  // Round nine: the PIN hash a code was redeemed with completes its enrollment (/enrollment/complete), and a repeat of
-  // the redemption is answered against it. An enrollment PIN is eight digits, so a holder of the code alone who could
-  // present hashes freely would find the PIN in at most 10^8 tries, and with it enroll a wallet of their own if the
-  // member stopped between redeeming and completing. So a code may be presented with a PIN hash it was not redeemed
-  // with five times an hour, the five wrong PINs the employer allows a code, counting a completion refused for any
-  // reason (no such redemption, another PIN hash, another wallet) and a repeat of a redemption with another PIN hash.
-  // Past that both routes answer 429 for the code without comparing anything, to the device that redeemed it as well,
-  // for the rest of the hour: the trade the employer's lock after five wrong PINs makes for good. Completion counts
-  // every code alike, redeemed or not, so its limit says nothing about which codes were redeemed. A refused completion
-  // also counts against its source, ten a minute, so one client cannot fill this node's memory with counts for codes it
-  // makes up.
-  const PIN_HASH_MISSES_PER_CODE_PER_HOUR = 5;
-  const pinHashMisses = new SlidingWindowLimiter(PIN_HASH_MISSES_PER_CODE_PER_HOUR, 3_600_000);
+  // Round nine: a code's completion (/enrollment/complete) and a repeat of its redemption answer only the device that
+  // redeemed it, and every wrong attempt counts against the code: a completion refused for any reason (no such
+  // redemption, no secret or another, another wallet) and a repeat of a redemption without the PIN hash and the
+  // commitment the code was redeemed with. Five in an hour, the five wrong PINs the employer allows a code, and both
+  // routes answer 429 for the code without comparing anything, to the device that redeemed it as well, for the rest of
+  // the hour. While completion took the PIN hash, this limit was what kept a holder of the code alone from finding the
+  // eight-digit PIN in 10^8 tries. Completion now takes the device's secret (A-108), which nobody finds by trying, and
+  // the limit stays as round nine set it so that no code is tried without end; what it costs is that anyone holding a
+  // code can hold its device off for an hour with five wrong attempts. Completion counts every code alike, redeemed or
+  // not, so its limit says nothing about which codes were redeemed. A refused completion also counts against its
+  // source, ten a minute, so one client cannot fill this node's memory with counts for codes it makes up.
+  const WRONG_ATTEMPTS_PER_CODE_PER_HOUR = 5;
+  const wrongAttemptsPerCode = new SlidingWindowLimiter(WRONG_ATTEMPTS_PER_CODE_PER_HOUR, 3_600_000);
   const REFUSED_COMPLETIONS_PER_SOURCE_PER_MINUTE = 10;
   const refusedCompletionsPerSource = new SlidingWindowLimiter(REFUSED_COMPLETIONS_PER_SOURCE_PER_MINUTE, 60_000);
   const TOO_MANY_FOR_CODE = 'Too many attempts with this enrollment code in the last hour. Try again in an hour.';
+  /**
+   * The 429 for a code past its wrong attempts, marked with an errorCode, so the member's device can tell it from the 429s
+   * that count a source: those lift in a minute, and a code refused for the hour does not lift on another network.
+   */
+  const tooManyForCode = (res: ServerResponse): void => {
+    res.setHeader('Retry-After', '3600');
+    server.sendResponse(res, 429, false, { errorCode: 'TOO_MANY_FOR_CODE' }, TOO_MANY_FOR_CODE);
+  };
 
   routes.push({
     method: 'POST',
@@ -723,29 +740,39 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
        * the code with the issuing employer exactly as A6 built it (routed by its prefix, probed with
        * the insurer's own key, consumed on success, never fanned out), records the redemption against
        * the code with no wallet yet, and answers the group and plan hashes. /enrollment/complete binds
-       * the wallet. A repeat with the same code and PIN hash (a device that died before deriving) is
-       * answered from the record; a repeat with another PIN hash is refused, so a code-only holder
-       * learns nothing after consumption.
+       * the wallet. A repeat with the same code, PIN hash and commitment (a device that died before
+       * deriving, or never heard the answer) is answered from the record; any other repeat is refused,
+       * so a code-only holder learns nothing after consumption.
+       *
+       * A-108: the device sends the SHA-256 of a secret it made and keeps, which is kept here with the
+       * redemption and relayed to no employer: the relay carries the PIN hash alone. The completion
+       * must present the secret. The PIN hash cannot bind the completion to the device, because the
+       * employer holds it for every code it issues and learns from its own oracle the moment a code is
+       * redeemed. A repeat must present the commitment as well, or the employer could bind the code
+       * to a secret of its own by redeeming it again.
        */
-      const b = body as { tokenId?: string; tokenPinHash?: string; role?: string; employerId?: string } | undefined;
+      const b = body as { tokenId?: string; tokenPinHash?: string; completionCommitment?: string; role?: string; employerId?: string } | undefined;
       if (typeof b?.tokenId !== 'string' || b.tokenId.trim().length === 0) {
         return server.sendResponse(res, 400, false, undefined, 'An enrollment code is required.');
       }
       if (typeof b.tokenPinHash !== 'string' || b.tokenPinHash.length === 0) {
         return server.sendResponse(res, 400, false, undefined, 'The enrollment PIN hash is required.');
       }
+      if (typeof b.completionCommitment !== 'string' || !HEX64.test(b.completionCommitment)) {
+        return server.sendResponse(res, 400, false, undefined,
+          'A completion commitment is required: the SHA-256, in hex, of a secret the device keeps to complete the enrollment.');
+      }
+      const commitment = b.completionCommitment.toLowerCase();
       const code = canonicalizeEnrollmentCode(b.tokenId) ?? b.tokenId.trim();
       const redeemed = redeemedCodes(server);
       const prior = redeemed.get(code);
       if (prior) {
-        // A repeat with another PIN hash is a guess at the PIN that completes the code, so it counts against the code
-        // (pinHashMisses), and past the limit no hash is compared.
-        if (pinHashMisses.count(code) >= PIN_HASH_MISSES_PER_CODE_PER_HOUR) {
-          res.setHeader('Retry-After', '3600');
-          return server.sendResponse(res, 429, false, undefined, TOO_MANY_FOR_CODE);
-        }
-        if (!prior.pinHash || !sameHex(prior.pinHash, b.tokenPinHash)) {
-          pinHashMisses.allow(code);
+        // A repeat with another PIN hash or another commitment is an attempt on a code redeemed by someone else, so it
+        // counts against the code (wrongAttemptsPerCode), and past the limit nothing is compared.
+        if (wrongAttemptsPerCode.count(code) >= WRONG_ATTEMPTS_PER_CODE_PER_HOUR) return tooManyForCode(res);
+        if (!prior.pinHash || !sameHex(prior.pinHash, b.tokenPinHash)
+          || !prior.completionCommitment || !sameHex(prior.completionCommitment, commitment)) {
+          wrongAttemptsPerCode.allow(code);
           return server.sendResponse(res, 403, false, undefined, 'Enrollment denied: this enrollment code has already been used.');
         }
         console.log('[enrollment] Code already redeemed with this PIN; answering the same group and plan');
@@ -774,6 +801,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       redeemed.set(code, {
         walletId: null,
         pinHash: b.tokenPinHash,
+        completionCommitment: commitment,
         employerId: outcome.employerId,
         groupIdHash: outcome.groupIdHash,
         planIdHash: outcome.planIdHash,
@@ -793,13 +821,81 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
    * completion anyone who knew the code alone could complete it for a wallet of their own: this node approved that
    * wallet with the engine, signed with its own key, into the member's plan, group and family, and the member's device
    * was then refused the code as used. Its answers also told codes apart: 404 for a code never redeemed, 403 for one
-   * completed for another wallet, 200 for one awaiting its device. Now the device sends the PIN hash it redeemed the
-   * code with, which this node kept with the redemption and which only a holder of the PIN can make. A request without
-   * it or with another, for a code no device redeemed, or for a wallet other than the one the code enrolled, is answered
-   * the same 403, and the code waits for its device. Each refusal is a guess at the PIN, so it counts against the code
-   * and the source (pinHashMisses, refusedCompletionsPerSource).
+   * completed for another wallet, 200 for one awaiting its device. A request without the device's proof or with
+   * another, for a code no device redeemed, or for a wallet other than the one the code enrolled, is answered the same
+   * 403, and the code waits for its device. Each refusal counts against the code and the source (wrongAttemptsPerCode,
+   * refusedCompletionsPerSource).
+   *
+   * A-108 (the review of round nine, 2026-10-24): the proof was the PIN hash the code was redeemed with, and the employer
+   * holds that hash for every code it issues (its HR Tool computes it and sets it on the employer node, which keeps it
+   * after the code is consumed). The employer's oracle consumes the code when the device redeems it, so the employer
+   * knew the moment, and could complete the code for a wallet of its own before the device did. Now the proof is the
+   * secret whose SHA-256 the redemption carried, compared in constant time; only the device that made it holds it. The
+   * PIN hash is no longer asked for here: beside the secret it would refuse no one the secret lets through, since only
+   * the device holds the secret, and asking for it would have the device keep the hash after redeeming and send it a
+   * second time.
+   *
+   * What this does not cover: the employer, holding the code and the PIN its HR Tool made, can still redeem the code
+   * before its employee does, with a secret of its own, and complete it for a wallet of its own; the employee's device
+   * is then refused the code as used. Only a PIN the employer does not know closes that, and who sets the PIN is the
+   * owner's decision.
    */
-  const NOT_COMPLETED = 'Enrollment denied: this enrollment code has not been redeemed with this PIN, or has already been used.';
+  const NOT_COMPLETED = 'Enrollment denied: this enrollment code has not been redeemed by this device, or has already been used.';
+  /** What a completion's approval came to: the engine recorded it and the code is bound, or the answer to give. */
+  type Approval = { approved: true } | { approved: false; status: number; error: string };
+  /*
+   * The review of round ten (2026-10-24): a completion bound its wallet only once the engine had approved it, two
+   * awaits after its checks (the plans, then the approval), so completions sent together with the device's secret all
+   * passed the checks whatever wallet each named, and the engine approved each wallet: whoever held the secret, the
+   * member or anyone who captured it from a completion that failed after the check, could enroll two wallets on one
+   * code. Now a completion that passes the checks claims the code for its wallet before it awaits anything, and the
+   * claim stands until the engine has answered and, when it approved, the code is bound. Meanwhile a completion for
+   * another wallet is refused as one sent after the binding is, and one for the same wallet (the device's completion
+   * sent twice) waits for the claim's approval and is answered as the first is, so the engine is asked once. An
+   * approval the engine does not record binds nothing and lifts the claim, and the code waits for its device as
+   * before. A claim is kept in memory only; what outlasts a restart is the binding.
+   */
+  const completing = new Map<string, { walletId: string; approval: Promise<Approval> }>();
+  /**
+   * Step 2 commit two (B2, C2): the engine provisions ELIGIBLE only for a wallet the insurer approved, and binds the
+   * plan the approval names. The plan is the one the insurer sold, resolved from the hash the employer's code
+   * carried; it has to be on the sequencer already. Once the engine has recorded the approval, the code is bound to
+   * the wallet.
+   */
+  async function approveAndBind(node: InsurerNode, rec: RedeemedCode, walletId: string): Promise<Approval> {
+    let plans: BenefitPlanConfig[] = [];
+    try { plans = (await node.listPlans()) ?? []; } catch { plans = []; }
+    if (!Array.isArray(plans)) plans = [];
+    const plan = rec.planIdHash ? plans.find((p) => p && typeof p.planId === 'string' && hashString(p.planId).toString() === rec.planIdHash) : undefined;
+    // Plan-bound formularies: a wallet is approved only into a plan the insurer has published (one with published
+    // terms), whose formulary the engine will bind; a draft being edited still enrols at its published terms.
+    if (!plan || !publishedTermsOf(plan)) {
+      return { approved: false, status: 409,
+        error: 'The plan this enrollment code enrols into is not published on the sequencer; the insurer must publish it before members enroll.' };
+    }
+    try {
+      const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
+      const approval = await server.signedFetch(`${seqUrl}/interactive/approve-member`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ walletId, groupIdHash: rec.groupIdHash, planIdHash: rec.planIdHash, planId: plan.planId, employerId: rec.employerId, familyIdHash: rec.familyIdHash ?? null }),
+      });
+      if (!approval.ok) {
+        const text = await approval.text().catch(() => '');
+        console.warn('[enrollment] The sequencer did not record the approval:', approval.status, text);
+        return { approved: false, status: 502, error: 'The sequencer did not record the insurer approval for this wallet' };
+      }
+    } catch (err: unknown) {
+      console.warn('[enrollment] Cannot reach the sequencer to approve the wallet:', err instanceof Error ? err.message : String(err));
+      return { approved: false, status: 502, error: 'Cannot reach the sequencer to approve the wallet. Try again later.' };
+    }
+    if (!rec.walletId) {
+      rec.walletId = walletId;
+      rec.completedAt = Date.now();
+      await persistRedeemedCodes(server);
+    }
+    return { approved: true };
+  }
   routes.push({
     method: 'POST',
     path: '/enrollment/complete',
@@ -808,7 +904,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!node) {
         return server.sendResponse(res, 503, false, undefined, 'Insurer node not configured');
       }
-      const b = body as { tokenId?: string; tokenPinHash?: string; walletId?: string; role?: string; recoveryDeposits?: unknown } | undefined;
+      const b = body as { tokenId?: string; completionSecret?: string; walletId?: string; role?: string; recoveryDeposits?: unknown } | undefined;
       if (typeof b?.walletId !== 'string' || !DECIMAL.test(b.walletId)) {
         return server.sendResponse(res, 400, false, undefined, 'Missing walletId');
       }
@@ -822,15 +918,17 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         return server.sendResponse(res, 429, false, undefined,
           'Too many refused enrollment completions from this address in the last minute. Try again in a minute.');
       }
-      if (pinHashMisses.count(code) >= PIN_HASH_MISSES_PER_CODE_PER_HOUR) {
-        res.setHeader('Retry-After', '3600');
-        return server.sendResponse(res, 429, false, undefined, TOO_MANY_FOR_CODE);
-      }
+      if (wrongAttemptsPerCode.count(code) >= WRONG_ATTEMPTS_PER_CODE_PER_HOUR) return tooManyForCode(res);
       const rec = redeemedCodes(server).get(code);
-      const presented = typeof b.tokenPinHash === 'string' ? b.tokenPinHash : '';
-      if (!rec || !rec.pinHash || presented.length === 0 || !sameHex(rec.pinHash, presented) || (rec.walletId && rec.walletId !== b.walletId)) {
+      const answered = commitmentOf(b.completionSecret);
+      // The wallet the code is taken for: the one a completion bound it to, or the one a completion in flight claimed
+      // it for.
+      const inFlight = completing.get(code);
+      const takenFor = rec?.walletId ?? inFlight?.walletId ?? null;
+      if (!rec || !rec.completionCommitment || answered === null || !sameHex(rec.completionCommitment, answered)
+        || (takenFor !== null && takenFor !== b.walletId)) {
         refusedCompletionsPerSource.allow(source);
-        pinHashMisses.allow(code);
+        wrongAttemptsPerCode.allow(code);
         return server.sendResponse(res, 403, false, undefined, NOT_COMPLETED);
       }
       const deposits = b.recoveryDeposits === undefined ? [] : parseDeposits(b.recoveryDeposits);
@@ -842,40 +940,18 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (existing && existing.tokenId !== code) {
         return server.sendResponse(res, 409, false, undefined, 'Wallet already enrolled');
       }
-      // Step 2 commit two (B2, C2): the engine provisions ELIGIBLE only for a wallet the insurer
-      // approved, and binds the plan the approval names. The plan is the one the insurer sold,
-      // resolved from the hash the employer's code carried; it has to be on the sequencer already.
-      let plans: BenefitPlanConfig[] = [];
-      try { plans = (await node.listPlans()) ?? []; } catch { plans = []; }
-      if (!Array.isArray(plans)) plans = [];
-      const plan = rec.planIdHash ? plans.find((p) => p && typeof p.planId === 'string' && hashString(p.planId).toString() === rec.planIdHash) : undefined;
-      // Plan-bound formularies: a wallet is approved only into a plan the insurer has published (one with published
-      // terms), whose formulary the engine will bind; a draft being edited still enrols at its published terms.
-      if (!plan || !publishedTermsOf(plan)) {
-        return server.sendResponse(res, 409, false, undefined,
-          'The plan this enrollment code enrols into is not published on the sequencer; the insurer must publish it before members enroll.');
+      // Claimed before anything is awaited, so no other completion passes the checks above between them and the claim
+      // (see `completing`). A completion for the wallet a claim in flight is for waits for that claim's approval
+      // rather than ask the engine again.
+      let outcome: Approval;
+      if (inFlight) {
+        outcome = await inFlight.approval;
+      } else {
+        const approving = approveAndBind(node, rec, b.walletId);
+        completing.set(code, { walletId: b.walletId, approval: approving });
+        try { outcome = await approving; } finally { completing.delete(code); }
       }
-      try {
-        const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
-        const approval = await server.signedFetch(`${seqUrl}/interactive/approve-member`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ walletId: b.walletId, groupIdHash: rec.groupIdHash, planIdHash: rec.planIdHash, planId: plan.planId, employerId: rec.employerId, familyIdHash: rec.familyIdHash ?? null }),
-        });
-        if (!approval.ok) {
-          const text = await approval.text().catch(() => '');
-          console.warn('[enrollment] The sequencer did not record the approval:', approval.status, text);
-          return server.sendResponse(res, 502, false, undefined, 'The sequencer did not record the insurer approval for this wallet');
-        }
-      } catch (err: unknown) {
-        console.warn('[enrollment] Cannot reach the sequencer to approve the wallet:', err instanceof Error ? err.message : String(err));
-        return server.sendResponse(res, 502, false, undefined, 'Cannot reach the sequencer to approve the wallet. Try again later.');
-      }
-      if (!rec.walletId) {
-        rec.walletId = b.walletId;
-        rec.completedAt = Date.now();
-        await persistRedeemedCodes(server);
-      }
+      if (!outcome.approved) return server.sendResponse(res, outcome.status, false, undefined, outcome.error);
       const enrollmentRecord = {
         walletId: b.walletId,
         tokenId: code,

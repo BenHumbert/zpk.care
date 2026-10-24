@@ -51,6 +51,26 @@
  * why: the device answers every refusal 403 with the same words. In those tests step 4 runs against the stand-in device
  * below, whose phase stays key_generated after a 403 as the member node's does, and Start over's confirm is then raised
  * on that phase with the onboarding state step 4 left.
+ *
+ * The review of round ten of the security fixes, 2026-10-24, found the note promising the same code where round ten had
+ * made that false. Round ten (A-108) has the device keep a secret from its first redemption of the code until the
+ * insurer completes the code, and the insurer answer a repeat of the redemption only for that secret's commitment;
+ * erasing the device destroys the secret. So when the insurer recorded a redemption whose answer never reached the
+ * device (the reviewer's run had real nodes, and a proxy between the device and the insurer that dropped the answer),
+ * the device answered 502 and stayed in key_generated, the page saw no 403, and Start over said the code had not been
+ * redeemed and the same code and PIN would work. Retry would have finished with the code. After Start over the insurer
+ * refuses the same code and PIN as already used, and the member must ask HR for a new code.
+ * What is true now: step 4 notes that it sent a redeem (onboardState.redeemSent) as it sends one. With that note and no
+ * refusal, Start over on a device in key_generated says the device sent the code without learning whether the insurer
+ * recorded it, that only this device can then finish enrolling with it, so Retry is the way on, and that starting over
+ * may mean asking HR for a new code. It says so whatever the device answered short of a 403 (its 502 for an answer that
+ * never came, the insurer's 5xx or either of its 429s passed on, its own 5xx), when no answer came back to the page,
+ * and while the redeem is still on its way. After a 403 it says what it said before, whatever step 4 sent first. A page
+ * that sent no redeem cannot tell whether a device in key_generated sent one (after a reload, or from another tab), and
+ * step 4 sends one as soon as the key is made, so the note then says one may have been sent and a new code may be
+ * needed; it says the same in awaiting_token or token_received on a page whose redeem went to a device since erased.
+ * The same code and PIN are promised only in those two phases, on a page that sent no redeem. Step 4's Retry is as it
+ * was.
  */
 import fs from 'fs';
 
@@ -61,6 +81,13 @@ const WALLET = '42';
 const COULD_NOT_CHECK = 'The insurer could not check this enrollment code now. Try again later.';
 const TOO_MANY_ATTEMPTS = 'Too many enrollment attempts came from this network. Try again in a minute.';
 const REFUSED = 'The insurer did not accept this enrollment code and PIN.';
+/**
+ * What the device answers when the insurer's answer never reached it, when the insurer's limit on wrong attempts with the
+ * code refused it, and when it failed itself after the insurer answered (its state could not be saved, say).
+ */
+const UNREACHABLE = 'Cannot reach the insurer to redeem the enrollment code. Try again later.';
+const CODE_BLOCKED = 'This enrollment code has had too many wrong attempts in the last hour. Try again in an hour, or ask HR for a new code.';
+const SAVE_FAILED = 'ENOSPC: no space left on device, write';
 
 /** The source from `start` through the brace that closes the first block opened after it. */
 function balanced(start: number): string {
@@ -91,12 +118,14 @@ const immediately = (f: () => void): void => f();
 const quiet = { log() {}, warn() {}, error() {} };
 type Call = { path: string; init: any };
 
+type Reply = { status?: number; body: unknown };
+
 /** A fetch that answers by path and records each call; a route that throws stands for a device that did not answer. */
-function fakeFetch(routes: Record<string, (init: any) => { status?: number; body: unknown }>, calls: Call[]) {
+function fakeFetch(routes: Record<string, (init: any) => Reply | Promise<Reply>>, calls: Call[]) {
   return async (url: string, init: any = {}) => {
     const path = new URL(url).pathname;
     calls.push({ path, init });
-    const answer = routes[path] ? routes[path](init) : { status: 404, body: { ok: false, error: 'Not found' } };
+    const answer = routes[path] ? await routes[path](init) : { status: 404, body: { ok: false, error: 'Not found' } };
     const status = answer.status ?? 200;
     return { status, ok: status < 400, json: async () => answer.body };
   };
@@ -106,12 +135,14 @@ function fakeFetch(routes: Record<string, (init: any) => { status?: number; body
 
 /**
  * A device as step 4 drives it: its phase moves as each route answers, as the member node's does, and its redeem answers
- * as `redeem` says until the test changes it.
+ * as `redeem` says until the test changes it. A redeem `unanswered` is one the page sent and no answer came back to; while
+ * `held` is set, the redeem is on its way and answers once it settles.
  */
-function device(phase: string, redeem: { status: number; error?: string }) {
+function device(phase: string, redeem: { status: number; error?: string; unanswered?: boolean }) {
   const d = {
     phase,
     redeem,
+    held: null as Promise<void> | null,
     calls: [] as Call[],
     fetch: null as unknown as ReturnType<typeof fakeFetch>,
   };
@@ -122,7 +153,9 @@ function device(phase: string, redeem: { status: number; error?: string }) {
       d.phase = 'key_generated';
       return { body: { ok: true, data: { phase: d.phase } } };
     },
-    '/onboarding/redeem': () => {
+    '/onboarding/redeem': async () => {
+      if (d.held) await d.held;
+      if (d.redeem.unanswered) throw new TypeError('Failed to fetch');
       if (d.redeem.status !== 200) return { status: d.redeem.status, body: { ok: false, error: d.redeem.error } };
       d.phase = 'code_redeemed';
       return { body: { ok: true, data: { phase: d.phase, groupIdHash: '11', planIdHash: '22' } } };
@@ -137,7 +170,7 @@ function device(phase: string, redeem: { status: number; error?: string }) {
 
 /** Step 4's run, generateKeyAndWallet as app.js writes it, against `dev`, with the member's typed details. */
 function stepFour(dev: ReturnType<typeof device>) {
-  const onboardState = { enrollPIN: '48213970', cardholderId: 'CH-1', firstName: 'Ada', lastName: 'Lovelace', dob: '19900115', walletId: '', keyError: '', codeRefused: false };
+  const onboardState = { enrollPIN: '48213970', cardholderId: 'CH-1', firstName: 'Ada', lastName: 'Lovelace', dob: '19900115', walletId: '', keyError: '', codeRefused: false, redeemSent: false };
   const seen = { renders: 0, toasts: [] as string[] };
   const app = load([...HELPERS, fn('devicePhase'), fn('keyStepsFrom'), fn('generateKeyAndWallet')], {
     fetch: dev.fetch, location: { origin: ORIGIN }, setTimeout: immediately, console: quiet,
@@ -238,9 +271,13 @@ describe('step 4 resumes from the device phase, and offers Retry when it can', (
 
 /**
  * The confirm Start over raises on a device in `phase` (or one that does not answer), declined; and what it sent. The
- * page's onboarding state is `onboardState`, as step 4 left it, and by default one that has seen no refusal.
+ * page's onboarding state is `onboardState`, as step 4 left it, and by default that of a page that has sent no redeem and
+ * seen no refusal, as after a reload.
  */
-async function startOverConfirm(phase: string | null, onboardState: { codeRefused: boolean } = { codeRefused: false }): Promise<{ text: string; paths: string[] }> {
+async function startOverConfirm(
+  phase: string | null,
+  onboardState: { codeRefused: boolean; redeemSent: boolean } = { codeRefused: false, redeemSent: false },
+): Promise<{ text: string; paths: string[] }> {
   const calls: Call[] = [];
   let text = '';
   const app = load([...HELPERS, fn('devicePhase'), fn('startOverCodeNote'), fn('ejectMember')], {
@@ -262,13 +299,24 @@ describe('Start over says what erasing costs the enrollment code, by the device 
   const MAY_NEED = 'This device already redeemed your enrollment code, so you may need a NEW one from your employer to start over.';
   const SPENT = 'You will need a NEW enrollment code from your employer to start over.';
   const REFUSED_NOTE = 'The insurer refused your enrollment code and PIN, so you may need a NEW code from HR to start over.';
+  const UNANSWERED_NOTE = 'If this device already redeemed your enrollment code, you may need a NEW one from your employer to start over.';
+  /** After a redeem step 4 sent whose outcome it cannot know, and on a page that cannot know whether the device sent one. */
+  const SENT_NOTE = 'This device sent your enrollment code to the insurer without learning whether it was recorded. If it was, ' +
+    'only this device can finish enrolling with it, so Retry is the way on: starting over may mean asking HR for a NEW code.';
+  const MAY_HAVE_SENT = 'This device may already have sent your enrollment code to the insurer, so you may need a NEW code from HR to start over.';
 
-  test('before the code is redeemed, with no refusal of it seen, it says the same code and PIN still work, and asks for no new code', async () => {
-    for (const phase of ['awaiting_token', 'token_received', 'key_generated']) {
+  test('in awaiting_token and token_received, before the device makes its secret, on a page that sent no redeem and saw no refusal, it says the same code and PIN still work, and asks for no new code', async () => {
+    for (const phase of ['awaiting_token', 'token_received']) {
       const { text } = await startOverConfirm(phase);
       expect([phase, text.includes(NOT_REDEEMED)]).toEqual([phase, true]);   // before: false, it said "You will need a NEW enrollment token from your employer to start over."
       expect([phase, /NEW/.test(text)]).toEqual([phase, false]);              // before: true
     }
+  });
+
+  test('a page that sent no redeem cannot tell whether a device in key_generated sent one, as after a reload or from another tab: the note says one may have been sent and a new code may be needed, not that the same code still works', async () => {
+    const { text } = await startOverConfirm('key_generated');
+    expect(text).toContain(MAY_HAVE_SENT);      // before: absent
+    expect(text).not.toContain(NOT_REDEEMED);   // before: the same code and its PIN promised, which Start over makes false when the insurer recorded a redemption the device never heard answered
   });
 
   test('once the code is redeemed it may need a new one, and once a wallet is enrolled with it a new one is needed', async () => {
@@ -300,25 +348,85 @@ describe('Start over says what erasing costs the enrollment code, by the device 
     expect(text).not.toContain(NOT_REDEEMED);   // before: the same reassurance after a 403, that the same code and its PIN still work
   });
 
-  test('a redeem the insurer could not check is no refusal: step 4 keeps its Retry, and the note still says the same code and PIN work', async () => {
-    for (const [status, error] of [[429, TOO_MANY_ATTEMPTS], [502, COULD_NOT_CHECK]] as const) {
-      const dev = device('token_received', { status, error });
+  test('a redeem whose outcome step 4 cannot know is no refusal: step 4 keeps its Retry, and Start over says the insurer may have recorded the code, that Retry is the way on and that starting over may mean a new code from HR, not that the same code still works', async () => {
+    const outcomes: Array<[string, { status: number; error?: string; unanswered?: boolean }, string]> = [
+      ['the insurer\'s answer never reached the device', { status: 502, error: UNREACHABLE }, UNREACHABLE],
+      ['the insurer answered 5xx', { status: 502, error: COULD_NOT_CHECK }, COULD_NOT_CHECK],
+      ['the insurer\'s limit on one network', { status: 429, error: TOO_MANY_ATTEMPTS }, TOO_MANY_ATTEMPTS],
+      ['the insurer\'s limit on wrong attempts with the code', { status: 429, error: CODE_BLOCKED }, CODE_BLOCKED],
+      ['the device failed after the insurer answered', { status: 500, error: SAVE_FAILED }, SAVE_FAILED],
+      ['no answer came back to the page', { status: 0, unanswered: true }, 'Failed to fetch'],
+    ];
+    for (const [what, redeem, shown] of outcomes) {
+      const dev = device('token_received', redeem);
       const s = stepFour(dev);
       await s.run();
-      expect([status, dev.phase, s.onboardState.keyError, s.seen.renders]).toEqual([status, 'key_generated', error, 1]);
+      expect([what, dev.phase, s.onboardState.keyError, s.seen.renders, s.onboardState.codeRefused]).toEqual([what, 'key_generated', shown, 1, false]);
+      expect([what, s.onboardState.redeemSent]).toEqual([what, true]);   // before: false, nothing kept that a redeem was sent
       const { text } = await startOverConfirm(dev.phase, s.onboardState);
-      expect([status, text.includes(NOT_REDEEMED), text.includes(REFUSED_NOTE)]).toEqual([status, true, false]);
+      expect([what, text.includes(SENT_NOTE)]).toEqual([what, true]);       // before: false
+      expect([what, text.includes(NOT_REDEEMED)]).toEqual([what, false]);   // before: true, the same code and its PIN promised, which erasing the device makes false once the insurer has recorded the redemption
+      expect([what, text.includes(REFUSED_NOTE)]).toEqual([what, false]);
     }
+  });
+
+  test('a redeem still on its way counts as sent: Start over raised meanwhile says the insurer may have recorded the code, not that the same code still works', async () => {
+    const dev = device('token_received', { status: 200 });
+    let settle!: () => void;
+    dev.held = new Promise<void>((resolve) => { settle = resolve; });
+    const s = stepFour(dev);
+    const running = s.run();
+    for (let i = 0; i < 100 && !dev.calls.some((c) => c.path === '/onboarding/redeem'); i++) await new Promise((r) => setImmediate(r));
+    expect(dev.phase).toBe('key_generated');
+    const { text } = await startOverConfirm(dev.phase, s.onboardState);
+    expect(text).toContain(SENT_NOTE);          // before: absent
+    expect(text).not.toContain(NOT_REDEEMED);   // before: the same code and its PIN promised while the redeem was on its way
+    settle();
+    await running;
+    expect([dev.phase, s.step()]).toEqual(['wallet_derived', 5]);
+  });
+
+  test('after a 403 it keeps the refusal\'s words, though an earlier redeem\'s answer never came', async () => {
+    const dev = device('token_received', { status: 502, error: UNREACHABLE });
+    const s = stepFour(dev);
+    await s.run();
+    // Retry, and this time the insurer refuses the code and PIN (revoked meanwhile, say).
+    dev.redeem = { status: 403, error: REFUSED };
+    s.onboardState.keyError = '';
+    await s.run();
+    expect([s.onboardState.codeRefused, s.onboardState.redeemSent]).toEqual([true, true]);   // before: [true, false]
+    const { text } = await startOverConfirm(dev.phase, s.onboardState);
+    expect(text).toContain(REFUSED_NOTE);
+    expect(text).not.toContain(SENT_NOTE);
+    expect(text).not.toContain(NOT_REDEEMED);
   });
 
   test('a refusal changes only the note for a code not yet redeemed; the notes for a redeemed or spent code stay as they were', () => {
     const note = load([fn('startOverCodeNote')], {}, 'startOverCodeNote');
     for (const phase of ['awaiting_token', 'token_received', 'key_generated']) {
-      expect([phase, note(phase, true)]).toEqual([phase, REFUSED_NOTE]);   // before: NOT_REDEEMED, whatever step 4 saw
-      expect([phase, note(phase, false)]).toEqual([phase, NOT_REDEEMED]);
+      for (const sent of [false, true]) {
+        expect([phase, sent, note(phase, true, sent)]).toEqual([phase, sent, REFUSED_NOTE]);   // before: NOT_REDEEMED, whatever step 4 saw
+      }
+    }
+    for (const phase of ['awaiting_token', 'token_received']) {
+      expect([phase, note(phase, false, false)]).toEqual([phase, NOT_REDEEMED]);
     }
     for (const [phase, said] of [['code_redeemed', MAY_NEED], ['wallet_derived', MAY_NEED], ['enrolled', SPENT], ['compiling', SPENT], ['ready', SPENT]]) {
-      expect([phase, note(phase, true)]).toEqual([phase, said]);
+      expect([phase, note(phase, true, false)]).toEqual([phase, said]);
+    }
+  });
+
+  test('a redeem sent changes the note only before the code is redeemed: Retry\'s note in key_generated, and no promise of the same code wherever a redeem may have gone', () => {
+    const note = load([fn('startOverCodeNote')], {}, 'startOverCodeNote');
+    expect(note('key_generated', false, true)).toBe(SENT_NOTE);        // before: NOT_REDEEMED
+    expect(note('key_generated', false, false)).toBe(MAY_HAVE_SENT);   // before: NOT_REDEEMED, though a page that sent no redeem cannot tell whether the device did
+    for (const phase of ['awaiting_token', 'token_received']) {
+      // A redeem this page sent to a device since erased from another tab: the insurer may hold that redemption, and the
+      // secret that would have finished it is gone with the erase.
+      expect([phase, note(phase, false, true)]).toEqual([phase, MAY_HAVE_SENT]);   // before: NOT_REDEEMED
+    }
+    for (const [phase, said] of [['code_redeemed', MAY_NEED], ['wallet_derived', MAY_NEED], ['enrolled', SPENT], ['compiling', SPENT], ['ready', SPENT], ['', UNANSWERED_NOTE]]) {
+      expect([phase, note(phase, false, true)]).toEqual([phase, said]);
     }
   });
 });

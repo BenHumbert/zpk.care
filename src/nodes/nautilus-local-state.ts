@@ -185,6 +185,13 @@ export interface NautilusStateData {
     redeemedAt: number;
     completedAt?: number;
   };
+  /**
+   * A-108: 32 bytes of hex, made at the first redemption of the enrollment code and saved before the insurer is asked.
+   * Every redemption carries its SHA-256, which the insurer keeps and never shows the employer; the completion carries
+   * the secret itself, so the insurer completes the code for this device alone. Dropped once the insurer completes it.
+   * Kept out of `onboarding`, which /onboarding/status returns.
+   */
+  completionSecret?: string;
   /** A12b: the recovery cards issued for this wallet, by id only; a card's share is never kept here */
   recoveryCards?: Array<{ cardId: string; issuedAt: number; revokedAt?: number }>;
   /** Onboarding state */
