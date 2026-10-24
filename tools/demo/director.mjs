@@ -40,6 +40,9 @@
  * Selectors come from the screen audit (prepare:screens), checked against the dashboard sources at 9f5099d (the
  * screens fixed for this film); the ones that still depend on a rehearsal or on the pricing commit are marked
  * TODO(selector). A failed take needs a new genesis boot.
+ *
+ * Waiting on camera: every action allowed to fail names its own timeout, short on a still screen (3 to 15 s), so
+ * Playwright's 30 s default never runs out on camera; a longer wait for the product runs inside camera.speedWhile.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -390,7 +393,7 @@ async function openShot(key) {
   const st = await stage(page, { viewport: VIEW, badge, fast: REHEARSAL });
   camera.register(key, { page, videoStartedAt, label: def.label });
   await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForLoadState('load', { timeout: 30000 }).catch(() => {});
+  await page.waitForLoadState('load', { timeout: 10000 }).catch(() => {});
   await st.glideTo({ x: VIEW.width / 2, y: VIEW.height / 2 }, { ms: 50 });
   const entry = { page, st, videoStartedAt };
   open.set(key, entry);
@@ -471,7 +474,45 @@ const toast = (pg, text) => pg.locator('#toast-container .toast', { hasText: tex
 async function closeDetail(pg) {
   // the pharmacy's cards open a detail view on any click inside them, including their own buttons
   const close = pg.locator('#ws-modal-overlay:not(.hidden) #ws-modal-close');
-  if (await close.isVisible().catch(() => false)) await close.click().catch(() => {});
+  if (await close.isVisible().catch(() => false)) await close.click({ timeout: 5000 }).catch(() => {});
+}
+/**
+ * Closes the network's batch detail as a person would: the × in its header, or, when that is out of reach (a window
+ * taller than the screen puts its header above the top edge), a click on the dimmed backdrop beside the window, which
+ * closes it too (dashboard-leviathan/app.js showBatchDetail). Each try is short: the first take held the open window
+ * on camera for 33 s while a click on the unreachable × ran out Playwright's default timeout.
+ */
+async function closeBatchDetail(pg, st) {
+  const modal = pg.locator('#batch-modal');
+  const close = pg.locator('#bm-close');
+  const box = await close.boundingBox({ timeout: 2000 }).catch(() => null);
+  if (box && box.x >= 0 && box.y >= 0 && box.x + box.width <= VIEW.width && box.y + box.height <= VIEW.height) await close.click({ timeout: 3000 }).catch(() => {});
+  if (await visible(modal)) {
+    const panel = await modal.locator('.batch-modal').boundingBox({ timeout: 2000 }).catch(() => null);
+    await st.clickAt({ x: Math.max(24, Math.round((panel ? panel.x : VIEW.width * 0.2) / 2)), y: Math.round(VIEW.height / 2) });
+  }
+  await modal.waitFor({ state: 'hidden', timeout: 3000 }).catch(() => log('batch: the detail window did not close'));
+}
+/** Moves the pointer off a card into the empty margin at its right, as a hand leaves the mouse after a click. */
+async function parkBeside(st, loc) {
+  const box = await loc.boundingBox({ timeout: 3000 }).catch(() => null);
+  if (box) await st.glideTo({ x: Math.min(VIEW.width - 80, box.x + box.width + 160), y: Math.min(box.y + box.height / 2, VIEW.height * 0.45) });
+}
+/**
+ * Scrolls a form until the row holding `field` sits just under the page's sticky top bar (.header), its labels in
+ * view; with { keep }, at least far enough that that element clears a four-line caption. Under the take's zoom,
+ * getBoundingClientRect and scrollBy both count screen pixels, so the margins are layout pixels times the zoom.
+ */
+async function clearOfTopBar(pg, field, { keep = null } = {}) {
+  await pg.locator(field).evaluate((el, keepSel) => {
+    const z = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+    const row = el.closest('.form-row') || el.parentElement;
+    const bar = document.querySelector('.header');
+    let dy = row.getBoundingClientRect().top - ((bar ? bar.getBoundingClientRect().bottom : 0) + 12 * z);
+    const k = keepSel && document.querySelector(keepSel);
+    if (k) dy = Math.max(dy, k.getBoundingClientRect().bottom - (innerHeight - 170 * z));
+    if (Math.abs(dy) >= 1) window.scrollBy({ top: dy, behavior: 'smooth' });
+  }, keep, { timeout: 5000 }).catch(() => {});
 }
 async function selectByText(select, re) {
   const value = await select.evaluate((el, src) => {
@@ -489,10 +530,10 @@ let enrollRetries = 0;
 async function retryIfFailed(pg) {
   const retry = pg.locator('#ob-retry');
   if (!(await visible(retry))) return false;
-  const why = (await pg.locator('#onboard-body').innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 300);
+  const why = (await pg.locator('#onboard-body').innerText({ timeout: 5000 }).catch(() => '')).replace(/\s+/g, ' ').slice(0, 300);
   if (++enrollRetries > 2) throw fatal(`enrollment failed on the phone after ${enrollRetries - 1} retries: ${why}`);
   log(`enrollment: the phone reports a failure (${why}); Retry ${enrollRetries} resumes from the device's phase`);
-  await retry.click().catch(() => {});
+  await retry.click({ timeout: 5000 }).catch(() => {});
   return true;
 }
 
@@ -502,7 +543,7 @@ async function retryIfFailed(pg) {
  * TODO(selector): confirm in a rehearsal that headless Chromium 143 draws the PDF (document.contentType check below).
  */
 async function reviewLetter(pg, row) {
-  const opened = pg.waitForEvent('popup', { timeout: 20000 }).then((tab) => ({ tab, at: Date.now() })).catch(() => null);
+  const opened = pg.waitForEvent('popup', { timeout: 10000 }).then((tab) => ({ tab, at: Date.now() })).catch(() => null);
   await row.locator('button', { hasText: 'Review PDF' }).click();
   const o = await opened;
   if (!o) {
@@ -511,10 +552,10 @@ async function reviewLetter(pg, row) {
     return;
   }
   const { tab, at } = o;
-  const loaded = await until('the letter to load', async () => /^blob:/.test(tab.url()), { timeout: 20000, every: 250 }).catch(() => false);
+  const loaded = await until('the letter to load', async () => /^blob:/.test(tab.url()), { timeout: 10000, every: 250 }).catch(() => false);
   let filmed = false;
   if (loaded) {
-    await tab.waitForLoadState('load', { timeout: 10000 }).catch(() => {});
+    await tab.waitForLoadState('load', { timeout: 5000 }).catch(() => {});
     const drawn = await tab.evaluate(() => document.contentType === 'application/pdf' || !!document.querySelector('embed[type="application/pdf"]')).catch(() => false);
     if (drawn) {
       camera.register('insurer:letter', { page: tab, videoStartedAt: at, label: 'The CP 575 (insurer tab)' });
@@ -565,7 +606,7 @@ async function learnClaim(since) {
     return null;
   }, { timeout: 900000, every: 1000 }), { factor: 6 }));
   take.timings['dispense-to-proved'] = Date.now() - (take.dispenseAt || Date.now());
-  await dispensed.locator('.script-issue-badge', { hasText: 'ZK Proved' }).waitFor({ timeout: 60000 }).catch(() => {});
+  await dispensed.locator('.script-issue-badge', { hasText: 'ZK Proved' }).waitFor({ timeout: 15000 }).catch(() => {});
   const predicted = cast;
   const res = answer.value?.data?.result;
   const fillAnswer = res && res.adjudication ? res : res?.result;
@@ -580,7 +621,7 @@ async function learnClaim(since) {
   }
   const problems = storyChecks(real);
   const differs = claimDiffs(predicted, real);
-  const onScreen = (await dispensed.locator('.script-price-tag.patient-pay').innerText().catch(() => '')).trim();
+  const onScreen = (await dispensed.locator('.script-price-tag.patient-pay').innerText({ timeout: 5000 }).catch(() => '')).trim();
   const shownCents = Math.round(parseFloat(onScreen.replace(/[$,\s]/g, '')) * 100);
   if (onScreen && shownCents !== real.claim.P) problems.push(`the pharmacy shows ${onScreen}, the engine answered ${real.say.patientPay}`);
   cast = real;
@@ -643,7 +684,7 @@ const SCENE_RUN = {
     }, { timeout: 120000, every: 2000 });
     await camera.cut('employer:marketplace');
     await speak('apply', 'plans');
-    if (c.altPlan) await pg.locator(`.plan-card[data-plan="${c.altPlan.id}"]`).hover().catch(() => {});
+    if (c.altPlan) await pg.locator(`.plan-card[data-plan="${c.altPlan.id}"]`).hover({ timeout: 5000 }).catch(() => {});
     await chosen.hover();
     await speak('apply', 'choose');
     await chosen.click();
@@ -680,9 +721,11 @@ const SCENE_RUN = {
     // #activation-code); the director already holds it from the apply answer
     if (await visible(pg.locator('#activation-code-card'))) {
       await show('employer:marketplace', CARDS.activationCode, 10000);
-      await pg.locator('#btn-copy-code').click().catch(() => {});
+      await pg.locator('#btn-copy-code').click({ timeout: 5000 }).catch(() => {});
       await speak('docs', 'code');
-      await pg.locator('#btn-code-saved').click().catch(() => {});
+      await pg.locator('#btn-code-saved').click({ timeout: 5000 }).catch(() => {});
+      // that click removes the code panel; the card about it goes with it
+      await st.hideCard();
     } else log('docs: no activation code card on the Agreement screen');
     // the marketplace asks for the IRS letter from submission on (status submitted, no letter on file)
     const upload = pg.locator('#btn-upload-cp575');
@@ -703,12 +746,12 @@ const SCENE_RUN = {
     // with the letter on file the row offers Review PDF and Approve; the table polls every 10 s
     await camera.speedWhile(() => approve.waitFor({ timeout: 90000 }), { factor: 4 });
     const onFile = row.locator('.badge', { hasText: 'CP 575 on file' });
-    if (await visible(onFile)) await onFile.hover().catch(() => {});
+    if (await visible(onFile)) await onFile.hover({ timeout: 5000 }).catch(() => {});
     await speak('approve', 'row');
     await reviewLetter(pg, row);
     await speak('approve', 'approve');
     await approve.click();
-    await row.locator('.badge', { hasText: 'Approved' }).waitFor({ timeout: 30000 }).catch(() => {});
+    await row.locator('.badge', { hasText: 'Approved' }).waitFor({ timeout: 10000 }).catch(() => {});
   },
 
   async sign() {
@@ -850,9 +893,13 @@ const SCENE_RUN = {
     const since = Date.now();
     take.enrollStartedAt = since;
     await pg.locator('#ob-next').click();
+    // step 5 is a spinner: the card about the typed fields ends here, and the pointer moves off the card (left where
+    // Next was, it rested on the next steps' "Start over" link while they were explained)
+    await st.hideCard();
+    await parkBeside(st, pg.locator('#onboard-body'));
     const keyMsg = pg.locator('#ob-keygen-msg');
     const showing = (re) => until(`"${re.source}" on the phone`, async () => {
-      const t = await keyMsg.innerText().catch(() => '');
+      const t = await keyMsg.innerText({ timeout: 2000 }).catch(() => '');
       if (/^Error:/.test(t)) throw fatal(`step 4 failed on the phone: ${t.slice(0, 300)}`);
       return re.test(t);
     }, { timeout: 120000, every: 200 });
@@ -877,7 +924,7 @@ const SCENE_RUN = {
     const { page: pg } = shot('member');
     await camera.cut('member');
     const msg = pg.locator('#ob-enroll-msg');
-    await until('the enroll step on the phone', async () => /Enrolling with insurer/i.test(await msg.innerText().catch(() => '')), { timeout: 60000, every: 300 });
+    await until('the enroll step on the phone', async () => /Enrolling with insurer/i.test(await msg.innerText({ timeout: 2000 }).catch(() => '')), { timeout: 60000, every: 300 });
     await show('member', CARDS.enrollBehind, 15000);
     await speak('enrolling', 'enroll');
     await show('member', CARDS.learnsInsurer, 20000);
@@ -885,7 +932,7 @@ const SCENE_RUN = {
     if (holds.enroll) await holds.enroll.release();
     // compile (~27 s, on the proving budget since 9f5099d) runs next: speed up the wait, never a voice
     await timed('enrollment-compile', () => camera.speedWhile(() => until('the registration proof to start', async () => {
-      if (/registration proof/i.test(await msg.innerText().catch(() => ''))) return true;
+      if (/registration proof/i.test(await msg.innerText({ timeout: 2000 }).catch(() => ''))) return true;
       if (await visible(pg.locator('#ob-enter'))) return true;
       await retryIfFailed(pg);
       return false;
@@ -951,7 +998,7 @@ const SCENE_RUN = {
     // two toasts follow: 'PCP assigned — generating ZK proof...' then 'PCP proof submitted to sequencer' (~13.5 s)
     await timed('pcp-proof', () => camera.speedWhile(() => until('the PCP proof', async () => {
       if (await visible(toast(pg, 'PCP proof submitted'))) return true;
-      if (await visible(toast(pg, 'failed'))) throw fatal(`PCP assignment failed: ${await toast(pg, 'failed').first().innerText().catch(() => '')}`);
+      if (await visible(toast(pg, 'failed'))) throw fatal(`PCP assignment failed: ${await toast(pg, 'failed').first().innerText({ timeout: 2000 }).catch(() => '')}`);
       return false;
     }, { timeout: 300000, every: 500 }), { factor: 4 }));
     await show('member', CARDS.learnsPrescriber, 16000);
@@ -987,13 +1034,15 @@ const SCENE_RUN = {
     // the card shows Avery's own price and the drug's coverage before the script is written (owner decision 2026-10-19):
     // she may read it because Avery named her as primary care. The line says the amount, so the card must agree.
     const quote = pg.locator('#rx-cost-estimate[data-state="member"]');
-    await until('the member quote on the prescriber card', async () => (await quote.count()) > 0, { timeout: 60000, every: 500 }).catch(() => {});
-    const quoted = Number(await pg.locator('#rx-est-member-pays').getAttribute('data-cents').catch(() => null));
+    await camera.speedWhile(() => until('the member quote on the prescriber card', async () => (await quote.count()) > 0, { timeout: 60000, every: 500 }), { factor: 4 }).catch(() => {});
+    const quoted = Number(await pg.locator('#rx-est-member-pays').getAttribute('data-cents', { timeout: 5000 }).catch(() => null));
     if (quoted !== c.claim.P) mustHold(`the prescriber card shows the member paying ${quoted} cents; the claim says ${c.claim.P}`);
-    // the card opens under Send Prescription, below the fold of the 1280x720 layout: scroll it to mid-screen (its Patient
-    // Pays label centred), where the whole card clears the header and the caption
-    await quote.getByText('Patient Pays', { exact: true }).evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'smooth' })).catch(() => {});
+    // the card opens under Send Prescription, below the fold of the 1280x720 layout: scroll until the quantity row sits
+    // just under the sticky top bar. The card is then on screen above the caption, and so are the quantity, days-supply
+    // and refills labels the next lines are about (with the card centred they were under the bar)
+    await clearOfTopBar(pg, '#rx-quantity', { keep: '#rx-cost-estimate' });
     await speak('prescribe', 'quote');
+    await clearOfTopBar(pg, '#rx-quantity'); // a no-op unless the card needed more room than that
     await Promise.all([speak('prescribe', 'directions'), pg.locator('#rx-directions').fill(c.drug.directions)]);
     await Promise.all([speak('prescribe', 'refills'), pg.locator('#rx-refills').fill(String(c.drug.refills))]);
     await pg.locator('#rx-diagnosis').fill(c.drug.diagnosis);
@@ -1009,7 +1058,7 @@ const SCENE_RUN = {
     await speak('prescribe', 'proofs');
     await timed('prescribe-proof', () => camera.speedWhile(() => until('the prescription proof', async () => {
       const cls = await badge.getAttribute('class');
-      if (/badge-failed|badge-error/.test(cls || '')) throw fatal(`prescription proof failed: ${await pg.locator('#rx-proof-detail').innerText().catch(() => '')}`);
+      if (/badge-failed|badge-error/.test(cls || '')) throw fatal(`prescription proof failed: ${await pg.locator('#rx-proof-detail').innerText({ timeout: 2000 }).catch(() => '')}`);
       return /badge-settled/.test(cls || '');
     }, { timeout: 600000, every: 1000 }), { factor: 6 }));
     // the badge reads "ZK Proofs: Generated" and its detail lists the proofs the engine made, not kept and not verified (9f5099d)
@@ -1025,7 +1074,7 @@ const SCENE_RUN = {
     const script = pg.locator('#ws-adjudicated-list .script-card', { hasText: c.drug.match });
     await camera.speedWhile(() => until('the prescription in the Adjudicated column', async () => {
       if (await script.count()) return true;
-      await pg.locator('#ws-refresh-btn').click().catch(() => {});
+      await pg.locator('#ws-refresh-btn').click({ timeout: 5000 }).catch(() => {});
       return false;
     }, { timeout: 180000, every: 5000 }), { factor: 4 });
     // a PENDING script shows "Adjudicating…" and no Fill until the prescriber's proofs finish; a refused fill stays put
@@ -1069,7 +1118,7 @@ const SCENE_RUN = {
     await pg.addStyleTag({ content: '#ws-verify-wallet{filter:blur(6px)!important}' }).catch(() => {});
     const filled = pg.locator('#ws-filled-list .script-card', { hasText: c.drug.match }).first();
     const verifyBtn = filled.locator('button', { hasText: 'Verify Member' });
-    if (await visible(verifyBtn)) await verifyBtn.click().catch(() => {}); // focuses the verify box
+    if (await visible(verifyBtn)) await verifyBtn.click({ timeout: 5000 }).catch(() => {}); // focuses the verify box
     await closeDetail(pg);
     await st.card(CARDS.simulatedTap.title, CARDS.simulatedTap.lines, { ms: 9000 });
     await Promise.all([speak('verify-dispense', 'pasted'), pg.locator('#ws-verify-wallet').fill(take.attestationJson, { paste: true })]);
@@ -1079,12 +1128,12 @@ const SCENE_RUN = {
     const failed = pg.locator('#ws-verify-status.error');
     await until('the member to be verified', async () => {
       if (await visible(verified)) return true;
-      if (await visible(failed)) throw fatal(`Verify Member failed: ${await failed.innerText().catch(() => '')}`);
+      if (await visible(failed)) throw fatal(`Verify Member failed: ${await failed.innerText({ timeout: 2000 }).catch(() => '')}`);
       return false;
     }, { timeout: 90000, every: 500 });
     await speak('verify-dispense', 'verified');
     const dispense = filled.locator('button', { hasText: 'Dispense' });
-    await dispense.hover().catch(() => {});
+    await dispense.hover({ timeout: 5000 }).catch(() => {});
     await speak('verify-dispense', 'gate');
     await speak('verify-dispense', 'dispense');
     // the credential root the fill's wallet update starts from, read before the click: the phone proves that update by
@@ -1104,12 +1153,13 @@ const SCENE_RUN = {
   },
 
   async pay() {
-    const { page: pg } = shot('pharmacy');
+    const { page: pg, st } = shot('pharmacy');
     await camera.cut('pharmacy');
     const dispensed = pg.locator('#ws-dispensed-list .script-card', { hasText: c.drug.match }).first();
     await dispensed.locator('.script-issue-badge', { hasText: 'ZK Proved' }).waitFor({ timeout: 60000 });
     const price = dispensed.locator('.script-price-tag.patient-pay');
-    if (await visible(price)) await price.hover().catch(() => {});
+    // pointed at from just below: a hover rested the pointer on the figure Walt says
+    if (await visible(price)) await st.pointAt(price);
     await speak('pay', 'price');
     await speak('pay', 'question');
     await speak('pay', 'answer');
@@ -1162,7 +1212,7 @@ const SCENE_RUN = {
   },
 
   async batch() {
-    const { page: pg } = shot('network');
+    const { page: pg, st } = shot('network');
     await camera.cut('network');
     await pg.locator('.nav-tab[data-tab="batches"]').click();
     await speak('batch', 'intro');
@@ -1182,7 +1232,7 @@ const SCENE_RUN = {
     await row.click();
     await pg.locator('#batch-modal').waitFor({ state: 'visible', timeout: 30000 });
     await speak('batch', 'batch');
-    await pg.locator('#bm-close').click().catch(() => {});
+    await closeBatchDetail(pg, st);
   },
 
   async audit() {
@@ -1210,8 +1260,8 @@ const SCENE_RUN = {
       // misses the card and costs a trip to Dashboard and the 8 s wait
       await pg.locator('#claims-list .loading').waitFor({ state: 'detached', timeout: 30000 }).catch(() => {});
       if (await claim.count()) return true;
-      await pg.locator('a.nav-link[data-tab="dashboard"]').click().catch(() => {});
-      await pg.locator('a.nav-link[data-tab="claims"]').click().catch(() => {}); // the tab reads the claims when it opens
+      await pg.locator('a.nav-link[data-tab="dashboard"]').click({ timeout: 5000 }).catch(() => {});
+      await pg.locator('a.nav-link[data-tab="claims"]').click({ timeout: 5000 }).catch(() => {}); // the tab reads the claims when it opens
       return false;
     }, { timeout: 300000, every: 8000 }), { factor: 6 });
     // the card prints "Drug Cost: <total>" with "NADAC <unit price>/<unit> x <quantity> = <ingredient>" and the fee, as the
@@ -1222,7 +1272,7 @@ const SCENE_RUN = {
     await speak('pickup', 'read');
     await pg.locator('a.nav-link[data-tab="dashboard"]').click();
     // the spend hero shows her own plan limits, read from the device (9f5099d)
-    await pg.locator('#spend-hero .spend-row').waitFor({ timeout: 60000 }).catch(() => {});
+    await pg.locator('#spend-hero .spend-row').waitFor({ timeout: 15000 }).catch(() => {});
     await speak('pickup', 'deductible');
     await speak('pickup', 'closing');
     await speak('pickup', 'unfinished');

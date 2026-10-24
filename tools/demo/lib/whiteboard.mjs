@@ -36,6 +36,15 @@ export const MATHJAX_CONFIG = Object.freeze({
 });
 
 /**
+ * A card's drawables start hidden, as the pen hides them. The page's prepGlyph hides each glyph through the property
+ * it later transitions on reveal (a path's fill-opacity, another drawable's opacity), but only after placeBlock has
+ * laid the card out at full ink, so the hide itself ran as a 200 ms fade: every card showed fully inked for a frame,
+ * then faded, before the pen wrote it. Hidden from the first layout, the hide changes nothing and only the reveal
+ * fades. Revealed glyphs carry inline values, so ghosts and erased cards keep their ink.
+ */
+export const PEN_START_CSS = '.eq svg path { fill-opacity: 0; } .eq svg text, .eq svg line, .eq svg polyline, .eq svg polygon, .eq svg ellipse, .eq svg circle { opacity: 0; }';
+
+/**
  * The screen every page of a take is recorded at. Chrome's screencast (what Playwright records) ignores an emulated
  * deviceScaleFactor: a 1280x720 viewport at DSF 1.5 is recorded as a 1280x720 frame padded into the 1920x1080 video.
  * So each page gets a real 1920x1080 viewport at DSF 1 and html { zoom: 1.5 }: it lays out as on a 1280x720 screen
@@ -67,6 +76,7 @@ export async function openWhiteboard({ browser, context, recordVideoDir, viewpor
   const font = `data:font/ttf;base64,${fs.readFileSync(fontFile).toString('base64')}`;
   const html = fs.readFileSync(WHITEBOARD_HTML, 'utf8').replace('url(__COMIC_NEUE_DATA_URL__)', () => `url(${font})`);
   await page.setContent(html, { waitUntil: 'load' });
+  await page.addStyleTag({ content: PEN_START_CSS });
   // the board is laid out at 1280x720 CSS pixels; the zoom draws it at the viewport's 1920x1080
   await page.evaluate((z) => { document.documentElement.style.zoom = String(z); }, zoom);
   await page.addScriptTag({ content: `window.MathJax = ${JSON.stringify(MATHJAX_CONFIG)};` });

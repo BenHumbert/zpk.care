@@ -38,6 +38,7 @@
  * Every person here is fictional (the doctor and the pharmacy are row 0 of src/data/prescribers.json and
  * pharmacies.json, Sorrel Prairie, WI); web-search every name, the employer too, again before publishing.
  */
+import crypto from 'node:crypto';
 import { sayAmount, sayNumber } from './narrate.mjs';
 
 export const SCRIPT_STATUS = 'final';
@@ -133,6 +134,8 @@ const lastDayOfNextMonth = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTC
 const capital = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 /** Whole dollars the way people say them: 50000 cents -> 'five hundred', 780000 -> 'seventy-eight hundred'. */
 const dollarWords = (n) => (Number(n) % 100 === 0 ? sayAmount(Number(n) / 100) : cents(n));
+/** A member ID as a benefits card prints it: M and ten digits, drawn at random. */
+const memberIdOf = () => `M${String(crypto.randomInt(0, 1e10)).padStart(10, '0')}`;
 
 /**
  * The fill circuit's price split (lib/equations.mjs cards 7b-7g, src/fulfillment/accumulator-fulfillment-program.ts
@@ -259,7 +262,9 @@ export function castOf(input = {}) {
   const member = { firstName: 'Avery', lastName: 'Quillfeather', dob: '19870412', email: 'avery.quillfeather@example.test', ...(input.member || {}) };
   member.employeeId = member.employeeId || `FTW-${tag}-001`;
   member.familyId = member.familyId || `FAM-${tag}-01`;
-  member.cardholderId = member.cardholderId || member.employeeId; // the harness uses the employee ID as the cardholder ID
+  // the cardholder ID is the plan's member ID from her benefits card, typed on the phone under blur. It is her own
+  // number, drawn for each cast: never the employee ID, which HR holds and its roster preview shows in clear
+  member.cardholderId = member.cardholderId || memberIdOf();
   const others = input.coworkers || [
     ['Rowan', 'Ashgrove', '19921103'], ['Jules', 'Marrowind', '19850921'], ['Sasha', 'Penhallow', '19900317'],
     ['Imogen', 'Strayhorn', '19780629'], ['Bastian', 'Wrenfield', '19951208']
@@ -455,7 +460,7 @@ export function storyLines(c) {
         N('One function does all the hashing. H is Poseidon, a hash that is cheap inside a proof, working modulo p, a prime just above two to the two hundred fifty-four. enc packs text into field elements, thirty-one bytes each; hs hashes a string.', {
           board: [
             { do: 'write', card: '0', size: 36 },
-            { do: 'annotate', text: 'one hash for everything', near: { card: '0', find: 'Poseidon' }, side: 'below', color: 'blue', when: 0.85 }
+            { do: 'annotate', text: 'one hash for everything', near: { card: '0', line: 2 }, side: 'below', color: 'blue', when: 0.85 }
           ]
         }),
         N('The phone draws a salt, two hundred fifty-six random bits; sigma is its hash. Each identity field is hashed with sigma: f-zero the cardholder ID, f-two and f-three the names, f-four the enrollment key, K. The birth date, f-one, goes in as one number. f-five is g, the group hash from the redeemed code, with no salt.', {
@@ -469,9 +474,9 @@ export function storyLines(c) {
             { do: 'circle', target: { card: '2b', find: 'f0,f1,f2,f3,f4' }, color: 'blue' },
             { do: 'annotate', text: 'stays on the phone', near: { card: '2b', find: 'f0,f1,f2,f3,f4' }, side: 'below', color: 'blue' },
             { do: 'circle', target: { card: '2b', find: 'f5' }, color: 'red', when: 0.4 },
-            { do: 'annotate', text: 'plain hash, no salt', near: { card: '2b', find: 'f5' }, side: 'right', color: 'red' },
+            { do: 'annotate', text: 'plain hash, no salt', near: { card: '2b', find: 'f5)' }, side: 'right', color: 'red', when: 0.4 },
             { do: 'box', target: { card: '2b', find: 'W' }, color: 'green', when: 0.7 },
-            { do: 'annotate', text: 'leaves the phone', near: { card: '2b', find: 'W' }, side: 'below', color: 'green' }
+            { do: 'annotate', text: 'leaves the phone', near: { card: '2b', find: 'W' }, side: 'below', color: 'green', when: 0.7 }
           ]
         })
       ]
@@ -487,19 +492,19 @@ export function storyLines(c) {
         N("First, the tool every tree here uses. MR is a Merkle path root: start at a leaf, ell, and at each level hash it with one sibling, s-i. The bit b-i says which side. z-zero is zero, and each z-k hashes two copies of the one below, so an empty tree's root is known in advance.", {
           board: [
             { do: 'write', card: '5', size: 36 },
-            { do: 'annotate', text: 'which side? the bit decides', near: { card: '5', find: 'bi=1' }, side: 'right', color: 'blue', when: { word: 'side', at: 0.5 } }
+            { do: 'annotate', text: 'which side? the bit decides', near: { card: '5', find: 'bi=1' }, side: 'above', color: 'blue', size: 22, when: { word: 'side', at: 0.5 } }
           ]
         }),
         N("Now the proof. t is the domain tag; zero means member, so the circuit rebuilds W from the six private values. The wallet registry and the lifecycle tree each have height eleven, a thousand and twenty-four slots. Line two: a zero at W's slot hashes up to today's roots, so the slot is empty. Line three writes W with an empty inventory and a nonce of zero, and W with state one, registered. Only x is public: W and four roots.", {
           board: [
-            { do: 'write', card: '4b', size: 34 },
+            { do: 'write', card: '4b', size: 32 },
             { do: 'annotate', text: 'private: f0..f5', near: { card: '4b', line: 1 }, side: 'right', color: 'blue', when: 0.2 },
             { do: 'underline', target: { card: '4b', line: 2 }, color: 'blue', when: { word: 'two', at: 0.5 } },
-            { do: 'annotate', text: 'slot is empty', near: { card: '4b', line: 2 }, side: 'right', color: 'blue' },
+            { do: 'annotate', text: 'slot is empty', near: { card: '4b', line: 2 }, side: 'right', color: 'blue', when: { word: 'two', at: 0.5 } },
             { do: 'underline', target: { card: '4b', line: 3 }, color: 'blue', when: { word: 'three', at: 0.7 } },
-            { do: 'annotate', text: 'new leaves', near: { card: '4b', line: 3 }, side: 'right', color: 'blue' },
+            { do: 'annotate', text: 'new leaves', near: { card: '4b', line: 3 }, side: 'right', color: 'blue', when: { word: 'three', at: 0.7 } },
             { do: 'box', target: { card: '4b', line: 4 }, color: 'green', when: 0.88 },
-            { do: 'annotate', text: 'all the sequencer sees', near: { card: '4b', line: 4 }, side: 'right', color: 'green' }
+            { do: 'annotate', text: 'all the sequencer sees', near: { card: '4b', line: 4 }, side: 'right', color: 'green', when: 0.88 }
           ]
         })
       ]
@@ -512,7 +517,7 @@ export function storyLines(c) {
         N('Only then does anything change. And while the phone proved, it held the proving lease, so nothing else could move those roots.', {
           board: [
             { do: 'box', target: { card: '4c', line: 2 }, color: 'green' },
-            { do: 'annotate', text: 'accept', near: { card: '4c', line: 2 }, side: 'above', color: 'green' }
+            { do: 'annotate', text: 'accept', near: { card: '4c', findRe: '\\(R\\W+reg,R\\W+lc\\)' }, side: 'above', color: 'green' }
           ]
         })
       ]
@@ -533,17 +538,17 @@ export function storyLines(c) {
           board: [
             { do: 'write', card: '5b', size: 40 },
             { do: 'value', target: { card: '5b', find: 'D', nth: 0 }, text: grouped(D), when: 0.55 },
-            { do: 'value', target: { card: '5b', find: 'M', nth: 0 }, text: grouped(c.plan.oopCents), when: 0.68 },
-            { do: 'value', target: { card: '5b', find: 'B', nth: 0 }, text: grouped(c.plan.annualCents), when: 0.8 }
+            { do: 'value', target: { card: '5b', find: 'M', nth: 0 }, text: grouped(c.plan.oopCents), side: 'above', when: 0.68 },
+            { do: 'value', target: { card: '5b', find: 'B', nth: 0 }, text: grouped(c.plan.annualCents), size: 18, when: 0.8 }
           ]
         }),
         N('A credential carries one number for its data, a forest root: the hash of six tree roots, each of height eight. At registration only access control has leaves. Leaf zero is her eligibility record, which binds her to her plan: its copay and the root of its formulary. Leaf one twenty-seven is A. The other trees are empty: z-seven.', {
           pricing: true,
           board: [
             { do: 'write', card: '5c', size: 36 },
-            { do: 'annotate', text: 'her plan: copay, formulary', near: { card: '5c', find: 'Eelig' }, side: 'below', color: 'blue', when: 0.62 },
+            { do: 'annotate', text: 'her plan: copay, formulary', near: { card: '5c', findRe: 'rac=root8\\{0[^E]*Eelig' }, side: 'below', color: 'blue', size: 24, when: 0.62 },
             { do: 'circle', target: { card: '5c', findRe: '127[^A,]*A' }, color: 'blue', when: 0.8 },
-            { do: 'annotate', text: 'her accumulator', near: { card: '5c', findRe: '127[^A,]*A' }, side: 'below', color: 'blue' }
+            { do: 'annotate', text: 'her accumulator', near: { card: '5c', findRe: '127[^A,]*A' }, side: 'below', color: 'blue', size: 24, when: 0.8 }
           ]
         }),
         N('In the wallet registry, this whole credential is one number: the inventory root inside her leaf.')
@@ -586,25 +591,27 @@ export function storyLines(c) {
     },
     'board-deductible': {
       lines: [
-        N('Inside that proof, the money starts from her record, A.', { board: [{ do: 'clear' }, { do: 'title', text: 'Inside the fill proof: deductible and copay' }] }),
+        N('Inside that proof, the money starts from her record, A.', { board: [{ do: 'clear', ghost: 0 }, { do: 'title', text: 'Inside the fill proof: deductible and copay' }] }),
         N("T is the total: the drug's NADAC price times the quantity, plus her plan's dispensing fee. Here, {total}, so on the board T is {totalCents}. inDed, the in-deductible flag, is true while a deductible is unmet. r-D is what is left of it: all of it, {remaining}. p-D, this fill's deductible portion, is T or r-D, whichever is smaller. The whole total fits, so the rest, a, is zero.", {
           pricing: true,
           board: [
-            { do: 'write', card: '7b', size: 34 },
-            { do: 'value', target: { card: '7b', find: 'T=', nth: 0 }, text: grouped(k.T), side: 'above', when: 0.3 },
-            { do: 'value', target: { card: '7b', find: 'rD=', nth: 0 }, text: grouped(k.rD), when: 0.5 },
-            { do: 'value', target: { card: '7b', find: 'pD=', nth: 0 }, text: grouped(k.pD), when: 0.7 },
-            { do: 'value', target: { card: '7b', find: 'a=T' }, text: grouped(k.a), when: 0.88 }
+            // written by "on the board, T is ...", so each value lands on its own words
+            { do: 'write', card: '7b', size: 34, ms: 9500 },
+            { do: 'value', target: { card: '7b', find: 'T=', nth: 0 }, text: grouped(k.T), side: 'above', when: { word: 'board', at: 0.28 } },
+            { do: 'value', target: { card: '7b', find: 'rD=', nth: 0 }, text: grouped(k.rD), when: { word: 'all', at: 0.59 } },
+            { do: 'value', target: { card: '7b', find: 'pD=', nth: 0 }, text: grouped(k.pD), when: { word: 'whichever', at: 0.85 } },
+            { do: 'value', target: { card: '7b', find: 'a=T' }, text: grouped(k.a), when: { word: 'rest', at: 0.93 } }
           ]
         }),
         N(`c is the copay, and it comes from her plan: ${dollarWords(k.copayCents)} dollars. c-rem is the copay on what remains, so zero. p-norm is the usual copay, after the deductible. She is still in it, so her base pay is p-D plus zero: the whole total.`, {
           pricing: true,
           board: [
-            { do: 'write', card: '7c', size: 34 },
-            { do: 'annotate', text: `c = ${grouped(k.copayCents)}, her plan's copay`, near: { card: '7c', find: 'a<c' }, side: 'above', color: 'blue', when: 0.2 },
-            { do: 'value', target: { card: '7c', find: 'crem=', nth: 0 }, text: grouped(k.cRem), when: 0.45 },
+            // c, on its own line above the card, while the line names it
+            { do: 'annotate', text: `c = ${grouped(k.copayCents)}, her plan's copay`, color: 'blue' },
+            { do: 'write', card: '7c', size: 34, ms: 6500 },
+            { do: 'value', target: { card: '7c', find: 'crem=', nth: 0 }, text: grouped(k.cRem), when: { word: 'zero', at: 0.45 } },
             { do: 'circle', target: { card: '7c', find: 'pD+crem' }, color: 'red', when: 0.85 },
-            { do: 'value', target: { card: '7c', find: 'pD+crem' }, text: grouped(k.pBase), color: 'red' }
+            { do: 'value', target: { card: '7c', find: 'pbase=', nth: 0 }, text: grouped(k.pBase), color: 'red', when: 0.85 }
           ]
         }),
         N('Then the benefit cap, the out-of-pocket cap and the family rules. None binds today. So P, what she pays, is the total; Q, what the plan pays, is zero.', {
@@ -637,20 +644,24 @@ export function storyLines(c) {
             { do: 'write', card: '7h', size: 34 },
             { do: 'value', target: { card: '7h', find: 'Q', nth: 0 }, text: grouped(k.Q), when: 0.62 },
             { do: 'circle', target: { card: '7h', find: 'S=' }, color: 'red', when: 0.8 },
-            { do: 'annotate', text: "into the prescription's transaction tree", near: { card: '7h', find: 'S=' }, side: 'below', color: 'red' },
+            { do: 'annotate', text: "into the prescription's transaction tree", near: { card: '7h', line: 2 }, side: 'right', color: 'red', when: 0.8 },
             { do: 'annotate', text: 'engine only (A-22)', near: { card: '7h', line: 1 }, side: 'right', color: 'red', when: 0.92 }
           ]
         }),
         N('The proof also outputs F-prime, her new eligibility forest root. Before recording anything, the engine rebuilds it from her own year and limits, with kappa, P and Q added to what she has paid, along the same path at leaf one twenty-seven. If it does not equal F-prime, the engine throws and records nothing.', {
           board: [
-            { do: 'write', card: '7j', size: 28 },
+            { do: 'write', card: '7j', size: 26 },
             { do: 'circle', target: { card: '7j', find: 'd+κ' }, color: 'blue', when: 0.55 },
             { do: 'circle', target: { card: '7j', find: 'o+P' }, color: 'blue', when: 0.62 },
             { do: 'circle', target: { card: '7j', find: 'b+Q' }, color: 'blue', when: 0.69 }
           ]
         }),
         N('Then it keeps the outputs and drops the proof. Nobody outside the engine verifies a fill proof yet.', {
-          board: [{ do: 'check', target: { card: '7j' }, label: 'rebuilt: match' }]
+          // 7j fills the board's width: the label goes under the tick, not beside it
+          board: [
+            { do: 'check', target: { card: '7j' }, label: '', id: 'check-7j' },
+            { do: 'annotate', text: 'rebuilt: match', near: 'check-7j', side: 'below', color: 'green', size: 24 }
+          ]
         })
       ]
     },
@@ -664,7 +675,7 @@ export function storyLines(c) {
           board: [
             { do: 'write', card: '8', size: 26 },
             { do: 'box', target: { card: '8', line: 1 }, color: 'blue', when: 0.42 },
-            { do: 'annotate', text: 'no amounts: only the root', near: { card: '8', line: 1 }, side: 'below', color: 'blue' },
+            { do: 'annotate', text: 'no amounts: only the root', near: { card: '8', find: 'forest root of the sent leaves' }, side: 'below', color: 'blue', when: 0.42 },
             { do: 'circle', target: { card: '8', findRe: 'l\\W{1,3}4' }, color: 'red', when: { word: 'revoked', at: 0.78 } }
           ]
         })
@@ -681,7 +692,7 @@ export function storyLines(c) {
           board: [
             { do: 'write', card: '9', size: 32 },
             { do: 'circle', target: { card: '9', find: 'P,Q' }, color: 'red', when: 0.45 },
-            { do: 'annotate', text: "from the engine's parked claim", near: { card: '9', find: 'P,Q' }, side: 'below', color: 'red' },
+            { do: 'annotate', text: "from the engine's parked claim", near: { card: '9', find: 'P,Q' }, side: 'above', color: 'red', when: 0.45 },
             { do: 'arrow', from: { card: '9', find: 'χprev' }, to: { card: '9', find: 'χk=' }, color: 'blue', bend: -0.35, when: 0.75 }
           ]
         }),
@@ -709,7 +720,7 @@ export function storyLines(c) {
             { do: 'write', card: '11', size: 24 },
             { do: 'underline', target: { card: '11', line: 2 }, color: 'blue', when: { word: 'chain', at: 0.5 } },
             { do: 'box', target: { card: '11', find: 'mergeBatches' }, color: 'red', when: 0.78 },
-            { do: 'annotate', text: 'does not run at two per batch', near: { card: '11', find: 'mergeBatches' }, side: 'below', color: 'red' }
+            { do: 'annotate', text: 'does not run at two per batch', near: { card: '11', find: 'mergeBatches' }, side: 'below', color: 'red', when: 0.78 }
           ]
         }),
         N('Anyone can check a batch proof against a key they compile themselves.')

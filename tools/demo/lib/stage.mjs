@@ -13,6 +13,14 @@
  *  - hideCursor for the director's own pages (whiteboard, status card), which keep only the captions
  *  - fillSecret(): a token, PIN or passphrase is never typed on screen. The field is masked first and the value is
  *    written into it from Node (page.evaluate), a character at a time so the dots still appear.
+ *  - the caption is drawn above the cursor, so a pointer left where a button was clicked never sits on the words, and
+ *    the dashboards' toasts (#toast-container, bottom right on every dashboard) rise above the caption while it shows
+ *  - cardAt: 'top-right' puts the lower-third beside the title (the director's status card, whose rows fill the
+ *    screen below it)
+ *  - a click's or hover's timeout covers its aim and glide too, so one allowed to fail gives up about a second after
+ *    it, not after Playwright's 30 s on camera
+ *  - pointAt() rests the pointer just under an element, so the figure a line names stays readable; clickAt() clicks
+ *    a point that is no control of its own (a dialog's backdrop)
  *
  *   const s = await stage(page, { viewport, badge: { name: 'Theo Brandvold', role: 'Insurer analyst', color: '#0ea5e9' } });
  *   await s.glideTo({ x, y });
@@ -26,27 +34,31 @@ export function overlayScript(opts) {
   if (window.__demoOverlay) return;
   window.__demoOverlay = true;
   const hideCursor = !!(opts && opts.hideCursor);
+  const cardTop = !!(opts && opts.cardAt === 'top-right');
+  // stacking, top down: the caption, the cursor, a click ripple and the badge, the lower-third card
   const CSS = ''
-    + '#__demoCursor{position:fixed;left:0;top:0;width:40px;height:40px;z-index:2147483647;pointer-events:none;transform:translate(-200px,-200px);will-change:transform' + (hideCursor ? ';display:none!important' : '') + '}'
+    + '#__demoCursor{position:fixed;left:0;top:0;width:40px;height:40px;z-index:2147483646;pointer-events:none;transform:translate(-200px,-200px);will-change:transform' + (hideCursor ? ';display:none!important' : '') + '}'
     + '#__demoCursor svg{transition:transform .12s ease-out;transform-origin:6px 4px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.45))}'
     + '#__demoCursor.down svg{transform:scale(.82)}'
     // centred by auto margins: left:50% with a translate would cap the caption at half the screen, under its max-width
-    + '#__demoCaption{position:fixed;left:0;right:0;bottom:22px;margin:0 auto;width:fit-content;z-index:2147483646;pointer-events:none;max-width:82%;'
+    + '#__demoCaption{position:fixed;left:0;right:0;bottom:22px;margin:0 auto;width:fit-content;z-index:2147483647;pointer-events:none;max-width:82%;'
     + 'background:rgba(12,12,14,.94);color:#f4f4f5;font:500 19px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;padding:12px 18px;border-radius:12px;'
     + 'border:1px solid rgba(255,255,255,.14);box-shadow:0 8px 24px rgba(0,0,0,.35);display:none}'
     + '#__demoCaption b{font-weight:700;margin-right:10px}'
-    + '#__demoBadge{position:fixed;left:14px;bottom:22px;z-index:2147483646;pointer-events:none;display:none;align-items:center;gap:8px;'
+    + '#__demoBadge{position:fixed;left:14px;bottom:22px;z-index:2147483645;pointer-events:none;display:none;align-items:center;gap:8px;'
     + 'background:rgba(12,12,14,.9);color:#f4f4f5;font:600 14px/1 system-ui,-apple-system,"Segoe UI",sans-serif;padding:9px 12px;border-radius:999px;border:1px solid rgba(255,255,255,.14)}'
     + '#__demoBadge i{width:10px;height:10px;border-radius:50%;display:inline-block}'
     + '#__demoBadge span{color:#a1a1aa;font-weight:500}'
-    + '#__demoCard{position:fixed;left:18px;bottom:96px;z-index:2147483645;pointer-events:none;max-width:min(560px,46%);display:none;'
+    + '#__demoCard{position:fixed;left:18px;bottom:96px;z-index:2147483644;pointer-events:none;max-width:min(560px,46%);display:none;'
     + 'background:rgba(12,12,14,.92);color:#f4f4f5;font:500 15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;padding:12px 16px 13px;border-radius:10px;'
     + 'border:1px solid rgba(255,255,255,.14);border-left:4px solid #9b9bff;box-shadow:0 8px 24px rgba(0,0,0,.35);animation:__demoCardIn .35s ease-out both;transition:bottom .25s ease-out}'
+    + '#__demoCard.__top{left:auto;right:40px;top:24px;bottom:auto;max-width:440px}'
     + '#__demoCard h4{margin:0 0 5px;font:700 11px/1.2 ui-monospace,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#a5a5ff}'
     + '#__demoCard p{margin:2px 0}'
     + '@keyframes __demoCardIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}'
-    + '.__demoRipple{position:fixed;z-index:2147483646;pointer-events:none;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;border:3px solid #9b9bff;animation:__demoRip .6s ease-out forwards}'
-    + '@keyframes __demoRip{from{transform:scale(.25);opacity:1}to{transform:scale(1.45);opacity:0}}';
+    + '.__demoRipple{position:fixed;z-index:2147483645;pointer-events:none;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;border:3px solid #9b9bff;animation:__demoRip .6s ease-out forwards}'
+    + '@keyframes __demoRip{from{transform:scale(.25);opacity:1}to{transform:scale(1.45);opacity:0}}'
+    + '#toast-container{transition:bottom .25s ease-out}';
   let x = -200;
   let y = -200;
   // the take renders each page at 1920x1080 with html { zoom: 1.5 } (a 1280x720 layout, drawn crisp): mouse
@@ -54,6 +66,25 @@ export function overlayScript(opts) {
   const Z = () => parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
   const place = (c) => { const z = Z(); c.style.transform = 'translate(' + (x / z - 6) + 'px,' + (y / z - 4) + 'px)'; };
   const state = { say: null, badge: null, card: null };
+  // the dashboards' toasts (#toast-container, fixed bottom right) would slide under the caption: while a line shows
+  // they sit just above it, and they come down a moment after the last line, not in the pause between two lines
+  let toastDrop = null;
+  function liftToasts(px) {
+    let lift = document.getElementById('__demoToastLift');
+    if (px) {
+      clearTimeout(toastDrop);
+      toastDrop = null;
+      if (!lift) {
+        lift = document.createElement('style');
+        lift.id = '__demoToastLift';
+        (document.head || document.body).appendChild(lift);
+      }
+      const css = '#toast-container{bottom:' + px + 'px!important}';
+      if (lift.textContent !== css) lift.textContent = css;
+    } else if (lift && !toastDrop) {
+      toastDrop = setTimeout(() => { toastDrop = null; lift.remove(); }, 1500);
+    }
+  }
   function render() {
     const cap = document.getElementById('__demoCaption');
     if (cap) {
@@ -66,6 +97,7 @@ export function overlayScript(opts) {
         cap.appendChild(document.createTextNode(state.say.text));
         cap.style.display = 'block';
       } else cap.style.display = 'none';
+      liftToasts(state.say ? 22 + cap.offsetHeight + 12 : 0);
     }
     const bad = document.getElementById('__demoBadge');
     if (bad && state.badge) {
@@ -82,6 +114,7 @@ export function overlayScript(opts) {
     }
     const card = document.getElementById('__demoCard');
     if (card) {
+      card.classList.toggle('__top', cardTop);
       if (state.card) {
         if (card.__shown !== state.card) {
           card.textContent = '';
@@ -99,7 +132,7 @@ export function overlayScript(opts) {
         card.style.display = 'block';
         // a caption grows upward from bottom:22px as it wraps: the card moves up to stay clear of it (96px clears one
         // line) and keeps its place while the caption is hidden between two lines
-        if (cap && state.say) card.style.bottom = Math.max(96, 22 + cap.offsetHeight + 12) + 'px';
+        if (cap && state.say && !cardTop) card.style.bottom = Math.max(96, 22 + cap.offsetHeight + 12) + 'px';
       } else {
         card.style.display = 'none';
         card.style.bottom = '';
@@ -212,9 +245,15 @@ async function glide(page, to, { ms } = {}) {
 
 const dwell = (pg, ms) => (STAGED.get(pg)?.fast ? Promise.resolve() : pg.waitForTimeout(ms));
 
-async function centerOf(loc) {
-  await loc.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
-  const box = await loc.boundingBox({ timeout: 5000 }).catch(() => null);
+/**
+ * Where to aim. Each step waits at most 5 s, and all of them together no longer than the action's own timeout: an
+ * action allowed to fail must fail within it, not hold the camera on a still screen.
+ */
+async function centerOf(loc, timeout) {
+  const end = Date.now() + (timeout || Infinity); // 0 is Playwright's "no timeout"
+  const left = () => Math.max(1, Math.min(5000, end - Date.now()));
+  await loc.scrollIntoViewIfNeeded({ timeout: left() }).catch(() => {});
+  const box = await loc.boundingBox({ timeout: left() }).catch(() => null);
   if (box && box.width > 0 && box.height > 0) return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   // a hidden control (a file input inside its drop zone): aim at the nearest visible ancestor instead
   const r = await loc.evaluate((el) => {
@@ -223,9 +262,11 @@ async function centerOf(loc) {
       if (b.width > 0 && b.height > 0) return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
     }
     return null;
-  }).catch(() => null);
+  }, undefined, { timeout: left() }).catch(() => null);
   return r;
 }
+/** The action's own options once it has aimed: what is left of the caller's timeout (at least a second). */
+const remaining = (o, end) => (end ? { ...o, timeout: Math.max(1000, end - Date.now()) } : o);
 
 /** Input types a person does not type character by character (the browser's own pickers). */
 const PICKER_TYPES = new Set(['date', 'time', 'datetime-local', 'month', 'week', 'color', 'range', 'file', 'checkbox', 'radio']);
@@ -247,30 +288,32 @@ function patchLocators(page) {
   proto.click = async function stagedClick(o) {
     const pg = this.page();
     if (!STAGED.has(pg)) return click.call(this, o);
-    const to = await centerOf(this);
+    const end = o && o.timeout ? Date.now() + o.timeout : null;
+    const to = await centerOf(this, o && o.timeout);
     if (to) {
       await glide(pg, to);
       await dwell(pg, 260);
     }
-    return click.call(this, o);
+    return click.call(this, remaining(o, end));
   };
   proto.hover = async function stagedHover(o) {
     const pg = this.page();
     if (!STAGED.has(pg)) return hover.call(this, o);
-    const to = await centerOf(this);
+    const end = o && o.timeout ? Date.now() + o.timeout : null;
+    const to = await centerOf(this, o && o.timeout);
     if (to) await glide(pg, to);
-    return hover.call(this, o);
+    return hover.call(this, remaining(o, end));
   };
   /** Types at a human pace; { paste: true } (and fast mode, and date pickers) fill at once after the click. */
   proto.fill = async function stagedFill(value, o = {}) {
     const pg = this.page();
     if (!STAGED.has(pg)) return fill.call(this, value, o);
     const { paste, ...rest } = o || {};
-    const to = await centerOf(this);
+    const to = await centerOf(this, rest.timeout);
     if (to) await glide(pg, to);
     const type = await this.evaluate((el) => (el.tagName === 'INPUT' ? String(el.type || 'text').toLowerCase() : el.tagName.toLowerCase())).catch(() => 'text');
     if (paste || STAGED.get(pg).fast || PICKER_TYPES.has(type)) {
-      await click.call(this).catch(() => {});
+      await click.call(this, { timeout: rest.timeout ?? 5000 }).catch(() => {});
       await dwell(pg, 120);
       return fill.call(this, String(value), rest);
     }
@@ -285,7 +328,7 @@ function patchLocators(page) {
   proto.selectOption = async function stagedSelect(v, o) {
     const pg = this.page();
     if (!STAGED.has(pg)) return select.call(this, v, o);
-    const to = await centerOf(this);
+    const to = await centerOf(this, o && o.timeout);
     if (to) await glide(pg, to);
     const r = await select.call(this, v, o);
     await dwell(pg, 420);
@@ -294,7 +337,7 @@ function patchLocators(page) {
   proto.check = async function stagedCheck(o) {
     const pg = this.page();
     if (!STAGED.has(pg)) return check.call(this, o);
-    const to = await centerOf(this);
+    const to = await centerOf(this, o && o.timeout);
     if (to) {
       await glide(pg, to);
       await dwell(pg, 220);
@@ -304,7 +347,7 @@ function patchLocators(page) {
   proto.uncheck = async function stagedUncheck(o) {
     const pg = this.page();
     if (!STAGED.has(pg)) return uncheck.call(this, o);
-    const to = await centerOf(this);
+    const to = await centerOf(this, o && o.timeout);
     if (to) {
       await glide(pg, to);
       await dwell(pg, 220);
@@ -314,7 +357,7 @@ function patchLocators(page) {
   proto.setInputFiles = async function stagedSetInputFiles(files, o) {
     const pg = this.page();
     if (!STAGED.has(pg)) return setInputFiles.call(this, files, o);
-    const to = await centerOf(this);
+    const to = await centerOf(this, o && o.timeout);
     if (to) {
       await glide(pg, to);
       await pg.evaluate(([px, py]) => window.__demoRipple && window.__demoRipple(px, py), [to.x, to.y]).catch(() => {});
@@ -326,13 +369,14 @@ function patchLocators(page) {
 
 /**
  * Puts a page on stage: the overlay on every navigation, slow visible clicks, the badge. Call before goto().
- * { now: true } also installs the overlay in the current document (pages built with setContent).
+ * { now: true } also installs the overlay in the current document (pages built with setContent); { cardAt: 'top-right' }
+ * draws the lower-third card beside the title instead of at the bottom left.
  */
-export async function stage(page, { viewport, badge, fast = false, hideCursor = false, now = false } = {}) {
+export async function stage(page, { viewport, badge, fast = false, hideCursor = false, now = false, cardAt = null } = {}) {
   STAGED.set(page, { pos: null, viewport: viewport || page.viewportSize() || { width: 1280, height: 720 }, bend: 1, fast });
   patchLocators(page);
-  await page.addInitScript(overlayScript, { hideCursor });
-  if (now) await page.evaluate(overlayScript, { hideCursor }).catch(() => {});
+  await page.addInitScript(overlayScript, { hideCursor, cardAt });
+  if (now) await page.evaluate(overlayScript, { hideCursor, cardAt }).catch(() => {});
   const setBadge = () => page.evaluate((b) => window.__demoBadge && window.__demoBadge(b), badge).catch(() => {});
   if (badge) page.on('load', setBadge);
   let cardTimer = null;
@@ -341,6 +385,22 @@ export async function stage(page, { viewport, badge, fast = false, hideCursor = 
     glideTo: (to, o) => glide(page, to, o),
     async ripple(to) {
       await page.evaluate(([px, py]) => window.__demoRipple && window.__demoRipple(px, py), [to.x, to.y]).catch(() => {});
+    },
+    /**
+     * Points at an element without covering it: the pointer's tip rests just under its bottom edge, so the arrow sits
+     * below the figure a line names (a hover parks it on top). Never throws; it gives up after `timeout`.
+     */
+    async pointAt(loc, { timeout = 5000 } = {}) {
+      const end = Date.now() + timeout;
+      await loc.scrollIntoViewIfNeeded({ timeout }).catch(() => {});
+      const box = await loc.boundingBox({ timeout: Math.max(1, end - Date.now()) }).catch(() => null);
+      if (box) await glide(page, { x: box.x + box.width / 2, y: box.y + box.height + 4 });
+    },
+    /** Glides to a point and clicks there: a spot that is no control of its own, such as a dialog's backdrop. */
+    async clickAt(to) {
+      await glide(page, to);
+      await dwell(page, 260);
+      await page.mouse.click(to.x, to.y);
     },
     setBadge,
     setFast(on) { STAGED.get(page).fast = !!on; },
@@ -363,7 +423,7 @@ export async function stage(page, { viewport, badge, fast = false, hideCursor = 
     async fillSecret(loc, value, { charMs = 70 } = {}) {
       const to = await centerOf(loc);
       if (to) await glide(page, to);
-      await loc.__unstagedClick({ timeout: 10000 }).catch(() => {});
+      await loc.__unstagedClick({ timeout: 5000 }).catch(() => {});
       await loc.evaluate((el) => {
         const masked = (el.tagName === 'INPUT' && String(el.type).toLowerCase() === 'password')
           || getComputedStyle(el).getPropertyValue('-webkit-text-security').trim() === 'disc';

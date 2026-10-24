@@ -1,10 +1,14 @@
 /**
  * The director's status card: a page for background steps that no product screen shows (the phone's 20-second
- * update loop, the registration behind the Enroll call, the batch countdown). It is honest about what it is: the
- * header and footer say that the video's director drew it from the network's own answers. Every value on it comes
- * from a read-only answer (lib/reads.mjs) or from an answer a product page received and the director only read (its
- * allowlisted fields, never a request body), and names the call it came from. It is offline (the board.mjs pattern):
- * its context aborts every request and the director feeds it with page.evaluate.
+ * update loop, the registration behind the Enroll call, the batch countdown). It is honest about what it is: its tag
+ * and the line under its title say that the video's director drew it from the network's own answers. Every value on
+ * it comes from a read-only answer (lib/reads.mjs) or from an answer a product page received and the director only
+ * read (its allowlisted fields, never a request body), and names the call it came from. It is offline (the board.mjs
+ * pattern): its context aborts every request and the director feeds it with page.evaluate.
+ *
+ * Five rows fill the screen from the title down to the caption, so nothing else is drawn at the bottom: that line
+ * sits in the header (a footer went under every caption), and a lower-third card is drawn beside the title (stage
+ * cardAt: 'top-right'), where the title block leaves it room, instead of over the last row.
  *
  *   const card = await openStatusCard({ browser, recordVideoDir });          // or { context } to share one
  *   await card.update('setTitle', { title: 'Registration, behind the screen', subtitle: 'Avery’s phone and the sequencer' });
@@ -24,12 +28,14 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>
   --font:'Segoe UI', system-ui, -apple-system, sans-serif; --mono:Consolas, 'Cascadia Mono', ui-monospace, monospace }
 * { box-sizing:border-box } html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:16px/1.45 var(--font); overflow:hidden }
 body { background: radial-gradient(ellipse at 18% 0%, rgba(99,102,241,.16), transparent 55%), radial-gradient(ellipse at 100% 100%, rgba(16,185,129,.10), transparent 50%), var(--bg) }
-.wrap { position:absolute; inset:28px 40px 104px; display:grid; grid-template-rows:auto auto minmax(0,1fr); gap:18px }
+.wrap { position:absolute; inset:24px 40px 128px; display:grid; grid-template-rows:auto auto minmax(0,1fr); gap:12px }
 .tag { justify-self:start; display:flex; align-items:center; gap:10px; font:600 12px/1 var(--mono); letter-spacing:.09em; text-transform:uppercase;
   color:var(--accent); background:rgba(165,180,252,.10); border:1px solid rgba(165,180,252,.28); padding:8px 12px; border-radius:999px }
 .tag i { width:8px; height:8px; border-radius:50%; background:var(--accent) }
 h1 { margin:0; font:650 34px/1.15 var(--font); letter-spacing:-.01em } .sub { color:var(--muted); font-size:17px; margin-top:6px }
-.rows { display:grid; gap:12px; align-content:start; overflow:hidden }
+/* the title block stops short of the corner where a lower-third card is drawn (440px wide, 40px in, plus a gap) */
+.head { max-width:736px } .origin { color:var(--muted); font-size:14.5px; margin-top:4px }
+.rows { display:grid; gap:10px; align-content:start; overflow:hidden }
 .row { display:grid; grid-template-columns:28px minmax(0,1fr) auto; gap:14px; align-items:center; background:var(--panel); border:1px solid var(--line);
   border-radius:14px; padding:10px 18px; animation:in .45s ease both }
 .row .dot { width:14px; height:14px; border-radius:50%; background:var(--dim); justify-self:center; box-shadow:0 0 0 4px rgba(111,120,145,.15) }
@@ -39,18 +45,14 @@ h1 { margin:0; font:650 34px/1.15 var(--font); letter-spacing:-.01em } .sub { co
 .end { text-align:right; max-width:520px } .end .src { white-space:normal }
 .value { font:600 19px/1.2 var(--mono); color:var(--fg); text-align:right; white-space:nowrap } .row.ok .value { color:var(--ok) } .row.wait .value { color:var(--wait) }
 .note { color:var(--muted); font-size:14px; margin-top:4px }
-.foot { position:absolute; left:40px; right:40px; bottom:28px; height:56px; display:flex; align-items:center; gap:12px; color:var(--muted); font-size:14.5px;
-  border-top:1px solid var(--line); padding-top:12px }
-.foot b { color:var(--fg); font-weight:600 }
 @keyframes in { from { opacity:0; transform:translateY(6px) } to { opacity:1; transform:none } }
 @keyframes pulse { 50% { opacity:.45 } }
 </style></head><body>
 <div class="wrap">
   <div class="tag"><i></i><span id="tag">Status card · drawn by the director</span></div>
-  <div><h1 id="title">Behind the screen</h1><div class="sub" id="sub"></div></div>
+  <div class="head"><h1 id="title">Behind the screen</h1><div class="sub" id="sub"></div><div class="origin" id="origin"></div></div>
   <div class="rows" id="rows"></div>
 </div>
-<div class="foot" id="foot"></div>
 <script>
 const $ = (id) => document.getElementById(id);
 const rows = new Map();
@@ -75,7 +77,7 @@ function render(r) {
 }
 window.card = {
   setTitle(o) { $('title').textContent = (o && o.title) || ''; $('sub').textContent = (o && o.subtitle) || ''; },
-  setFooter(text) { $('foot').textContent = text || ''; },
+  setOrigin(text) { $('origin').textContent = text || ''; },
   upsertRow(r) { if (timers.has(r.id)) { clearInterval(timers.get(r.id)); timers.delete(r.id); } render(r); },
   removeRow(id) { const el = rows.get(id); if (el) el.remove(); rows.delete(id); },
   /** A client-side countdown seeded from a network answer (e.g. nextBatchInMs); it says 'due' at zero. */
@@ -98,8 +100,8 @@ export async function openStatusCard({ browser, context, recordVideoDir, viewpor
   page.on('pageerror', (e) => log(`status card page error: ${e.message}`));
   await page.setContent(PAGE, { waitUntil: 'load' });
   await page.evaluate((z) => { document.documentElement.style.zoom = String(z); }, zoom);
-  await page.evaluate((t) => window.card.setFooter(t), label);
-  if (captions) await stage(page, { viewport, hideCursor: true, now: true });
+  await page.evaluate((t) => window.card.setOrigin(t), label);
+  if (captions) await stage(page, { viewport, hideCursor: true, now: true, cardAt: 'top-right' });
   return {
     page,
     context: ctx,
