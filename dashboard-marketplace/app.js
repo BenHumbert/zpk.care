@@ -82,7 +82,8 @@
   }
 
   function esc(s) { if (s == null) return ''; var d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
-  function fmtCents(c) { return '$' + (c / 100).toFixed(2); }
+  /** Whole cents as dollars with thousands separators: 780000 -> "$7,800.00". */
+  function fmtCents(c) { return '$' + (Number(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   /** An OOP or benefit limit: 0 means the plan sets no limit, which the fill circuit treats as none. */
   function fmtLimit(c) { return Number(c) > 0 ? fmtCents(c) : 'No limit'; }
   /** The dispensing fee a fill is charged: the plan's, or the network default when the plan publishes none. */

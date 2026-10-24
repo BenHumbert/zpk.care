@@ -3117,4 +3117,12 @@ the interim lease, A-59, A-60, A-61, A-74), none critical. Verified: regression 
 passing; typecheck src 18, scripts 2; the fourth rehearsal clean through all 31 scenes; the narrator's 69 lines
 rendered and listened back with none flagged. Git: with this round, 73 commits on local `dev`, nothing pushed.
 **Next:** the voiced take on this committed code, then the single-member and four-member harness runs on it, then
-A-59, A-60, A-61 and A-74, then B4 and D8.
+A-59, A-60, A-61 and A-74, then B4 and D8. **Last, on the owner's word of 2026-10-23 (only once everything else is
+done):** clean up the code and make zpk.care an out-of-the-box installable package, sized per population (systems,
+installation and equipment for a given member count and sites), with phase F's removal of fixtures and demo paths.
+
+The first voiced take (2026-10-23, 24 min) ran all 31 scenes; its frame-by-frame QA found an employee ID that the
+walkthrough's cast also used as the cardholder ID shown in clear, a 33 s frozen screen (the batch window, sized in vh,
+overflowed under the film's CSS zoom, so its close button was off screen), whiteboard notes printed over equations,
+and A-75 to A-77. All fixed before the re-take; regression batch 118 suites, 1350 tests; typecheck src 18, scripts 2.
+The owner asked for a short cut as well: a 7-minute version for pitching beside the 24-minute deep dive.

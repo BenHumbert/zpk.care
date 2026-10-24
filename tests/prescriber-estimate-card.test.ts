@@ -59,7 +59,7 @@ function liftVar(src: string, name: string): string {
 }
 const escHtml = (s: unknown): string => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-const CARD_FUNCTIONS = ['parseQuantity', 'memberPaysLabel', 'coverageLine', 'priorAuthBlock', 'estimateCardHtml', 'updateCostEstimate',
+const CARD_FUNCTIONS = ['parseQuantity', 'memberPaysLabel', 'planPaysLabel', 'coverageLine', 'priorAuthBlock', 'estimateCardHtml', 'updateCostEstimate',
   'bindPriorAuthControls', 'showPriorAuthStatus', 'requestPriorAuthFromCard', 'refreshPriorAuthStatus'];
 const CARD_VARS = ['QUANTITY_RULE', 'PHASE_LABELS', 'PA_LABELS', 'estimateContext', 'estimateSeq'];
 

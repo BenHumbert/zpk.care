@@ -28,14 +28,19 @@ import fs from 'fs';
 const app = fs.readFileSync('dashboard-prescriber/app.js', 'utf-8').replace(/\r\n/g, '\n');
 const engine = fs.readFileSync('src/adjudication/interactive-service.ts', 'utf-8').replace(/\r\n/g, '\n');
 const FN = '  function prescribeProofSummary(';
+// the proofs' names, which the result box's timings use too (tests/prescriber-result-box.test.ts)
+const NAMES = '  var PRESCRIBE_PROOF_NAMES = {';
 
-/** The dashboard's summary function, lifted out of the page and run in Node. */
+/** The dashboard's summary function and the names it reads, lifted out of the page and run in Node. */
 function loadSummary(): (result: unknown) => string {
+  const names = app.indexOf(NAMES);
+  expect(names).toBeGreaterThan(-1);
   const start = app.indexOf(FN);
   expect(start).toBeGreaterThan(-1);
   const end = app.indexOf('\n  }\n', start);
   expect(end).toBeGreaterThan(start);
-  return new Function(`${app.slice(start, end + 4)}\nreturn prescribeProofSummary;`)() as (result: unknown) => string;
+  const namesLine = app.slice(names, app.indexOf('\n', names));
+  return new Function(`${namesLine}\n${app.slice(start, end + 4)}\nreturn prescribeProofSummary;`)() as (result: unknown) => string;
 }
 
 /** The keys of proofTimesMs in createPrescription's result, read out of the engine's source. */
@@ -69,10 +74,8 @@ describe('the prescriber dashboard after the prescribe proofs finish', () => {
   test('has a name for every proof key the engine returns, and no other', () => {
     const keys = prescribeProofKeys();
     expect(keys).toContain('proofGate');
-    const fnAt = app.indexOf(FN);
-    expect(fnAt).toBeGreaterThan(-1);
-    const start = app.indexOf('var names = {', fnAt);
-    expect(start).toBeGreaterThan(fnAt);
+    const start = app.indexOf(NAMES);
+    expect(start).toBeGreaterThan(-1);
     const named = [...app.slice(start, app.indexOf('};', start)).matchAll(/(\w+): '/g)].map((m) => m[1]);
     expect([...named].sort()).toEqual([...keys].sort());
   });

@@ -65,6 +65,10 @@
     try { sessionStorage.setItem('zkt_pharmacy_verified', JSON.stringify(verifiedMemberWallets)); } catch {}
   }
 
+  // The verify line under the scan box: what the last verification said, and the member it verified. The count of her
+  // filled scripts that ends it is drawn again with the columns (showVerifiedCount).
+  let verifyLine = null; // { walletId, text }
+
   // Messaging state
   let msgActiveThread = null;
   let msgContacts = [];
@@ -494,6 +498,7 @@
     renderColumn('#ws-filled-list', filled, 'filled');
     renderColumn('#ws-dispensed-list', dispensed, 'dispensed');
     renderColumn('#ws-history-list', history, 'history');
+    showVerifiedCount();
   }
 
   function renderColumn(sel, claims, columnType) {
@@ -994,6 +999,30 @@
     return !!(currentVerified && memberWid && currentVerified === memberWid);
   }
 
+  // The verify line ends with the count of the verified member's scripts still in Filled. It is drawn with the
+  // columns, so a script dispensed, or moved on by a refresh, leaves the count as it leaves the column.
+  function showVerifiedCount() {
+    var statusEl = $('#ws-verify-status');
+    if (!statusEl || !verifyLine) return;
+    var member = getVerifiedMemberWallet();
+    if (member !== verifyLine.walletId) { // another pharmacy is selected: this verification is not its own
+      verifyLine = null;
+      statusEl.classList.add('hidden');
+      return;
+    }
+    var mine = allClaims.filter(function (claim) {
+      return (claim.memberWalletId || claim.patient || claim.patientWalletId || '') === member;
+    });
+    var ready = mine.filter(function (claim) { return getScriptStatus(claim) === 'filled'; }).length;
+    // a script being dispensed stays in the Filled column until its proof is done
+    var dispensing = mine.filter(function (claim) { return getScriptStatus(claim) === 'dispensing'; }).length;
+    statusEl.textContent = verifyLine.text + (ready > 0
+      ? ' — ' + ready + ' script(s) ready for dispensing'
+      : dispensing > 0
+        ? ' — ' + dispensing + ' script(s) being dispensed'
+        : ' — no filled scripts awaiting pickup');
+  }
+
   // NFC Scan / Verify Member
   async function verifyMember(walletId) {
     const statusEl = $('#ws-verify-status');
@@ -1004,6 +1033,7 @@
 
     statusEl.classList.remove('hidden', 'verified', 'error');
     statusEl.textContent = 'Verifying...';
+    verifyLine = null; // a redraw of the columns leaves the line alone until this verification answers
 
     try {
       // Try to parse as JSON attestation (credential-attestation or wrapper)
@@ -1038,21 +1068,18 @@
       setVerifiedMemberWallet(result.walletId || walletId);
 
       // Mark their filled scripts as member-verified (Dispense now enabled)
-      const verified = verifyScriptsForMember(getVerifiedMemberWallet());
+      verifyScriptsForMember(getVerifiedMemberWallet());
 
-      // Build verification status text
+      // Build verification status text; the columns end it with the count of her filled scripts (showVerifiedCount)
       var statusText = 'Verified: ' + truncate(getVerifiedMemberWallet(), 20);
       if (result.attestationVerified) {
         statusText += ' [Attestation: Ed25519 signature valid';
         if (result.attestationExpired) statusText += ', EXPIRED';
         statusText += ']';
       }
-      if (verified > 0) statusText += ' — ' + verified + ' script(s) ready for dispensing';
-      else statusText += ' — no filled scripts awaiting pickup';
+      verifyLine = { walletId: getVerifiedMemberWallet(), text: statusText };
 
       statusEl.classList.add('verified');
-      statusEl.textContent = statusText;
-
       renderWorkstationColumns();
     } catch (err) {
       statusEl.classList.add('error');
@@ -1070,6 +1097,7 @@
     const statusEl = $('#ws-verify-status');
     statusEl.classList.remove('hidden', 'verified', 'error');
     statusEl.textContent = 'Scanning NFC tag...';
+    verifyLine = null;
 
     try {
       const result = await API.nfc.scan({});

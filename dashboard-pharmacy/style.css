@@ -672,13 +672,15 @@ html, body {
   padding: 24px;
 }
 
+/* Its height is a share of the overlay, not vh: under CSS zoom a vh length is multiplied by the zoom, and at zoom 1.5
+   80vh is taller than the screen. */
 .ws-modal {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   width: 100%;
   max-width: 640px;
-  max-height: 80vh;
+  max-height: 80%;
   display: flex;
   flex-direction: column;
   box-shadow: 0 8px 32px rgba(0,0,0,0.5);
@@ -1693,7 +1695,7 @@ select.form-input {
   border: 1px solid var(--border);
   border-radius: 12px;
   width: 480px;
-  max-width: 95vw;
+  max-width: 95%;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   overflow: hidden;
 }

@@ -54,7 +54,6 @@ function run(pieces: string[], scope: Record<string, unknown>, ret: string): any
   return new Function(...names, `'use strict';\n${pieces.join(NL)}\nreturn ${ret};`)(...names.map((n) => scope[n]));
 }
 const escHtml = (s: unknown): string => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-const fmtCents = (c: number) => '$' + (Number(c) / 100).toFixed(2);
 
 const ABACAVIR_HASH = '7770452185217037457936945884955351010484654540450486511394911988126126761141';
 // l2_estimateCost for the run.ts member: plan copay $15, fee $12.50, $500 deductible not yet met
@@ -70,8 +69,9 @@ async function estimate(values: Record<string, string>, answer: unknown = MEMBER
   const $ = (id: string) => (els[id] = els[id] ?? { id, value: values[id] ?? '', innerHTML: '' });
   const asked: Array<Record<string, unknown>> = [];
   const toasts: Array<[string, string]> = [];
-  const doPriceEstimate = run(liftAll(INSURER, ['parseQuantity', 'quotePhaseLabel', 'doPriceEstimate']), {
-    $, esc: escHtml, fmtCents, truncHash: (h: string, n: number) => String(h).slice(0, n),
+  // the page's own money format (tests/money-separators.test.ts), not a copy of it
+  const doPriceEstimate = run(liftAll(INSURER, ['fmtCents', 'parseQuantity', 'quotePhaseLabel', 'doPriceEstimate']), {
+    $, esc: escHtml, truncHash: (h: string, n: number) => String(h).slice(0, n),
     toast: (m: string, t: string) => { toasts.push([m, t]); },
     API: { estimateCost: async (p: Record<string, unknown>) => { asked.push(p); return answer; } },
     formularyData: [{ ndcHash: ABACAVIR_HASH, brandName: 'ABACAVIR', tierLevel: 1, copayAmountCents: 1000, requiresPriorAuth: false }],

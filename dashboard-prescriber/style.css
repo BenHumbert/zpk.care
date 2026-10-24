@@ -791,13 +791,15 @@ html, body {
   z-index: 200;
 }
 
+/* Its size is a share of the overlay, not vh or vw: under CSS zoom a viewport length is multiplied by the zoom, and at
+   zoom 1.5 80vh is taller than the screen. */
 .modal-content {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   width: 480px;
-  max-width: 90vw;
-  max-height: 80vh;
+  max-width: 90%;
+  max-height: 80%;
   overflow-y: auto;
   box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 }
@@ -1018,7 +1020,7 @@ html, body {
   border: 1px solid var(--border);
   border-radius: 12px;
   width: 480px;
-  max-width: 95vw;
+  max-width: 95%;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   overflow: hidden;
 }

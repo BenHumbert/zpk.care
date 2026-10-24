@@ -83,10 +83,14 @@
     }
   }
 
+  // A date-only value (YYYY-MM-DD, or YYYYMMDD as an attestation carries it) names a calendar day, not an instant.
+  // new Date() reads YYYY-MM-DD as UTC midnight, the day before anywhere west of UTC; built at local midnight, it shows
+  // as the same day in every time zone.
   function fmtDateShort(val) {
     if (!val) return '--';
     try {
-      return new Date(val).toLocaleDateString();
+      const day = /^(\d{4})(-?)(\d{2})\2(\d{2})$/.exec(String(val));
+      return (day ? new Date(Number(day[1]), Number(day[3]) - 1, Number(day[4])) : new Date(val)).toLocaleDateString();
     } catch {
       return String(val);
     }

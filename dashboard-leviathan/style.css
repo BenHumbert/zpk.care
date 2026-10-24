@@ -1298,9 +1298,12 @@ html, body {
   position: fixed; inset: 0; background: rgba(0,0,0,0.75);
   display: flex; align-items: center; justify-content: center; z-index: 9999;
 }
+/* Its height is a share of the overlay, which covers the screen. Not vh: under CSS zoom a vh length is multiplied by
+   the zoom like any other length, and at zoom 1.5 85vh was taller than the screen, its header and close button above
+   the top edge. */
 .batch-modal {
   background: var(--bg-secondary); border: 1px solid var(--border);
-  border-radius: 12px; width: 90%; max-width: 720px; max-height: 85vh;
+  border-radius: 12px; width: 90%; max-width: 720px; max-height: 85%;
   display: flex; flex-direction: column; overflow: hidden;
 }
 .batch-modal-header {

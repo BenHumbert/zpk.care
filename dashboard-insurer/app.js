@@ -64,9 +64,10 @@
     return s.length > len ? s.slice(0, len) + '...' : s;
   }
 
+  // Whole cents as dollars with thousands separators: 780000 -> "$7,800.00".
   function fmtCents(c) {
     if (c == null) return '--';
-    return '$' + (Number(c) / 100).toFixed(2);
+    return '$' + (Number(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
   /** An OOP or benefit limit: 0 means the plan sets no limit (the fill circuit tests each for greater than 0). */

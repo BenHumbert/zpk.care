@@ -71,9 +71,13 @@
     return new Date(t).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
   }
 
+  // A date-only value (YYYYMMDD, as the device keeps a PCP's effective date, or YYYY-MM-DD) is a calendar day. new Date()
+  // reads YYYYMMDD as no date at all and YYYY-MM-DD as UTC midnight, the day before west of UTC; built at local
+  // midnight, it shows as that day in every time zone.
   function fmtDate(t) {
     if (!t) return '--';
-    var d = new Date(t);
+    var day = /^(\d{4})(-?)(\d{2})\2(\d{2})$/.exec(String(t));
+    var d = day ? new Date(Number(day[1]), Number(day[3]) - 1, Number(day[4])) : new Date(t);
     return d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
@@ -278,7 +282,7 @@
 
   function loadTab(tab) {
     switch (tab) {
-      case 'dashboard': loadDashboard(); break;
+      case 'dashboard': loadDashboard(true); break;
       case 'claims': loadClaims(); break;
       case 'formulary': loadFormulary(); break;
       case 'plan': loadPlan(); break;
@@ -858,7 +862,15 @@
     }
   }
 
-  async function loadDashboard() {
+  // Opening the tab draws the page's loading state first. What it drew last can be from before the member's latest
+  // claim (at enrollment: "No claims data yet" and zeros), and it would stay up until the answers arrive. A refresh while
+  // the tab is open keeps the view until its answers replace it.
+  async function loadDashboard(opening) {
+    if (opening) {
+      $('spend-hero').innerHTML = '<div class="spend-hero-loading">Loading plan spend...</div>';
+      $('dash-stats').innerHTML = '';
+      $('dash-recent-claims').innerHTML = '<div class="loading">Loading...</div>';
+    }
     // Fetch PCP from server
     try { pcpData = await RPC.getCurrentPcp(); } catch (_) { /* server unavailable */ }
     var nudge = $('pcp-nudge');

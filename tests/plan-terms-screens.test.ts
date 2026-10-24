@@ -290,8 +290,8 @@ describe('F12: the marketplace agreement describes what members are billed', () 
   test('the agreement states the family limits and the network roots, and that a plan published later needs a new signature', async () => {
     const html = await agreementScreen('approved', agreement(null));
     expect(html).toContain('Family OOP Max');
-    expect(html).toContain('$16000.00');                              // the family OOP max
-    expect(html).toContain('$25000.00');                              // the family annual max
+    expect(html).toContain('$16,000.00');                             // the family OOP max
+    expect(html).toContain('$25,000.00');                             // the family annual max
     expect(html).toContain('55555555555555555555');                    // the published network root
     expect(html).toContain('A plan published later is covered only once you sign an agreement that includes it');
     expect(html).not.toContain('until the insurer publishes them');
