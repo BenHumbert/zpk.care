@@ -269,15 +269,20 @@
   // ══════════════════════════════════════════════════════════════
 
   let allClaims = [];
+  // Whether the columns show the selected pharmacy's scripts; until they do, they say Loading...
+  let workstationDrawn = false;
 
   async function loadWorkstation() {
     var pharm = getSelectedPharmacy();
 
-    // Show loading indicators in workstation columns
-    ['ws-adjudicated-list', 'ws-filled-list', 'ws-dispensed-list', 'ws-history-list'].forEach(function (id) {
-      var el = document.getElementById(id);
-      if (el) el.innerHTML = '<div class="ws-empty" style="opacity:0.6">Loading...</div>';
-    });
+    // Loading indicators until the selected pharmacy's scripts are first drawn. A refresh (the 10 s timer, a proof
+    // event, Refresh, a return to the tab) leaves the cards on screen until its answer replaces them.
+    if (!workstationDrawn) {
+      ['ws-adjudicated-list', 'ws-filled-list', 'ws-dispensed-list', 'ws-history-list'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.innerHTML = '<div class="ws-empty" style="opacity:0.6">Loading...</div>';
+      });
+    }
 
     try {
       const status = await API.onboarding.status();
@@ -329,6 +334,7 @@
     });
 
     // Filter to selected pharmacy (by NPI wallet match) — if no pharmacy field, show all
+    var shown = allClaims; // the scripts on screen, kept when this answer is not drawn
     allClaims = prescriptions.filter(function (c) {
       var cPharm = c.pharmacyWalletId || c.pharmacy || '';
       if (!cPharm) return true; // no pharmacy tag — show in all
@@ -400,6 +406,9 @@
     if (allClaims.length > 0 || !window._lastHadClaims) {
       window._lastHadClaims = allClaims.length > 0;
       renderWorkstationColumns();
+      workstationDrawn = true;
+    } else if (workstationDrawn) {
+      allClaims = shown; // a failed or empty answer leaves the cards drawn, and their buttons still find their scripts
     }
 
     // Auto-refresh workstation every 10s (set once, not every call)
@@ -859,6 +868,7 @@
     $('#ws-verify-wallet').focus();
   }
 
+  // The pharmacy's own record that the member paid: nothing is sent, and the claim on the network is unchanged.
   function confirmPayment(key) {
     var claim = findClaimByKey(key);
     if (!claim) return;
@@ -885,7 +895,7 @@
     // Stay in dispensed column with "Paid" badge — don't move to history
     // (History is for reversals/cancellations, not completed payments)
     renderWorkstationColumns();
-    toast('Payment confirmed — claim lifecycle complete', 'success');
+    toast('Payment recorded', 'success');
   }
 
   function reverseScript(key) {
@@ -1969,6 +1979,7 @@
     setSelectedPharmacy(npi);
     // Reset in-memory workflow state for the new pharmacy
     resetWorkflow();
+    workstationDrawn = false; // the new pharmacy's columns say Loading... until its scripts are drawn
     setVerifiedMemberWallet(null);
     // Refresh current tab
     onTabEnter(currentTab);

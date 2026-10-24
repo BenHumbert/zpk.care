@@ -405,6 +405,10 @@ html, body {
 .badge-info { background: #0d2040; color: var(--blue); }
 .badge-accent { background: var(--accent-dim); color: var(--accent); }
 .badge-live { background: #0d3b1e; color: var(--green); animation: pulse 2s infinite; }
+/* the prescription's proof states: proved, failed, and gave up waiting */
+.badge-settled { background: #0d3b1e; color: var(--green); }
+.badge-failed { background: #3b0d0d; color: var(--red); }
+.badge-error { background: #3b0d0d; color: var(--red); }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
@@ -517,6 +521,7 @@ html, body {
 
 .form-result.success { background: #0d3b1e; border: 1px solid var(--green); color: var(--green); }
 .form-result.error { background: #3b0d0d; border: 1px solid var(--red); color: var(--red); }
+.form-result.info { background: #0d2040; border: 1px solid var(--blue); color: var(--blue); }
 
 /* ── Event Log ────────────────────────────────────────────── */
 

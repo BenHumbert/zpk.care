@@ -183,14 +183,34 @@ const RPC = (() => {
   function verifyStateCertificate(cert) { return call('l2_verifyStateCertificate', { certificate: cert }); }
 
   // ── Data queries (aggregated across partitions) ────────
+  // D1: the receipt list and the audit log answer the plan or the operator; the page sends the operator's token when it
+  // holds one (set on the Admin tab)
   function getReceipts(limit, offset) {
-    return call('l2_getAllReceipts', { limit: limit || 100, offset: offset || 0 });
+    return call('l2_getAllReceipts', { limit: limit || 100, offset: offset || 0 }, true);
+  }
+  // The receipts the sequencer holds, newest first. It drops old receipts once they settle, so a receipt's place in the
+  // list is not its sequence number: one page at the server's cap (1000) holds every receipt it keeps.
+  async function getRecentReceipts() {
+    var all = await getReceipts(1000);
+    if (!Array.isArray(all)) return [];
+    return all.sort(function (a, b) { return Number(b.sequenceNumber) - Number(a.sequenceNumber); });
   }
   function getBatches(limit, offset) {
     return call('l2_getAllBatches', { limit: limit || 100, offset: offset || 0 });
   }
+  // The newest `limit` batches, newest first. l2_getAllBatches pages from the oldest; the sequencer
+  // numbers its batches from 0 and keeps every one, so the newest start at latestBatchNumber + 1 - limit.
+  async function getLatestBatches(limit) {
+    var digest = await getStateDigest();
+    if (!digest || digest.latestBatchNumber === null || digest.latestBatchNumber === undefined) return [];
+    var page = await getBatches(limit, Math.max(0, Number(digest.latestBatchNumber) + 1 - limit));
+    if (!Array.isArray(page)) return [];
+    return page.sort(function (a, b) { return Number(b.batchNumber) - Number(a.batchNumber); });
+  }
+  // The sequencer takes a batch number as a decimal string, as it takes every chain number
+  function getBatch(n) { return call('l2_getBatch', { batchNumber: String(n) }); }
   function getAuditLog(limit, offset) {
-    return call('l2_getAuditLog', { limit: limit || 200, offset: offset || 0 });
+    return call('l2_getAuditLog', { limit: limit || 200, offset: offset || 0 }, true);
   }
   function getChainProof() { return call('l2_getChainProof'); }
   function verifyChainIntegrity() { return call('l2_verifyChainIntegrity'); }
@@ -309,7 +329,7 @@ const RPC = (() => {
     call, getHealth, getHealthRpc,
     getLeviathanStatus, getPartitionLeaders, getPartitionStatus, getStatus,
     getQuorumStatus, getStateCertificate, verifyStateCertificate,
-    getReceipts, getBatches, getAuditLog, getChainProof,
+    getReceipts, getRecentReceipts, getBatches, getLatestBatches, getBatch, getAuditLog, getChainProof,
     verifyChainIntegrity, verifyFinancialBalance, detectDuplicateClaims,
     getClaimsByMember, getClaimsByPrescriber, getClaimsByPharmacy, getClaimsByNdc,
     getPeerInfo, getPeerList, getStateDigest,

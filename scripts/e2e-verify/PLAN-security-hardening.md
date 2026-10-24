@@ -3091,3 +3091,30 @@ end with the one A-62 failure. Git: with this commit, 68 commits on local `dev`,
 **Next:** the three open findings (A-59 first: the D1 reads decided by the engine's consent record, as the quote now
 is), then B4, which replaces the prescriber node's token with provider sign-in, then D8 before any exposure, and B3 on
 the decisions above.
+
+### The walkthrough's rehearsals (2026-10-19 to 2026-10-23)
+
+Four rehearsals of the walkthrough (tools/demo/director.mjs), each on a fresh genesis boot, took it from scene 7 to
+all 31 scenes with no hold and no miss. Every failure was a screen defect, fixed in the product and re-rehearsed:
+A-63 (the HR Tool's router left a stale hash, so Import went dead; ab2bd62), A-64 (the pharmacy hid every status
+badge, ZK Proved included, since March; 326f240) and A-65 (the network screen's batch rows and close button were
+inline handlers its own policy refuses). A scene audit of the director, each item checked by two independent lenses,
+and a sweep for hidden or silently skipped elements found A-67 to A-71 and the director's own problems (status cards
+read after the phone had proved, captions capped at half the screen, a status card that clipped its fifth row, lines
+spoken over panels below the fold); the fix work on A-65 found A-66 (the HR Tool's attribute escaping under
+'unsafe-inline'); a four-lens review of the integrated fixes found A-72 (the network screen never sent the operator's
+token for receipts or the audit log, so D1 refused them for every operator), A-73 (the prescriber's escaping, with
+member wallet IDs reaching its attributes) and A-74 (open: the sequencer registers an entity under any string as its
+wallet ID), and a defect in the pharmacy fix itself (buttons dead after a failed refresh), fixed before commit. The
+spend limit stopped part of that work on 2026-10-19; it was finished by hand on 2026-10-23.
+
+Owner decision of 2026-10-23: drug information is transparent on purpose. The sequencer keeps each claim's drug code,
+name, tier, quantity and NADAC price in plain text beside the claim records, so the plan and the pharmacy can track drug
+inventory and spend; the member's identity stays behind the wallet ID. The walkthrough's narration says so.
+
+The regression list grows from 102 to 111 suites. Scoreboard: 74 findings; 67 fixed; 7 open (A-22, A-25, A-33 under
+the interim lease, A-59, A-60, A-61, A-74), none critical. Verified: regression batch 111 suites, 1298 tests, all
+passing; typecheck src 18, scripts 2; the fourth rehearsal clean through all 31 scenes; the narrator's 69 lines
+rendered and listened back with none flagged. Git: with this round, 73 commits on local `dev`, nothing pushed.
+**Next:** the voiced take on this committed code, then the single-member and four-member harness runs on it, then
+A-59, A-60, A-61 and A-74, then B4 and D8.

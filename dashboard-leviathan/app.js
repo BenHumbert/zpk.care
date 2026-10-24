@@ -506,15 +506,16 @@
       var fillPct = Math.min(proofs / Math.max(maxProofs, 1), 1) * 100;
       if (status === 'settled') fillPct = 100;
       var idx = b.index !== undefined ? b.index : (b.batchIndex || b.batchNumber || '?');
+      var cls = statusClass(status);
 
-      html += '<div class="cc-batch-item ' + status + '" onclick="window._showBatchDetail(' + idx + ')">' +
-        '<span class="cc-batch-num">#' + idx + '</span>' +
+      html += '<div class="cc-batch-item ' + cls + '" data-batch="' + escHtml(String(idx)) + '">' +
+        '<span class="cc-batch-num">#' + escHtml(String(idx)) + '</span>' +
         '<div class="cc-batch-bar-wrap">' +
-        '<div class="cc-batch-bar-bg"><div class="cc-batch-bar-fill ' + status + '" style="width:' + fillPct + '%"></div></div>' +
-        '<span class="cc-batch-info">' + proofs + ' proof' + (proofs !== 1 ? 's' : '') +
+        '<div class="cc-batch-bar-bg"><div class="cc-batch-bar-fill ' + cls + '" style="width:' + fillPct + '%"></div></div>' +
+        '<span class="cc-batch-info">' + escHtml(String(proofs)) + ' proof' + (proofs !== 1 ? 's' : '') +
         (b.timestamp ? ' \u00B7 ' + fmtTime(b.timestamp || b.createdAt) : '') + '</span>' +
         '</div>' +
-        '<span class="cc-batch-status ' + status + '">' + status + '</span>' +
+        '<span class="cc-batch-status ' + cls + '">' + escHtml(status) + '</span>' +
         '</div>';
     });
     el.innerHTML = html;
@@ -536,21 +537,21 @@
       // Fetch batch and all receipts
       var batch = null;
       var allReceipts = [];
-      try { batch = await RPC.call('l2_getBatch', { batchNumber: batchIdx }); } catch (_) {}
+      var receiptsRefused = false;
+      try { batch = await RPC.getBatch(batchIdx); } catch (_) {}
       if (!batch) {
         // Fallback: find in cache
         batch = batchCache.find(function (b) {
           return (b.index !== undefined ? b.index : (b.batchIndex || b.batchNumber)) == batchIdx;
         });
       }
-      try { allReceipts = await RPC.getReceipts(200); } catch (_) {}
+      try { allReceipts = await RPC.getRecentReceipts(); } catch (e) { receiptsRefused = isRefusal(e); }
       if (!Array.isArray(allReceipts)) allReceipts = [];
 
       // Filter receipts belonging to this batch
       var batchReceipts = allReceipts.filter(function (r) {
-        var rBatch = r.batchIndex !== undefined ? r.batchIndex : r.l1BatchNumber;
-        return rBatch !== undefined && String(rBatch) === String(batchIdx);
-      });
+        return r.l1BatchNumber != null && String(r.l1BatchNumber) === String(batchIdx);
+      }).sort(function (a, b) { return Number(a.sequenceNumber) - Number(b.sequenceNumber); }); // in the batch's own order
 
       if (!batch) {
         body.innerHTML = '<div class="empty-state">Batch not found</div>';
@@ -564,18 +565,18 @@
       // ── Overview Section ──
       html += '<div class="bm-section">';
       html += '<div class="bm-section-title">Overview</div>';
-      html += bmRow('Status', '<span class="bm-badge ' + status + '">' + status + '</span>');
-      html += bmRow('Batch Number', '#' + batchIdx);
-      html += bmRow('Transitions', proofs);
-      html += bmRow('Registrations', batch.registrationCount || 0);
+      html += bmRow('Status', '<span class="bm-badge ' + statusClass(status) + '">' + escHtml(status) + '</span>');
+      html += bmRow('Batch Number', '#' + escHtml(String(batchIdx)));
+      html += bmRow('Transitions', escHtml(String(proofs)));
+      html += bmRow('Registrations', escHtml(String(batch.registrationCount || 0)));
       if (batch.timestamp || batch.createdAt)
         html += bmRow('Created', new Date(batch.timestamp || batch.createdAt).toLocaleString());
       if (batch.workerId !== undefined)
-        html += bmRow('Proved By', 'Worker ' + batch.workerId);
+        html += bmRow('Proved By', 'Worker ' + escHtml(String(batch.workerId)));
       if (batch.proveTimeMs)
         html += bmRow('Prove Time', (batch.proveTimeMs / 1000).toFixed(1) + 's');
       if (batch.blockHeight !== undefined)
-        html += bmRow('Block Height', batch.blockHeight);
+        html += bmRow('Block Height', escHtml(String(batch.blockHeight)));
       html += '</div>';
 
       // ── State Transitions ──
@@ -584,7 +585,7 @@
       html += bmRootRow('Registry Root', batch.oldRegistryRoot, batch.newRegistryRoot);
       html += bmRootRow('Lifecycle Root', batch.oldLifecycleRoot, batch.newLifecycleRoot);
       if (batch.globalStateRoot)
-        html += bmRow('Global State Root', '<span class="bm-hash">' + batch.globalStateRoot + '</span>');
+        html += bmRow('Global State Root', '<span class="bm-hash">' + escHtml(String(batch.globalStateRoot)) + '</span>');
       html += '</div>';
 
       // ── Merkle Roots Snapshot ──
@@ -592,11 +593,11 @@
         html += '<div class="bm-section">';
         html += '<div class="bm-section-title">Merkle Root Snapshots</div>';
         if (batch.claimAccumulatorRoot)
-          html += bmRow('Claim Accumulator', '<span class="bm-hash">' + shortHash(batch.claimAccumulatorRoot) + '</span>');
+          html += bmRow('Claim Accumulator', '<span class="bm-hash">' + escHtml(shortHash(batch.claimAccumulatorRoot)) + '</span>');
         if (batch.messageStoreRoot)
-          html += bmRow('Message Store', '<span class="bm-hash">' + shortHash(batch.messageStoreRoot) + '</span>');
+          html += bmRow('Message Store', '<span class="bm-hash">' + escHtml(shortHash(batch.messageStoreRoot)) + '</span>');
         if (batch.providerRegistryRoot)
-          html += bmRow('Provider Registry', '<span class="bm-hash">' + shortHash(batch.providerRegistryRoot) + '</span>');
+          html += bmRow('Provider Registry', '<span class="bm-hash">' + escHtml(shortHash(batch.providerRegistryRoot)) + '</span>');
         html += '</div>';
       }
 
@@ -605,41 +606,44 @@
         html += '<div class="bm-section">';
         html += '<div class="bm-section-title">State Certificate</div>';
         var cert = batch.stateCertificate;
-        html += bmRow('Votes', (cert.votes ? cert.votes.length : 0) + ' / ' + (cert.quorumSize || '?'));
-        if (cert.batchNumber !== undefined) html += bmRow('Certified Batch', '#' + cert.batchNumber);
+        html += bmRow('Votes', (Array.isArray(cert.votes) ? cert.votes.length : 0) + ' / ' + escHtml(String(cert.quorumSize || '?')));
+        if (cert.batchNumber !== undefined) html += bmRow('Certified Batch', '#' + escHtml(String(cert.batchNumber)));
         html += '</div>';
       }
 
       // ── Receipts (Transactions) ──
       html += '<div class="bm-section">';
       html += '<div class="bm-section-title">Transactions (' + batchReceipts.length + ')</div>';
-      if (batchReceipts.length === 0) {
+      if (receiptsRefused) {
+        html += '<div class="empty-state" style="font-size:12px">' + receiptsRefusedNote() + '</div>';
+      } else if (batchReceipts.length === 0) {
         html += '<div class="empty-state" style="font-size:12px">No receipts found for this batch</div>';
       } else {
         batchReceipts.forEach(function (r) {
-          var rStatus = r.status || r.l1Status || 'pending';
-          var rId = r.id || r.receiptId || '--';
+          var rStatus = r.l1Status || 'pending';
+          // the status names the badge's class only when it is one the sequencer sends
+          var rClass = /^(pending|batched|settled|failed)$/.test(rStatus) ? rStatus : '';
           html += '<div class="bm-receipt">';
           html += '<div class="bm-receipt-header">';
-          html += '<span class="bm-receipt-id">' + escHtml(rId) + '</span>';
-          html += '<span class="bm-badge bm-receipt-badge ' + rStatus + '">' + rStatus + '</span>';
+          html += '<span class="bm-receipt-id">' + (escHtml(r.receiptId) || '--') + '</span>';
+          html += '<span class="bm-badge bm-receipt-badge ' + rClass + '">' + escHtml(rStatus) + '</span>';
           html += '</div>';
           html += '<div class="bm-receipt-row">';
-          html += '<span>Wallet: <b class="bm-hash">' + shortHash(r.walletId) + '</b></span>';
-          html += '<span>Seq: <b>' + (r.sequenceNumber || r.seqNum || '--') + '</b></span>';
+          html += '<span>Wallet: <b class="bm-hash">' + escHtml(shortHash(r.walletId)) + '</b></span>';
+          html += '<span>Seq: <b>' + (r.sequenceNumber != null ? escHtml(String(r.sequenceNumber)) : '--') + '</b></span>';
           html += '<span>Type: <b>' + (r.isRegistration ? 'Registration' : 'Transition') + '</b></span>';
           html += '</div>';
           html += '<div class="bm-receipt-row">';
-          html += '<span>Registry: <b class="bm-hash">' + shortHash(r.oldRegistryRoot) + '</b><span class="bm-arrow">\u2192</span><b class="bm-hash">' + shortHash(r.newRegistryRoot) + '</b></span>';
+          html += '<span>Registry: <b class="bm-hash">' + escHtml(shortHash(r.oldRegistryRoot)) + '</b><span class="bm-arrow">\u2192</span><b class="bm-hash">' + escHtml(shortHash(r.newRegistryRoot)) + '</b></span>';
           html += '</div>';
           if (r.auditEventHash) {
             html += '<div class="bm-receipt-row">';
-            html += '<span>Audit Hash: <b class="bm-hash">' + shortHash(r.auditEventHash) + '</b></span>';
+            html += '<span>Audit Hash: <b class="bm-hash">' + escHtml(shortHash(r.auditEventHash)) + '</b></span>';
             html += '</div>';
           }
           if (r.claimLeafIndex !== undefined && r.claimLeafIndex !== null) {
             html += '<div class="bm-receipt-row">';
-            html += '<span>Claim Leaf: <b>' + r.claimLeafIndex + '</b></span>';
+            html += '<span>Claim Leaf: <b>' + escHtml(String(r.claimLeafIndex)) + '</b></span>';
             html += '</div>';
           }
           if (r.quorumCertificate) {
@@ -676,12 +680,24 @@
   function bmRootRow(label, oldRoot, newRoot) {
     if (!oldRoot && !newRoot) return '';
     return '<div class="bm-row"><span class="bm-label">' + label + '</span>' +
-      '<span class="bm-value"><span class="bm-hash">' + shortHash(oldRoot) + '</span>' +
+      '<span class="bm-value"><span class="bm-hash">' + escHtml(shortHash(oldRoot)) + '</span>' +
       '<span class="bm-arrow">\u2192</span>' +
-      '<span class="bm-hash">' + shortHash(newRoot) + '</span></span></div>';
+      '<span class="bm-hash">' + escHtml(shortHash(newRoot)) + '</span></span></div>';
   }
 
-  // Expose globally for onclick
+  // The page is served with script-src 'self', which refuses inline event handlers: a batch row carries data-batch,
+  // and a listener on its list, which outlives each redraw, opens the batch.
+  function setupBatchDetail() {
+    ['cc-batch-list', 'batch-table'].forEach(function (id) {
+      $(id).addEventListener('click', function (e) {
+        var row = e.target.closest('[data-batch]');
+        if (row) showBatchDetail(Number(row.dataset.batch));
+      });
+    });
+    $('bm-close').addEventListener('click', function () { $('batch-modal').style.display = 'none'; });
+  }
+
+  // Also reachable from script
   window._showBatchDetail = showBatchDetail;
 
   /** Render network nodes panel — shows sequencer + known replicas */
@@ -869,7 +885,7 @@
 
   async function loadBatchCache() {
     try {
-      var batches = await RPC.getBatches(5);
+      var batches = await RPC.getLatestBatches(5);
       if (Array.isArray(batches)) {
         batchCache = batches;
         if (batches.length > 0) {
@@ -879,7 +895,7 @@
         }
       }
     } catch (e) {
-      diagLog('getBatches FAILED: ' + e.message, true);
+      diagLog('getLatestBatches FAILED: ' + e.message, true);
     }
   }
 
@@ -1576,32 +1592,56 @@
   }
 
   // ── Batches & Receipts Tab ──────────────────────────────────
+  /** Badge for the settlement status a receipt or a batch carries (l1Status): pending, batched, settled or failed */
+  /** A batch or receipt status as a class name: only the sequencer's four (L1Status); anything else names none. */
+  function statusClass(status) {
+    return /^(pending|batched|settled|failed)$/.test(status) ? status : '';
+  }
+
+  /** Whether a read failed because the sequencer refused the caller (D1 answers the plan or the operator only). */
+  function isRefusal(e) {
+    return !!e && (e.code === -32003 || e.code === -32004);
+  }
+  /** What the receipt lists say when the sequencer refuses them. */
+  function receiptsRefusedNote() {
+    return 'Receipts answer the plan or the operator: set the operator token on the Admin tab';
+  }
+
+  function settlementBadge(status) {
+    var cls = status === 'settled' ? 'badge-ready' : status === 'batched' ? 'badge-info' :
+      status === 'failed' ? 'badge-error' : 'badge-pending';
+    return '<span class="badge ' + cls + '">' + escHtml(status || '--') + '</span>';
+  }
+
   async function loadBatches() {
     try {
       var batches = [];
       var receipts = [];
-      try { batches = await RPC.getBatches(50); } catch (e) { /* ok */ }
-      try { receipts = await RPC.getReceipts(50); } catch (e) { /* ok */ }
+      var receiptsRefused = false;
+      try { batches = await RPC.getLatestBatches(50); } catch (e) { /* ok */ }
+      try { receipts = await RPC.getRecentReceipts(); } catch (e) { receiptsRefused = isRefusal(e); }
 
       if (!Array.isArray(batches)) batches = batches ? [batches] : [];
       if (!Array.isArray(receipts)) receipts = receipts ? [receipts] : [];
 
       $('batch-stats').innerHTML =
-        statCard('Batches', batches.length) +
-        statCard('Receipts', receipts.length) +
-        statCard('Latest Batch', batches.length ? '#' + (batches[0].index || batches[0].batchIndex || 0) : '--');
+        // the sequencer numbers its batches from 0 and keeps every one, so the newest number plus one is how many
+        statCard('Batches', batches.length ? Number(batches[0].batchNumber) + 1 : 0) +
+        statCard('Receipts', receiptsRefused ? '--' : receipts.length) +
+        statCard('Latest Batch', batches.length ? '#' + batches[0].batchNumber : '--');
 
       // Batch table
       var bHtml = '<table class="data-table"><thead><tr>' +
-        '<th>#</th><th>Status</th><th>Proofs</th><th>Root</th><th>Time</th></tr></thead><tbody>';
+        '<th>#</th><th>Status</th><th>Proofs</th><th>Registry Root</th><th>Time</th></tr></thead><tbody>';
+      // L2Batch as l2_getAllBatches sends it. The root is the registry root the batch settles to, which every
+      // batch carries; globalStateRoot is set only when a chain proof runs.
       batches.slice(0, 30).forEach(function (b) {
         var bIdx = b.index !== undefined ? b.index : (b.batchIndex || b.batchNumber || 0);
-        bHtml += '<tr onclick="window._showBatchDetail(' + bIdx + ')" style="cursor:pointer"><td>' + bIdx + '</td>' +
-          '<td><span class="badge ' + (b.status === 'settled' || b.l1Status === 'settled' ? 'badge-ready' : 'badge-pending') + '">' +
-          (b.status || b.l1Status || '--') + '</span></td>' +
-          '<td>' + (b.proofCount || b.transitionCount || '--') + '</td>' +
-          '<td><span class="hash">' + shortHash(b.stateRoot || b.settlementRoot) + '</span></td>' +
-          '<td>' + fmtTime(b.timestamp || b.createdAt) + '</td></tr>';
+        bHtml += '<tr data-batch="' + escHtml(String(bIdx)) + '" style="cursor:pointer"><td>' + escHtml(String(bIdx)) + '</td>' +
+          '<td>' + settlementBadge(b.l1Status) + '</td>' +
+          '<td>' + (b.transitionCount != null ? escHtml(String(b.transitionCount)) : '--') + '</td>' +
+          '<td><span class="hash">' + escHtml(shortHash(b.newRegistryRoot)) + '</span></td>' +
+          '<td>' + fmtTime(b.createdAt) + '</td></tr>';
       });
       bHtml += '</tbody></table>';
       $('batch-table').innerHTML = batches.length ? bHtml : '<div class="empty-state">No batches</div>';
@@ -1609,17 +1649,17 @@
       // Receipt table
       var rHtml = '<table class="data-table"><thead><tr>' +
         '<th>ID</th><th>Status</th><th>Wallet</th><th>Batch</th><th>Time</th></tr></thead><tbody>';
+      // L2Receipt as l2_getAllReceipts sends it, newest first; l1BatchNumber is set once the receipt is batched
       receipts.slice(0, 30).forEach(function (r) {
-        rHtml += '<tr><td>' + (r.id || '--') + '</td>' +
-          '<td><span class="badge ' + (r.status === 'settled' || r.l1Status === 'settled' ? 'badge-ready' :
-            r.status === 'accepted' || r.l1Status === 'accepted' ? 'badge-info' : 'badge-pending') + '">' +
-          (r.status || r.l1Status || '--') + '</span></td>' +
-          '<td><span class="hash">' + shortHash(r.walletId) + '</span></td>' +
-          '<td>' + (r.batchIndex !== undefined ? '#' + r.batchIndex : '--') + '</td>' +
-          '<td>' + fmtTime(r.timestamp || r.acceptedAt) + '</td></tr>';
+        rHtml += '<tr><td>' + (escHtml(r.receiptId) || '--') + '</td>' +
+          '<td>' + settlementBadge(r.l1Status) + '</td>' +
+          '<td><span class="hash">' + escHtml(shortHash(r.walletId)) + '</span></td>' +
+          '<td>' + (r.l1BatchNumber != null ? '#' + escHtml(String(r.l1BatchNumber)) : '--') + '</td>' +
+          '<td>' + fmtTime(r.acceptedAt) + '</td></tr>';
       });
       rHtml += '</tbody></table>';
-      $('receipt-table').innerHTML = receipts.length ? rHtml : '<div class="empty-state">No receipts</div>';
+      $('receipt-table').innerHTML = receiptsRefused ? '<div class="empty-state">' + receiptsRefusedNote() + '</div>'
+        : receipts.length ? rHtml : '<div class="empty-state">No receipts</div>';
     } catch (e) {
       toast('Batches load failed: ' + e.message, 'error');
     }
@@ -2081,7 +2121,7 @@
 
   function escHtml(s) {
     if (!s) return '';
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
   // ── SSE Setup ───────────────────────────────────────────────
@@ -2190,6 +2230,7 @@
     setupAuditChecks();
     setupAdmin();
     setupRefreshButtons();
+    setupBatchDetail();
 
     // Gossip filter
     $('gossip-filter').addEventListener('change', renderGossipLog);

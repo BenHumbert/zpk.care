@@ -1,6 +1,7 @@
 tests/attempt-limiter.test.ts
 tests/attestation-trust.test.ts
 tests/claim09-gossip-propagation.test.ts
+tests/dashboard-inline-handlers.test.ts
 tests/device-credential.test.ts
 tests/device-session.test.ts
 tests/employer-roster.test.ts
@@ -102,3 +103,9 @@ tests/engine-starting-retry.test.ts
 tests/engine-ready-harness.test.ts
 tests/hr-tool-router.test.ts
 tests/pharmacy-card-badges.test.ts
+tests/prescriber-rx-dropdowns.test.ts
+tests/pharmacy-workstation-refresh.test.ts
+tests/leviathan-dashboard-batches.test.ts
+tests/network-batches-tab.test.ts
+tests/pharmacy-payment-received.test.ts
+tests/prescriber-proof-badges.test.ts

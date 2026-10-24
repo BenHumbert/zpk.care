@@ -112,11 +112,12 @@
 
   // ─── Helpers ──────────────────────────────────────────────
 
+  // Escapes for text and for attribute values: roster fields from the imported CSV go into data-* attributes.
   function esc(str) {
     if (str === null || str === undefined) return '';
     const div = document.createElement('div');
     div.textContent = String(str);
-    return div.innerHTML;
+    return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   function truncHash(h, len) {
@@ -301,6 +302,13 @@
   window.addEventListener('hashchange', function() {
     var hash = location.hash.replace('#', '') || 'dashboard';
     navigate(hash);
+  });
+
+  // A button that opens another page names it in data-goto rather than in an inline handler, which a policy without
+  // 'unsafe-inline' refuses. Every page is drawn into #app, so this one listener serves whichever page is on screen.
+  app.addEventListener('click', function(e) {
+    var btn = e.target.closest('[data-goto]');
+    if (btn) location.hash = btn.dataset.goto;
   });
 
   function renderPage() {
@@ -529,10 +537,10 @@
     if (!el) return;
     el.innerHTML =
       '<div style="display:flex;flex-direction:column;gap:12px">' +
-        '<button class="btn primary full-width" onclick="location.hash=\'import\'">Import Employee Roster</button>' +
-        '<button class="btn full-width" onclick="location.hash=\'employees\'">View All Employees</button>' +
-        '<button class="btn full-width" onclick="location.hash=\'reconcile\'">Check Enrollment Status</button>' +
-        '<button class="btn full-width" onclick="location.hash=\'tokens\'">Export Enrollment Codes</button>' +
+        '<button class="btn primary full-width" data-goto="import">Import Employee Roster</button>' +
+        '<button class="btn full-width" data-goto="employees">View All Employees</button>' +
+        '<button class="btn full-width" data-goto="reconcile">Check Enrollment Status</button>' +
+        '<button class="btn full-width" data-goto="tokens">Export Enrollment Codes</button>' +
       '</div>';
   }
 
@@ -574,7 +582,7 @@
       : (used + ' / ' + cap);
     return '<div class="info-banner security" style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:12px">' +
       '<div>Working in group: <strong>' + esc(activeGroup.groupId) + '</strong> &nbsp; Plan: <strong>' + esc(activeGroup.planId || '--') + '</strong> &nbsp; Utilization: <strong>' + capDisplay + '</strong></div>' +
-      '<button class="btn sm" onclick="location.hash=\'groups\'">Switch Group</button>' +
+      '<button class="btn sm" data-goto="groups">Switch Group</button>' +
       '</div>';
   }
 
@@ -1018,7 +1026,7 @@
           '</div></div>' +
           '<div class="info-banner info" style="margin-top:12px">Your session will automatically lock after 15 minutes of inactivity.</div>' +
           '<div class="form-actions" style="margin-top:16px;gap:8px">' +
-            '<button class="btn" onclick="location.hash=\'groups\'">Switch Group</button>' +
+            '<button class="btn" data-goto="groups">Switch Group</button>' +
             '<button class="btn danger" id="btn-lock">Lock Workspace</button>' +
           '</div>' +
         '</div></div></div>' +

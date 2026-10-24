@@ -83,11 +83,12 @@
     return s.slice(0, 8) + '...' + s.slice(-6);
   }
 
+  // Escapes for text and for attribute values: the Write Rx options carry esc() output in quoted values.
   function esc(s) {
     if (s == null) return '';
     var d = document.createElement('div');
     d.textContent = String(s);
-    return d.innerHTML;
+    return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   // VULNERABILITY: Messages are currently base64-encoded (prescriber) or AES-GCM with
@@ -374,6 +375,18 @@
     } catch (_) { }
   }
 
+  /**
+   * Replaces a select's options, keeping the choice already made while the new options still offer it. The Write Rx
+   * lists are refetched each time the tab or the form opens, and a refetch can answer after the prescriber has picked:
+   * replacing the options alone selects the first one, the placeholder, and fires no change event. The choice is read
+   * here, as the options are replaced, so a refetch that started before the pick keeps it too.
+   */
+  function setSelectOptions(sel, html) {
+    var chosen = sel.value;
+    sel.innerHTML = html;
+    if (chosen && Array.from(sel.options).some(function (o) { return o.value === chosen; })) sel.value = chosen;
+  }
+
   async function populateRxDropdowns() {
     // Always refetch patients and pharmacies (PCP assignments may arrive after first load)
     try {
@@ -433,22 +446,22 @@
     var medSel = $('#rx-med-select');
 
     if (patientSel && cachedMembers.length > 0) {
-      patientSel.innerHTML = '<option value="">-- Select Patient --</option>' +
-        cachedMembers.map(function (m) { return '<option value="' + esc(m.walletId) + '">' + esc(m.displayName || truncHash(m.walletId)) + '</option>'; }).join('');
+      setSelectOptions(patientSel, '<option value="">-- Select Patient --</option>' +
+        cachedMembers.map(function (m) { return '<option value="' + esc(m.walletId) + '">' + esc(m.displayName || truncHash(m.walletId)) + '</option>'; }).join(''));
     }
     if (pharmSel && cachedPharmacies.length > 0) {
-      pharmSel.innerHTML = '<option value="">-- Select Pharmacy --</option>' +
-        cachedPharmacies.map(function (p) { return '<option value="' + esc(p.walletId) + '">' + esc(p.displayName || truncHash(p.walletId)) + '</option>'; }).join('');
+      setSelectOptions(pharmSel, '<option value="">-- Select Pharmacy --</option>' +
+        cachedPharmacies.map(function (p) { return '<option value="' + esc(p.walletId) + '">' + esc(p.displayName || truncHash(p.walletId)) + '</option>'; }).join(''));
     }
     if (medSel && cachedMedications.length > 0) {
-      medSel.innerHTML = '<option value="">-- Select Medication (' + cachedMedications.length + ' available) --</option>' +
+      setSelectOptions(medSel, '<option value="">-- Select Medication (' + cachedMedications.length + ' available) --</option>' +
         cachedMedications.map(function (m) {
           var label = m.brandName || m.genericName || truncHash(m.ndcHash);
           if (m.strength) label += ' ' + m.strength;
           if (m.dosageForm) label += ' ' + m.dosageForm;
           if (m.claimCount > 0) label += ' (' + m.claimCount + ' Rx)';
           return '<option value="' + esc(m.ndcHash) + '" data-name="' + esc(m.brandName || m.genericName || '') + '">' + esc(label) + '</option>';
-        }).join('');
+        }).join(''));
     } else if (medSel) {
       medSel.innerHTML = '<option value="">-- No medications loaded (check formulary tab) --</option>';
     }
@@ -1826,7 +1839,9 @@
 
     window.addEventListener('hashchange', function () {
       var hash = location.hash.replace('#', '') || 'overview';
-      navigate(hash);
+      // navigate() sets the hash itself, and the hashchange that follows names the tab it just opened: entering that
+      // tab again would load it twice.
+      if (hash !== currentTab) navigate(hash);
     });
 
     // Rx write toggle

@@ -159,8 +159,8 @@ describe("(2) the Dashboard shows the member's own plan limits", () => {
   test("the maximums are the plan's, read from the device with its session", async () => {
     const { html, calls } = await spendHero({ body: { ok: true, data: { deductibleAmountCents: 25000, oopMaxCents: 300000, annualBenefitMaxCents: 0 } } });
     expect(html).toContain('of $250.00');
-    expect(html).toContain('of $3000.00');
-    expect(html).not.toMatch(/\$1500\.00|\$5000\.00/);
+    expect(html).toContain('of $3,000.00');                         // with its thousands separator
+    expect(html).not.toMatch(/\$1,?500\.00|\$5,?000\.00/);
     expect(calls.map((c) => c.path)).toEqual(['/plan/limits']);
     expect(calls[0].init.headers['X-Device-Session']).toBe('s');
   });

@@ -77,9 +77,10 @@
     return d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
+  // Whole cents as dollars with thousands separators: 780000 -> "$7,800.00".
   function fmtCents(c) {
     if (c === undefined || c === null) return '$0.00';
-    return '$' + (Number(c) / 100).toFixed(2);
+    return '$' + (Number(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
   /** A NADAC unit price from whole $0.00001: 60042 -> "$0.60042". */
