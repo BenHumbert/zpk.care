@@ -68,6 +68,7 @@ C\357\200\272*
 # they hold a trace of a live run including device PINs and tokens, so they must never be
 # committed.
 e2e-out/
+e2e-multi-out/
 
 # The local live-run environment: generated secrets for a development network (see scripts/dev/README.md)
 scripts/dev/live-env.sh

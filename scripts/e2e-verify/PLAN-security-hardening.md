@@ -3223,3 +3223,27 @@ cannot be finished and verified by then, so tonight's order is: step 1 committed
 the hardened build (the first since the security phase), fixing what they find, then a rehearsal and a voiced take of the
 walkthrough on committed code. Option A steps 2 to 8 resume after the film; then A-80 with D8, B4, A-59, A-60, phase E;
 last, the package.
+
+**Addendum, 2026-10-25 (early morning): the hardened build on film.** On `a5040fe` (option A step 1 on top of the
+security phase), from fresh genesis boots: the single-member harness passed 246 of 246 checks across 34 steps, and the
+four-member, two-employer run 221 of 221, the first live runs since the security phase. The walkthrough rehearsal ran
+all 31 scenes clean; the voiced take followed on the same commit (23.8 minutes, 122 lines, the default cast) in
+`tools/demo/demo-out/2026-10-25T06-10-01/` (`walkthrough.mp4`, `player.html`), and a new tool,
+`tools/demo/short-cut.mjs`, cut a 9.8-minute short of 13 whole scenes from it (`short.mp4`, `short.mp4.html`). A
+QA workflow (about 1,340 frames, the sound and the short's joins, every reported defect re-checked) found nothing
+blocking and 37 cosmetic items. The short's own faults were fixed in the tool and the short re-cut twice: fades that
+swallowed first words, audio timestamps stepping back at the joins, sound drifting up to 72 ms ahead of the picture,
+a scene list that left out the primary-care choice later lines refer to, and, the one a story reader called blocking, a
+cut that dropped every scene where a proof is checked while keeping every caveat about what is not checked yet (the
+gate, the fill and the accepted update are back).
+
+Cosmetic items for any later take. Product: the employer node's Admin tab prints "null" for the latest batch; the
+insurer header's wallet pill stays "--"; the HR Tool shows its unlock and setup forms together (no hidden rule) and
+cuts off its logo; the phone's Create Device PIN button says "Unlock" and Step 2 says the code comes from the employer
+portal (the story's welcome letter); the pharmacy's toast says a "ZK settlement proof" was submitted, which the film
+itself says is not so; the insurer's audit log calls the messaging event an "Update"; the chain-proof panel prints raw
+fields; the activation page tells HR to run an npm command; "zkpCare" against "zpk.care". Director: captions and
+lower-thirds over what is named at a few moments, the persona tag over one form field, a click ring that lands on Start
+over, whiteboard ghosts too strong under later boards and notes that arrive late, a box through a subscript, cards that
+leave before their line, the closing two lines running together (a 45 ms gap), the member's counter lines about 4 dB
+quieter, and the network Overview flashing "No batches yet" before its tab opens.
