@@ -332,7 +332,9 @@ export class ProvingPool {
 
   /**
    * Submit a proving job to the pool.
-   * Dispatches to first available worker; queues if all busy.
+   * Dispatches to first available worker; queues if all busy, unless no worker is left to take it (canTakeWork),
+   * when the job is refused at once. A queued job waits only for a worker that is proving, which the prove timeout
+   * bounds, or compiling, which the compile timeout bounds.
    */
   prove(request: ProvingJobRequest, description?: string): Promise<ProvingJobResult> {
     if (!this.running) {
@@ -347,6 +349,9 @@ export class ProvingPool {
       const worker = this.getIdleWorker();
       if (worker) {
         this.dispatchJob(worker, job);
+      } else if (!this.canTakeWork()) {
+        this.totalJobsFailed++;
+        reject(this.noWorkerLeftError());
       } else {
         // All workers busy — queue the job
         this.jobQueue.push(job);
@@ -393,6 +398,19 @@ export class ProvingPool {
 
   isRunning(): boolean {
     return this.running;
+  }
+
+  /**
+   * Whether a job submitted now can be proved: some worker is ready, proving or compiling. False once every worker has
+   * crashed past its restart limit or failed to compile again; prove() then refuses at once, and the jobs that were
+   * queued have been refused. isRunning() stays true all the same, so each batch cycle fails with that error, where a
+   * pool that did not run would be skipped as still compiling.
+   */
+  canTakeWork(): boolean {
+    for (const [, handle] of this.workers) {
+      if (handle.status !== 'dead') return true;
+    }
+    return false;
   }
 
   /** Get per-worker status for dashboard polling. */
@@ -676,11 +694,10 @@ export class ProvingPool {
       });
       this.waitForReady(newHandle)
         .then(() => this.drainQueue())
-        .catch(() => {
-          // Worker failed to compile on restart — remove it
-          this.workers.delete(newHandle.id);
-        });
+        .catch(() => this.replacementFailed(newHandle));
     }
+    // Past the limit its place stays empty, and the pool may have no worker left.
+    this.refuseQueueIfNoWorkerLeft();
   }
 
   // ─── Worker Recycling ──────────────────────────────────
@@ -731,9 +748,37 @@ export class ProvingPool {
 
     this.waitForReady(newHandle)
       .then(() => this.drainQueue())
-      .catch(() => {
-        this.workers.delete(newHandle.id);
-      });
+      .catch(() => this.replacementFailed(newHandle));
+  }
+
+  /**
+   * A worker started to replace another, after a crash or a recycle, did not compile. It leaves the pool and is
+   * killed: one that answered with an error keeps running, and one that never answered may still be compiling, either
+   * holding its memory. Its place stays empty, so the pool may have no worker left.
+   */
+  private replacementFailed(handle: WorkerHandle): void {
+    if (!this.workers.delete(handle.id)) return; // it crashed while compiling, and its exit dealt with its place
+    try { handle.process.kill(); } catch { /* already gone */ }
+    this.refuseQueueIfNoWorkerLeft();
+  }
+
+  /**
+   * Once no worker can take work, refuses every queued job at once: nothing would ever dispatch it, and the batch
+   * cycle or enrollment waiting on it, perhaps holding the proving lock, would wait for good.
+   */
+  private refuseQueueIfNoWorkerLeft(): void {
+    if (!this.running || this.canTakeWork()) return;
+    console.error(`[ProvingPool] No proving worker is left: each crashed past its restart limit or failed to compile again, and none is starting. Batches are refused; restart the node to start new workers. Refused ${this.jobQueue.length} queued job(s).`);
+    const queued = this.jobQueue;
+    this.jobQueue = [];
+    for (const job of queued) {
+      this.totalJobsFailed++;
+      job.reject(this.noWorkerLeftError());
+    }
+  }
+
+  private noWorkerLeftError(): Error {
+    return new Error('ProvingPool: no worker is left to prove the batch: every proving worker has failed and none is starting');
   }
 
   // ─── IPC ────────────────────────────────────────────────

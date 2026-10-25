@@ -740,6 +740,12 @@ export class AdjudicationService {
   private nextPaLeafIndex: Map<string, bigint> = new Map();
   /** Step 2 commit two: wallets the insurer approved, by wallet ID; persisted with the checkpoint. */
   private approvedMembers: Map<string, MemberApproval> = new Map();
+  /**
+   * Registrations being made, by wallet ID. A registration checks that no record holds the wallet, then waits for the
+   * sequencer's roots before it creates the record and queues the credential mint; a second registration of the same
+   * wallet waits for it and then answers as for a registered wallet, so one wallet never gets two records or two mints.
+   */
+  private registrationsInFlight: Map<string, Promise<Record<string, unknown>>> = new Map();
   private compiled = false;
   private ready = false;
   private reportingService = new ReportingService();
@@ -1151,8 +1157,8 @@ export class AdjudicationService {
     // The console's formulary root changed. Rebuild the console's EligibilityData and register it again at index 0, as
     // updateFormularyEntry does (a fresh BenefitPlanRegistry and index map; members with a device register their own
     // EligibilityData again on use), and move every member served from the console's formulary onto the new root, so
-    // its proofs reference the current tree. Plan-bound formularies: a member with a device names its own plan's
-    // formulary and is not touched. (This path adds a drug outside MEDICATIONS, which the formulary loader never
+    // its proofs reference the current tree. Plan-bound formularies: a member whose credential names its own plan's
+    // formulary is not touched. (This path adds a drug outside MEDICATIONS, which the formulary loader never
     // yields today.)
     this.sharedEligibilityData = this.rebuildSharedEligibilityData();
     this.benefitPlanRegistry = new BenefitPlanRegistry();
@@ -1173,6 +1179,14 @@ export class AdjudicationService {
         expiresAt: oldCred.expiresAt,
         revoked: oldCred.revoked,
       });
+      // A member with a device proves its own credential: the change is queued for its device now, as one 'formulary'
+      // update, as updateFormularyEntry's cascade queues it, instead of riding inside the member's next update of
+      // another kind (option A, step 1). Synchronous, as this path is. A fixture member's next update, which the engine
+      // proves, carries the change, as before.
+      if (!enrolled.preimageFields) {
+        enrolled.credentialInventory.updateCredential(0n, enrolled.credentialData);
+        this.queueWalletUpdate(enrolled, 'formulary', 'formulary');
+      }
     }
 
     return index;
@@ -2472,12 +2486,38 @@ export class AdjudicationService {
     // fixes, 2026-10-24). Every refusal before this point depends on the request alone.
     const ownershipProofJson = await this.verifyOwnershipProof(opts.walletId, opts.ownershipProofJson);
 
+    // One registration of a wallet at a time (option A, step 1). A registration waits for the sequencer's roots between
+    // the check below and the record it creates, so a second registration of the same wallet sent with it passed the
+    // check too, created a second record over the first and queued a second credential mint. The second now waits for
+    // the first and then reads the record the first made; a registration that fails releases the wallet.
+    for (;;) {
+      const inFlight = this.registrationsInFlight.get(opts.walletId);
+      if (!inFlight) break;
+      await inFlight.catch(() => undefined);
+    }
+
     // Already registered? The device has just proved the wallet is its own.
     if (this.enrolledMembers.has(opts.walletId)) {
       const existing = this.enrolledMembers.get(opts.walletId)!;
       return { walletId: opts.walletId, displayName: existing.displayName, alreadyRegistered: true };
     }
 
+    const registration = this.registerNewMember(opts, walletId, walletIdStr, ownershipProofJson);
+    this.registrationsInFlight.set(opts.walletId, registration);
+    try {
+      return await registration;
+    } finally {
+      this.registrationsInFlight.delete(opts.walletId);
+    }
+  }
+
+  /** The registration itself, of a wallet no record holds; registerMemberFromEnrollment holds the wallet while it runs. */
+  private async registerNewMember(
+    opts: { walletId: string; displayName: string; relationship?: string; publicKeyHex?: string },
+    walletId: Field,
+    walletIdStr: string,
+    ownershipProofJson: string,
+  ): Promise<Record<string, unknown>> {
     // Step 2 commit two (B2, A-6): ELIGIBLE only for a wallet the insurer approved, and only once the
     // member's own registration proof has been accepted by the sequencer, which is what REGISTERED in
     // the lifecycle tree means. Nothing in the request decides either.
@@ -2926,6 +2966,14 @@ export class AdjudicationService {
   private async proveAndRecordPriorAuthApproval(paId: string, paState: PriorAuthState): Promise<Record<string, unknown>> {
     const enrolled = this.enrolledMembers.get(paState.memberWalletId);
     if (!enrolled) throw new Error(`Member not enrolled: ${paState.memberWalletId}`);
+    // A member's approvals take ACCESS_CONTROL leaves 1 to 126 in turn, between its EligibilityData at leaf 0 and its
+    // accumulator at leaf 127. An approval with no leaf left would overwrite the accumulator, so it is refused here,
+    // before the plan binding or anything else changes: the leaf index is not taken and the request stays pending
+    // (option A, step 1). Nothing awaits between this read and the point below where the index is taken.
+    const paLeafIndex = this.nextPaLeafIndex.get(paState.memberWalletId) ?? 1n;
+    if (paLeafIndex >= ACCUMULATOR_LEAF_INDEX) {
+      throw new RegistrationRefused(409, `No prior-authorization leaf is left in this member's credential (leaves 1 to ${ACCUMULATOR_LEAF_INDEX - 1n} are taken and leaf ${ACCUMULATOR_LEAF_INDEX} is its accumulator); ${paId} stays pending`);
+    }
     // Plan-bound formularies: the PA is proven against the formulary the member's credential names; a drug not on it is
     // refused here, before the PA is written into the member's forest.
     this.ensurePlanBinding(enrolled, 'prior-auth');
@@ -2938,10 +2986,7 @@ export class AdjudicationService {
     this.emit('phase', 'prior-auth', `═══ Prior Auth Approval: ${medication.brandName} ═══`);
     this.emit('info', 'prior-auth', `  Insurer approves PA for ${enrolled.displayName}`);
 
-    // 1. Build PriorAuthData
-    const paLeafIndex = this.nextPaLeafIndex.get(paState.memberWalletId) ?? 1n;
-    this.nextPaLeafIndex.set(paState.memberWalletId, paLeafIndex + 1n);
-
+    // 1. Build PriorAuthData, for the member's next leaf (read above).
     // The insurer approves the quantity the prescriber asked for, the quantity its review list shows, within the plan's
     // limit per fill (a republish may have lowered the limit since the request). A request the console made names no
     // quantity and is approved at the plan's limit. A larger quantity is refused at prescribing (createPrescription),
@@ -2958,53 +3003,77 @@ export class AdjudicationService {
       authorizationCode: `AUTH-${paId}-${medication.ndc}`,
     });
 
-    // 2. Insert PA into member's forest ACCESS_CONTROL tree
-    this.emit('offchain', 'prior-auth', `  Inserting PA into ACCESS_CONTROL tree at leaf ${paLeafIndex}...`, 'start');
-    const startInsert = performance.now();
-    enrolled.forest.setLeaf(
-      ForestDomain.ACCESS_CONTROL,
-      paLeafIndex,
-      priorAuthData.commitment(),
-    );
+    // From here the approval changes the member's record: it takes the leaf index, writes the authorization at that leaf
+    // and names the new forest in the credential, and the ledger step puts the credential in inventory slot 0. Each is
+    // saved first and all of them are put back exactly if the proof or the ledger step fails (option A, step 1): an
+    // authorization the insurer never approved would otherwise stay in the member's forest and ride into its next update,
+    // and the index would run toward the cap with fewer approvals. The request changes only after the ledger step, so it
+    // stays pending. A plan binding made above stays: the member is due it at this action, queued as its own update.
+    const savedNextPaLeafIndex = this.nextPaLeafIndex.get(paState.memberWalletId);
+    const savedPaLeaf = enrolled.forest.getLeaf(ForestDomain.ACCESS_CONTROL, paLeafIndex);
+    const savedCredential = enrolled.credentialData;
+    const savedInventorySlot = enrolled.credentialInventory.getCredential(0n);
+    let elapsedProof: number;
+    let paOutcome: WalletUpdateOutcome;
+    try {
+      this.nextPaLeafIndex.set(paState.memberWalletId, paLeafIndex + 1n);
 
-    // 3. Update credential forestRoot to reflect the new tree state
-    enrolled.credentialData = new CredentialData({
-      credentialType: enrolled.credentialData.credentialType,
-      forestRoot: enrolled.forest.getForestRoot(),
-      issuerWalletId: enrolled.credentialData.issuerWalletId,
-      subjectWalletId: enrolled.credentialData.subjectWalletId,
-      issuedAt: enrolled.credentialData.issuedAt,
-      expiresAt: enrolled.credentialData.expiresAt,
-      revoked: enrolled.credentialData.revoked,
-    });
+      // 2. Insert PA into member's forest ACCESS_CONTROL tree
+      this.emit('offchain', 'prior-auth', `  Inserting PA into ACCESS_CONTROL tree at leaf ${paLeafIndex}...`, 'start');
+      const startInsert = performance.now();
+      enrolled.forest.setLeaf(
+        ForestDomain.ACCESS_CONTROL,
+        paLeafIndex,
+        priorAuthData.commitment(),
+      );
 
-    const elapsedInsert = performance.now() - startInsert;
-    this.emit('offchain', 'prior-auth', `  PA inserted into forest, credential forestRoot updated`, 'complete', elapsedInsert);
+      // 3. Update credential forestRoot to reflect the new tree state
+      enrolled.credentialData = new CredentialData({
+        credentialType: enrolled.credentialData.credentialType,
+        forestRoot: enrolled.forest.getForestRoot(),
+        issuerWalletId: enrolled.credentialData.issuerWalletId,
+        subjectWalletId: enrolled.credentialData.subjectWalletId,
+        issuedAt: enrolled.credentialData.issuedAt,
+        expiresAt: enrolled.credentialData.expiresAt,
+        revoked: enrolled.credentialData.revoked,
+      });
 
-    // 4. Generate AccessControlProgram.provePriorAuth proof
-    const eligForest = enrolled.forest;
-    const eligForestRoots = ForestRoots.fromForest(eligForest);
-    const eligWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
-    const paWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, paLeafIndex);
-    const formIdx = paCoverage.leafIndex;
-    const formularyEntry = paCoverage.entry;
-    const formularyWitness = paCoverage.registry.getEntryWitness(formIdx);
+      const elapsedInsert = performance.now() - startInsert;
+      this.emit('offchain', 'prior-auth', `  PA inserted into forest, credential forestRoot updated`, 'complete', elapsedInsert);
 
-    this.emit('proof', 'prior-auth', `  Generating AccessControl.provePriorAuth proof...`, 'start');
-    const startProof = performance.now();
-    await this.dispatchProof(
-      'AccessControl', 'provePriorAuth',
-      ['CredentialData', 'EligibilityData', 'ForestRoots', 'ForestMerkleWitness', 'ForestMerkleWitness', 'PriorAuthData', 'FormularyEntry', 'FormularyMerkleWitness', 'Field', 'Field'],
-      [enrolled.credentialData, enrolled.eligibilityData, eligForestRoots, eligWitness, paWitness, priorAuthData, formularyEntry, formularyWitness, dateToField('20260202'), quantityToField(approvedQuantity)],
-      () => AccessControlProgram.provePriorAuth(enrolled.credentialData, enrolled.eligibilityData, eligForestRoots, eligWitness, paWitness, priorAuthData, formularyEntry, formularyWitness, dateToField('20260202'), quantityToField(approvedQuantity)),
-    );
-    const elapsedProof = performance.now() - startProof;
-    this.emit('proof', 'prior-auth', `  AccessControl.provePriorAuth proof verified`, 'complete', elapsedProof);
-    this.emit('info', 'prior-auth', `  PA verified: medication on formulary, PA not expired, quantity within limits`);
-    this.emitMemory('prior-auth');
+      // 4. Generate AccessControlProgram.provePriorAuth proof
+      const eligForest = enrolled.forest;
+      const eligForestRoots = ForestRoots.fromForest(eligForest);
+      const eligWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
+      const paWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, paLeafIndex);
+      const formIdx = paCoverage.leafIndex;
+      const formularyEntry = paCoverage.entry;
+      const formularyWitness = paCoverage.registry.getEntryWitness(formIdx);
 
-    // 4b. Submit wallet update to L2 (forest changed → new inventory root)
-    const paOutcome = await this.updateCredentialAndSubmitToL2(enrolled, 'prior-auth');
+      this.emit('proof', 'prior-auth', `  Generating AccessControl.provePriorAuth proof...`, 'start');
+      const startProof = performance.now();
+      await this.dispatchProof(
+        'AccessControl', 'provePriorAuth',
+        ['CredentialData', 'EligibilityData', 'ForestRoots', 'ForestMerkleWitness', 'ForestMerkleWitness', 'PriorAuthData', 'FormularyEntry', 'FormularyMerkleWitness', 'Field', 'Field'],
+        [enrolled.credentialData, enrolled.eligibilityData, eligForestRoots, eligWitness, paWitness, priorAuthData, formularyEntry, formularyWitness, dateToField('20260202'), quantityToField(approvedQuantity)],
+        () => AccessControlProgram.provePriorAuth(enrolled.credentialData, enrolled.eligibilityData, eligForestRoots, eligWitness, paWitness, priorAuthData, formularyEntry, formularyWitness, dateToField('20260202'), quantityToField(approvedQuantity)),
+      );
+      elapsedProof = performance.now() - startProof;
+      this.emit('proof', 'prior-auth', `  AccessControl.provePriorAuth proof verified`, 'complete', elapsedProof);
+      this.emit('info', 'prior-auth', `  PA verified: medication on formulary, PA not expired, quantity within limits`);
+      this.emitMemory('prior-auth');
+
+      // 4b. Submit wallet update to L2 (forest changed → new inventory root)
+      paOutcome = await this.updateCredentialAndSubmitToL2(enrolled, 'prior-auth');
+    } catch (paErr: unknown) {
+      if (savedNextPaLeafIndex === undefined) this.nextPaLeafIndex.delete(paState.memberWalletId);
+      else this.nextPaLeafIndex.set(paState.memberWalletId, savedNextPaLeafIndex);
+      enrolled.forest.setLeaf(ForestDomain.ACCESS_CONTROL, paLeafIndex, savedPaLeaf);
+      enrolled.credentialData = savedCredential;
+      if (savedInventorySlot) enrolled.credentialInventory.updateCredential(0n, savedInventorySlot);
+      this.emit('error', 'prior-auth', `The approval of ${paId} was not recorded and its changes were put back; the request stays pending: ${paErr instanceof Error ? paErr.message : String(paErr)}`);
+      throw paErr;
+    }
 
     // 5. Update PA state
     paState.status = 'APPROVED';
@@ -3139,17 +3208,25 @@ export class AdjudicationService {
     // takes it from its plan's formulary, so a console change to PLAN-GOLD-2026 cannot change it; a member served
     // from the console's formulary takes the console's current state, as before. Called without an entry (the display
     // read, GET /interactive/step-therapy-check), a member with a device is answered from its plan as published now,
-    // the version its next prescribe binds it to, and is not rebound.
+    // the version its next prescribe binds it to, and is not rebound. The display read changes nothing for any caller:
+    // a member served from the console's formulary, or a wallet this engine has not enrolled, is answered from the
+    // console's tree as displayFormularyEntryFor answers it, never through getFormularyLeafIndex, which adds a drug the
+    // tree does not hold and moves every member served from it onto the new root. A drug the tree does not hold is not
+    // on the formulary (403).
     const enrolled = entry ? undefined : this.enrolledMembers.get(memberWalletId);
     let isStepRequired: boolean | undefined;
     if (entry) {
       isStepRequired = entry.stepTherapyRequired.toBigInt() === 1n;
     } else if (enrolled && !this.onConsoleFormulary(enrolled)) {
       isStepRequired = this.displayFormularyEntryFor(enrolled, ndcHash).entry.stepTherapyRequired.toBigInt() === 1n;
+    } else if (this.currentFormularyEntries.length > 0) {
+      const leafIndex = this.medIndexByNdcHash.get(ndcHash);
+      if (leafIndex === undefined) {
+        throw new RegistrationRefused(403, `${medication.brandName} is not on the formulary of this member's plan (PLAN-GOLD-2026)`);
+      }
+      isStepRequired = this.currentFormularyEntries[leafIndex]?.stepTherapyRequired;
     } else {
-      isStepRequired = this.currentFormularyEntries.length > 0
-        ? this.currentFormularyEntries[Number(this.getFormularyLeafIndex(ndcHash))]?.stepTherapyRequired
-        : medication.formularyEntry.stepTherapyRequired;
+      isStepRequired = medication.formularyEntry.stepTherapyRequired;
     }
 
     if (!isStepRequired) {
@@ -4033,421 +4110,452 @@ export class AdjudicationService {
       data: { prescriptionId: opts.prescriptionId, oldStatus: rxState.status, newStatus: statusLabel },
     });
 
-    // Mutate forest for fulfillment phase
-    rxForest.setLeaf(ForestDomain.TRANSACTION, newStatusLeaf, filledStatus.commitment());
-    rxForestRoots = ForestRoots.fromForest(rxForest);
-    const rxCredentialData = new CredentialData({
-      credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
-      forestRoot: rxForest.getForestRoot(),
-      issuerWalletId: prescriberWalletId,
-      subjectWalletId: pharmacyWalletId,
-      issuedAt: dateToField('20260201'),
-      expiresAt: Field(0),
-      revoked: Field(0),
-    });
+    // Mutate forest for fulfillment phase. From here the fill changes the prescription's two transaction slots (the status
+    // now, the settlement after the claim proof) and the member's accumulator, leaf 127, credential and inventory slot 0,
+    // all before the ledger step that records them. Each is saved first and all of them are put back exactly if anything
+    // fails before the ledger has recorded the fill: the claim proof (a proof-pool worker that exits, a prove that times
+    // out), an incomplete public output, the A-35 refusal or the ledger step itself (option A, step 1). A status slot left
+    // written would refuse every retry of the fill. The fill route holds the proving lock, so nothing else changes them
+    // while the proofs run. The prescription's status and quantity and its fill record change only after the ledger step.
+    const savedStatusSlot = rxForest.getLeaf(ForestDomain.TRANSACTION, newStatusLeaf);
+    const savedSettlementSlot = rxForest.getLeaf(ForestDomain.TRANSACTION, newStatusLeaf + 1n);
+    const savedAccumulator = enrolled.accumulatorData;
+    const savedAccumulatorLeaf = enrolled.forest.getLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX);
+    const savedCredential = enrolled.credentialData;
+    const savedInventorySlot = enrolled.credentialInventory.getCredential(0n);
+    let fillStage: 'proving' | 'ledger' | 'recorded' = 'proving';
+    try {
+      rxForest.setLeaf(ForestDomain.TRANSACTION, newStatusLeaf, filledStatus.commitment());
+      rxForestRoots = ForestRoots.fromForest(rxForest);
+      const rxCredentialData = new CredentialData({
+        credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
+        forestRoot: rxForest.getForestRoot(),
+        issuerWalletId: prescriberWalletId,
+        subjectWalletId: pharmacyWalletId,
+        issuedAt: dateToField('20260201'),
+        expiresAt: Field(0),
+        revoked: Field(0),
+      });
 
-    // 3. THE CLAIM: AccumulatorFulfillment (proof [3/3])
-    // The fulfillment circuit requires the FILLED status (pre-dispense), not DISPENSED.
-    // It checks that the prescription is in FILLED or PARTIALLY_FILLED state before settling.
-    const preDispenseStatus = rxState.activeStatus; // FILLED status from markFilled()
-    const preDispenseLeaf = oldStatusLeaf;          // leaf index of the FILLED status
+      // 3. THE CLAIM: AccumulatorFulfillment (proof [3/3])
+      // The fulfillment circuit requires the FILLED status (pre-dispense), not DISPENSED.
+      // It checks that the prescription is in FILLED or PARTIALLY_FILLED state before settling.
+      const preDispenseStatus = rxState.activeStatus; // FILLED status from markFilled()
+      const preDispenseLeaf = oldStatusLeaf;          // leaf index of the FILLED status
 
-    const fulfillmentData = new FulfillmentData({
-      prescriptionHash: rxState.prescriptionData.commitment(),
-      pharmacyWalletId,
-      ndcHash: hashString(medication.ndc),
-      quantityDispensed: quantityToField(qtyDispensed),
-      ingredientCostCents: centsToField(ingredientCostCents),
-      dispensingFeeCents: centsToField(dispensingFeeCents),
-      dateOfService: dateToField(serviceDateStr),
-    });
+      const fulfillmentData = new FulfillmentData({
+        prescriptionHash: rxState.prescriptionData.commitment(),
+        pharmacyWalletId,
+        ndcHash: hashString(medication.ndc),
+        quantityDispensed: quantityToField(qtyDispensed),
+        ingredientCostCents: centsToField(ingredientCostCents),
+        dispensingFeeCents: centsToField(dispensingFeeCents),
+        dateOfService: dateToField(serviceDateStr),
+      });
 
-    const fulfMedWitness = rxForest.getWitness(ForestDomain.MEDICATION, 0n);
-    const fulfStatusWitness = rxForest.getWitness(ForestDomain.TRANSACTION, preDispenseLeaf);
-    const fulfNewSlotWitness = rxForest.getWitness(ForestDomain.TRANSACTION, newStatusLeaf + 1n);
-    const fulfFormWitness = coverage.registry.getEntryWitness(coverage.leafIndex);
-    const eligForest = enrolled.forest;
-    const eligForestRoots = ForestRoots.fromForest(eligForest);
-    const accumWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX);
-    const oldEligForestRoot = eligForest.getForestRoot();
-    const oldEligCredentialSerialized = serializeCredentialData(enrolled.credentialData);
-    const oldEligForestSerialized = serializeForestRoots(eligForest);
+      const fulfMedWitness = rxForest.getWitness(ForestDomain.MEDICATION, 0n);
+      const fulfStatusWitness = rxForest.getWitness(ForestDomain.TRANSACTION, preDispenseLeaf);
+      const fulfNewSlotWitness = rxForest.getWitness(ForestDomain.TRANSACTION, newStatusLeaf + 1n);
+      const fulfFormWitness = coverage.registry.getEntryWitness(coverage.leafIndex);
+      const eligForest = enrolled.forest;
+      const eligForestRoots = ForestRoots.fromForest(eligForest);
+      const accumWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX);
+      const oldEligForestRoot = eligForest.getForestRoot();
+      const oldEligCredentialSerialized = serializeCredentialData(enrolled.credentialData);
+      const oldEligForestSerialized = serializeForestRoots(eligForest);
 
-    this.emit('proof', 'fill', `[3/3] Generating AccumulatorFulfillment.proveFulfillmentWithAccumulator...`, 'start');
-    this.emit('info', 'fill', '       THE CLAIM: Dual-credential fulfillment with accumulator update');
-    this.emit('info', 'fill', '       24 private inputs verified in a single ZK circuit');
+      this.emit('proof', 'fill', `[3/3] Generating AccumulatorFulfillment.proveFulfillmentWithAccumulator...`, 'start');
+      this.emit('info', 'fill', '       THE CLAIM: Dual-credential fulfillment with accumulator update');
+      this.emit('info', 'fill', '       24 private inputs verified in a single ZK circuit');
 
-    // B8 (A-23): family pooling is proven inside the circuit, from the family's accumulators before this fill and
-    // the plan's family limits; the proof's amounts are what the member is billed and what the ledger records.
-    // The family is the one the insurer's approval bound (A-34); a member with none pools with no one and
-    // has no family limits. Plan-bound formularies: the family limits of the plan as published (a draft the insurer is
-    // editing bills nothing). The pre-script quote takes the same six inputs (familyInputsOf).
-    const { totals: familyTotals, amounts: family } = this.familyInputsOf(enrolled);
-    const familyFields = [
-      family.deductiblePaidCents, family.oopPaidCents, family.annualBenefitUsedCents,
-      family.familyDeductibleAmountCents, family.familyOopMaxCents, family.familyAnnualBenefitMaxCents,
-    ].map((n) => Field(BigInt(n)));
-    const startFulf = performance.now();
-    const fulfillDispatch = await this.dispatchProof(
-      'AccumulatorFulfillment', 'proveFulfillmentWithAccumulator',
-      ['CredentialData', 'PrescriptionData', 'PrescriptionStatusData', 'FulfillmentData', 'FormularyEntry', 'ForestRoots', 'ForestMerkleWitness', 'ForestMerkleWitness', 'ForestMerkleWitness', 'FormularyMerkleWitness', 'Field', 'CredentialData', 'ForestRoots', 'AccumulatorData', 'ForestMerkleWitness', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field'],
-      [rxCredentialData, rxState.prescriptionData, preDispenseStatus, fulfillmentData, coverage.entry, rxForestRoots, fulfMedWitness, fulfStatusWitness, fulfNewSlotWitness, fulfFormWitness, enrolled.eligibilityData.formularyRoot, enrolled.credentialData, eligForestRoots, enrolled.accumulatorData, accumWitness, ...pharmacyPreimage, ...familyFields],
-      () => AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(rxCredentialData, rxState.prescriptionData, preDispenseStatus, fulfillmentData, coverage.entry, rxForestRoots, fulfMedWitness, fulfStatusWitness, fulfNewSlotWitness, fulfFormWitness, enrolled.eligibilityData.formularyRoot, enrolled.credentialData, eligForestRoots, enrolled.accumulatorData, accumWitness, ...pharmacyPreimage as [Field, Field, Field], ...familyFields as [Field, Field, Field, Field, Field, Field]),
-    );
-    const elapsedFulf = performance.now() - startFulf;
-    this.emit('proof', 'fill', `[3/3] AccumulatorFulfillment proof generated`, 'complete', elapsedFulf);
+      // B8 (A-23): family pooling is proven inside the circuit, from the family's accumulators before this fill and
+      // the plan's family limits; the proof's amounts are what the member is billed and what the ledger records.
+      // The family is the one the insurer's approval bound (A-34); a member with none pools with no one and
+      // has no family limits. Plan-bound formularies: the family limits of the plan as published (a draft the insurer is
+      // editing bills nothing). The pre-script quote takes the same six inputs (familyInputsOf).
+      const { totals: familyTotals, amounts: family } = this.familyInputsOf(enrolled);
+      const familyFields = [
+        family.deductiblePaidCents, family.oopPaidCents, family.annualBenefitUsedCents,
+        family.familyDeductibleAmountCents, family.familyOopMaxCents, family.familyAnnualBenefitMaxCents,
+      ].map((n) => Field(BigInt(n)));
+      const startFulf = performance.now();
+      const fulfillDispatch = await this.dispatchProof(
+        'AccumulatorFulfillment', 'proveFulfillmentWithAccumulator',
+        ['CredentialData', 'PrescriptionData', 'PrescriptionStatusData', 'FulfillmentData', 'FormularyEntry', 'ForestRoots', 'ForestMerkleWitness', 'ForestMerkleWitness', 'ForestMerkleWitness', 'FormularyMerkleWitness', 'Field', 'CredentialData', 'ForestRoots', 'AccumulatorData', 'ForestMerkleWitness', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field'],
+        [rxCredentialData, rxState.prescriptionData, preDispenseStatus, fulfillmentData, coverage.entry, rxForestRoots, fulfMedWitness, fulfStatusWitness, fulfNewSlotWitness, fulfFormWitness, enrolled.eligibilityData.formularyRoot, enrolled.credentialData, eligForestRoots, enrolled.accumulatorData, accumWitness, ...pharmacyPreimage, ...familyFields],
+        () => AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(rxCredentialData, rxState.prescriptionData, preDispenseStatus, fulfillmentData, coverage.entry, rxForestRoots, fulfMedWitness, fulfStatusWitness, fulfNewSlotWitness, fulfFormWitness, enrolled.eligibilityData.formularyRoot, enrolled.credentialData, eligForestRoots, enrolled.accumulatorData, accumWitness, ...pharmacyPreimage as [Field, Field, Field], ...familyFields as [Field, Field, Field, Field, Field, Field]),
+      );
+      const elapsedFulf = performance.now() - startFulf;
+      this.emit('proof', 'fill', `[3/3] AccumulatorFulfillment proof generated`, 'complete', elapsedFulf);
 
-    // Extract proof output (individual-level, ZK-enforced) — values are decimal strings from dispatchProof
-    const proofOutput = fulfillDispatch.publicOutput;
-    if (!proofOutput) {
-      throw new Error(`AccumulatorFulfillment proof returned no publicOutput. Keys received: ${JSON.stringify(Object.keys(fulfillDispatch))}`);
-    }
-    if (!proofOutput.patientPayCents || !proofOutput.planPayCents || !proofOutput.newEligibilityForestRoot) {
-      throw new Error(`AccumulatorFulfillment publicOutput missing fields. Keys: [${Object.keys(proofOutput).join(', ')}]. patientPayCents=${proofOutput.patientPayCents}, planPayCents=${proofOutput.planPayCents}, newEligibilityForestRoot=${proofOutput.newEligibilityForestRoot}`);
-    }
-    let patientPayCents = Number(BigInt(proofOutput.patientPayCents));
-    let planPayCents = Number(BigInt(proofOutput.planPayCents));
-    const newEligForestRoot = Field(BigInt(proofOutput.newEligibilityForestRoot));
+      // Extract proof output (individual-level, ZK-enforced) — values are decimal strings from dispatchProof
+      const proofOutput = fulfillDispatch.publicOutput;
+      if (!proofOutput) {
+        throw new Error(`AccumulatorFulfillment proof returned no publicOutput. Keys received: ${JSON.stringify(Object.keys(fulfillDispatch))}`);
+      }
+      if (!proofOutput.patientPayCents || !proofOutput.planPayCents || !proofOutput.newEligibilityForestRoot) {
+        throw new Error(`AccumulatorFulfillment publicOutput missing fields. Keys: [${Object.keys(proofOutput).join(', ')}]. patientPayCents=${proofOutput.patientPayCents}, planPayCents=${proofOutput.planPayCents}, newEligibilityForestRoot=${proofOutput.newEligibilityForestRoot}`);
+      }
+      let patientPayCents = Number(BigInt(proofOutput.patientPayCents));
+      let planPayCents = Number(BigInt(proofOutput.planPayCents));
+      const newEligForestRoot = Field(BigInt(proofOutput.newEligibilityForestRoot));
 
-    // ─── Patent Evidence: 22-Step Adjudication Circuit Output ────
-    this.emit('info', 'fill', `  ┌─ PROOF: AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator`);
-    this.emit('info', 'fill', `  │  22-STEP ZK CIRCUIT — Authentication + Adjudication FUSED`);
-    this.emit('info', 'fill', `  │`);
-    this.emit('info', 'fill', `  │  Private Inputs (18 witnesses):`);
-    this.emit('info', 'fill', `  │    Rx Credential:      forestRoot = ${truncField(rxCredentialData.forestRoot)}`);
-    this.emit('info', 'fill', `  │    PrescriptionData:   hash = ${truncField(rxState.prescriptionData.commitment())}`);
-    this.emit('info', 'fill', `  │    FulfillmentData:    hash = ${truncField(fulfillmentData.commitment())}`);
-    this.emit('info', 'fill', `  │    FormularyEntry:     NDC = ${medication.ndc}, tier ${rxState.formularyEntry.tierLevel.toString()}`);
-    this.emit('info', 'fill', `  │    Eligibility Cred:   forestRoot = ${truncField(enrolled.credentialData.forestRoot)}`);
-    this.emit('info', 'fill', `  │    AccumulatorData:    deductible=$${(Number(enrolled.accumulatorData.deductiblePaidCents.toBigInt()) / 100).toFixed(2)}/$${(Number(enrolled.accumulatorData.deductibleAmountCents.toBigInt()) / 100).toFixed(2)}, OOP=$${(Number(enrolled.accumulatorData.oopPaidCents.toBigInt()) / 100).toFixed(2)}/$${(Number(enrolled.accumulatorData.oopMaxCents.toBigInt()) / 100).toFixed(2)}`);
-    this.emit('info', 'fill', `  │    Pharmacy Preimage:  3 fields (ZK identity binding)`);
-    this.emit('info', 'fill', `  │    Merkle Witnesses:   5 trees (MEDICATION, TRANSACTION x2, FORMULARY, ACCESS_CONTROL)`);
-    this.emit('info', 'fill', `  │`);
-    this.emit('info', 'fill', `  │  Public Output (10 Fields):`);
-    this.emit('info', 'fill', `  │    prescriptionHash:         ${truncStr(proofOutput.prescriptionHash)}`);
-    this.emit('info', 'fill', `  │    oldForestRoot:            ${truncStr(proofOutput.oldForestRoot)}`);
-    this.emit('info', 'fill', `  │    newForestRoot:            ${truncStr(proofOutput.newForestRoot)}`);
-    this.emit('info', 'fill', `  │    entryCommitment:          ${truncStr(proofOutput.entryCommitment)}`);
-    this.emit('info', 'fill', `  │    patientPayCents:          ${patientPayCents} ($${(patientPayCents / 100).toFixed(2)})`);
-    this.emit('info', 'fill', `  │    planPayCents:             ${planPayCents} ($${(planPayCents / 100).toFixed(2)})`);
-    this.emit('info', 'fill', `  │    operationType:            ${truncStr(proofOutput.operationType)}`);
-    this.emit('info', 'fill', `  │    newEligibilityForestRoot: ${truncStr(proofOutput.newEligibilityForestRoot)}`);
-    this.emit('info', 'fill', `  │    deductibleCreditCents:    ${Number(BigInt(proofOutput.deductibleCreditCents))} ($${(Number(BigInt(proofOutput.deductibleCreditCents)) / 100).toFixed(2)})`);
-    this.emit('info', 'fill', `  │    ndcHash:                  ${truncStr(proofOutput.ndcHash)}`);
-    this.emit('info', 'fill', `  │`);
-    this.emit('info', 'fill', `  │  KEY DISTINCTION: patientPay + planPay are CIRCUIT OUTPUTS`);
-    this.emit('info', 'fill', `  │  No adjudication authority — Provable.if() constraints ARE the rules`);
-    this.emit('info', 'fill', `  └─ Proof time: ${elapsedFulf.toFixed(0)}ms`);
+      // ─── Patent Evidence: 22-Step Adjudication Circuit Output ────
+      this.emit('info', 'fill', `  ┌─ PROOF: AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator`);
+      this.emit('info', 'fill', `  │  22-STEP ZK CIRCUIT — Authentication + Adjudication FUSED`);
+      this.emit('info', 'fill', `  │`);
+      this.emit('info', 'fill', `  │  Private Inputs (18 witnesses):`);
+      this.emit('info', 'fill', `  │    Rx Credential:      forestRoot = ${truncField(rxCredentialData.forestRoot)}`);
+      this.emit('info', 'fill', `  │    PrescriptionData:   hash = ${truncField(rxState.prescriptionData.commitment())}`);
+      this.emit('info', 'fill', `  │    FulfillmentData:    hash = ${truncField(fulfillmentData.commitment())}`);
+      this.emit('info', 'fill', `  │    FormularyEntry:     NDC = ${medication.ndc}, tier ${rxState.formularyEntry.tierLevel.toString()}`);
+      this.emit('info', 'fill', `  │    Eligibility Cred:   forestRoot = ${truncField(enrolled.credentialData.forestRoot)}`);
+      this.emit('info', 'fill', `  │    AccumulatorData:    deductible=$${(Number(enrolled.accumulatorData.deductiblePaidCents.toBigInt()) / 100).toFixed(2)}/$${(Number(enrolled.accumulatorData.deductibleAmountCents.toBigInt()) / 100).toFixed(2)}, OOP=$${(Number(enrolled.accumulatorData.oopPaidCents.toBigInt()) / 100).toFixed(2)}/$${(Number(enrolled.accumulatorData.oopMaxCents.toBigInt()) / 100).toFixed(2)}`);
+      this.emit('info', 'fill', `  │    Pharmacy Preimage:  3 fields (ZK identity binding)`);
+      this.emit('info', 'fill', `  │    Merkle Witnesses:   5 trees (MEDICATION, TRANSACTION x2, FORMULARY, ACCESS_CONTROL)`);
+      this.emit('info', 'fill', `  │`);
+      this.emit('info', 'fill', `  │  Public Output (10 Fields):`);
+      this.emit('info', 'fill', `  │    prescriptionHash:         ${truncStr(proofOutput.prescriptionHash)}`);
+      this.emit('info', 'fill', `  │    oldForestRoot:            ${truncStr(proofOutput.oldForestRoot)}`);
+      this.emit('info', 'fill', `  │    newForestRoot:            ${truncStr(proofOutput.newForestRoot)}`);
+      this.emit('info', 'fill', `  │    entryCommitment:          ${truncStr(proofOutput.entryCommitment)}`);
+      this.emit('info', 'fill', `  │    patientPayCents:          ${patientPayCents} ($${(patientPayCents / 100).toFixed(2)})`);
+      this.emit('info', 'fill', `  │    planPayCents:             ${planPayCents} ($${(planPayCents / 100).toFixed(2)})`);
+      this.emit('info', 'fill', `  │    operationType:            ${truncStr(proofOutput.operationType)}`);
+      this.emit('info', 'fill', `  │    newEligibilityForestRoot: ${truncStr(proofOutput.newEligibilityForestRoot)}`);
+      this.emit('info', 'fill', `  │    deductibleCreditCents:    ${Number(BigInt(proofOutput.deductibleCreditCents))} ($${(Number(BigInt(proofOutput.deductibleCreditCents)) / 100).toFixed(2)})`);
+      this.emit('info', 'fill', `  │    ndcHash:                  ${truncStr(proofOutput.ndcHash)}`);
+      this.emit('info', 'fill', `  │`);
+      this.emit('info', 'fill', `  │  KEY DISTINCTION: patientPay + planPay are CIRCUIT OUTPUTS`);
+      this.emit('info', 'fill', `  │  No adjudication authority — Provable.if() constraints ARE the rules`);
+      this.emit('info', 'fill', `  └─ Proof time: ${elapsedFulf.toFixed(0)}ms`);
 
-    // Determine adjudication phase. A-35: the member's own limits, the ones the proof used; never constants.
-    const deductibleAmt = Number(enrolled.accumulatorData.deductibleAmountCents.toBigInt());
-    const oopMax = Number(enrolled.accumulatorData.oopMaxCents.toBigInt());
-    const benefitMax = Number(enrolled.accumulatorData.annualBenefitMaxCents.toBigInt());
-    const oldDeductiblePaid = Number(enrolled.accumulatorData.deductiblePaidCents.toBigInt());
-    const oldOopPaid = Number(enrolled.accumulatorData.oopPaidCents.toBigInt());
-    const oldBenefitUsed = Number(enrolled.accumulatorData.annualBenefitUsedCents.toBigInt());
-    // C4 fix: deductible credit from proof output (only deductible portion, not copay)
-    const deductibleCreditCents = Number(BigInt(proofOutput.deductibleCreditCents));
-    let newDeductiblePaid = oldDeductiblePaid + deductibleCreditCents;
-    let newOopPaid = oldOopPaid + patientPayCents;
-    let newBenefitUsed = oldBenefitUsed + planPayCents;
+      // Determine adjudication phase. A-35: the member's own limits, the ones the proof used; never constants.
+      const deductibleAmt = Number(enrolled.accumulatorData.deductibleAmountCents.toBigInt());
+      const oopMax = Number(enrolled.accumulatorData.oopMaxCents.toBigInt());
+      const benefitMax = Number(enrolled.accumulatorData.annualBenefitMaxCents.toBigInt());
+      const oldDeductiblePaid = Number(enrolled.accumulatorData.deductiblePaidCents.toBigInt());
+      const oldOopPaid = Number(enrolled.accumulatorData.oopPaidCents.toBigInt());
+      const oldBenefitUsed = Number(enrolled.accumulatorData.annualBenefitUsedCents.toBigInt());
+      // C4 fix: deductible credit from proof output (only deductible portion, not copay)
+      const deductibleCreditCents = Number(BigInt(proofOutput.deductibleCreditCents));
+      let newDeductiblePaid = oldDeductiblePaid + deductibleCreditCents;
+      let newOopPaid = oldOopPaid + patientPayCents;
+      let newBenefitUsed = oldBenefitUsed + planPayCents;
 
-    // A-35: the engine's new accumulator keeps the member's plan year and limits, as the circuit does, and must reach
-    // the eligibility root the proof committed to. Checked here, before the claim or the member's record changes.
-    const newAccumulator = withAmountsPaid(enrolled.accumulatorData, { deductiblePaidCents: newDeductiblePaid, oopPaidCents: newOopPaid, annualBenefitUsedCents: newBenefitUsed });
-    if (!forestRootWithAccessControl(eligForestRoots, accumWitness.calculateRoot(newAccumulator.commitment())).equals(newEligForestRoot).toBoolean()) {
-      throw new Error('The fill proof\'s eligibility root does not match the engine\'s accumulator update; the claim was not recorded');
-    }
+      // A-35: the engine's new accumulator keeps the member's plan year and limits, as the circuit does, and must reach
+      // the eligibility root the proof committed to. Checked here, before the claim or the member's record changes.
+      const newAccumulator = withAmountsPaid(enrolled.accumulatorData, { deductiblePaidCents: newDeductiblePaid, oopPaidCents: newOopPaid, annualBenefitUsedCents: newBenefitUsed });
+      if (!forestRootWithAccessControl(eligForestRoots, accumWitness.calculateRoot(newAccumulator.commitment())).equals(newEligForestRoot).toBoolean()) {
+        throw new Error('The fill proof\'s eligibility root does not match the engine\'s accumulator update; the claim was not recorded');
+      }
 
-    let phase = patientPayCents === totalCostCents ? 'DEDUCTIBLE (not yet met)' : 'NORMAL COPAY';
+      let phase = patientPayCents === totalCostCents ? 'DEDUCTIBLE (not yet met)' : 'NORMAL COPAY';
 
-    // B8 (A-23): the family rule the circuit applied, for the record and the display. The amounts above are the
-    // proof's, pooled inside the circuit; nothing is rewritten after the proof any more.
-    const familyRuleCode = Number(BigInt(proofOutput.familyRule ?? '0'));
-    const familyPoolingApplied = familyRuleCode !== 0;
-    const familyPoolingReason = [
-      'Individual accumulator rules applied',
-      'Family out-of-pocket maximum met',
-      'Family annual benefit maximum exhausted',
-      'Patient pay capped at family out-of-pocket maximum',
-      'Plan pay capped at family annual benefit maximum',
-    ][familyRuleCode] ?? 'Individual accumulator rules applied';
-    if (familyPoolingApplied) {
-      phase = familyPoolingReason;
+      // B8 (A-23): the family rule the circuit applied, for the record and the display. The amounts above are the
+      // proof's, pooled inside the circuit; nothing is rewritten after the proof any more.
+      const familyRuleCode = Number(BigInt(proofOutput.familyRule ?? '0'));
+      const familyPoolingApplied = familyRuleCode !== 0;
+      const familyPoolingReason = [
+        'Individual accumulator rules applied',
+        'Family out-of-pocket maximum met',
+        'Family annual benefit maximum exhausted',
+        'Patient pay capped at family out-of-pocket maximum',
+        'Plan pay capped at family annual benefit maximum',
+      ][familyRuleCode] ?? 'Individual accumulator rules applied';
+      if (familyPoolingApplied) {
+        phase = familyPoolingReason;
+        this.emitViz('viz:accumulator:updated', 'fulfillment', {
+          actor: 'Insurer',
+          actorType: 'insurer',
+          target: enrolled.displayName,
+          targetType: 'member',
+          data: {
+            familyPooling: true,
+            familyOopTotal: familyTotals.oopPaidCents,
+            familyDeductibleTotal: familyTotals.deductiblePaidCents,
+            adjustedPatientPay: patientPayCents,
+            reason: familyPoolingReason,
+          },
+        });
+      }
+
+      this.emit('info', 'fill', '');
+      this.emit('phase', 'fill', '═══ THE RESULT ═══');
+      this.emit('info', 'fill', `  ADJUDICATION (ZK-enforced in-circuit):`);
+      this.emit('info', 'fill', `    Phase:       ${phase}`);
+      this.emit('info', 'fill', `    Patient pay: $${(patientPayCents / 100).toFixed(2)}`);
+      this.emit('info', 'fill', `    Plan pay:    $${(planPayCents / 100).toFixed(2)}`);
+      if (familyPoolingApplied) {
+        this.emit('info', 'fill', `    FAMILY POOLING: ${familyPoolingReason}`);
+      }
+      this.emit('info', 'fill', '');
+      this.emit('info', 'fill', `  ACCUMULATOR (BEFORE → AFTER):`);
+      this.emit('info', 'fill', `    Deductible:  $${(oldDeductiblePaid / 100).toFixed(2)} → $${(newDeductiblePaid / 100).toFixed(2)} / $${(deductibleAmt / 100).toFixed(2)}  ${deductibleAmt > 0 ? (newDeductiblePaid / deductibleAmt * 100).toFixed(1) + '%' : 'no deductible'}`);
+      this.emit('info', 'fill', `    OOPM:        $${(oldOopPaid / 100).toFixed(2)} → $${(newOopPaid / 100).toFixed(2)} / $${(oopMax / 100).toFixed(2)}  ${oopMax > 0 ? (newOopPaid / oopMax * 100).toFixed(1) + '%' : 'no maximum'}`);
+      this.emit('info', 'fill', '');
+      this.emit('info', 'fill', `  ELIGIBILITY CREDENTIAL:`);
+      this.emit('info', 'fill', `    Forest root BEFORE: ${truncField(oldEligForestRoot)}`);
+      this.emit('info', 'fill', `    Forest root AFTER:  ${truncField(newEligForestRoot)}`);
+      this.emit('info', 'fill', `    CHANGED: ${!oldEligForestRoot.equals(newEligForestRoot).toBoolean() ? 'YES — accumulator updated in credential' : 'NO (unexpected)'}`)
+      this.emit('info', 'fill', '');
+      this.emit('info', 'fill', `  MERKLE TREE STATE:`);
+      this.emit('info', 'fill', `    Rx TRANSACTION tree:       leaf ${newStatusLeaf} = status, leaf ${newStatusLeaf + 1n} = settlement`);
+      this.emit('info', 'fill', `    Elig ACCESS_CONTROL tree:  leaf 127 = new accumulator commitment`);
+      this.emit('info', 'fill', `    ForestRoot = Poseidon.hash(6 domain tree roots)`);
+
+      // Update enrolled member's accumulator data: the one checked against the proof above (A-35)
+      enrolled.accumulatorData = newAccumulator;
+
+      // Update local forests to match circuit output
+      const patientPayField = Field(BigInt(proofOutput.patientPayCents));
+      const planPayField = Field(BigInt(proofOutput.planPayCents));
+      const deductibleCreditField = Field(BigInt(proofOutput.deductibleCreditCents));
+      const settlementCommit = Poseidon.hash([
+        fulfillmentData.commitment(),
+        patientPayField,
+        planPayField,
+        deductibleCreditField,
+      ]);
+      rxForest.setLeaf(ForestDomain.TRANSACTION, newStatusLeaf + 1n, settlementCommit);
+      const updatedRxCredentialData = new CredentialData({
+        credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
+        forestRoot: rxForest.getForestRoot(),
+        issuerWalletId: rxCredentialData.issuerWalletId,
+        subjectWalletId: rxCredentialData.subjectWalletId,
+        issuedAt: rxCredentialData.issuedAt,
+        expiresAt: rxCredentialData.expiresAt,
+        revoked: rxCredentialData.revoked,
+      });
+
+      eligForest.setLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX, enrolled.accumulatorData.commitment());
+      const updatedEligCredentialData = new CredentialData({
+        credentialType: enrolled.credentialData.credentialType,
+        forestRoot: eligForest.getForestRoot(),
+        issuerWalletId: enrolled.credentialData.issuerWalletId,
+        subjectWalletId: enrolled.credentialData.subjectWalletId,
+        issuedAt: enrolled.credentialData.issuedAt,
+        expiresAt: enrolled.credentialData.expiresAt,
+        revoked: enrolled.credentialData.revoked,
+      });
+      enrolled.credentialData = updatedEligCredentialData;
+
+      // Build claim metadata for the sequencer's ClaimAccumulatorService
+      const claimMeta: import('../l2/l2-types.js').ClaimSubmissionMetadata = {
+        ndcHash: proofOutput.ndcHash || hashString(medication.ndc).toString(),
+        memberWalletId: enrolled.walletId.toBigInt().toString(),
+        pharmacyWalletId: pharmacyWalletId.toBigInt().toString(),
+        prescriberWalletId: this.prescriberWalletIds.get(rxState.prescriberIndex)!.toBigInt().toString(),
+        dateOfService: serviceDateStr,
+        patientPayCents: String(patientPayCents),
+        planPayCents: String(planPayCents),
+        operationType: '1', // fulfillment
+        ndc: medication.ndc,
+        brandName: medication.brandName,
+        tierLevel: medication.formularyEntry.tierLevel,
+        daysSupply: 30,
+        deductibleCreditCents: proofOutput.deductibleCreditCents || '0',
+        fillNumber,
+        ingredientCostCents,
+        dispensingFeeCents,
+        quantityDispensed: qtyDispensed,
+        // NADAC pricing: how the cost was made, so the claim shows NADAC per unit x quantity + fee
+        pricingBasis: 'NADAC',
+        nadacUnitPriceE5: fillPrice.nadacUnitPriceE5,
+        pricingUnit: fillPrice.pricingUnit,
+        nadacEffectiveDate: fillPrice.nadacEffectiveDate,
+        dispensingFeeSource: fillPrice.dispensingFeeSource,
+        planIdHash: hashString(enrolled.planId).toString(),
+      };
+
+      // Submit wallet update to L2 (accumulator/forest change → new inventory root). A fixture member's update is proved
+      // and submitted here; a member with a device has it queued for the device to prove, its claim committed on the
+      // sequencer. If this step fails, the fill's changes are put back and the error surfaces (below).
+      fillStage = 'ledger';
+      const fillOutcome = await this.updateCredentialAndSubmitToL2(enrolled, 'fill', claimMeta);
+      fillStage = 'recorded';
+
+      // Determine new status: partial dispense or full dispense (in exact thousandths of the unit)
+      const previousStatus = rxState.status;
+      const newStatus: RxStatus = isPartial ? 'PARTIALLY_FILLED' : 'DISPENSED';
+
+      rxState.quantityDispensed = quantityFromMilli(totalAfterFillMilli);
+      rxState.status = newStatus;
+      rxState.activeStatus = filledStatus;                       // update current ZK status
+      rxState.currentStatusLeafIndex = newStatusLeaf;            // track current status leaf
+      rxState.nextTxLeafIndex = newStatusLeaf + 2n;              // advance past status + fulfillment leaves
+      rxState.rxCredentialData = updatedRxCredentialData;          // update Rx credential with new forest root
+      rxState.statusHistory.push({
+        from: previousStatus,
+        to: newStatus,
+        updatedBy: pharmacy.storeName,
+        updatedByRole: 'pharmacy',
+        timestamp: Date.now(),
+        fillQuantity: qtyDispensed,
+      });
+
+      const existingFills = this.fulfillments.get(opts.prescriptionId) || [];
+      const fulfillment: FulfillmentState = {
+        prescriptionId: opts.prescriptionId,
+        fillIndex: existingFills.length,
+        patientPayCents,
+        planPayCents,
+        totalCostCents,
+        accumulatorBefore: { deductiblePaid: oldDeductiblePaid, oopPaid: oldOopPaid, benefitUsed: oldBenefitUsed },
+        accumulatorAfter: { deductiblePaid: newDeductiblePaid, oopPaid: newOopPaid, benefitUsed: newBenefitUsed },
+        newEligForestRoot: truncField(newEligForestRoot),
+        oldEligForestRoot: truncField(oldEligForestRoot),
+        settlementCommitment: settlementCommit,
+        fulfillmentData,
+        patientPayField,
+        planPayField,
+        deductibleCreditField,
+        settlementLeafIndex: newStatusLeaf + 1n,
+        quantityDispensed: qtyDispensed,
+        reversed: false,
+        dateOfService: serviceDateStr,
+        pricing: fillPrice,
+      };
+      existingFills.push(fulfillment);
+      this.fulfillments.set(opts.prescriptionId, existingFills);
+
+      this.emitViz('viz:fulfillment:settled', 'fulfillment', {
+        actor: pharmacy.storeName,
+        actorType: 'pharmacy',
+        target: enrolled.displayName,
+        targetType: 'member',
+        data: {
+          medication: medication.brandName,
+          patientPayCents,
+          planPayCents,
+          totalCostCents,
+          phase,
+        },
+      });
+
       this.emitViz('viz:accumulator:updated', 'fulfillment', {
         actor: 'Insurer',
         actorType: 'insurer',
         target: enrolled.displayName,
         targetType: 'member',
         data: {
-          familyPooling: true,
-          familyOopTotal: familyTotals.oopPaidCents,
-          familyDeductibleTotal: familyTotals.deductiblePaidCents,
-          adjustedPatientPay: patientPayCents,
-          reason: familyPoolingReason,
+          deductibleBefore: oldDeductiblePaid,
+          deductibleAfter: newDeductiblePaid,
+          oopBefore: oldOopPaid,
+          oopAfter: newOopPaid,
         },
       });
+
+      this.emitMemory('fill');
+
+      return {
+        prescriptionId: opts.prescriptionId,
+        // B1 step two: the member's device proves the wallet update the fill produced; the claim lands with it
+        walletUpdate: fillOutcome.pending
+          ? { status: 'pending', updateId: fillOutcome.pending.updateId, newInventoryRoot: fillOutcome.pending.newInventoryRoot }
+          : { status: 'applied', receiptId: fillOutcome.receipt?.receiptId },
+        serviceDateStr,
+        rxStatus: rxState.status,
+        quantityDispensed: rxState.quantityDispensed,
+        quantityPrescribed: rxState.quantity,
+        medication: {
+          brandName: medication.brandName,
+          genericName: medication.genericName,
+          strength: medication.strength,
+          ndc: medication.ndcFormatted,
+          tier: medication.formularyEntry.tierLevel,
+        },
+        adjudication: {
+          phase,
+          patientPayCents,
+          planPayCents,
+          totalCostCents,
+          ingredientCostCents,
+          dispensingFeeCents,
+          pricing: fillPrice,   // NADAC per unit x quantity + fee, and whether the fee is the plan's or the network default
+          familyPoolingApplied,
+          familyPoolingReason: familyPoolingApplied ? familyPoolingReason : undefined,
+        },
+        accumulator: {
+          before: {
+            deductiblePaidCents: oldDeductiblePaid,
+            oopPaidCents: oldOopPaid,
+            benefitUsedCents: oldBenefitUsed,
+          },
+          after: {
+            deductiblePaidCents: newDeductiblePaid,
+            oopPaidCents: newOopPaid,
+            benefitUsedCents: newBenefitUsed,
+          },
+          // the limits this fill was proven against: the member's own (as bound from its plan) and its plan's family limits
+          limits: {
+            deductibleAmountCents: deductibleAmt,
+            oopMaxCents: oopMax,
+            annualBenefitMaxCents: benefitMax,
+            familyDeductibleAmountCents: family.familyDeductibleAmountCents,
+            familyOopMaxCents: family.familyOopMaxCents,
+            familyAnnualBenefitMaxCents: family.familyAnnualBenefitMaxCents,
+          },
+        },
+        eligibilityCredential: {
+          oldForestRoot: truncField(oldEligForestRoot),
+          newForestRoot: truncField(newEligForestRoot),
+          changed: !oldEligForestRoot.equals(newEligForestRoot).toBoolean(),
+        },
+        proofTimesMs: {
+          proofGate: elapsedPG,
+          prescriptionStatus: elapsedRx,
+          accumulatorFulfillment: elapsedFulf,
+          total: elapsedPG + elapsedRx + elapsedFulf,
+        },
+        // ─── ZK Data (full transparency) ────────────────
+        fulfillmentDetail: {
+          prescriptionHash: fieldToStr(fulfillmentData.prescriptionHash),
+          pharmacyWalletId: fieldToStr(fulfillmentData.pharmacyWalletId),
+          ndcHash: fieldToStr(fulfillmentData.ndcHash),
+          quantityDispensed: fieldToStr(fulfillmentData.quantityDispensed),
+          ingredientCostCents: fieldToStr(fulfillmentData.ingredientCostCents),
+          dispensingFeeCents: fieldToStr(fulfillmentData.dispensingFeeCents),
+          dateOfService: fieldToStr(fulfillmentData.dateOfService),
+          commitment: fieldToStr(fulfillmentData.commitment()),
+        },
+        filledStatusData: {
+          prescriptionHash: fieldToStr(filledStatus.prescriptionHash),
+          status: fieldToStr(filledStatus.status),
+          updatedByWalletId: fieldToStr(filledStatus.updatedByWalletId),
+          updatedAt: fieldToStr(filledStatus.updatedAt),
+          pharmacyWalletId: fieldToStr(filledStatus.pharmacyWalletId),
+          fillQuantity: fieldToStr(filledStatus.fillQuantity),
+          notesHash: fieldToStr(filledStatus.notesHash),
+          commitment: fieldToStr(filledStatus.commitment()),
+        },
+        settlementCommitment: fieldToStr(settlementCommit),
+        updatedPrescriptionCredential: serializeCredentialData(updatedRxCredentialData),
+        updatedPrescriptionForest: serializeForestRoots(rxForest),
+        oldEligibilityCredential: oldEligCredentialSerialized,
+        oldEligibilityForest: oldEligForestSerialized,
+        updatedEligibilityCredential: serializeCredentialData(updatedEligCredentialData),
+        updatedEligibilityForest: serializeForestRoots(eligForest),
+        l2Receipt: {
+          receiptId: fillOutcome.receipt?.receiptId ?? null,
+          sequenceNumber: fillOutcome.receipt ? Number(fillOutcome.receipt.sequenceNumber) : null,
+          type: 'wallet-update',
+        },
+        chainState: this.getChainState(),
+      };
+    } catch (fillErr: unknown) {
+      // Once the ledger has recorded the fill nothing is put back: the error comes from a step after it.
+      if (fillStage === 'recorded') throw fillErr;
+      rxForest.setLeaf(ForestDomain.TRANSACTION, newStatusLeaf, savedStatusSlot);
+      rxForest.setLeaf(ForestDomain.TRANSACTION, newStatusLeaf + 1n, savedSettlementSlot);
+      enrolled.accumulatorData = savedAccumulator;
+      enrolled.forest.setLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX, savedAccumulatorLeaf);
+      enrolled.credentialData = savedCredential;
+      if (savedInventorySlot) enrolled.credentialInventory.updateCredential(0n, savedInventorySlot);
+      const why = fillErr instanceof Error ? fillErr.message : String(fillErr);
+      this.emit('error', 'fill', fillStage === 'ledger' ? `The ledger did not take the fill; nothing was filled: ${why}` : `The fill did not complete; nothing was filled: ${why}`);
+      throw fillErr;
     }
-
-    this.emit('info', 'fill', '');
-    this.emit('phase', 'fill', '═══ THE RESULT ═══');
-    this.emit('info', 'fill', `  ADJUDICATION (ZK-enforced in-circuit):`);
-    this.emit('info', 'fill', `    Phase:       ${phase}`);
-    this.emit('info', 'fill', `    Patient pay: $${(patientPayCents / 100).toFixed(2)}`);
-    this.emit('info', 'fill', `    Plan pay:    $${(planPayCents / 100).toFixed(2)}`);
-    if (familyPoolingApplied) {
-      this.emit('info', 'fill', `    FAMILY POOLING: ${familyPoolingReason}`);
-    }
-    this.emit('info', 'fill', '');
-    this.emit('info', 'fill', `  ACCUMULATOR (BEFORE → AFTER):`);
-    this.emit('info', 'fill', `    Deductible:  $${(oldDeductiblePaid / 100).toFixed(2)} → $${(newDeductiblePaid / 100).toFixed(2)} / $${(deductibleAmt / 100).toFixed(2)}  ${deductibleAmt > 0 ? (newDeductiblePaid / deductibleAmt * 100).toFixed(1) + '%' : 'no deductible'}`);
-    this.emit('info', 'fill', `    OOPM:        $${(oldOopPaid / 100).toFixed(2)} → $${(newOopPaid / 100).toFixed(2)} / $${(oopMax / 100).toFixed(2)}  ${oopMax > 0 ? (newOopPaid / oopMax * 100).toFixed(1) + '%' : 'no maximum'}`);
-    this.emit('info', 'fill', '');
-    this.emit('info', 'fill', `  ELIGIBILITY CREDENTIAL:`);
-    this.emit('info', 'fill', `    Forest root BEFORE: ${truncField(oldEligForestRoot)}`);
-    this.emit('info', 'fill', `    Forest root AFTER:  ${truncField(newEligForestRoot)}`);
-    this.emit('info', 'fill', `    CHANGED: ${!oldEligForestRoot.equals(newEligForestRoot).toBoolean() ? 'YES — accumulator updated in credential' : 'NO (unexpected)'}`)
-    this.emit('info', 'fill', '');
-    this.emit('info', 'fill', `  MERKLE TREE STATE:`);
-    this.emit('info', 'fill', `    Rx TRANSACTION tree:       leaf ${newStatusLeaf} = status, leaf ${newStatusLeaf + 1n} = settlement`);
-    this.emit('info', 'fill', `    Elig ACCESS_CONTROL tree:  leaf 127 = new accumulator commitment`);
-    this.emit('info', 'fill', `    ForestRoot = Poseidon.hash(6 domain tree roots)`);
-
-    // Update enrolled member's accumulator data: the one checked against the proof above (A-35)
-    enrolled.accumulatorData = newAccumulator;
-
-    // Update local forests to match circuit output
-    const patientPayField = Field(BigInt(proofOutput.patientPayCents));
-    const planPayField = Field(BigInt(proofOutput.planPayCents));
-    const deductibleCreditField = Field(BigInt(proofOutput.deductibleCreditCents));
-    const settlementCommit = Poseidon.hash([
-      fulfillmentData.commitment(),
-      patientPayField,
-      planPayField,
-      deductibleCreditField,
-    ]);
-    rxForest.setLeaf(ForestDomain.TRANSACTION, newStatusLeaf + 1n, settlementCommit);
-    const updatedRxCredentialData = new CredentialData({
-      credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
-      forestRoot: rxForest.getForestRoot(),
-      issuerWalletId: rxCredentialData.issuerWalletId,
-      subjectWalletId: rxCredentialData.subjectWalletId,
-      issuedAt: rxCredentialData.issuedAt,
-      expiresAt: rxCredentialData.expiresAt,
-      revoked: rxCredentialData.revoked,
-    });
-
-    eligForest.setLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX, enrolled.accumulatorData.commitment());
-    const updatedEligCredentialData = new CredentialData({
-      credentialType: enrolled.credentialData.credentialType,
-      forestRoot: eligForest.getForestRoot(),
-      issuerWalletId: enrolled.credentialData.issuerWalletId,
-      subjectWalletId: enrolled.credentialData.subjectWalletId,
-      issuedAt: enrolled.credentialData.issuedAt,
-      expiresAt: enrolled.credentialData.expiresAt,
-      revoked: enrolled.credentialData.revoked,
-    });
-    enrolled.credentialData = updatedEligCredentialData;
-
-    // Build claim metadata for the sequencer's ClaimAccumulatorService
-    const claimMeta: import('../l2/l2-types.js').ClaimSubmissionMetadata = {
-      ndcHash: proofOutput.ndcHash || hashString(medication.ndc).toString(),
-      memberWalletId: enrolled.walletId.toBigInt().toString(),
-      pharmacyWalletId: pharmacyWalletId.toBigInt().toString(),
-      prescriberWalletId: this.prescriberWalletIds.get(rxState.prescriberIndex)!.toBigInt().toString(),
-      dateOfService: serviceDateStr,
-      patientPayCents: String(patientPayCents),
-      planPayCents: String(planPayCents),
-      operationType: '1', // fulfillment
-      ndc: medication.ndc,
-      brandName: medication.brandName,
-      tierLevel: medication.formularyEntry.tierLevel,
-      daysSupply: 30,
-      deductibleCreditCents: proofOutput.deductibleCreditCents || '0',
-      fillNumber,
-      ingredientCostCents,
-      dispensingFeeCents,
-      quantityDispensed: qtyDispensed,
-      // NADAC pricing: how the cost was made, so the claim shows NADAC per unit x quantity + fee
-      pricingBasis: 'NADAC',
-      nadacUnitPriceE5: fillPrice.nadacUnitPriceE5,
-      pricingUnit: fillPrice.pricingUnit,
-      nadacEffectiveDate: fillPrice.nadacEffectiveDate,
-      dispensingFeeSource: fillPrice.dispensingFeeSource,
-      planIdHash: hashString(enrolled.planId).toString(),
-    };
-
-    // Submit wallet update to L2 (accumulator/forest change → new inventory root)
-    const fillOutcome = await this.updateCredentialAndSubmitToL2(enrolled, 'fill', claimMeta);
-
-    // Determine new status: partial dispense or full dispense (in exact thousandths of the unit)
-    const previousStatus = rxState.status;
-    const newStatus: RxStatus = isPartial ? 'PARTIALLY_FILLED' : 'DISPENSED';
-
-    rxState.quantityDispensed = quantityFromMilli(totalAfterFillMilli);
-    rxState.status = newStatus;
-    rxState.activeStatus = filledStatus;                       // update current ZK status
-    rxState.currentStatusLeafIndex = newStatusLeaf;            // track current status leaf
-    rxState.nextTxLeafIndex = newStatusLeaf + 2n;              // advance past status + fulfillment leaves
-    rxState.rxCredentialData = updatedRxCredentialData;          // update Rx credential with new forest root
-    rxState.statusHistory.push({
-      from: previousStatus,
-      to: newStatus,
-      updatedBy: pharmacy.storeName,
-      updatedByRole: 'pharmacy',
-      timestamp: Date.now(),
-      fillQuantity: qtyDispensed,
-    });
-
-    const existingFills = this.fulfillments.get(opts.prescriptionId) || [];
-    const fulfillment: FulfillmentState = {
-      prescriptionId: opts.prescriptionId,
-      fillIndex: existingFills.length,
-      patientPayCents,
-      planPayCents,
-      totalCostCents,
-      accumulatorBefore: { deductiblePaid: oldDeductiblePaid, oopPaid: oldOopPaid, benefitUsed: oldBenefitUsed },
-      accumulatorAfter: { deductiblePaid: newDeductiblePaid, oopPaid: newOopPaid, benefitUsed: newBenefitUsed },
-      newEligForestRoot: truncField(newEligForestRoot),
-      oldEligForestRoot: truncField(oldEligForestRoot),
-      settlementCommitment: settlementCommit,
-      fulfillmentData,
-      patientPayField,
-      planPayField,
-      deductibleCreditField,
-      settlementLeafIndex: newStatusLeaf + 1n,
-      quantityDispensed: qtyDispensed,
-      reversed: false,
-      dateOfService: serviceDateStr,
-      pricing: fillPrice,
-    };
-    existingFills.push(fulfillment);
-    this.fulfillments.set(opts.prescriptionId, existingFills);
-
-    this.emitViz('viz:fulfillment:settled', 'fulfillment', {
-      actor: pharmacy.storeName,
-      actorType: 'pharmacy',
-      target: enrolled.displayName,
-      targetType: 'member',
-      data: {
-        medication: medication.brandName,
-        patientPayCents,
-        planPayCents,
-        totalCostCents,
-        phase,
-      },
-    });
-
-    this.emitViz('viz:accumulator:updated', 'fulfillment', {
-      actor: 'Insurer',
-      actorType: 'insurer',
-      target: enrolled.displayName,
-      targetType: 'member',
-      data: {
-        deductibleBefore: oldDeductiblePaid,
-        deductibleAfter: newDeductiblePaid,
-        oopBefore: oldOopPaid,
-        oopAfter: newOopPaid,
-      },
-    });
-
-    this.emitMemory('fill');
-
-    return {
-      prescriptionId: opts.prescriptionId,
-      // B1 step two: the member's device proves the wallet update the fill produced; the claim lands with it
-      walletUpdate: fillOutcome.pending
-        ? { status: 'pending', updateId: fillOutcome.pending.updateId, newInventoryRoot: fillOutcome.pending.newInventoryRoot }
-        : { status: 'applied', receiptId: fillOutcome.receipt?.receiptId },
-      serviceDateStr,
-      rxStatus: rxState.status,
-      quantityDispensed: rxState.quantityDispensed,
-      quantityPrescribed: rxState.quantity,
-      medication: {
-        brandName: medication.brandName,
-        genericName: medication.genericName,
-        strength: medication.strength,
-        ndc: medication.ndcFormatted,
-        tier: medication.formularyEntry.tierLevel,
-      },
-      adjudication: {
-        phase,
-        patientPayCents,
-        planPayCents,
-        totalCostCents,
-        ingredientCostCents,
-        dispensingFeeCents,
-        pricing: fillPrice,   // NADAC per unit x quantity + fee, and whether the fee is the plan's or the network default
-        familyPoolingApplied,
-        familyPoolingReason: familyPoolingApplied ? familyPoolingReason : undefined,
-      },
-      accumulator: {
-        before: {
-          deductiblePaidCents: oldDeductiblePaid,
-          oopPaidCents: oldOopPaid,
-          benefitUsedCents: oldBenefitUsed,
-        },
-        after: {
-          deductiblePaidCents: newDeductiblePaid,
-          oopPaidCents: newOopPaid,
-          benefitUsedCents: newBenefitUsed,
-        },
-        // the limits this fill was proven against: the member's own (as bound from its plan) and its plan's family limits
-        limits: {
-          deductibleAmountCents: deductibleAmt,
-          oopMaxCents: oopMax,
-          annualBenefitMaxCents: benefitMax,
-          familyDeductibleAmountCents: family.familyDeductibleAmountCents,
-          familyOopMaxCents: family.familyOopMaxCents,
-          familyAnnualBenefitMaxCents: family.familyAnnualBenefitMaxCents,
-        },
-      },
-      eligibilityCredential: {
-        oldForestRoot: truncField(oldEligForestRoot),
-        newForestRoot: truncField(newEligForestRoot),
-        changed: !oldEligForestRoot.equals(newEligForestRoot).toBoolean(),
-      },
-      proofTimesMs: {
-        proofGate: elapsedPG,
-        prescriptionStatus: elapsedRx,
-        accumulatorFulfillment: elapsedFulf,
-        total: elapsedPG + elapsedRx + elapsedFulf,
-      },
-      // ─── ZK Data (full transparency) ────────────────
-      fulfillmentDetail: {
-        prescriptionHash: fieldToStr(fulfillmentData.prescriptionHash),
-        pharmacyWalletId: fieldToStr(fulfillmentData.pharmacyWalletId),
-        ndcHash: fieldToStr(fulfillmentData.ndcHash),
-        quantityDispensed: fieldToStr(fulfillmentData.quantityDispensed),
-        ingredientCostCents: fieldToStr(fulfillmentData.ingredientCostCents),
-        dispensingFeeCents: fieldToStr(fulfillmentData.dispensingFeeCents),
-        dateOfService: fieldToStr(fulfillmentData.dateOfService),
-        commitment: fieldToStr(fulfillmentData.commitment()),
-      },
-      filledStatusData: {
-        prescriptionHash: fieldToStr(filledStatus.prescriptionHash),
-        status: fieldToStr(filledStatus.status),
-        updatedByWalletId: fieldToStr(filledStatus.updatedByWalletId),
-        updatedAt: fieldToStr(filledStatus.updatedAt),
-        pharmacyWalletId: fieldToStr(filledStatus.pharmacyWalletId),
-        fillQuantity: fieldToStr(filledStatus.fillQuantity),
-        notesHash: fieldToStr(filledStatus.notesHash),
-        commitment: fieldToStr(filledStatus.commitment()),
-      },
-      settlementCommitment: fieldToStr(settlementCommit),
-      updatedPrescriptionCredential: serializeCredentialData(updatedRxCredentialData),
-      updatedPrescriptionForest: serializeForestRoots(rxForest),
-      oldEligibilityCredential: oldEligCredentialSerialized,
-      oldEligibilityForest: oldEligForestSerialized,
-      updatedEligibilityCredential: serializeCredentialData(updatedEligCredentialData),
-      updatedEligibilityForest: serializeForestRoots(eligForest),
-      l2Receipt: {
-        receiptId: fillOutcome.receipt?.receiptId ?? null,
-        sequenceNumber: fillOutcome.receipt ? Number(fillOutcome.receipt.sequenceNumber) : null,
-        type: 'wallet-update',
-      },
-      chainState: this.getChainState(),
-    };
   }
 
   // ─── Update Rx Status ──────────────────────────────────────

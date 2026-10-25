@@ -138,3 +138,16 @@ tests/duplicate-claims-read-gate.test.ts
 tests/rpc-prototype-method-names.test.ts
 tests/enrollment-complete-binding.test.ts
 tests/provider-loopback-only.test.ts
+tests/verify-pool-restarts.test.ts
+tests/checkpoint-wallet-states.test.ts
+tests/claim-entry-gossip.test.ts
+tests/engine-wallet-locks.test.ts
+tests/engine-prior-auth-cap.test.ts
+tests/engine-prior-auth-rollback.test.ts
+tests/engine-fill-rollback.test.ts
+tests/engine-console-formulary-add.test.ts
+tests/engine-step-therapy-read.test.ts
+tests/engine-register-member-race.test.ts
+tests/proving-lock-overrun.test.ts
+tests/pools-always-settle.test.ts
+tests/locked-route-budget.test.ts

@@ -83,6 +83,15 @@ export const PROVERS_RETRY_AFTER_SECONDS = 10;
  */
 export const ENGINE_BODY_LIMIT_BYTES = DEFAULT_RPC_SERVER_OPTIONS.maxBodyBytes;
 
+/**
+ * What the 504 of a route that answers from a locked engine call adds to 'Request timeout' when its budget ran out while
+ * it still waited for the proving lock: it was dropped there and changed nothing (underProvingLock).
+ */
+export const TIMED_OUT_WAITING_DETAIL = 'The request waited for the proving lock past its budget and was dropped: nothing was changed, and it may be sent again.';
+
+/** What that 504 adds when the budget ran out after the request's work had started under the lock. */
+export const TIMED_OUT_RUNNING_DETAIL = 'The request had started its work when its budget ran out, and the work goes on to finish: check the outcome before sending it again.';
+
 export function registerInteractiveRoutes(
   server: L2RpcServer,
   service: AdjudicationService,
@@ -302,6 +311,36 @@ export function registerInteractiveRoutes(
     server.registerRoute(method, path, route, adminOnly ? { adminOnly: true, timeoutMs } : walletSigned ? { walletSigned, timeoutMs } : timeoutMs ? { timeoutMs } : undefined);
   }
 
+  /** The requests whose work has started under the proving lock (underProvingLock): answered or not, each finishes. */
+  const startedUnderLock = new WeakSet<ServerResponse>();
+
+  /**
+   * Run the engine call a route answers from under the proving lock, unless the request was answered while it waited.
+   *
+   * The lock is held until its holder settles, so a request can wait for it past its route's budget; the sequencer then
+   * answers it 504, and nothing cancels the handler. Until the review of option A step 1, round two (2026-10-24), the
+   * change was made whenever the lock came free, after its caller had been told it timed out and had perhaps sent it
+   * again, so it was made twice. Now a request answered while it waits, by that 504 or because its caller went away, lets
+   * the lock go as soon as it has it and changes nothing, and the engine logs one line naming the route. A request whose
+   * work has started finishes, as before, its later locked calls included (an auto-tap round's next taps). The 504 says
+   * which of the two it was. The background jobs (enroll, fill, prescribe-and-fill, generate-credential) answer at once
+   * and take the lock afterwards, so they must not come here: their own answer would read as one the budget gave.
+   */
+  function underProvingLock<T>(req: IncomingMessage, res: ServerResponse, fn: () => Promise<T>): Promise<T> {
+    if (!startedUnderLock.has(res)) server.setTimeoutDetail(res, TIMED_OUT_WAITING_DETAIL);
+    return service.getL2Node().withProvingLock(async () => {
+      if (!startedUnderLock.has(res) && (res.writableEnded || res.destroyed)) {
+        const route = `${req.method} ${new URL(req.url ?? '/', 'http://localhost').pathname}`;
+        const why = res.writableEnded ? 'it was answered 504 while it waited for the proving lock' : 'its caller went away while it waited for the proving lock';
+        console.warn(`  [interactive] ${route} dropped without running: ${why}`);
+        throw new Error(`${route} dropped without running: ${why}`);
+      }
+      startedUnderLock.add(res);
+      server.setTimeoutDetail(res, TIMED_OUT_RUNNING_DETAIL);
+      return fn();
+    });
+  }
+
   // Console SSE clients
   const consoleSseClients: Set<ServerResponse> = new Set();
 
@@ -372,7 +411,9 @@ export function registerInteractiveRoutes(
   // We fire-and-forget, then the client polls for status every 15s.
   const enrollmentJobs = new Map<number, { status: 'pending' | 'complete' | 'error'; result?: unknown; error?: string }>();
 
-  // Badge tap concurrency guard — prevent concurrent ZK proofs from racing on o1js global context
+  // One badge request at a time: another, sent while a tap or an auto-tap round runs or waits for the proving lock, is
+  // answered 429 at once rather than queued behind it. Keeping a badge's proof from running beside any other proof is the
+  // proving lock's work, which each tap takes.
   let badgeTapInProgress = false;
 
   // POST /interactive/register-member — register an externally-enrolled member's proving context
@@ -468,20 +509,23 @@ export function registerInteractiveRoutes(
 
   // B1 step two, commit three: a member with a device names its primary-care prescriber. The engine
   // records it on the member's credential and queues the wallet update for the device to prove.
-  // Wallet-signed: only the member's own key opens it.
+  // Wallet-signed: only the member's own key opens it. It runs under the proving lock (option A, step 1): a
+  // fill reads the member's forest and credential before its 25-45 s proof and writes them after it, so a
+  // choice recorded in between put a leaf the proof never saw into the update the fill queued. Nothing it
+  // calls takes the lock, which is not re-entrant: it only queues the device's update, with no proof and no batch.
   reg('POST', '/interactive/pcp-assignment', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const params = JSON.parse(await readBody(req) || '{}');
       for (const field of ['walletId', 'pcpWalletId', 'effectiveDate']) {
         if (typeof params[field] !== 'string' || params[field].length === 0) { sendError(res, 400, `Missing ${field}`); return; }
       }
-      const result = await service.assignPcpForDevice({
+      const result = await underProvingLock(req, res, () => service.assignPcpForDevice({
         walletId: String(params.walletId),
         pcpWalletId: String(params.pcpWalletId),
         effectiveDate: String(params.effectiveDate),
         specialty: typeof params.specialty === 'string' && params.specialty.length > 0 ? params.specialty : 'General Practice',
         consentScopeFlags: typeof params.consentScopeFlags === 'number' ? params.consentScopeFlags : 7,
-      });
+      }));
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(result));
     } catch (err) {
@@ -761,7 +805,7 @@ export function registerInteractiveRoutes(
         return;
       }
 
-      const result = await service.getL2Node().withProvingLock(() => service.approvePriorAuth(params.priorAuthId));
+      const result = await underProvingLock(req, res, () => service.approvePriorAuth(params.priorAuthId));
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
@@ -864,7 +908,7 @@ export function registerInteractiveRoutes(
         return;
       }
 
-      const result = await service.getL2Node().withProvingLock(() => service.createPrescription({
+      const result = await underProvingLock(req, res, () => service.createPrescription({
         prescriberIndex: params.prescriberIndex,
         memberWalletId: params.memberWalletId,
         ndcHash: params.ndcHash,
@@ -1145,6 +1189,13 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/update-rx-status
+  //
+  // Under the proving lock (option A, step 1): a fill and a reversal read the prescription's status before their proofs
+  // and write their own after them without reading it again, so a status recorded in between (a prescriber's
+  // cancellation) was overwritten when the proof ended, and lost without a word. Now it waits and applies to the
+  // prescription as the fill or reversal left it, where the engine's state rules decide it: a dispensed prescription can
+  // no longer be cancelled, and the caller is told so. The status change is synchronous and takes no lock itself, which
+  // matters because the lock is not re-entrant.
   reg('POST', '/interactive/update-rx-status', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
@@ -1168,13 +1219,13 @@ export function registerInteractiveRoutes(
         return;
       }
 
-      const result = service.updateRxStatus({
+      const result = await underProvingLock(req, res, async () => service.updateRxStatus({
         prescriptionId: params.prescriptionId,
         newStatus: params.newStatus,
         role: params.role,
         actorIndex: params.actorIndex,
         note: params.note,
-      });
+      }));
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
@@ -1196,7 +1247,7 @@ export function registerInteractiveRoutes(
         return;
       }
 
-      const result = await service.getL2Node().withProvingLock(() => service.reversePrescription({
+      const result = await underProvingLock(req, res, () => service.reversePrescription({
         prescriptionId: params.prescriptionId,
         fillIndex: params.fillIndex,
         reason: params.reason,
@@ -1224,7 +1275,7 @@ export function registerInteractiveRoutes(
         return;
       }
 
-      const result = await service.getL2Node().withProvingLock(() => service.assignPcp({
+      const result = await underProvingLock(req, res, () => service.assignPcp({
         memberWalletId: params.memberWalletId,
         prescriberIndex: params.prescriberIndex,
       }));
@@ -1272,7 +1323,7 @@ export function registerInteractiveRoutes(
         return;
       }
 
-      const result = await service.getL2Node().withProvingLock(() => service.enrollFamily(subscriberIndex));
+      const result = await underProvingLock(req, res, () => service.enrollFamily(subscriberIndex));
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
@@ -1306,6 +1357,10 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/terminate-member
+  //
+  // Under the proving lock (option A, step 1), as terminate-group is: a termination during a fill's proof flipped revoked
+  // into the credential the fill then queued, and the fill overwrote the termination's cancellation of its prescription.
+  // The termination is synchronous and takes no lock itself, which matters because the lock is not re-entrant.
   reg('POST', '/interactive/terminate-member', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
@@ -1316,10 +1371,10 @@ export function registerInteractiveRoutes(
         return;
       }
 
-      const result = service.terminateMember({
+      const result = await underProvingLock(req, res, async () => service.terminateMember({
         memberWalletId: params.memberWalletId,
         terminationDate: params.terminationDate,
-      });
+      }));
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
@@ -1330,7 +1385,7 @@ export function registerInteractiveRoutes(
     }
   });
 
-  // POST /interactive/terminate-group
+  // POST /interactive/terminate-group — each member's termination, under the proving lock as terminate-member's is
   reg('POST', '/interactive/terminate-group', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const body = await readBody(req);
@@ -1341,10 +1396,10 @@ export function registerInteractiveRoutes(
         return;
       }
 
-      const result = service.terminateGroup({
+      const result = await underProvingLock(req, res, async () => service.terminateGroup({
         groupId: params.groupId,
         terminationDate: params.terminationDate,
-      });
+      }));
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
@@ -1366,7 +1421,7 @@ export function registerInteractiveRoutes(
         return;
       }
 
-      const result = await service.getL2Node().withProvingLock(() => service.sendMessage(params));
+      const result = await underProvingLock(req, res, () => service.sendMessage(params));
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
@@ -1433,7 +1488,7 @@ export function registerInteractiveRoutes(
         return;
       }
 
-      const result = await service.getL2Node().withProvingLock(() => service.createDelegation(params));
+      const result = await underProvingLock(req, res, () => service.createDelegation(params));
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
@@ -1542,7 +1597,7 @@ export function registerInteractiveRoutes(
         sendError(res, 400, 'Missing required field: credentialJson');
         return;
       }
-      const result = await service.getL2Node().withProvingLock(() => service.verifyCredential(params.credentialJson));
+      const result = await underProvingLock(req, res, () => service.verifyCredential(params.credentialJson));
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
@@ -1565,7 +1620,7 @@ export function registerInteractiveRoutes(
         return;
       }
 
-      const result = await service.getL2Node().withProvingLock(() => service.updateFormularyEntry(params));
+      const result = await underProvingLock(req, res, () => service.updateFormularyEntry(params));
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
@@ -1588,7 +1643,7 @@ export function registerInteractiveRoutes(
         return;
       }
 
-      const result = await service.getL2Node().withProvingLock(() => service.updateProviderNetwork(params));
+      const result = await underProvingLock(req, res, () => service.updateProviderNetwork(params));
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
@@ -1610,7 +1665,7 @@ export function registerInteractiveRoutes(
         return;
       }
 
-      const result = await service.getL2Node().withProvingLock(() => service.planYearRollover(params));
+      const result = await underProvingLock(req, res, () => service.planYearRollover(params));
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
@@ -1775,10 +1830,16 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/reset
-  reg('POST', '/interactive/reset', async (_req: IncomingMessage, res: ServerResponse) => {
-    service.reset();
-    enrollmentJobs.clear();
-    credentialJobs.clear();
+  //
+  // Under the proving lock (option A, step 1): a reset during a proof cleared the records the proving request then wrote
+  // to, so a fill caught by it committed its claim and queued its wallet update for a member the engine no longer held.
+  // The reset is synchronous and takes no lock itself, which matters because the lock is not re-entrant.
+  reg('POST', '/interactive/reset', async (req: IncomingMessage, res: ServerResponse) => {
+    await underProvingLock(req, res, async () => {
+      service.reset();
+      enrollmentJobs.clear();
+      credentialJobs.clear();
+    });
     res.writeHead(200, {
       'Content-Type': 'application/json',
     });
@@ -2259,9 +2320,12 @@ export function registerInteractiveRoutes(
           const member = members.find((m: any) => m.enrolled?.walletId === evt.walletId);
           const credentialJson = member?.enrolled?.lastCredentialJson ?? member?.enrolled?.credentialJson;
           if (credentialJson) {
-            verificationResult = await service.verifyCredential(
+            // Under the proving lock, as the verify-credential route's verification is: an engine that proves inline
+            // would otherwise verify in the o1js context a fill is proving in. The verification takes no lock itself,
+            // and the lock is not re-entrant.
+            verificationResult = await service.getL2Node().withProvingLock(() => service.verifyCredential(
               typeof credentialJson === 'string' ? credentialJson : JSON.stringify(credentialJson),
-            );
+            ));
           } else {
             verificationResult = { valid: false, reason: 'No credential found for this walletId' };
           }
@@ -2423,7 +2487,10 @@ export function registerInteractiveRoutes(
       badgeTapInProgress = true;
       let events;
       try {
-        events = await service.simulateBadgeTap(providerType, providerIndex);
+        // Under the proving lock, as every other proof is: an engine that proves inline would otherwise make the badge's
+        // ProofGate proof beside a fill's in o1js's one proving context. The tap takes no lock itself, and the lock is
+        // not re-entrant.
+        events = await underProvingLock(req, res, () => service.simulateBadgeTap(providerType, providerIndex));
       } finally {
         badgeTapInProgress = false;
       }
@@ -2456,7 +2523,18 @@ export function registerInteractiveRoutes(
       badgeTapInProgress = true;
       let events;
       try {
-        events = await service.autoTapSimulation({ includePharmacies, maxProviders });
+        // Each tap under the proving lock, let go before the next, so a fill waits for one badge proof at most, never the
+        // whole round. The engine's round taps each provider through this.simulateBadgeTap; run on this view of the
+        // engine, each of those calls takes the lock, and the round's counts and console lines stay the engine's own.
+        // Neither the round nor a tap takes the lock itself, and the lock is not re-entrant. A round answered before its
+        // first tap had the lock runs no tap; one whose first tap had begun runs them all (underProvingLock).
+        const tapsUnderLock: AdjudicationService = Object.create(service, {
+          simulateBadgeTap: {
+            value: (type: 'prescriber' | 'pharmacy', index: number) =>
+              underProvingLock(req, res, () => service.simulateBadgeTap(type, index)),
+          },
+        });
+        events = await tapsUnderLock.autoTapSimulation({ includePharmacies, maxProviders });
       } finally {
         badgeTapInProgress = false;
       }
@@ -2535,6 +2613,8 @@ function readBody(req: IncomingMessage): Promise<string> {
 }
 
 function sendError(res: ServerResponse, status: number, message: string): void {
+  // A request answered already (the sequencer's 504 once its budget ran out), or whose caller went away, gets nothing more
+  if (res.writableEnded || res.destroyed) return;
   res.writeHead(status, {
     'Content-Type': 'application/json',
   });

@@ -25,7 +25,7 @@
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { Field, MerkleTree } from 'o1js';
+import { Field, MerkleTree, Poseidon } from 'o1js';
 import { L2SequencerService } from '../src/l2/l2-sequencer-service.js';
 import { L2Node } from '../src/l2/l2-node.js';
 import {
@@ -39,7 +39,13 @@ import type {
 } from '../src/l2/l2-checkpoint.js';
 import { l2Stringify, l2Parse } from '../src/l2/l2-json.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
-import { WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
+import {
+  WALLET_TREE_HEIGHT, CREDENTIAL_INVENTORY_HEIGHT, WalletState, WalletRegistryWitness,
+} from '../src/wallets/wallet-state.js';
+import {
+  LifecycleWitness, lifecycleLeafCommitment, LIFECYCLE_REGISTERED, LIFECYCLE_ELIGIBLE,
+} from '../src/engine/lifecycle.js';
+import { TransitionOutput } from '../src/engine/state-transition.js';
 import { AuditService } from '../src/audit/audit-service.js';
 import type { L2Receipt, L2Block, L2Batch, AdminStateDelta } from '../src/l2/l2-types.js';
 import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
@@ -1287,5 +1293,113 @@ describe('Checkpoint Edge Cases', () => {
     // Manual save should still work
     const filename = await node.saveCheckpoint('manual');
     expect(filename).not.toBeNull();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════
+// Wallet States (option A, step 1)
+// ═══════════════════════════════════════════════════════════
+
+/*
+ * What was wrong: a checkpoint carried registrations and lifecycle states but no wallet states, so a node built from
+ * the file gave every wallet an empty credential root and nonce 0, and dropped the wallets the insurer provisioned.
+ * How it was found: the option A specification, docs/research/a22-option-a-spec.md (2026-10-24), sections 6 and 7.2.
+ * What is true now: walletStates, bigint indices included, survive l2Stringify and l2Parse through the checkpoint file,
+ * and the node built from it gives each wallet back at its index with its own credential root and nonce. Which states
+ * a checkpoint saves is covered by tests/checkpoint-wallet-states.test.ts.
+ */
+describe('Wallet States (option A, step 1)', () => {
+  /** A stand-in for a StateTransitionProof whose roots a device computes from the sequencer's witnesses. */
+  function deviceProof(walletId: Field, before: { reg: Field; lc: Field }, after: { reg: Field; lc: Field }) {
+    const publicOutput = new TransitionOutput({
+      walletId,
+      oldRegistryRoot: before.reg, newRegistryRoot: after.reg,
+      oldLifecycleRoot: before.lc, newLifecycleRoot: after.lc,
+    });
+    return {
+      publicOutput,
+      verify() { /* no-op, as in o1js outside a circuit */ },
+      toJSON() { return { publicOutput: TransitionOutput.toJSON(publicOutput) }; },
+    } as any;
+  }
+
+  const roots = (seq: L2SequencerService) => ({ reg: seq.getCurrentRegistryRoot(), lc: seq.getCurrentLifecycleRoot() });
+
+  async function register(seq: L2SequencerService, walletId: Field) {
+    const w = seq.getRegistrationWitnesses();
+    const after = {
+      reg: WalletRegistryWitness.fromJSON(JSON.parse(w.registryWitnessJson)).calculateRoot(WalletState.init(walletId).commitment()),
+      lc: LifecycleWitness.fromJSON(JSON.parse(w.lifecycleWitnessJson)).calculateRoot(lifecycleLeafCommitment(walletId, LIFECYCLE_REGISTERED)),
+    };
+    await seq.submitProof(deviceProof(walletId, roots(seq), after));
+  }
+
+  async function update(seq: L2SequencerService, walletId: Field, credentialInventoryRoot: Field) {
+    const current = seq.getWalletStateForRpc(walletId.toString());
+    const next = new WalletState({ walletId, credentialInventoryRoot, nonce: Field(BigInt(current.nonce)).add(1) });
+    const witness = WalletRegistryWitness.fromJSON(JSON.parse(seq.getWalletWitnesses(walletId.toString()).registryWitnessJson));
+    const before = roots(seq);
+    await seq.submitProof(
+      deviceProof(walletId, before, { reg: witness.calculateRoot(next.commitment()), lc: before.lc }),
+      { newCredentialInventoryRoot: credentialInventoryRoot.toString() } as any,
+    );
+  }
+
+  /** The proving pool's prepare and finalize, with a stand-in for the worker's result. */
+  async function batchEverything(seq: L2SequencerService) {
+    while (seq.getPendingCount() > 0) {
+      const { job } = seq.prepareBatch();
+      const outputs = job!.transitionProofJsons.map((j) => (j as { publicOutput: Record<string, string> }).publicOutput);
+      await seq.finalizeBatch({
+        batchProofJson: '{"proof":"stand-in"}',
+        batchOutput: {
+          oldRegistryRoot: outputs[0].oldRegistryRoot,
+          newRegistryRoot: outputs[outputs.length - 1].newRegistryRoot,
+          oldLifecycleRoot: outputs[0].oldLifecycleRoot,
+          newLifecycleRoot: outputs[outputs.length - 1].newLifecycleRoot,
+          registrationCount: '0',
+          transitionCount: String(outputs.length),
+        },
+        proveTimeMs: 1,
+        workerId: 0,
+      });
+    }
+  }
+
+  test('wallet states survive the checkpoint file: a node built from it gives each wallet back at its index with its own credential root and nonce', async () => {
+    const node = new L2Node(
+      { batchIntervalMs: 60_000, autoSettle: false, settlementDelayMs: 0, l2Only: true },
+      new InMemoryStore(),
+      INITIAL_REG_ROOT,
+      INITIAL_LC_ROOT,
+      Field(0),
+    );
+    const seq = node.getSequencer();
+    seq.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
+    const provider = Poseidon.hash([Field(7), Field(1)]);
+    const member = Poseidon.hash([Field(7), Field(100)]);
+    const credential = Poseidon.hash([Field(99), Field(1)]);
+    // A seed provider the insurer provisions (no receipt), then a member who registers and proves an update.
+    seq.adminMutate('provision seed providers', ({ provision }) => provision(provider, LIFECYCLE_ELIGIBLE));
+    await register(seq, member);
+    await update(seq, member, credential);
+    await batchEverything(seq);
+
+    const cpStore = new L2CheckpointStore(tmpDir);
+    node.setCheckpointStore(cpStore);
+    await node.saveCheckpoint('batch_settled');
+    const loaded = await cpStore.loadLatest();
+
+    const emptyInventory = new MerkleTree(CREDENTIAL_INVENTORY_HEIGHT).getRoot().toString();
+    expect(loaded!.sequencerState.walletStates).toEqual([
+      { walletId: provider.toString(), index: 0n, credentialInventoryRoot: emptyInventory, nonce: '0' },
+      { walletId: member.toString(), index: 1n, credentialInventoryRoot: credential.toString(), nonce: '1' },
+    ]); // before: undefined, the checkpoint carried no wallet states
+
+    const restored = L2Node.fromCheckpoint(loaded!, new InMemoryStore()).getSequencer();
+    expect(restored.getCurrentRegistryRoot().toString()).toBe(seq.getCurrentRegistryRoot().toString());
+    expect(restored.getWalletStateForRpc(member.toString())).toEqual(seq.getWalletStateForRpc(member.toString())); // before: the empty inventory root and nonce '0'
+    expect(restored.getStateTrees().registry.getIndex(provider)).toBe(0n); // before: 'Wallet not registered', the provider had no receipt
+    expect(restored.treesMatchRoots()).toBe(true); // before: false
   });
 });

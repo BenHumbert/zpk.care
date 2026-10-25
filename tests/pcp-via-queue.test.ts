@@ -22,6 +22,11 @@
  * their status, and hands the service exactly what the device sent. And the member node's proof
  * route no longer rebuilds a credential from an empty forest: it asks the engine and proves what
  * the engine queued.
+ *
+ * Since option A step 1 the route runs its engine call under the chain node's proving lock, and the review of that step
+ * (2026-10-24) found this file's stand-in service had no chain node to take it from: the route answered 500 where the
+ * device's choice should have been recorded. The stand-in now hands the route a lock that runs the call at once, since
+ * nothing here proves; tests/engine-wallet-locks.test.ts shows the route waiting for a fill that holds the real one.
  */
 import fs from 'fs';
 import { Field, MerkleTree } from 'o1js';
@@ -52,6 +57,8 @@ function standInService() {
       return { walletId: opts.walletId, pcpWalletId: opts.pcpWalletId, effectiveDate: opts.effectiveDate, commitment: '55', walletUpdate: { status: 'pending', updateId: 'wu-pcp', newInventoryRoot: '66' } };
     },
     getState() { return { compiled: true, enrolledMembers: [] }; },
+    // the chain node whose proving lock the route takes: nothing here proves, so the call runs at once
+    getL2Node() { return { withProvingLock: <T>(fn: () => Promise<T>): Promise<T> => fn() }; },
     __calls: calls,
   };
   return new Proxy(svc, { get(t, p) { if (p in t) return (t as any)[p]; if (typeof p === 'string' && p !== 'then') throw new Error(`stand-in service has no ${p}`); return undefined; } });

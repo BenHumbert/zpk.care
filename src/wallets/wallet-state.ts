@@ -161,6 +161,19 @@ export class WalletRegistry {
     return new WalletRegistryWitness(this.tree.getWitness(index));
   }
 
+  /**
+   * Every registered wallet with its index and current state, in index order. Registering
+   * these in this order and applying their states rebuilds the same tree, which is how a
+   * sequencer checkpoint restores its wallets (option A, step 1).
+   */
+  entries(): Array<{ walletId: Field; index: bigint; state: WalletState }> {
+    const list: Array<{ walletId: Field; index: bigint; state: WalletState }> = [];
+    for (const [key, index] of this.walletIndices) {
+      list.push({ walletId: Field(BigInt(key)), index, state: this.walletStates.get(key)! });
+    }
+    return list.sort((a, b) => (a.index < b.index ? -1 : a.index > b.index ? 1 : 0));
+  }
+
   /** Get total number of registered wallets */
   get count(): number {
     return this.walletIndices.size;

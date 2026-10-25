@@ -3197,3 +3197,29 @@ passing; typecheck src 18, scripts 2. Git: with this commit, 79 commits on local
 **Next:** option A, steps 1 to 8 (`docs/research/a22-option-a-spec.md`), with both harness runs at the end; then A-80
 with D8, B4 (which closes A-106 and A-107), A-59, A-60 and phase E; last, the package. Decisions waiting on the owner:
 A-109 (who sets the enrollment PIN; keep the per-code limit?) and A-110 (what the explorer is for).
+
+**Addendum, 2026-10-24 (night): option A step 1 done (A-111 to A-119 fixed; A-120 to A-125 recorded open).** The
+prerequisites of `docs/research/a22-option-a-spec.md` section 8, in three rounds, each with fix lanes, a check that every
+new test fails on the code before it, and reviews whose findings a skeptic tried to refute. The verify pool no longer
+stops after about 300 verifications: a recycle overlaps its replacement and spends no restart, a failed or silent
+replacement is replaced, and a closed channel cannot crash the sequencer (A-111). Checkpoints carry each wallet's state
+at the recovery point, so the trees are authoritative after a restart (A-25's wallet-state half, and SEQ-04). Gossip
+carries the receipt's own claim entry and audit event, and a replica takes an entry only when it is the receipt's own
+at its next leaf, for every node type (A-112). The 127th prior authorization is refused and a failed approval put back
+(A-113). The primary-care, termination, reset, status, badge and NFC paths take the proving lock, which is now held until
+the operation settles, and a request already answered by its budget is dropped when it gets the lock (A-114); every
+pooled proof settles, so the lock cannot be held for good (A-118). A failed fill puts back everything from the status
+slot on (A-115); the console formulary add path queues its update and the step-therapy read adds nothing (A-116, ENG-12);
+one registration per wallet (A-117); the NFC event stream is off the request budget (A-119). Open and planned: the
+pending-claim key (A-120, step 4a), the prior-year reversal and the hard-coded reversal date (A-121, A-122, step 2),
+replica catch-up and wallet states (A-123, phase E), the seed script's enrollment (A-124), and the fixture lease (A-125,
+step 4b).
+
+Scoreboard: 125 findings; 106 fixed; 19 open, none critical. Verified: regression batch 153 suites, 1832 tests, all
+passing; typecheck src 18, scripts 2. Git: with this commit, 80 commits on local `dev`, nothing pushed.
+
+**Owner direction, 2026-10-24 22:00 CDT:** a new short film for leadership is needed by 2026-10-25. Option A steps 2 to 8
+cannot be finished and verified by then, so tonight's order is: step 1 committed, then both live runs on a fresh boot of
+the hardened build (the first since the security phase), fixing what they find, then a rehearsal and a voiced take of the
+walkthrough on committed code. Option A steps 2 to 8 resume after the film; then A-80 with D8, B4, A-59, A-60, phase E;
+last, the package.

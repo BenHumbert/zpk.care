@@ -597,6 +597,18 @@ export class L2RpcServer {
     return this.routePrincipals.get(req) ?? null;
   }
 
+  /** What a custom route's 504 adds to 'Request timeout', as its handler set it (setTimeoutDetail). Weak, as routePrincipals is. */
+  private timeoutDetails: WeakMap<ServerResponse, string> = new WeakMap();
+
+  /**
+   * What this request's 504 tells its caller beside 'Request timeout' if its budget runs out from now on; the status stays
+   * 504. The engine's locked routes say whether the request was dropped while it waited for the proving lock, so that
+   * sending it again is safe, or had started, and so goes on to finish (option A, step 1).
+   */
+  setTimeoutDetail(res: ServerResponse, detail: string): void {
+    this.timeoutDetails.set(res, detail);
+  }
+
   /** Set the peer network for gossip relay and peer queries */
   setPeerNetwork(network: L2PeerNetwork): void {
     this.peerNetwork = network;
@@ -622,15 +634,22 @@ export class L2RpcServer {
     // M10 fix: Server-side request budget (30 s default, excludes SSE streams), re-armed to a
     // registered route's own budget once the route is known: the engine's proving routes run for
     // longer than a lookup, and a slow proof must not read as a dead request.
-    const isSSE = req.url?.startsWith('/events') || req.url?.startsWith('/viz/events') || req.url?.startsWith('/interactive/console');
+    //
+    // The engine's NFC reader stream is one of the streams. It was missing from this list until the review of option A
+    // step 1, round two (2026-10-24): the budget was armed on it, and once it ran out its writeHead threw
+    // ERR_HTTP_HEADERS_SENT on the open stream, out of the timer, where nothing caught it.
+    const isSSE = req.url?.startsWith('/events') || req.url?.startsWith('/viz/events') || req.url?.startsWith('/interactive/console')
+      || req.url?.startsWith('/interactive/nfc/events');
     let budgetTimer: ReturnType<typeof setTimeout> | null = null;
     const armBudget = (ms: number): void => {
       if (budgetTimer) clearTimeout(budgetTimer);
       budgetTimer = setTimeout(() => {
-        if (!res.writableEnded) {
-          res.writeHead(504, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Request timeout' }));
-        }
+        // A response whose headers are out is its handler's to finish, whatever the path: a stream, or an answer being
+        // written. The budget has nothing to add to it, and its writeHead would throw out of this timer.
+        if (res.writableEnded || res.headersSent) return;
+        const detail = this.timeoutDetails.get(res);
+        res.writeHead(504, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(detail ? { error: 'Request timeout', detail } : { error: 'Request timeout' }));
       }, ms);
     };
     if (!isSSE) {

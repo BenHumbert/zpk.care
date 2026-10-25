@@ -39,7 +39,7 @@ import { Field } from 'o1js';
 import type { ILocalStore } from '../storage/local-store.js';
 import type { StateTransitionProof, TransitionOutput } from '../engine/state-transition.js';
 import { L2SequencerService } from './l2-sequencer-service.js';
-import type { AdminStateConfig } from './l2-sequencer-service.js';
+import type { AdminStateConfig, ReplicatedClaimLeftOut } from './l2-sequencer-service.js';
 import type { L2Receipt, L2Batch, L2Block, ClaimSubmissionMetadata } from './l2-types.js';
 import type { AuditEvent, AuditLog } from '../audit/audit-types.js';
 import type { ClaimAccumulatorEntry } from './claim-accumulator-types.js';
@@ -60,7 +60,7 @@ import type { BenefitPlanConfig } from './l2-types.js';
 import { getPartition, PartitionRouter } from './l2-partition.js';
 import type { PartitionConfig } from './l2-partition.js';
 import type { L2ChainEvent, L2EventHandler, L2NodeOptions } from './l2-node.js';
-import { DEFAULT_L2_NODE_OPTIONS } from './l2-node.js';
+import { DEFAULT_L2_NODE_OPTIONS, runHoldingProvingLock } from './l2-node.js';
 import type { L2CheckpointTrigger, L2SequencerState } from './l2-checkpoint.js';
 import type { LeviathanCheckpoint } from './l2-checkpoint.js';
 import {
@@ -414,22 +414,29 @@ export class L2Leviathan {
         },
       });
 
-      // Build gossip payload for proof:accepted
-      const auditLog = seq.getAuditLog();
-      const latestAuditEvent = auditLog.events[auditLog.events.length - 1];
-      const claimEntry = metadata
-        ? seq.getClaimsByMember(receipt.walletId).slice(-1)[0]
+      // Build gossip payload for proof:accepted, with the receipt's own audit event and claim entry, as L2Node
+      // sends them (option A, step 1). Until then it sent the last event of the partition's log, another
+      // receipt's when a second submission landed while this one was stored, and the member's latest claim with
+      // every proof that came with metadata, which every device update does, so replicas appended it again.
+      const auditEvent = seq.getAuditEventForReceipt(receipt.receiptId);
+      const claimEntry = receipt.claimLeafIndex !== undefined
+        ? seq.getClaimAccumulator().getEntry(receipt.claimLeafIndex)
         : undefined;
 
-      const payload: ProofAcceptedPayload = {
+      const payload: ProofAcceptedPayload | null = auditEvent ? {
         receipt,
-        auditEvent: latestAuditEvent,
+        auditEvent,
         claimEntry,
         currentRegistryRoot: seq.getCurrentRegistryRoot().toString(),
         currentLifecycleRoot: seq.getCurrentLifecycleRoot().toString(),
         currentWalletCount: seq.getCurrentWalletCount().toString(),
         partitionIndex: partition,
-      };
+      } : null;
+      if (!payload && this.peerNetwork) {
+        // only a failed batch's rollback, landing while the proof was stored, takes the event away; a replica
+        // given no event could not apply the receipt
+        console.warn(`[Leviathan] ${this.nodeId}: ${receipt.receiptId} is not gossiped: a failed batch rolled its audit event back before it was sent`);
+      }
 
       // Quorum write: propose and wait for N/2+1 votes before returning
       if (this.quorumService && this.peerNetwork) {
@@ -497,17 +504,19 @@ export class L2Leviathan {
         }
 
         // Also broadcast proof:accepted for non-leviathan replicas (backward compat)
-        const gossipMsg: GossipMessage = {
-          messageId: generateMessageId(
-            'proof:accepted', this.nodeId, Date.now(), receipt.receiptId,
-          ),
-          type: 'proof:accepted',
-          senderId: this.nodeId,
-          timestamp: Date.now(),
-          payload,
-        };
-        this.peerNetwork.broadcast(gossipMsg).catch(() => {});
-      } else if (this.peerNetwork) {
+        if (payload) {
+          const gossipMsg: GossipMessage = {
+            messageId: generateMessageId(
+              'proof:accepted', this.nodeId, Date.now(), receipt.receiptId,
+            ),
+            type: 'proof:accepted',
+            senderId: this.nodeId,
+            timestamp: Date.now(),
+            payload,
+          };
+          this.peerNetwork.broadcast(gossipMsg).catch(() => {});
+        }
+      } else if (this.peerNetwork && payload) {
         // No quorum — fire-and-forget gossip (backward compatible)
         const gossipMsg: GossipMessage = {
           messageId: generateMessageId(
@@ -1147,22 +1156,14 @@ export class L2Leviathan {
     return previous.then(() => releaseFn);
   }
 
+  /**
+   * Run `fn` holding the proving lock until it settles, as L2Node does (runHoldingProvingLock, option A,
+   * step 1). The lock used to be let go after five minutes while an in-process batch went on proving, and the
+   * next partition's batch then started proving beside it.
+   */
   private async withProvingLock<T>(fn: () => Promise<T>): Promise<T> {
     const release = await this.acquireProvingLock();
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    try {
-      return await Promise.race([
-        fn(),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => {
-            reject(new Error('Proving lock timeout: operation exceeded 5 minutes'));
-          }, 5 * 60 * 1000);
-        }),
-      ]);
-    } finally {
-      if (timer) clearTimeout(timer);
-      release();
-    }
+    return runHoldingProvingLock(release, fn, `[Leviathan] ${this.nodeId}`);
   }
 
   // ─── Peer Network ──────────────────────────────────────
@@ -1202,6 +1203,17 @@ export class L2Leviathan {
   // ─── Gossip Handling ────────────────────────────────────
 
   /**
+   * Say that a gossiped receipt was applied without the claim entry that came with it (option A, step 1), as
+   * L2Node does: an entry beside a receipt that made no claim is another receipt's and is only logged; otherwise
+   * this partition's claim ledger no longer follows its leader's, and the node reports it.
+   */
+  private reportLeftOutClaimEntry(partitionIndex: number, receiptId: string, leftOut: ReplicatedClaimLeftOut): void {
+    console.warn(`[Leviathan] ${this.nodeId}: partition ${partitionIndex}: ${leftOut.message}`);
+    if (!leftOut.ledgerBehind) return;
+    this.emit({ type: 'node:error', timestamp: Date.now(), data: { error: leftOut.message, receiptId, partitionIndex, source: 'gossip' } });
+  }
+
+  /**
    * Handle an incoming gossip message.
    *
    * Routes to the correct partition sequencer based on partitionIndex.
@@ -1226,7 +1238,9 @@ export class L2Leviathan {
         // Skip if we are the leader for this partition (we originated it)
         if (this.isLeaderFor(partition)) return;
 
-        seq.applyReplicatedReceipt(
+        // applyReplicatedReceipt appends only the receipt's own claim entry, at this partition's next leaf,
+        // and says what it left out (option A, step 1); until then the entry was appended whatever it was
+        const leftOut = seq.applyReplicatedReceipt(
           payload.receipt,
           payload.auditEvent,
           payload.claimEntry,
@@ -1234,6 +1248,7 @@ export class L2Leviathan {
           payload.currentLifecycleRoot,
           payload.currentWalletCount,
         );
+        if (leftOut) this.reportLeftOutClaimEntry(partition, payload.receipt.receiptId, leftOut);
 
         this.emit({
           type: 'proof:accepted',

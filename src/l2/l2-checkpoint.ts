@@ -24,6 +24,7 @@
  * What IS checkpointed:
  *   - Current Merkle roots (registry, lifecycle)
  *   - Wallet count
+ *   - Each wallet's index, credential inventory root and nonce at the recovery point
  *   - All receipts, blocks, batches, audit events
  *   - Counters (sequence#, block#, batch#)
  *   - Audit chain hash
@@ -191,6 +192,16 @@ export interface L2SequencerState {
 
   /** Lifecycle state per walletId (decimal string) for accurate witness tree reconstruction */
   walletLifecycleStates?: Record<string, string>;
+
+  /**
+   * Every registered wallet, in index order, with the credential inventory root and nonce it
+   * held at the point restoreState rolls back to: the last-settled roots, or an in-flight
+   * batch's end roots (option A, step 1). These hash to that point's registry root, so the
+   * restored registry is exact, insurer-provisioned wallets included. Written only when the
+   * sequencer holds the states for that point; without them, restore rebuilds the registry from
+   * registeredWallets with empty wallet states, as older checkpoints do.
+   */
+  walletStates?: Array<{ walletId: string; index: bigint; credentialInventoryRoot: string; nonce: string }>;
 
   // ── Known wallets (entity registry persistence) ──
 

@@ -14,6 +14,21 @@
  * limitations under the License.
  */
 
+/**
+ * Formulary updates: FormularyUpdateService's builds, rebuilds and diffs, the sequencer's formulary store (its version
+ * count and its checkpoint), l2_storeFormulary and l2_getFormulary over RPC, and EnrollmentService's bulk update of a
+ * plan's members.
+ *
+ * What was wrong: the suite had not loaded since member wallet derivation took the identity salt (C1). Its fixtures
+ * derived the two member wallets without one, at the top of the file, so no case ran. Two more fixtures had fallen
+ * behind while it did not run: l2_storeFormulary became an operator write, and the token authority now takes its issuer
+ * (the employer whose codes it routes). Found by the review of option A step 1 (2026-10-24).
+ *
+ * Now the fixtures give a fixed salt, the operator token to the RPC server and its client, and an issuer to the token
+ * authority; the source is unchanged. The two EnrollmentService cases still fail, on a defect in the source:
+ * processEnrollment reads the group, plan and family IDs from a token validation that carries only their hashes, so it
+ * refuses every enrollment ('Group not found: undefined').
+ */
 import { Field, Poseidon, MerkleTree } from 'o1js';
 import {
   FormularyUpdateService,
@@ -57,6 +72,9 @@ import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js'
 
 const TEST_ENROLLMENT_KEY = 'xK9#mP2$vL5nQ8wR3jF7';
 
+/** l2_storeFormulary is an operator write: the RPC server and the client share this admin token. */
+const TEST_ADMIN_TOKEN = 'formulary-update-admin-token';
+
 const testMember1: MemberLocalData = {
   cardholderId: 'CARD-FM-001',
   dateOfBirth: '19850315',
@@ -73,8 +91,11 @@ const testMember2: MemberLocalData = {
   lastName: 'Jones',
 };
 
-const member1WalletId = deriveMemberWalletId(testMember1, TEST_ENROLLMENT_KEY, Field(0));
-const member2WalletId = deriveMemberWalletId(testMember2, TEST_ENROLLMENT_KEY, Field(0));
+/** C1: member derivation takes the identity salt; the suite uses one fixed value. */
+const TEST_SALT = 'ab'.repeat(32);
+
+const member1WalletId = deriveMemberWalletId(testMember1, TEST_ENROLLMENT_KEY, Field(0), TEST_SALT);   // before: no salt, and the suite stopped here
+const member2WalletId = deriveMemberWalletId(testMember2, TEST_ENROLLMENT_KEY, Field(0), TEST_SALT);
 
 const adminWalletId = Poseidon.hash([Field(999)]);
 
@@ -319,11 +340,11 @@ describe('Formulary Update Push (GAP 3)', () => {
       node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/formulary-update.test.ts'));
       node.start();
 
-      server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', maxBodyBytes: 10 * 1024 * 1024, enableSSE: false });
+      server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', maxBodyBytes: 10 * 1024 * 1024, enableSSE: false, adminToken: TEST_ADMIN_TOKEN });   // before: no token, and l2_storeFormulary answered Unauthorized
       await server.start();
       port = server.getPort();
 
-      client = new L2Client({ sequencerUrl: `http://127.0.0.1:${port}` });
+      client = new L2Client({ sequencerUrl: `http://127.0.0.1:${port}`, adminToken: TEST_ADMIN_TOKEN });
     });
 
     afterAll(async () => {
@@ -365,7 +386,7 @@ describe('Formulary Update Push (GAP 3)', () => {
       // Set up enrollment infrastructure
       const walletRegistry = new WalletRegistry();
       const lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
-      const tokenAuthority = new TokenAuthority();
+      const tokenAuthority = new TokenAuthority('ACME');   // before: no issuer, and every code it made was refused
       const groupRegistry = new GroupRegistry();
       const opaqueRoster = new OpaqueRoster();
       const benefitPlanRegistry = new BenefitPlanRegistry();
@@ -444,7 +465,7 @@ describe('Formulary Update Push (GAP 3)', () => {
     test('skips terminated members', () => {
       const walletRegistry = new WalletRegistry();
       const lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
-      const tokenAuthority = new TokenAuthority();
+      const tokenAuthority = new TokenAuthority('ACME');
       const groupRegistry = new GroupRegistry();
       const opaqueRoster = new OpaqueRoster();
       const benefitPlanRegistry = new BenefitPlanRegistry();

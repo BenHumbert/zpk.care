@@ -106,7 +106,7 @@ export type GossipMessageType =
 export interface ProofAcceptedPayload {
   receipt: L2Receipt;
   auditEvent: AuditEvent;
-  /** Present when ClaimSubmissionMetadata was provided with the proof */
+  /** The receipt's own claim entry, the leaf at receipt.claimLeafIndex: present only when the receipt made a claim */
   claimEntry?: ClaimAccumulatorEntry;
   /** Current registry root after this proof */
   currentRegistryRoot: string;

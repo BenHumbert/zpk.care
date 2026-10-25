@@ -2,6 +2,8 @@
 
 # Option A: verified fill proofs, implementation specification
 
+**Status, 2026-10-24.** Step 1 (the prerequisites) is done, with three review rounds; its findings are A-111 to A-119 (fixed) and A-120 to A-125 (open, each planned in a later step or phase E). Steps 2 to 8 are next.
+
 Repository `Z:\zpk_care`, branch `dev`, HEAD `74bda4e`. All line numbers are at that commit. I checked the three maps against the source. Corrections are listed at the end.
 
 Path aliases, following `docs/CODEMAP.md`:

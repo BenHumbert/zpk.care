@@ -39,7 +39,7 @@ import type { ClaimContext } from '../reporting/report-types.js';
 import type { L2SequencerState } from './l2-checkpoint.js';
 import type { ClaimSubmissionMetadata } from './l2-types.js';
 import { ClaimAccumulatorService, DuplicateFillError } from './claim-accumulator-service.js';
-import type { ClaimAccumulatorEntry } from './claim-accumulator-types.js';
+import { computeClaimLeafHash, type ClaimAccumulatorEntry } from './claim-accumulator-types.js';
 import { MessageStoreService } from './message-store-service.js';
 import type { StoredMessage, MessagePayload, MessageStoreEntry } from './message-store-types.js';
 import { ProviderRegistryService } from './provider-registry-service.js';
@@ -93,6 +93,21 @@ export interface AdminStateConfig {
   credentialRegistryRoot: Field;
   eligibilityVkHash: Field;
   messagingRoot: Field;
+}
+
+/**
+ * The claim entry a replica left out of a gossiped receipt, and why (option A, step 1): what
+ * applyReplicatedReceipt returns when the receipt was applied without the entry that came with it.
+ */
+export interface ReplicatedClaimLeftOut {
+  /**
+   * True when the receipt made a claim of its own, which this replica's claim ledger now lacks, so the
+   * ledger no longer follows the leader's. False for an entry beside a receipt that made no claim: it is
+   * another receipt's, and the ledger loses nothing.
+   */
+  ledgerBehind: boolean;
+  /** What was left out and why, for the log. */
+  message: string;
 }
 
 /**
@@ -180,9 +195,14 @@ export class L2SequencerService {
    *  The lifecycle tree stores Poseidon commitments so the raw state isn't
    *  recoverable from the leaf — we track it here for getWalletWitnesses(). */
   private walletLifecycleStates: Map<string, Field> = new Map();
-  /** False after a restore or reset that set roots without rebuilding the trees.
-   *  While false the tree/root invariant is reported but not enforced. */
+  /** False while the roots were set without the trees (arbitrary starting roots, a restore, a replica taking the
+   *  leader's roots) and the trees do not hash to them. The tree/root invariant is then reported but not enforced,
+   *  except on a replica that took the leader's roots, which refuses every proof instead (treesBehindRoots). */
   private treesAuthoritative = true;
+  /** The roots a replica took from its leader that its trees do not hash to, or null (option A, step 1). While
+   *  set, every proof is refused with a divergence error that names them, until the replica takes the leader's
+   *  state again: roots that move without the trees never relax the checks. */
+  private treesBehindRoots: string | null = null;
 
   // Pre-batch snapshots for rollback on batch failure
   private preBatchAuditLogLength = 0;
@@ -228,11 +248,17 @@ export class L2SequencerService {
   private static readonly EMPLOYER_NODE_TTL_MS = 5 * 60 * 1000;
 
   // Last-settled roots — safe recovery point matching L1 state.
-  // Updated ONLY in markBatchSettled(). Used by restoreState() to
+  // Updated when a batch settles: in markBatchSettled() with L1, from the live roots when a batch
+  // with transitions is finished in L2-only mode, from the leader's gossip on a replica; and by
+  // syncFromL1(). Admin changes do not move them. Used by restoreState() to
   // avoid root divergence when pending pool is discarded on crash recovery.
   private lastSettledRegistryRoot: Field;
   private lastSettledLifecycleRoot: Field;
   private lastSettledWalletCount: Field;
+  /** The registry's wallets at the recovery point restoreState() returns to, with the root they hash to
+   *  (option A, step 1). Taken when that point moves and the live registry hashes to it; exportState()
+   *  saves these rather than the live registry, whose later states the restored roots do not include. */
+  private recoveryPointWallets: { registryRoot: string; entries: Array<{ walletId: Field; index: bigint; state: WalletState }> } | null = null;
 
   // Config
   private batchIntervalMs: number;
@@ -281,6 +307,7 @@ export class L2SequencerService {
     // Callers that start from arbitrary roots get the legacy, unenforced behaviour until
     // the first adminMutate() rebuilds consistent state.
     this.treesAuthoritative = this.treesMatchRoots();
+    this.noteRecoveryPoint(initialRegistryRoot);
   }
 
   // ─── Core Flow ──────────────────────────────────────────
@@ -753,11 +780,15 @@ export class L2SequencerService {
       this.lastSettledRegistryRoot = this.currentRegistryRoot;
       this.lastSettledLifecycleRoot = this.currentLifecycleRoot;
       this.lastSettledWalletCount = this.currentWalletCount;
+      // Taken in the same step as the roots, so a proof accepted while the batch was proved is in both.
+      this.noteRecoveryPoint(this.lastSettledRegistryRoot);
       // No in-flight guard — next batch can build immediately
       this.evictOldEntries();
     } else {
       // Mark as in-flight (must settle or fail before next buildBatch)
       this.inFlightBatchNumber = batchNumber;
+      // Restore returns to this batch's end roots while it is in flight.
+      this.noteRecoveryPoint(batch.newRegistryRoot);
     }
 
     return batch;
@@ -964,9 +995,13 @@ export class L2SequencerService {
       this.lastSettledRegistryRoot = this.currentRegistryRoot;
       this.lastSettledLifecycleRoot = this.currentLifecycleRoot;
       this.lastSettledWalletCount = this.currentWalletCount;
+      // Taken in the same step as the roots, so a proof accepted while the worker proved is in both.
+      this.noteRecoveryPoint(this.lastSettledRegistryRoot);
       this.evictOldEntries();
     } else {
       this.inFlightBatchNumber = batchNumber;
+      // Restore returns to this batch's end roots while it is in flight.
+      this.noteRecoveryPoint(batch.newRegistryRoot);
     }
 
     // Clear drained transitions only after all operations succeeded.
@@ -1156,6 +1191,9 @@ export class L2SequencerService {
     this.lastSettledWalletCount = Field(
       this.lastSettledWalletCount.toBigInt() + BigInt(batch.registrationCount),
     );
+    // The recovery point is still this batch's end roots: a note taken when it went in flight
+    // still applies, and the live registry replaces it only if it hashes to them too.
+    this.noteRecoveryPoint(this.lastSettledRegistryRoot);
 
     // H5 fix: Update rollback snapshots — settled state is the new safe point
     this.preBatchAuditLogLength = this.auditLog.length;
@@ -1295,6 +1333,21 @@ export class L2SequencerService {
         }));
       }
     }
+    // The failed batch's end roots are no longer the recovery point; the last-settled roots are.
+    this.noteRecoveryPoint(this.lastSettledRegistryRoot);
+  }
+
+  /**
+   * Note the registry's wallets as the recovery point's when they hash to its registry root
+   * (option A, step 1). restoreState() returns to that point and drops what was accepted after
+   * it, so exportState() saves these states, not the live ones. A registry that does not hash
+   * to the root leaves the last note in place: it is labelled with its own root, and exportState()
+   * uses a note only when that label is the recovery point's root.
+   */
+  private noteRecoveryPoint(registryRoot: Field | string): void {
+    const root = registryRoot.toString();
+    if (this.walletRegistry.getRoot().toString() !== root) return;
+    this.recoveryPointWallets = { registryRoot: root, entries: this.walletRegistry.entries() };
   }
 
   /** Snapshot every registered wallet (lifecycle + state) in registration order. */
@@ -1487,11 +1540,20 @@ export class L2SequencerService {
     this.adminMutationListener = listener;
   }
 
-  /** A replica takes the leader's roots after an admin mutation (A13), the way it takes a receipt's. */
-  applyReplicatedRoots(registryRoot: string, lifecycleRoot: string, walletCount: string): void {
+  /**
+   * A replica takes the leader's roots after an admin mutation (A13), the way it takes a receipt's.
+   *
+   * The roots move without this replica's trees (option A, step 1; takeRootsWithoutTrees). A replica synced
+   * while the leader had proofs pending past the recovery point, or one that took an insurer change or a wallet
+   * update by gossip, holds trees behind its roots: they are not authoritative, so nothing reads their wallet
+   * states as current, and the replica refuses every proof until it takes the leader's state again. `source`
+   * names the roots in that refusal.
+   */
+  applyReplicatedRoots(registryRoot: string, lifecycleRoot: string, walletCount: string, source = "the leader's roots after an insurer change"): void {
     this.currentRegistryRoot = Field(BigInt(registryRoot));
     this.currentLifecycleRoot = Field(BigInt(lifecycleRoot));
     this.currentWalletCount = Field(BigInt(walletCount));
+    this.takeRootsWithoutTrees(source);
   }
 
   getStateTrees(): { registry: WalletRegistry; lifecycle: MerkleTree } {
@@ -1542,6 +1604,7 @@ export class L2SequencerService {
     this.currentLifecycleRoot = this.lifecycleTree.getRoot();
     this.currentWalletCount = Field(this.walletRegistry.count);
     this.treesAuthoritative = true;
+    this.treesBehindRoots = null;
     this.adminMutationListener?.({
       reason,
       registryRoot: this.currentRegistryRoot.toString(),
@@ -1565,11 +1628,27 @@ export class L2SequencerService {
       this.lifecycleTree.getRoot().toString() === this.currentLifecycleRoot.toString();
   }
 
+  /**
+   * Weigh the trees against roots a replica took from its leader without them (option A, step 1). Trees that hash
+   * to the roots are authoritative. Trees that do not are behind them: not authoritative, so nothing reads their
+   * wallet states as current, and every proof is refused until the replica takes the leader's state again. Only
+   * arbitrary starting roots or a restore of an older checkpoint relax the checks. When the flag alone followed the
+   * trees, roots taken from the leader relaxed them too, and a replica whose trees those roots had moved past
+   * accepted proofs unchecked.
+   */
+  private takeRootsWithoutTrees(source: string): void {
+    this.treesAuthoritative = this.treesMatchRoots();
+    this.treesBehindRoots = this.treesAuthoritative ? null : source;
+  }
+
   /** Throw if the witness trees and the published roots have diverged. */
   private assertTreesMatchRoots(context: string): void {
     if (this.treesMatchRoots()) return;
     const msg = `Wallet state divergence ${context}: registry tree ${this.walletRegistry.getRoot()} vs root ${this.currentRegistryRoot}, ` +
       `lifecycle tree ${this.lifecycleTree.getRoot()} vs root ${this.currentLifecycleRoot}`;
+    if (this.treesBehindRoots !== null) {
+      throw new Error(`${msg}. This replica took ${this.treesBehindRoots}, and its trees do not hash to them; it accepts no proof until it takes the leader's state again`);
+    }
     if (!this.treesAuthoritative) {
       console.warn(`[sequencer] ${msg} (trees not rebuilt after restore — not enforced)`);
       return;
@@ -1588,7 +1667,9 @@ export class L2SequencerService {
     const wid = output.walletId;
     const registryChanged = output.oldRegistryRoot.toString() !== output.newRegistryRoot.toString();
     const lifecycleChanged = output.oldLifecycleRoot.toString() !== output.newLifecycleRoot.toString();
-    const enforce = this.treesAuthoritative;
+    // Relaxed only for trees that arbitrary starting roots or a restore left unmatched. A replica behind its
+    // leader's roots reaches this point only once its trees are back in step with them, and is held to every check.
+    const enforce = this.treesAuthoritative || this.treesBehindRoots !== null;
 
     if (registryChanged && lifecycleChanged) {
       if (this.walletRegistry.isRegistered(wid)) {
@@ -1674,6 +1755,7 @@ export class L2SequencerService {
     this.currentRegistryRoot = this.walletRegistry.getRoot();
     this.currentLifecycleRoot = this.lifecycleTree.getRoot();
     this.treesAuthoritative = true;
+    this.treesBehindRoots = null;
     this.preBatchAuditLogLength = 0;
     this.preBatchChainHash = Field(0);
     this.preBatchClaimLeafCount = 0n;
@@ -1687,6 +1769,8 @@ export class L2SequencerService {
     this.lastSettledRegistryRoot = initialRegistryRoot;
     this.lastSettledLifecycleRoot = initialLifecycleRoot;
     this.lastSettledWalletCount = Field(0);
+    this.recoveryPointWallets = null;
+    this.noteRecoveryPoint(initialRegistryRoot);
   }
 
   /**
@@ -2595,6 +2679,18 @@ export class L2SequencerService {
     };
   }
 
+  /**
+   * The audit event a receipt added to the chain, or undefined once it is gone (a failed batch rolls the
+   * log back). Searched from the end, where a receipt just accepted sits, without copying the log: the node
+   * reads it for every accepted proof it gossips (option A, step 1).
+   */
+  getAuditEventForReceipt(receiptId: string): AuditEvent | undefined {
+    for (let i = this.auditLog.length - 1; i >= 0; i--) {
+      if (this.auditLog[i].receiptId === receiptId) return this.auditLog[i];
+    }
+    return undefined;
+  }
+
   /** Current Merkle root of the audit event index tree */
   getAuditMerkleRoot(): Field {
     return this.auditMerkleIndex.getRoot();
@@ -2659,6 +2755,12 @@ export class L2SequencerService {
    *
    * Idempotent: if receipt already exists, silently skips.
    * Ordering: advances nextSequenceNumber if receipt has higher seqNum.
+   *
+   * The claim entry is decided before anything is written (option A, step 1; replicatedClaimProblem):
+   * an entry this replica's ledger cannot take is left out and the receipt applied whole without it.
+   * Until then the receipt, its audit event and the roots were written first, so a claim append the
+   * ledger refused or could not make left the receipt half applied, and the caller saw only the error.
+   * Returns what was left out, for the caller to log and report; undefined when nothing was.
    */
   applyReplicatedReceipt(
     receipt: L2Receipt,
@@ -2667,9 +2769,24 @@ export class L2SequencerService {
     newRegistryRoot?: string,
     newLifecycleRoot?: string,
     newWalletCount?: string,
-  ): void {
+  ): ReplicatedClaimLeftOut | undefined {
     // Idempotent: skip if already applied
-    if (this.receipts.has(receipt.receiptId)) return;
+    if (this.receipts.has(receipt.receiptId)) return undefined;
+
+    let append: ClaimAccumulatorEntry | undefined;
+    let leftOut: ReplicatedClaimLeftOut | undefined;
+    if (receipt.claimLeafIndex === undefined) {
+      if (claimEntry) {
+        leftOut = { ledgerBehind: false, message: `ignored the claim entry for leaf ${claimEntry.leafIndex} that came with ${receipt.receiptId}, which made no claim` };
+      }
+    } else {
+      const problem = this.replicatedClaimProblem(receipt, claimEntry);
+      if (problem) {
+        leftOut = { ledgerBehind: true, message: `left out the claim entry of ${receipt.receiptId}: ${problem}. This replica's claim ledger no longer follows the leader's until it takes the leader's state again` };
+      } else {
+        append = claimEntry;
+      }
+    }
 
     // Apply roots if provided
     if (newRegistryRoot) {
@@ -2697,6 +2814,8 @@ export class L2SequencerService {
         this.walletLifecycleStates.set(receipt.walletId, LIFECYCLE_REGISTERED);
       }
     }
+    // The roots are the leader's and the trees follow only registrations (applyReplicatedRoots says why).
+    this.takeRootsWithoutTrees(`the leader's roots with ${receipt.receiptId}`);
 
     // Append audit event + update chain hash + Merkle index
     this.auditLog.push(auditEvent);
@@ -2708,10 +2827,40 @@ export class L2SequencerService {
       this.nextSequenceNumber = receipt.sequenceNumber + 1n;
     }
 
-    // Apply claim entry if present
-    if (claimEntry) {
-      this.claimAccumulator.appendClaim(claimEntry.leaf, claimEntry.metadata);
+    // Apply the receipt's own claim entry, which the ledger takes (checked above)
+    if (append) {
+      this.claimAccumulator.appendClaim(append.leaf, append.metadata);
     }
+    return leftOut;
+  }
+
+  /**
+   * Why a replica cannot append the claim entry gossiped beside a receipt that made a claim, or undefined
+   * when it can (option A, step 1). The ledger writes an entry at its own next leaf whatever leaf the entry
+   * names, so only the receipt's own entry, at the leaf the leader gave it, may be appended: not one that
+   * belongs to another receipt (a leader before this step sent the member's latest claim with every device
+   * update), nor one that arrives ahead of or behind this replica's next leaf (gossip out of order, a relay
+   * that never came). The ledger's own refusals are checked here too, a leaf that does not hash and a second
+   * unreversed fill of one key, so that none of them comes after the receipt is written.
+   */
+  private replicatedClaimProblem(receipt: L2Receipt, claimEntry: ClaimAccumulatorEntry | undefined): string | undefined {
+    if (!claimEntry) return `no entry came for its leaf ${receipt.claimLeafIndex}`;
+    if (claimEntry.leafIndex !== receipt.claimLeafIndex || claimEntry.metadata?.receiptId !== receipt.receiptId) {
+      return `the entry that came with it is another receipt's`;
+    }
+    const nextLeaf = this.claimAccumulator.getLeafCount();
+    if (claimEntry.leafIndex !== nextLeaf) return `its leaf is ${claimEntry.leafIndex} and this replica's next leaf is ${nextLeaf}`;
+    try {
+      computeClaimLeafHash(claimEntry.leaf);
+    } catch (err) {
+      return `its leaf does not hash (${err instanceof Error ? err.message : String(err)})`;
+    }
+    const { leaf, metadata } = claimEntry;
+    const prior = leaf.operationType === '2'
+      ? undefined
+      : this.claimAccumulator.hasActiveFill(leaf.memberWalletId, leaf.ndcHash, leaf.pharmacyWalletId, leaf.dateOfService, metadata.fillNumber);
+    if (prior) return `this replica's ledger already holds an unreversed fill of the same key at leaf ${prior.leafIndex}`;
+    return undefined;
   }
 
   /**
@@ -3027,6 +3176,25 @@ export class L2SequencerService {
       state.walletLifecycleStates = lcStates;
     }
 
+    // Wallet states at the recovery point restoreState() returns to (option A, step 1): an
+    // in-flight batch's end roots, else the last-settled roots. The live registry is ahead of
+    // that point whenever proofs are pending, so the note taken when the point moved is saved;
+    // the live registry serves only when it hashes to the same root. When neither does, the
+    // field is left out and restore rebuilds the registry from registeredWallets as before.
+    const inFlight = this.inFlightBatchNumber !== null ? this.batches.get(this.inFlightBatchNumber) : undefined;
+    const recoveryRoot = inFlight ? inFlight.newRegistryRoot : this.lastSettledRegistryRoot.toString();
+    const atRecoveryPoint = this.recoveryPointWallets?.registryRoot === recoveryRoot
+      ? this.recoveryPointWallets.entries
+      : this.walletRegistry.getRoot().toString() === recoveryRoot ? this.walletRegistry.entries() : null;
+    if (atRecoveryPoint && (atRecoveryPoint.length > 0 || this.walletRegistry.count > 0)) {
+      state.walletStates = atRecoveryPoint.map(({ walletId, index, state: ws }) => ({
+        walletId: walletId.toString(),
+        index,
+        credentialInventoryRoot: ws.credentialInventoryRoot.toString(),
+        nonce: ws.nonce.toString(),
+      }));
+    }
+
     return state;
   }
 
@@ -3214,11 +3382,33 @@ export class L2SequencerService {
       ? new Set(state.preBatchFingerprints)
       : new Set(this.seenProofFingerprints);
 
-    // Rebuild witness trees from registered wallet list
+    // Rebuild witness trees. A checkpoint with wallet states (option A, step 1) puts every wallet
+    // back at its own index with the credential root and nonce it held at the recovery point;
+    // an older one rebuilds from the registered wallet list, every wallet empty.
     this.walletRegistry = new WalletRegistry();
     this.lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
     this.walletLifecycleStates = new Map();
-    if (state.registeredWallets) {
+    if (state.walletStates) {
+      const lcStates: Record<string, string> = state.walletLifecycleStates ?? {};
+      for (const saved of state.walletStates) {
+        const walletId = Field(BigInt(saved.walletId));
+        const walletIdStr = walletId.toString();
+        const regIndex = this.walletRegistry.register(walletId);
+        if (regIndex !== BigInt(saved.index)) {
+          // Registration is append-only, so a gap or a reordering cannot be rebuilt faithfully.
+          throw new Error(`Checkpoint wallet states are not in index order: wallet ${walletIdStr} was saved at index ${saved.index} but would be restored at ${regIndex}`);
+        }
+        this.walletRegistry.updateState(walletId, new WalletState({
+          walletId,
+          credentialInventoryRoot: Field(BigInt(saved.credentialInventoryRoot)),
+          nonce: Field(BigInt(saved.nonce)),
+        }));
+        const lcState = lcStates[walletIdStr] ? Field(BigInt(lcStates[walletIdStr])) : LIFECYCLE_REGISTERED;
+        this.lifecycleTree.setLeaf(regIndex, lifecycleLeafCommitment(walletId, lcState));
+        this.walletLifecycleStates.set(walletIdStr, lcState);
+      }
+      this.currentWalletCount = Field(BigInt(this.walletRegistry.count));
+    } else if (state.registeredWallets) {
       const lcStates: Record<string, string> = state.walletLifecycleStates ?? {};
       for (const walletIdStr of state.registeredWallets) {
         const walletId = Field(BigInt(walletIdStr));
@@ -3237,15 +3427,29 @@ export class L2SequencerService {
       // scalar walletCount stays in sync with the witness tree after recovery.
       this.currentWalletCount = Field(BigInt(this.walletRegistry.count));
     }
-    // Checkpoints carry registrations and lifecycle states but not wallet states, so the
-    // rebuilt trees can differ from the restored roots. Enforce the invariant only if they match.
+    // Enforce the invariant only if the rebuilt trees match the restored roots. An older checkpoint
+    // has no wallet states, so its trees can differ. With them the registry is exact, but the
+    // lifecycle states are the ones saved when the checkpoint was written, so an admin change
+    // made after the recovery point shows here as a lifecycle mismatch. Roots a replica took from
+    // its leader before this restore went with its old trees.
     this.treesAuthoritative = this.treesMatchRoots();
+    this.treesBehindRoots = null;
     if (!this.treesAuthoritative) {
-      console.warn('[sequencer] Restored roots do not match the rebuilt witness trees; tree/root checks are relaxed until the next admin rebuild.');
+      if (state.walletStates) {
+        console.warn(
+          `[sequencer] Restored wallet states do not reproduce the restored roots: registry tree ${this.walletRegistry.getRoot()} vs root ${this.currentRegistryRoot}, ` +
+          `lifecycle tree ${this.lifecycleTree.getRoot()} vs root ${this.currentLifecycleRoot}; tree/root checks are relaxed until the next admin rebuild.`,
+        );
+      } else {
+        console.warn('[sequencer] Restored roots do not match the rebuilt witness trees; tree/root checks are relaxed until the next admin rebuild.');
+      }
     }
 
     // Initialize pre-batch wallet snapshot from restored witness trees
     this.preBatchWalletSnapshot = this.snapshotWallets();
+    // The restored roots are the recovery point; a checkpoint written before the next batch saves these wallets again.
+    this.recoveryPointWallets = null;
+    this.noteRecoveryPoint(this.currentRegistryRoot);
 
     // Pending pool is NOT restored — proofs are transient
     this.pendingPool = [];

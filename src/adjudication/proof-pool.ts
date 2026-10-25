@@ -199,7 +199,9 @@ export class ProofPool {
 
   /**
    * Submit a proof job and return a promise for the result.
-   * If a worker is idle, dispatch immediately. Otherwise queue.
+   * If a worker is idle, dispatch immediately. Otherwise queue, unless no worker is left to take it (canTakeWork),
+   * when the job is refused at once. A queued job waits only for a worker that is proving, which the prove timeout
+   * bounds, or compiling, which the compile timeout bounds.
    */
   prove(request: ProofJobRequest, description?: string): Promise<ProofJobResult> {
     const jobId = `pj-${this.nextJobId++}`;
@@ -217,6 +219,9 @@ export class ProofPool {
       const idle = this.getIdleWorker();
       if (idle) {
         this.dispatchJob(idle, job);
+      } else if (this.running && !this.canTakeWork()) {
+        this.totalFailed++;
+        reject(this.noWorkerLeftError(job));
       } else {
         this.jobQueue.push(job);
       }
@@ -224,6 +229,16 @@ export class ProofPool {
   }
 
   isRunning(): boolean { return this.running; }
+
+  /**
+   * Whether a job submitted now can be proved: some worker is ready, proving or compiling. False once every worker has
+   * crashed past its restart limit or failed to compile again, since nothing starts another; prove() then refuses at
+   * once, and the jobs that were queued have been refused. isRunning() stays true all the same: the engine proves
+   * inline when the pool does not run, which blocks the event loop the sequencer shares.
+   */
+  canTakeWork(): boolean {
+    return this.workers.some(w => w.status !== 'dead');
+  }
 
   getStatus(): ProofPoolStatus {
     const alive = this.workers.filter(w => w.status !== 'dead').length;
@@ -335,14 +350,14 @@ export class ProofPool {
     this.pendingJobs.set(job.jobId, job);
 
     job.timeout = setTimeout(() => {
-      console.error(`[proof-pool] TIMEOUT: Worker ${worker.id} — ${job.description} (${job.jobId}) exceeded ${this.proveTimeoutMs}ms`);
+      console.error(`[proof-pool] TIMEOUT: Worker ${worker.id} — ${job.description} (${job.jobId}) exceeded ${this.proveTimeoutMs}ms; killing the worker`);
       this.pendingJobs.delete(job.jobId);
-      worker.busy = false;
-      worker.status = 'idle';
-      worker.currentJobId = null;
       this.totalFailed++;
       job.reject(new Error(`Prove timeout after ${this.proveTimeoutMs}ms for ${job.description}`));
-      this.drainQueue();
+      // The worker is still proving the abandoned job, and only killing it stops that. It used to be marked idle and
+      // handed the next job, which then waited behind the abandoned one. It stays busy until its exit, which replaces
+      // it as a crash, against the restart limit.
+      try { worker.process.kill('SIGKILL'); } catch { /* already gone */ }
     }, this.proveTimeoutMs);
 
     this.sendToWorker(worker, {
@@ -460,12 +475,11 @@ export class ProofPool {
             this.emit('worker:ready', newHandle.id);
             this.drainQueue();
           })
-          .catch((err) => {
-            console.error(`[proof-pool] Worker ${newHandle.id} restart compile failed:`, err.message);
-            newHandle.status = 'dead';
-          });
+          .catch((err) => this.replacementFailed(newHandle, 'restart', err));
       }
     }
+    // Past the limit the slot stays empty, and the pool may have no worker left.
+    this.refuseQueueIfNoWorkerLeft();
   }
 
   private recycleWorker(handle: WorkerHandle): void {
@@ -491,10 +505,39 @@ export class ProofPool {
         this.emit('worker:ready', newHandle.id);
         this.drainQueue();
       })
-      .catch((err) => {
-        console.error(`[proof-pool] Worker ${newHandle.id} recycle compile failed:`, err.message);
-        newHandle.status = 'dead';
-      });
+      .catch((err) => this.replacementFailed(newHandle, 'recycle', err));
+  }
+
+  /**
+   * A worker started to replace another, after a crash or a recycle, did not compile. It is killed: one that answered
+   * with an error keeps running, and one that never answered may still be compiling, either holding its memory. Its
+   * slot stays empty, so the pool may have no worker left.
+   */
+  private replacementFailed(handle: WorkerHandle, cause: 'restart' | 'recycle', err: Error): void {
+    if (handle.status === 'dead') return; // it crashed while compiling, and its exit dealt with its slot
+    console.error(`[proof-pool] Worker ${handle.id} ${cause} compile failed:`, err.message);
+    handle.status = 'dead';
+    try { handle.process.kill(); } catch { /* already gone */ }
+    this.refuseQueueIfNoWorkerLeft();
+  }
+
+  /**
+   * Once no worker can take work, refuses every queued job at once: nothing would ever dispatch it, and its caller,
+   * perhaps holding the engine's proving lock, would wait for good.
+   */
+  private refuseQueueIfNoWorkerLeft(): void {
+    if (!this.running || this.canTakeWork()) return;
+    console.error(`[proof-pool] No proof worker is left: each crashed past its restart limit or failed to compile again, and none is starting. Proofs are refused; restart the node to start new workers. Refused ${this.jobQueue.length} queued job(s).`);
+    const queued = this.jobQueue;
+    this.jobQueue = [];
+    for (const job of queued) {
+      this.totalFailed++;
+      job.reject(this.noWorkerLeftError(job));
+    }
+  }
+
+  private noWorkerLeftError(job: PendingJob): Error {
+    return new Error(`ProofPool: no worker is left to prove ${job.description}: every proof worker has failed and none is starting`);
   }
 
   private sendToWorker(handle: WorkerHandle, msg: ProofCoordinatorMessage): boolean {

@@ -40,7 +40,7 @@ import type { ILocalStore } from '../storage/local-store.js';
 import type { StateTransitionProof } from '../engine/state-transition.js';
 import { L2SequencerService } from './l2-sequencer-service.js';
 import { RequestRefused } from './request-refused.js';
-import type { AdminStateConfig } from './l2-sequencer-service.js';
+import type { AdminStateConfig, ReplicatedClaimLeftOut } from './l2-sequencer-service.js';
 import type { L2Receipt, L2Batch, L1Status, ClaimSubmissionMetadata } from './l2-types.js';
 import type { ClaimAccumulatorEntry } from './claim-accumulator-types.js';
 import {
@@ -209,6 +209,45 @@ export interface L2NodeStatus {
   blockHeight: string;
   /** Whether this node operates in L2-only mode (no L1 settlement) */
   l2Only: boolean;
+}
+
+// ─── Proving Lock ────────────────────────────────────────
+
+/** How long an operation holds a proving lock before the watchdog logs that it still does. */
+export const PROVING_LOCK_WATCHDOG_MS = 5 * 60 * 1000;
+
+/**
+ * Run `fn` under a proving lock already acquired, and call `release` only once `fn` has settled; the caller
+ * gets `fn`'s own result or error. L2Node and L2Leviathan both hold their locks this way (option A, step 1).
+ *
+ * The lock used to be let go after five minutes while `fn`, which nothing can cancel, ran on: its caller was
+ * told it had timed out, and the next locked operation ran beside it. A fill whose proof outlasted five
+ * minutes was reported failed to the pharmacy while a termination ran in the middle of it, and the fill then
+ * committed its claim on the revoked credential; a second in-process batch could start proving beside the
+ * first. Every locked operation settles on its own: a pooled proof within its pool's prove timeout, a wait
+ * for the proving lease or the verifier within theirs, and an in-process proof when it is done, which no
+ * timer can stop. A pooled job still queued waits only on a worker that is proving or compiling, each under
+ * its own timeout, and a pool with no worker left refuses its queue at once (A-118). The watchdog is the
+ * alarm for anything slower: it logs once `fn` has held the lock for PROVING_LOCK_WATCHDOG_MS, and again
+ * when `fn` settles, with how long it held the lock.
+ */
+export async function runHoldingProvingLock<T>(release: () => void, fn: () => Promise<T>, holder: string): Promise<T> {
+  const startedAt = Date.now();
+  const heldFor = () => Math.round((Date.now() - startedAt) / 1000);
+  let overran = false;
+  const watchdog = setTimeout(() => {
+    overran = true;
+    console.warn(`${holder}: an operation has held the proving lock for ${heldFor()} s and is still running; every other locked operation waits until it settles`);
+  }, PROVING_LOCK_WATCHDOG_MS);
+  try {
+    return await fn();
+  } finally {
+    clearTimeout(watchdog);
+    if (overran) {
+      console.warn(`${holder}: the operation that held the proving lock past ${PROVING_LOCK_WATCHDOG_MS / 1000} s let go of it after ${heldFor()} s`);
+    }
+    release();
+  }
 }
 
 // ─── L2Node ──────────────────────────────────────────────
@@ -427,7 +466,11 @@ export class L2Node {
     this.sequencer.restoreState(state);
     // restoreState stands at the last *settled* roots (a checkpoint's view); a live replica must stand
     // where the leader stands now, admin mutations included, which is what the snapshot's current roots say.
-    this.sequencer.applyReplicatedRoots(state.currentRegistryRoot, state.currentLifecycleRoot, state.currentWalletCount);
+    // The trees stay at the recovery point, so a leader that has moved past it leaves this replica refusing
+    // proofs until it takes the leader's state again, rather than relaxing its checks (option A, step 1).
+    this.sequencer.applyReplicatedRoots(
+      state.currentRegistryRoot, state.currentLifecycleRoot, state.currentWalletCount, `${peerId}'s current roots when it synced`,
+    );
     const receipts = (state as { receipts?: unknown }).receipts;
     if (Array.isArray(receipts)) this.totalProofsAccepted = Math.max(this.totalProofsAccepted, receipts.length);
   }
@@ -561,15 +604,26 @@ export class L2Node {
 
       // Sequencer: broadcast proof:accepted gossip to peers
       if (this.role === 'sequencer' && this.peerNetwork) {
-        const auditLog = this.sequencer.getAuditLog();
-        const latestAuditEvent = auditLog.events[auditLog.events.length - 1];
-        const claimEntry = metadata
-          ? this.sequencer.getClaimsByMember(receipt.walletId).slice(-1)[0]
+        // The receipt's own audit event (option A, step 1). The sequencer awaits the store and the WAL after
+        // pushing it, so another submission or a messaging event can land before this line; the last event of
+        // the log, which was sent until then, was theirs, and the whole log was copied to read it.
+        const auditEvent = this.sequencer.getAuditEventForReceipt(receipt.receiptId);
+        if (!auditEvent) {
+          // only a failed batch's rollback, landing while the proof was stored, takes it away; a replica
+          // given no event could not apply the receipt
+          console.warn(`[peer] ${this.nodeId}: ${receipt.receiptId} is not gossiped: a failed batch rolled its audit event back before it was sent`);
+          return receipt;
+        }
+        // The receipt's own claim leaf, or none when the receipt made no claim (option A, step 1). Every device
+        // update comes with metadata (its new credential root), so keying on metadata sent the member's latest
+        // claim again with each primary-care, prior-authorization or rollover update, and replicas appended it.
+        const claimEntry = receipt.claimLeafIndex !== undefined
+          ? this.sequencer.getClaimAccumulator().getEntry(receipt.claimLeafIndex)
           : undefined;
 
         const payload: ProofAcceptedPayload = {
           receipt,
-          auditEvent: latestAuditEvent,
+          auditEvent,
           claimEntry,
           currentRegistryRoot: this.sequencer.getCurrentRegistryRoot().toString(),
           currentLifecycleRoot: this.sequencer.getCurrentLifecycleRoot().toString(),
@@ -997,6 +1051,20 @@ export class L2Node {
   }
 
   /**
+   * Say that a gossiped receipt was applied without the claim entry that came with it (option A, step 1).
+   * applyReplicatedReceipt decides, before it writes anything, and appends only the receipt's own entry at
+   * this replica's next leaf, so the replica's claim ledger is the leader's or stops short of it. An entry
+   * beside a receipt that made no claim is another receipt's and the ledger loses nothing, so it is only
+   * logged; otherwise the ledger no longer follows the leader's until a restart takes the leader's state
+   * again, and the node reports it.
+   */
+  private reportLeftOutClaimEntry(receiptId: string, leftOut: ReplicatedClaimLeftOut): void {
+    console.warn(`[peer] ${this.nodeId}: ${leftOut.message}`);
+    if (!leftOut.ledgerBehind) return;
+    this.emit({ type: 'node:error', timestamp: Date.now(), data: { error: leftOut.message, receiptId, source: 'gossip' } });
+  }
+
+  /**
    * Handle an incoming gossip message.
    *
    * Replicas apply state changes from the sequencer.
@@ -1017,7 +1085,7 @@ export class L2Node {
       case 'proof:accepted': {
         if (this.role !== 'replica') return;
         const payload = msg.payload as ProofAcceptedPayload;
-        this.sequencer.applyReplicatedReceipt(
+        const leftOut = this.sequencer.applyReplicatedReceipt(
           payload.receipt,
           payload.auditEvent,
           payload.claimEntry,
@@ -1025,6 +1093,7 @@ export class L2Node {
           payload.currentLifecycleRoot,
           payload.currentWalletCount,
         );
+        if (leftOut) this.reportLeftOutClaimEntry(payload.receipt.receiptId, leftOut);
         this.totalProofsAccepted++;
         this.emit({
           type: 'proof:accepted',
@@ -1587,26 +1656,12 @@ export class L2Node {
    * Execute an async function while holding the proving lock.
    * Convenience wrapper around acquireProvingLock().
    *
-   * Includes a 5-minute safety timeout: if `fn` hasn't resolved by then,
-   * the lock is released and the promise rejects. This prevents a hung
-   * o1js proof from permanently blocking the entire proof pipeline.
+   * The lock is held until `fn` settles, however long that takes, and the caller gets `fn`'s own result
+   * or error; a watchdog logs an operation that holds it past five minutes (runHoldingProvingLock).
    */
   async withProvingLock<T>(fn: () => Promise<T>): Promise<T> {
     const release = await this.acquireProvingLock();
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    try {
-      return await Promise.race([
-        fn(),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => {
-            reject(new Error('Proving lock timeout: operation exceeded 5 minutes'));
-          }, 5 * 60 * 1000);
-        }),
-      ]);
-    } finally {
-      if (timer) clearTimeout(timer);
-      release();
-    }
+    return runHoldingProvingLock(release, fn, `[L2Node] ${this.nodeId}`);
   }
 
   // ─── Checkpoint ──────────────────────────────────────────

@@ -213,7 +213,7 @@ Auth: ADMIN = in ADMIN_METHODS; OPEN = no check; RATE = per-IP limit only; COND 
 | l2_gossipRelay | ADMIN (roles `sequencer` on a replica, `replica` on the leader — A13) | message{messageId,type,…}, fromPeerId? | `peerNetwork.handleIncomingAndRelay` | depends on gossip payload | 2202-2216 |
 | l2_getPeerInfo | OPEN | — | PeerInfo (nodeId, role, latest seq/batch, vkCommitment) | no | 2218-2238 |
 | l2_getPeerList | OPEN | — | peers as {nodeId,id,url,role,status,lastSeen} | no | 2240-2252 |
-| l2_requestSnapshot | ADMIN (role `replica` may, since A13) | — | `seq.exportState()`: roots, counters, receipts, blocks, batches, auditLog, adminQueue, chain-proof state, audit index, claim accumulator (and further store states) | yes: entire member-linked state | 2254-2256; SEQ:2738-2775 |
+| l2_requestSnapshot | ADMIN (role `replica` may, since A13) | — | `seq.exportState()`: roots, counters, receipts, blocks, batches, auditLog, adminQueue, chain-proof state, audit index, claim accumulator, the wallet states at the recovery point (and further store states) | yes: entire member-linked state | 2254-2256; SEQ:2738-2775 |
 | l2_getStateDigest | OPEN | — | seq/batch numbers, auditChainHash, claim root, registry/lifecycle roots, walletCount | no | 2258-2270 |
 
 ### Leviathan / quorum (throw `Not a leviathan node` on plain L2Node)
