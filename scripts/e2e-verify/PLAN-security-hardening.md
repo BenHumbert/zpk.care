@@ -3247,3 +3247,7 @@ lower-thirds over what is named at a few moments, the persona tag over one form 
 over, whiteboard ghosts too strong under later boards and notes that arrive late, a box through a subscript, cards that
 leave before their line, the closing two lines running together (a 45 ms gap), the member's counter lines about 4 dB
 quieter, and the network Overview flashing "No batches yet" before its tab opens.
+
+**Correction, 2026-10-25.** A-60 (a failed prior-authorization approval left its leaf, credential root and index
+behind) was closed by the same change as A-113's second half, with `tests/engine-prior-auth-rollback.test.ts`; it had
+stayed listed as open. Scoreboard: 125 findings; 107 fixed; 18 open, none critical.
