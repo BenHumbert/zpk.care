@@ -2,11 +2,11 @@
 
 **Privacy-preserving pharmacy benefit claim adjudication, built on zero-knowledge proofs.**
 
-**License:** Apache 2.0 · **Status:** research prototype · **Stack:** TypeScript, [o1js](https://github.com/o1-labs/o1js) v2.13
+**License:** Apache 2.0 · **Status:** hardened production candidate on a test network, not yet pilot-ready · **Stack:** TypeScript, [o1js](https://github.com/o1-labs/o1js) v2.13
 
 > Fill a prescription without revealing your identity, on fully transparent drug plans designed to scale to millions of members.
 
-zpk.care is a complete, working claim adjudication system for pharmacy benefits in which members' personal and health information never leaves their own devices. The network only ever sees cryptographic commitments, never a name, a diagnosis, or a medication history. There is no national switchboard, and no PBM ever needs to store PHI or PII.
+zpk.care is a complete, working claim adjudication system for pharmacy benefits in which members' identities never leave their own devices. The network sees a pseudonymous ID and zero-knowledge proofs, never a name, birth date or member ID. Every fill is priced by a public formula, NADAC × quantity plus the plan's published dispensing fee, before the script reaches the pharmacy, and there is no national switchboard in the claim path. By design, each claim keeps the drug and its price beside the pseudonymous ID so plans can track spend and inventory; that can be switched back to fully private.
 
 The project is released freely under the Apache License 2.0. You may use it, build on it, and build a business on it. The [Mission](#mission) describes the spirit in which it is shared.
 
@@ -41,13 +41,16 @@ zpk.care is free and always will be. If it has helped you and you would like to 
 
 ## Project status
 
-zpk.care is a **research prototype and reference implementation**. Before you build on it, it helps to know where it stands:
+zpk.care is a **hardened production candidate** running end to end on a one-computer test network. It is not yet ready for a pilot. Where it stands, as of 2026-10-26:
 
-- **Implemented and tested:** the cryptographic core. This covers wallet derivation, the device-only enrollment key, proof generation and verification, in-circuit claim adjudication, the audit hash chain, gossip replication, and write-ahead-log and quorum durability.
-- **Not yet production-hardened:** the edges around that core, namely dashboard message encryption, browser key storage, and RPC access control. Each gap and its fix is documented in [SECURITY.md](SECURITY.md).
-- **Not independently audited.** The cryptography and key-management design should be reviewed by a third party before any deployment that handles real data.
-- **Demo data is fictional.** The bundled prescribers, pharmacies, medications, and members are invented.
-- **Not actively maintained.** The author has stepped away from development (see [Support this work](#support-this-work)). If you build on this code, plan to own and maintain your fork.
+- **Works end to end:** plan publishing, employer signup, enrollment on the member's device, primary-care choice, prescribing with the member's price shown first, fill and adjudication. Live end-to-end runs on 2026-10-25 passed 246 of 246 checks (one member) and 221 of 221 (four members, two employers); the regression batch is 153 suites and 1,832 tests, all passing.
+- **Hardened by an internal audit:** 132 findings, 107 fixed, 25 open, none critical. Every route that changes state or returns member data authenticates its caller; requests are signed and replay-protected; every submitted proof is verified against a pinned key before anything is written; the member's device proves every change to its own record, and the engine holds no identity inputs.
+- **Not yet built or not yet complete:** outside verification of each fill's money (option A, step 1 of 8 done), the price lock and signed pickup with a 14-day reversal, providers holding their own keys, end-to-end message encryption, the NCPDP standard claim format, pharmacy payments, a native phone app and employer reports.
+- **Not independently audited.** The cryptography, key management and network protocol need a third-party review before any deployment that handles real data.
+- **Demo data is fictional.** The bundled prescribers, pharmacies, medications and members are invented.
+- **Active development** continues on the `dev` branch.
+
+Watch a voiced walkthrough of one claim, from the HR plan pick to pickup: [full, 24 minutes](docs/media/zpk-care-walkthrough.mp4) · [short cut, 10 minutes](docs/media/zpk-care-walkthrough-short.mp4). The videos are stored with Git LFS.
 
 ## Why it matters
 
@@ -202,14 +205,18 @@ Complete the hardening items in [SECURITY.md](SECURITY.md), commission an indepe
 
 ## Open work
 
-These items are known, scoped, and open to contributors:
+These items are known and scoped, in the recommended order:
 
-- **End-to-end message encryption in the dashboards.** Replace the base64 placeholder with X25519 key agreement and AES-256-GCM. The primitives already exist in [src/security/encryption.ts](src/security/encryption.ts).
-- **Hardened enrollment-key storage.** Encrypt the key at rest with Web Crypto, bind it to hardware with WebAuthn / FIDO2, or keep it off the browser entirely and rely on the NFC recovery card.
-- **RPC access control.** Add role-based access with wallet-ownership proofs, per-role allowlists on node proxies, and restricted CORS origins.
-- **Independent security review** of the circuits, key management, and network protocol.
+- **Refresh the drug price list.** The NADAC importer keeps an out-of-date rate for most drugs; fix the date comparison and re-import.
+- **Outside checks of each fill's money** (option A): the ledger and the member's device verify every fill proof before a claim is accepted.
+- **Proving-lease hardening and per-caller rate limits**, required before any outside caller can reach the network.
+- **Price lock and signed pickup**, with fills not picked up in 14 days reversed automatically.
+- **Providers hold their own keys**, so the engine no longer proves provider identity on their behalf.
+- **Capacity:** larger member and roster trees (1,024 per partition today) and an engine that handles more than one claim at a time.
+- **End-to-end message encryption** in the provider dashboards (X25519 key agreement and AES-256-GCM; the primitives exist in [src/security/encryption.ts](src/security/encryption.ts)).
+- **Independent security review** of the circuits, key management and network protocol.
 
-Details and proposed fixes for each are in [SECURITY.md](SECURITY.md). Improvements are welcome as pull requests.
+Improvements are welcome as pull requests.
 
 ## Documentation
 
@@ -220,6 +227,7 @@ For a newcomer, a good reading order is ARCHITECTURE → ZKP_OVERVIEW → ZKPROO
 | [ARCHITECTURE.md](ARCHITECTURE.md) | The trust model, the five participants, identity and privacy, and the overall system design |
 | [ZKP_OVERVIEW.md](ZKP_OVERVIEW.md) | The zero-knowledge proof system as a bundle: every core file, the recursive `StateTransition → Batch → Chain` spine, and how the components push proofs and propagate updates (source-verified) |
 | [ZKPROOFS.md](ZKPROOFS.md) | The engineering deep dive: every `ZkProgram`, what each proof commits to, and the Pickles recursion constraints, with citations to source |
+| [docs/CODEMAP.md](docs/CODEMAP.md) | The code map: every process, route and proof program, with file and line pointers |
 | [RUNNING.md](RUNNING.md) | Running on one machine: prerequisites, start commands, ports, and troubleshooting |
 | [SECURITY.md](SECURITY.md) | An honest accounting of the proven cryptographic core and the edges that still need hardening |
 | [MISSION.md](MISSION.md) | Why this project exists and the spirit in which it is shared |
