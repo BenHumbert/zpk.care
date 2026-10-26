@@ -27,7 +27,7 @@ The artifacts listed below, together with their commit history in this repositor
 
 An earlier claim draft (claims 1-15, v4, 2026-03-03) was superseded before filing and is not part of the record.
 
-**Supporting evidence of reduction to practice:** the working source tree and its Jest suites (`tests/`), the live end-to-end harness (`scripts/e2e-verify/`), the evidence runner (`src/poc/patent-evidence-runner.ts`), the voiced walkthrough of one claim (`docs/media/`), and the comparison of the running system with these claims (`docs/INTENDED-VS-ASBUILT.md`).
+**Supporting evidence of reduction to practice:** the working source tree and its Jest suites (`tests/`), the live end-to-end harness (`scripts/e2e-verify/`), the evidence runner (`src/poc/patent-evidence-runner.ts`), and the comparison of the running system with these claims (`docs/INTENDED-VS-ASBUILT.md`).
 
 **Working reference implementation** (`src/`):
 

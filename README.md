@@ -50,8 +50,6 @@ zpk.care is a **hardened production candidate** running end to end on a one-comp
 - **Demo data is fictional.** The bundled prescribers, pharmacies, medications and members are invented.
 - **Active development** continues on the `dev` branch.
 
-Watch a voiced walkthrough of one claim, from the HR plan pick to pickup: [full, 24 minutes](docs/media/zpk-care-walkthrough.mp4) · [short cut, 10 minutes](docs/media/zpk-care-walkthrough-short.mp4). The videos are stored with Git LFS.
-
 ## Why it matters
 
 Today a prescription claim passes through systems that see every patient's identity and medication history, and that price drugs through hidden rebates and markups. PBM servers also hold large amounts of PHI and PII they do not need. zpk.care removes that exposure and returns the benefit to the people in the system:
