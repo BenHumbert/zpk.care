@@ -75,3 +75,6 @@ scripts/dev/live-env.sh
 
 # Extra member devices booted by the launcher for the multi-member harness: encrypted device state, local only
 e2e-devices/
+
+# The published patent filing (defensive publication) keeps its .docx originals
+!patent/**/*.docx

@@ -16,21 +16,18 @@ That open release, not a patent, is what keeps this technology free.
 
 The artifacts listed below, together with their commit history in this repository, constitute the public record of the techniques described. Anyone performing a prior-art search on the subject matter should cite this repository (and the commit hashes of these files) as the canonical published source.
 
-**Filed application package** (`Final Submission Version/`):
+**Filed application package** ([`patent/`](patent/README.md)), the operative documents of the application filed 2026-03-10:
 
-- `01_SPECIFICATION.docx` - detailed description of the system, 16 sections (I through XVI), 16 figures.
-- `02_CLAIMS_1-15_v4.docx` - 19 claims with dependency chains.
-- `02_SPECIFICATION_v4_ADDENDUM.docx` - claim-set addendum.
-- `03_ABSTRACT.docx` - abstract of the technical disclosure.
-- `drawings/FIG_01.docx` through `FIG_16.docx` - 16 architectural figures.
-- `04_INFORMATION_DISCLOSURE_STATEMENT.docx` - prior-art references considered.
+- `filed-2026-03-10/02_CLAIMS.docx` - claims 1-19 as filed.
+- `filed-2026-03-10/03_ABSTRACT.docx` - abstract of the technical disclosure.
+- `filed-2026-03-10/04_INFORMATION_DISCLOSURE_STATEMENT.docx` - prior-art references considered.
+- `filed-2026-03-10/drawings/` - 22 drawing sheets (FIG. 1 to 16, with FIG. 8, 10, 12, 14, 15 and 16 split into A and B).
+- `substitute-2026-04-07/SUBSTITUTE_SPECIFICATION.md` - the substitute specification, which supersedes the original; its `MARKUP_CHANGE_LIST.md` lists the 37 changes, none to the claims or the abstract.
+- `substitute-2026-04-07/figures/` - text descriptions of the 22 sheets.
 
-**Supporting evidence of reduction to practice** (`Final Submission Version/supporting/`):
+An earlier claim draft (claims 1-15, v4, 2026-03-03) was superseded before filing and is not part of the record.
 
-- `IMPLEMENTATION_EVIDENCE_EXHIBIT.md` - cryptographic evidence that the techniques are not merely described but actually working.
-- `CONSOLIDATED_PATENT_ANALYSIS.md` - 14-database prior-art search summary.
-- `CLAIM_15_EVIDENCE_AND_ANALYSIS.docx` - proving-pool evidence.
-- `PATENT_EVIDENCE_REPORT.md` / `.json` - machine-generated cryptographic test vectors.
+**Supporting evidence of reduction to practice:** the working source tree and its Jest suites (`tests/`), the live end-to-end harness (`scripts/e2e-verify/`), the evidence runner (`src/poc/patent-evidence-runner.ts`), the voiced walkthrough of one claim (`docs/media/`), and the comparison of the running system with these claims (`docs/INTENDED-VS-ASBUILT.md`).
 
 **Working reference implementation** (`src/`):
 
