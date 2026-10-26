@@ -1,0 +1,487 @@
+1
+00:00:00,007 --> 00:00:09,674
+Narrator: One prescription claim, start to finish, on the real dashboards. It starts with a plan. Theo Brandvold builds plans for the insurer.
+
+2
+00:00:12,520 --> 00:00:15,277
+Theo Brandvold: Standard Rx, 2026.
+
+3
+00:00:18,664 --> 00:00:21,294
+Narrator: Amounts on this form are in cents.
+
+4
+00:00:21,656 --> 00:00:27,965
+Theo Brandvold: Five hundred deductible. Seventy-eight hundred out-of-pocket. Sixteen thousand for a family.
+
+5
+00:00:33,335 --> 00:00:33,972
+Theo Brandvold: Create.
+
+6
+00:00:35,899 --> 00:00:51,664
+Narrator: His node stores the plan on the sequencer, the network's ledger, and publishes it with a signed request. When a member enrolls, the claims engine copies her limits from this copy and binds her to this plan's formulary, copay and dispensing fee.
+
+7
+00:00:52,134 --> 00:00:52,962
+Delphine Okerlund: Two plans.
+
+8
+00:00:54,972 --> 00:01:03,531
+Delphine Okerlund: Standard. Five hundred deductible, seventy-eight hundred out-of-pocket, ten-dollar base copay. That's the one we budgeted.
+
+9
+00:01:24,573 --> 00:01:27,249
+Delphine Okerlund: Effective today. Cap of twenty-five.
+
+10
+00:01:28,817 --> 00:01:29,545
+Delphine Okerlund: Submit.
+
+11
+00:01:31,124 --> 00:01:45,950
+Narrator: When she submitted, her browser made an Ed25519 key pair and kept the private half in page memory. The insurer got the public half with the application. That key will sign Fernhill's agreement later.
+
+12
+00:01:47,103 --> 00:01:49,991
+Delphine Okerlund: Activation code. Copied, and saved.
+
+13
+00:01:51,154 --> 00:01:53,720
+Delphine Okerlund: They want our CP 575.
+
+14
+00:01:54,088 --> 00:01:55,622
+Delphine Okerlund: I have it. Uploading.
+
+15
+00:01:59,512 --> 00:02:02,545
+Theo Brandvold: Fernhill Test Works. Letter's on file.
+
+16
+00:02:04,000 --> 00:02:07,745
+Theo Brandvold: Name and EIN match the application.
+
+17
+00:02:08,609 --> 00:02:09,462
+Theo Brandvold: Approved.
+
+18
+00:02:11,875 --> 00:02:15,495
+Delphine Okerlund: It won't let me sign until I scroll to the end. Fine.
+
+19
+00:02:21,731 --> 00:02:24,632
+Delphine Okerlund: Benefits Director. Attest. Sign.
+
+20
+00:02:25,758 --> 00:02:46,200
+Narrator: Her key signs the agreement, and the insurer checks it against her application's public key and adds its own signature. The sequencer checks both, the insurer's against a key pinned in its own configuration, not one carried in the document. Then the insurer starts a separate employer node for Fernhill.
+
+21
+00:02:46,566 --> 00:02:50,747
+Delphine Okerlund: Node address. Admin token, shown once. Copying it now.
+
+22
+00:02:55,572 --> 00:02:56,464
+Delphine Okerlund: Token's in.
+
+23
+00:02:59,852 --> 00:03:03,679
+Delphine Okerlund: One group for the lab staff. Standard plan, effective today.
+
+24
+00:03:07,571 --> 00:03:18,054
+Narrator: This node serves Fernhill alone. It accepts a group only on a plan Fernhill bought. The group ID stays here; only its hash ever leaves.
+
+25
+00:03:19,158 --> 00:03:22,349
+Delphine Okerlund: Node address. Token. Passphrase, twice.
+
+26
+00:03:32,203 --> 00:03:33,079
+Delphine Okerlund: Lab staff.
+
+27
+00:03:38,921 --> 00:03:41,155
+Delphine Okerlund: Six rows. Same as the roster.
+
+28
+00:03:41,524 --> 00:03:43,647
+Delphine Okerlund: Codes expire end of next month.
+
+29
+00:03:45,777 --> 00:04:08,911
+Narrator: This tool is meant for Fernhill's own computer. It hashes each employee ID and family ID with a secret seed it keeps for this group, and sends Fernhill's node only those hashes. The node issues one code per person. The tool adds an eight-digit PIN; the node gets only a hash of code and PIN together.
+
+30
+00:04:09,271 --> 00:04:12,704
+Delphine Okerlund: Codes go in the welcome letters. PINs by text.
+
+31
+00:04:13,507 --> 00:04:25,232
+Narrator: A few days later, Avery Quillfeather, a lab technician at Fernhill, has a letter with a code and a text with a PIN. Here the member node on port 4001 plays her phone.
+
+32
+00:04:25,598 --> 00:04:27,067
+Avery Quillfeather: Okay. New enrollment.
+
+33
+00:04:28,342 --> 00:04:29,888
+Avery Quillfeather: A PIN for the phone first.
+
+34
+00:04:31,854 --> 00:04:34,136
+Avery Quillfeather: Code from the letter. PIN from the text.
+
+35
+00:04:36,176 --> 00:04:38,616
+Avery Quillfeather: And a recovery PIN. Something I won't forget.
+
+36
+00:04:39,778 --> 00:04:42,656
+Avery Quillfeather: Cardholder ID, from the card. Name. Birthday.
+
+37
+00:04:49,052 --> 00:04:54,465
+Narrator: First the phone makes a random enrollment key. It never leaves the phone in one piece.
+
+38
+00:04:55,042 --> 00:05:05,991
+Narrator: Then it redeems the code: the code and one hash of code and PIN go to the insurer, which forwards them, signed, to the node that issued the code.
+
+39
+00:05:06,344 --> 00:05:19,000
+Narrator: Fernhill's node checks the hash, marks the code used, and answers with group, plan and family hashes. The insurer keeps the family hash and passes the other two to the phone.
+
+40
+00:05:24,467 --> 00:05:26,602
+Narrator: Here is what the phone just computed.
+
+41
+00:05:26,975 --> 00:05:47,759
+Narrator: One function does all the hashing. H is Poseidon, a hash that is cheap inside a proof, working modulo p, a prime just above two to the two hundred fifty-four. enc packs text into field elements, thirty-one bytes each; hs hashes a string.
+
+42
+00:05:48,124 --> 00:06:18,188
+Narrator: The phone draws a salt, two hundred fifty-six random bits; sigma is its hash. Each identity field is hashed with sigma: f-zero the cardholder ID, f-two and f-three the names, f-four the enrollment key, K. The birth date, f-one, goes in as one number. f-five is g, the group hash from the redeemed code, with no salt.
+
+43
+00:06:18,552 --> 00:06:31,199
+Narrator: Seven field elements go in, a zero that tags a member wallet, then f-zero through f-five. One comes out: W, the wallet ID.
+
+44
+00:06:31,566 --> 00:06:43,429
+Narrator: f-zero to f-four never leave the phone; f-five came from the insurer at redemption. W goes out, and Fernhill never sees it.
+
+45
+00:06:43,815 --> 00:06:58,147
+Narrator: Enrolling sends the insurer the wallet ID. The insurer checks that the code was redeemed and no other wallet used it, then sends the engine a signed approval: the wallet, its plan, its group and family hashes.
+
+46
+00:06:58,514 --> 00:07:14,442
+Narrator: The same call splits the enrollment key, once per recovery card, into two random-looking shares. The card gets one. The insurer gets the other, beside a slow hash of the recovery PIN, the salt, and the group and plan hashes.
+
+47
+00:07:17,333 --> 00:07:23,011
+Narrator: Then the phone compiles its circuits and starts the registration proof.
+
+48
+00:07:23,366 --> 00:07:26,553
+Narrator: While the phone proves, here is what it proves.
+
+49
+00:07:26,931 --> 00:07:52,233
+Narrator: First, the tool every tree here uses. MR is a Merkle path root: start at a leaf, ell, and at each level hash it with one sibling, s-i. The bit b-i says which side. z-zero is zero, and each z-k hashes two copies of the one below, so an empty tree's root is known in advance.
+
+50
+00:07:52,603 --> 00:08:29,901
+Narrator: Now the proof. t is the domain tag; zero means member, so the circuit rebuilds W from the six private values. The wallet registry and the lifecycle tree each have height eleven, a thousand and twenty-four slots. Line two: a zero at W's slot hashes up to today's roots, so the slot is empty. Line three writes W with an empty inventory and a nonce of zero, and W with state one, registered. Only x is public: W and four roots.
+
+51
+00:08:30,261 --> 00:09:03,064
+Narrator: The sequencer checks every proof at one gate. At boot it compiled this program itself, in a separate verifier process, and checked the key's hash against a pinned value; this take pins one, and without a pin it only warns. A proof passes only if it verifies, its old roots are the ledger's current roots, and its new roots match the sequencer's own recomputation: the next free slot for a registration, or the wallet's own slot, nonce plus one, for an update.
+
+52
+00:09:03,419 --> 00:09:12,066
+Narrator: Only then does anything change. And while the phone proved, it held the proving lease, so nothing else could move those roots.
+
+53
+00:09:12,435 --> 00:09:16,151
+Avery Quillfeather: Write your two recovery cards now. Keep one at home. Okay.
+
+54
+00:09:16,517 --> 00:09:27,098
+Narrator: Each card holds one share of her enrollment key and a random ID, and no wallet ID. The wallet ID on screen is an address, not a secret.
+
+55
+00:09:27,456 --> 00:09:27,947
+Avery Quillfeather: Done.
+
+56
+00:09:29,784 --> 00:09:47,008
+Narrator: No product screen shows this part, so this card is drawn from the network's own answers. The registration proof was accepted. Then the phone sent the engine a second proof: that it knows the six values behind W, without sending them.
+
+57
+00:09:47,399 --> 00:10:04,247
+Narrator: The engine opens a record only for a wallet the insurer approved and the ledger shows registered. It took Avery's limits from her plan, marked her eligible with an admin write, not a proof, and queued her first credential, which the phone proved too.
+
+58
+00:10:04,633 --> 00:10:07,671
+Narrator: Two equations hold the engine's record for Avery.
+
+59
+00:10:08,036 --> 00:10:34,214
+Narrator: A is the accumulator commitment, one hash over seven numbers: y, the plan year; D, the deductible, and d, paid toward it; M, the out-of-pocket maximum, and o, paid; B, the annual benefit maximum, and b, what the plan has paid. All in cents. On day one, everything paid is zero.
+
+60
+00:10:34,600 --> 00:11:00,077
+Narrator: A credential carries one number for its data, a forest root: the hash of six tree roots, each of height eight. At registration only access control has leaves. Leaf zero is her eligibility record, which binds her to her plan: its copay and the root of its formulary. Leaf one twenty-seven is A. The other trees are empty: z-seven.
+
+61
+00:11:00,451 --> 00:11:08,373
+Narrator: In the wallet registry, this whole credential is one number: the inventory root inside her leaf.
+
+62
+00:11:11,346 --> 00:11:14,390
+Avery Quillfeather: Providers. Dr. Fallowmere. That's who I saw.
+
+63
+00:11:15,553 --> 00:11:17,275
+Avery Quillfeather: Primary care. Done.
+
+64
+00:11:18,903 --> 00:11:40,994
+Narrator: The engine checks that Dr. Fallowmere is a credentialed, active prescriber and records her in Avery's credential, as leaf zero of the member tree. The phone proves that update, then posts the link to the sequencer, signed with its wallet key. Avery joins the doctor's list as a wallet ID, with no name.
+
+65
+00:11:44,437 --> 00:11:46,722
+Dr. Miriam Fallowmere: New patient on my list. That's her.
+
+66
+00:11:48,274 --> 00:11:50,073
+Dr. Miriam Fallowmere: Kettleby's. Her usual.
+
+67
+00:11:53,529 --> 00:11:57,164
+Dr. Miriam Fallowmere: Allopurinol, a hundred milligrams. Start low.
+
+68
+00:11:59,549 --> 00:12:20,491
+Narrator: Before she writes it, her node asks the network what Avery would pay today. It may: Avery named her as primary care. The answer comes from the same arithmetic the fill will prove. She would pay $14.18, all of it toward the deductible, and the drug is covered on her plan with no prior authorization.
+
+69
+00:12:20,863 --> 00:12:23,438
+Dr. Miriam Fallowmere: One a day, after a meal. Thirty.
+
+70
+00:12:27,025 --> 00:12:29,632
+Dr. Miriam Fallowmere: No refills until I see her uric acid.
+
+71
+00:12:31,418 --> 00:12:32,023
+Dr. Miriam Fallowmere: Send.
+
+72
+00:12:33,879 --> 00:12:45,891
+Narrator: Her node never received a name. It encrypts the e-script twice, for the pharmacy and for Avery's phone, then asks the engine, which runs inside the sequencer's process, to record it.
+
+73
+00:12:46,265 --> 00:13:12,746
+Narrator: The engine accepts: Avery named her as primary care, both providers are in network, and the drug needs no prior authorization or step therapy. Then it makes four proofs: the doctor's identity, made with a key it still holds for her; eligibility; formulary access; and the message. It throws them away; nobody verifies them yet.
+
+74
+00:13:13,118 --> 00:13:16,454
+Narrator: The ledger gets only a messaging audit event.
+
+75
+00:13:18,560 --> 00:13:21,851
+Walt Kettleby: Allopurinol, hundred milligram, thirty.
+
+76
+00:13:23,261 --> 00:13:25,222
+Walt Kettleby: Filled. Now we wait for her.
+
+77
+00:13:25,590 --> 00:13:35,212
+Narrator: Fill is a status change. No proof, no money. This page keeps Dispense disabled until the member is verified.
+
+78
+00:13:35,567 --> 00:13:37,275
+Walt Kettleby: Go ahead and tap your phone.
+
+79
+00:13:37,642 --> 00:13:38,327
+Avery Quillfeather: One sec.
+
+80
+00:13:40,956 --> 00:14:10,806
+Narrator: The phone asks the sequencer for an attestation, signed with its wallet key. The sequencer signs one line with its Ed25519 key: the wallet ID, the registry root, the lifecycle state, a global-state field that is zero for now, the time, a one-day expiry and a random nonce. It is meant to travel by NFC tap; here, by clipboard.
+
+81
+00:14:12,236 --> 00:14:16,632
+Narrator: The tap is simulated: copied from the phone, pasted here.
+
+82
+00:14:18,902 --> 00:14:21,426
+Walt Kettleby: There you are. One ready to go.
+
+83
+00:14:22,981 --> 00:14:44,356
+Narrator: The node checked the sequencer's signature against a key it already holds, and the expiry. With that attestation, not a bare wallet ID, it may read her claim history, which is empty. Dispense unlocks, but that gate lives in this page; the server doesn't ask for the tap.
+
+84
+00:14:44,719 --> 00:14:45,804
+Walt Kettleby: Running it through.
+
+85
+00:14:46,485 --> 00:15:15,283
+Narrator: Dispense sends the engine the prescription and the quantity, and no price. The engine prices the fill itself: the drug's NADAC price times the quantity, plus her plan's dispensing fee. It refuses a terminated member or a same-day repeat of this drug at this pharmacy, then makes three proofs: one for the pharmacy's identity, one for the script's move to dispensed, and one for the fill.
+
+86
+00:15:15,651 --> 00:15:36,451
+Narrator: Before any money, the fill circuit checks the pharmacy, finds the prescription and its filled status, matches the drug to the script and formulary, checks the quantity and that the accumulator is Avery's. For now, the engine still holds the pharmacy's key for that first check.
+
+87
+00:15:36,834 --> 00:15:42,251
+Narrator: Inside that proof, the money starts from her record, A.
+
+88
+00:15:42,628 --> 00:16:20,133
+Narrator: T is the total: the drug's NADAC price times the quantity, plus her plan's dispensing fee. Here, $14.18, so on the board T is 1,418. inDed, the in-deductible flag, is true while a deductible is unmet. r-D is what is left of it: all of it, $500.00. p-D, this fill's deductible portion, is T or r-D, whichever is smaller. The whole total fits, so the rest, a, is zero.
+
+89
+00:16:20,494 --> 00:16:39,932
+Narrator: c is the copay, and it comes from her plan: ten dollars. c-rem is the copay on what remains, so zero. p-norm is the usual copay, after the deductible. She is still in it, so her base pay is p-D plus zero: the whole total.
+
+90
+00:16:40,298 --> 00:16:57,167
+Narrator: Then the benefit cap, the out-of-pocket cap and the family rules. None binds today. So P, what she pays, is the total; Q, what the plan pays, is zero.
+
+91
+00:16:57,998 --> 00:17:01,011
+Walt Kettleby: That's $14.18 today.
+
+92
+00:17:01,376 --> 00:17:04,042
+Avery Quillfeather: Oh. I thought it was a ten-dollar copay.
+
+93
+00:17:04,398 --> 00:17:14,673
+Walt Kettleby: It will be, once you've met your deductible. Until then you pay what the drug costs, and this one's a generic. All of it counts toward your five hundred.
+
+94
+00:17:15,030 --> 00:17:16,666
+Avery Quillfeather: Okay. Here you go.
+
+95
+00:17:17,033 --> 00:17:20,111
+Walt Kettleby: Take it after a meal, with plenty of water.
+
+96
+00:17:20,473 --> 00:17:39,074
+Narrator: The badge says Settlement Complete. More exactly: the fill proof stayed in the engine, and it takes one more proof, from Avery's phone, to put the claim on the ledger. Payment Received is the pharmacy's own note that she paid; it changes nothing on the network.
+
+97
+00:17:39,767 --> 00:17:44,080
+Narrator: Walt was right about the deductible. Here is where the proof says so.
+
+98
+00:17:44,443 --> 00:17:54,298
+Narrator: Kappa, the deductible credit, is the smaller of what she pays and the deductible portion. Both are the whole total, so all of it counts.
+
+99
+00:17:54,657 --> 00:18:17,088
+Narrator: fc hashes the facts of the fill: prescription hash, pharmacy wallet, drug-code hash, quantity times a thousand, ingredient cost, fee and date of service. S hashes fc with the money, P, Q and kappa. That settlement commitment goes into the prescription's own transaction tree.
+
+100
+00:18:17,450 --> 00:18:40,703
+Narrator: The proof also outputs F-prime, her new eligibility forest root. Before recording anything, the engine rebuilds it from her own year and limits, with kappa, P and Q added to what she has paid, along the same path at leaf one twenty-seven. If it does not equal F-prime, the engine throws and records nothing.
+
+101
+00:18:41,068 --> 00:18:48,138
+Narrator: Then it keeps the outputs and drops the proof. Nobody outside the engine verifies a fill proof yet.
+
+102
+00:18:48,511 --> 00:18:58,915
+Narrator: No screen shows the next part either. The engine queued a wallet update for Avery and parked the claim against it. Her phone checks for work every twenty seconds.
+
+103
+00:18:59,301 --> 00:19:02,536
+Narrator: The claim reaches the ledger through a proof the phone makes.
+
+104
+00:19:02,900 --> 00:19:36,831
+Narrator: First the phone checks the engine's work: it rebuilds the credential from the leaves it was sent, F-star being their forest root, in slot zero of a fresh inventory, and refuses unless that gives C-new. The update carries no amounts; this checks only that the root adds up. Then the proof: W from the six private values, a lifecycle state, ell, that is not four, which means revoked, and her leaf moving from C-old and nonce n to C-new and n plus one.
+
+105
+00:19:37,398 --> 00:19:47,038
+Narrator: Accepted, at the same gate as her registration. The sequencer attached the claim the engine parked for exactly this wallet and this root.
+
+106
+00:19:47,406 --> 00:19:58,494
+Narrator: One caveat: the amounts ride along from the engine, and nothing outside the engine checks them against the fill proof yet. The engine did check its own record against that proof first.
+
+107
+00:19:59,268 --> 00:20:02,878
+Narrator: Accepting that proof, the sequencer wrote two records.
+
+108
+00:20:03,263 --> 00:20:30,474
+Narrator: First, the audit event. E-k hashes eleven values: the wallet, four roots, the sequence number k, a registration flag, the drug-code hash, P, Q, and op, one for a fill. Chi-k hashes the previous link with E-k, from the hash of zero. Change any past event's hash and every later link stops matching.
+
+109
+00:20:30,872 --> 00:20:57,475
+Narrator: Second, the claim leaf. L-j hashes nine values: Avery's wallet, the drug-code hash, both providers' wallets, the hashed date, P, Q, op and kappa. It is appended at the next free leaf of a tree twenty-four levels deep, with room for more than eight million claims, whose root is stored with every batch.
+
+110
+00:20:57,867 --> 00:21:13,113
+Narrator: Neither record holds her name. Both hold the money. And the drug is not hidden, by design: beside both records, the sequencer keeps its code and name in plain text, so the plan can track what it spends on each drug.
+
+111
+00:21:14,802 --> 00:21:22,416
+Narrator: This is the sequencer's own dashboard. In this boot it builds a batch every thirty seconds, from at most two accepted proofs.
+
+112
+00:21:24,892 --> 00:21:37,577
+Narrator: This batch holds Avery's update. Its record carries the claims root. Two replicas copy the sequencer's receipt and new roots for every accepted proof; they don't re-check the proofs yet.
+
+113
+00:21:40,171 --> 00:22:04,081
+Narrator: The batch proof re-verifies accepted proofs inside a circuit. wrapSingle wraps one proof and outputs its roots and counts. wrapPair takes two and checks they chain: the first one's new roots are the second one's old roots. mergeBatches would join batches the same way, but at two proofs per batch it never runs, and no chain proof runs above it yet.
+
+114
+00:22:04,442 --> 00:22:08,262
+Narrator: Anyone can check a batch proof against a key they compile themselves.
+
+115
+00:22:09,711 --> 00:22:12,100
+Theo Brandvold: Daily checks. Chain integrity.
+
+116
+00:22:16,296 --> 00:22:18,344
+Theo Brandvold: Financial balance. Good.
+
+117
+00:22:18,718 --> 00:22:40,036
+Narrator: Chain integrity re-walks the chain from the hash of zero, recomputing each link from the stored event hashes. Financial balance checks, fill by fill, that patient pay plus plan pay equals cost plus fee. The sequencer's own version also compares the chain's totals with the claim ledger's; this tab doesn't call it.
+
+118
+00:22:42,162 --> 00:22:42,954
+Avery Quillfeather: There it is.
+
+119
+00:22:43,304 --> 00:22:53,400
+Narrator: The phone reads its claims from the sequencer, signed with its wallet key. The card shows the drug, the split, and the pharmacy as a wallet hash.
+
+120
+00:22:54,538 --> 00:22:56,453
+Avery Quillfeather: So that went toward my deductible.
+
+121
+00:22:56,798 --> 00:23:24,518
+Narrator: These totals are sums over her claim leaves. All along, her name, birth date and cardholder ID stayed on her phone. Fernhill never learned her wallet ID. The doctor saw a short hash, the pharmacy a wallet ID inside a signed attestation. The insurer holds the salt and one key share per card, released only for the right recovery PIN.
+
+122
+00:23:24,473 --> 00:23:39,063
+Narrator: Two parts are unfinished. Nobody outside the engine verifies the fill proof yet, and the amounts on the ledger are the engine's word, tied to the phone's proof but not to the fill proof. That is the claim, as the code runs it today.
