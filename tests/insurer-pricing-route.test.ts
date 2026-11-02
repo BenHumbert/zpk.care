@@ -82,8 +82,8 @@ beforeAll(async () => {
     if (request.walletId !== MEMBER) return null;
     return {
       covered: true, copayAmountCents: 1500, copayBasis: 'plan', tierLevel: 1,
-      price: { basis: 'NADAC', ndc: ABACAVIR, nadacUnitPriceE5: 60042, pricingUnit: 'EA', dispensingFeeCents: 1250, dispensingFeeSource: 'plan', quantity: 30, ingredientCostCents: 1801, totalCostCents: 3051 },
-      split: { patientPayCents: 3051, planPayCents: 0, deductibleCreditCents: 3051, phase: 'deductible', familyRule: 0 },
+      price: { basis: 'NADAC', ndc: ABACAVIR, nadacUnitPriceE5: 64179, pricingUnit: 'EA', dispensingFeeCents: 1250, dispensingFeeSource: 'plan', quantity: 30, ingredientCostCents: 1925, totalCostCents: 3175 },
+      split: { patientPayCents: 3175, planPayCents: 0, deductibleCreditCents: 3175, phase: 'deductible', familyRule: 0 },
     };
   });
   await rpcServer.start();
@@ -132,8 +132,8 @@ describe('POST /pricing/estimate', () => {
     const r = await estimate({ ndcHash, quantity: 30, walletId: MEMBER });
     expect(r.status).toBe(200);
     expect(r.json.data).toMatchObject({
-      covered: true, drugName: 'ABACAVIR', pricingUnit: 'EA', quantity: 30, ingredientCostCents: 1801, dispensingFeeCents: 1250,
-      dispensingFeeSource: 'plan', totalCostCents: 3051, phase: 'deductible', memberPayCents: 3051, employerPayCents: 0,
+      covered: true, drugName: 'ABACAVIR', pricingUnit: 'EA', quantity: 30, ingredientCostCents: 1925, dispensingFeeCents: 1250,
+      dispensingFeeSource: 'plan', totalCostCents: 3175, phase: 'deductible', memberPayCents: 3175, employerPayCents: 0,
     });
     expect(asked).toEqual([expect.objectContaining({ walletId: MEMBER, ndcHash, quantity: 30 })]);
   });
@@ -141,10 +141,10 @@ describe('POST /pricing/estimate', () => {
   test('with no member: a plan\'s price, or the list price; no member is asked about', async () => {
     const plan = await estimate({ ndcHash, quantity: 30, planId: 'PLAN-NOT-STORED' });
     expect(plan.status).toBe(200);
-    expect(plan.json.data).toMatchObject({ covered: true, ingredientCostCents: 1801, dispensingFeeSource: 'network-default' });
+    expect(plan.json.data).toMatchObject({ covered: true, ingredientCostCents: 1925, dispensingFeeSource: 'network-default' });
     const list = await estimate({ ndcHash, quantity: 0.4 });
     expect(list.status).toBe(200);
-    expect(list.json.data).toMatchObject({ quantity: 0.4, ingredientCostCents: 24 });   // 0.60042 x 0.4 = 0.240168, half up
+    expect(list.json.data).toMatchObject({ quantity: 0.4, ingredientCostCents: 26 });   // 0.64179 x 0.4 = 0.256716, half up
     expect(asked).toEqual([]);
   });
 
@@ -183,7 +183,7 @@ describe('POST /pricing/estimate', () => {
 describe('the insurer dashboard\'s estimator', () => {
   test('API.estimateCost posts to /pricing/estimate with the node\'s admin token, not to /rpc', async () => {
     const calls: Array<{ url: string; init: any }> = [];
-    const quote = { covered: true, memberPayCents: 3051 };
+    const quote = { covered: true, memberPayCents: 3175 };
     const ctx: Record<string, unknown> = {
       location: { origin: 'http://127.0.0.1:4004' },
       localStorage: { getItem: () => 'insurer-admin-token', setItem() {} },

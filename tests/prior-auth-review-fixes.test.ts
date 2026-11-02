@@ -381,7 +381,7 @@ describe('5. /node/state sends what the pharmacy console\'s NADAC column reads',
     const html = String(els['section-formulary'].innerHTML);
     const abacavir = meds.find((m) => m.ndc === ABACAVIR);
     expect(html).toContain(`>${nadac.nadacPerUnitLabel(abacavir)}</td>`);
-    expect(nadac.nadacPerUnitLabel(abacavir)).toBe('$0.60042/EA');
+    expect(nadac.nadacPerUnitLabel(abacavir)).toBe('$0.64179/EA');
     expect(html).not.toContain('No NADAC price');           // before: every row
   });
 });

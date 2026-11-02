@@ -159,12 +159,12 @@ describe('the sequencer', () => {
   test('l2_estimateCost prices with the fill\'s code: NADAC x quantity + the plan\'s fee, and ignores a fee the caller sends', async () => {
     const ndcHash = hashString(ABACAVIR).toString();
     const withPlan = (await rpc('l2_estimateCost', { ndcHash, quantity: 30, planId: 'P-1250' })).result;
-    expect(withPlan).toMatchObject({ ingredientCostCents: 1801, dispensingFeeCents: 1250, dispensingFeeSource: 'plan', totalCostCents: 3051 });
+    expect(withPlan).toMatchObject({ ingredientCostCents: 1925, dispensingFeeCents: 1250, dispensingFeeSource: 'plan', totalCostCents: 3175 });
     const noPlan = (await rpc('l2_estimateCost', { ndcHash, quantity: 30 })).result;
-    expect(noPlan).toMatchObject({ ingredientCostCents: 1801, dispensingFeeCents: 1000, dispensingFeeSource: 'network-default', totalCostCents: 2801 });
+    expect(noPlan).toMatchObject({ ingredientCostCents: 1925, dispensingFeeCents: 1000, dispensingFeeSource: 'network-default', totalCostCents: 2925 });
     const callerFee = (await rpc('l2_estimateCost', { ndcHash, quantity: 30, dispensingFeeCents: 1 })).result;
-    expect(callerFee).toMatchObject({ dispensingFeeCents: 1000, totalCostCents: 2801 });
+    expect(callerFee).toMatchObject({ dispensingFeeCents: 1000, totalCostCents: 2925 });
     const published = (await rpc('l2_estimateCost', { ndcHash, quantity: 30, planId: 'P-PUB' })).result;
-    expect(published).toMatchObject({ dispensingFeeCents: 1250, dispensingFeeSource: 'plan', totalCostCents: 3051 });
+    expect(published).toMatchObject({ dispensingFeeCents: 1250, dispensingFeeSource: 'plan', totalCostCents: 3175 });
   });
 });

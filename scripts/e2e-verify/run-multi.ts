@@ -307,12 +307,12 @@ let planCopayCents = BigInt(PLAN_COPAY_CENTS);
 // plan's $15 copay in the copay phase all the same), no PA or step therapy, at most 90 per fill.
 const NETWORK_DEFAULT_FEE_CENTS = 1000n;
 const DRUGS = {
-  ABACAVIR:    { ndc: '00378410591', nadac: '0.60042', qty: 30 },  // ABACAVIR 300 MG TABLET          $18.01 + $10.00 = $28.01
-  ADEFOVIR:    { ndc: '42794000308', nadac: '23.69832', qty: 30 }, // ADEFOVIR DIPIVOXIL 10 MG TAB    $710.95 + $10.00 = $720.95
-  ABIGALE:     { ndc: '70700033084', nadac: '0.76504', qty: 30 },  // ABIGALE 1 MG-0.5 MG TABLET      $22.95 + $10.00 = $32.95
-  ABIGALE_LO:  { ndc: '70700030384', nadac: '0.81693', qty: 30 },  // ABIGALE LO 0.5-0.1 MG TABLET    $24.51 + $10.00 = $34.51
-  ACAMPROSATE: { ndc: '00378633380', nadac: '0.36315', qty: 30 },  // ACAMPROSATE CALC DR 333 MG TAB  $10.89 + $10.00 = $20.89
-  ABIRTEGA:    { ndc: '82249001112', nadac: '0.90511', qty: 30 },  // ABIRTEGA 250 MG TABLET          $27.15 + $10.00 = $37.15
+  ABACAVIR:    { ndc: '00378410591', nadac: '0.64179', qty: 30 },  // ABACAVIR 300 MG TABLET          $19.25 + $10.00 = $29.25
+  ADEFOVIR:    { ndc: '42794000308', nadac: '22.70694', qty: 30 }, // ADEFOVIR DIPIVOXIL 10 MG TAB    $681.21 + $10.00 = $691.21
+  ABIGALE:     { ndc: '70700033084', nadac: '0.6935', qty: 30 },   // ABIGALE 1 MG-0.5 MG TABLET      $20.81 + $10.00 = $30.81
+  ABIGALE_LO:  { ndc: '70700030384', nadac: '0.96706', qty: 30 },  // ABIGALE LO 0.5-0.1 MG TABLET    $29.01 + $10.00 = $39.01
+  ACAMPROSATE: { ndc: '00378633380', nadac: '0.61865', qty: 30 },  // ACAMPROSATE CALC DR 333 MG TAB  $18.56 + $10.00 = $28.56
+  ABIRTEGA:    { ndc: '82249001112', nadac: '0.83166', qty: 30 },  // ABIRTEGA 250 MG TABLET          $24.95 + $10.00 = $34.95
 } as const;
 type DrugKey = keyof typeof DRUGS;
 type Lands = 'inside-deductible' | 'crosses-deductible' | 'copay-only';
@@ -466,7 +466,7 @@ async function mainFlow() {
   t.begin('harness', "B2 enrolls while A1's first claim is adjudicated");
   const b2 = people[3];
   let b2Wallet: string = '';
-  const a1First = claimDrug('ABACAVIR');   // $18.01 + $10.00 = $28.01: A1 pays it all, deductible $28.01 of $500
+  const a1First = claimDrug('ABACAVIR');   // $19.25 + $10.00 = $29.25: A1 pays it all, deductible $29.25 of $500
   if (SERIAL) {
     b2Wallet = await enrollMember(b2, token(b2), group(b2));
     await fileClaim('A1', wallets[0], a1First, 'A1 claim 1 — inside the deductible', { lands: 'inside-deductible' });
@@ -481,11 +481,11 @@ async function mainFlow() {
   await checkInvariant('registration during a fill', enrolled);
 
   // Remaining claims, invariant after each. Expected (fee $10.00, deductible $500, plan copay $15):
-  //   A1 claim 2  ADEFOVIR x30 $720.95: $471.99 of A1's deductible left -> A1 $486.99, plan $233.96; deductible met
-  //   A1 claim 3  ABIGALE  x30 $32.95:  A1 $15.00, plan $17.95
-  //   A2 claim 1  ABACAVIR x30 $28.01:  A2 $28.01, plan $0 (A1's family; no family limit is near)
-  //   B1 claim 1  ABACAVIR x30 $28.01:  B1 $28.01, plan $0
-  //   B2 claim 1  ADEFOVIR x30 $720.95: B2 $500 + $15 = $515.00, plan $205.95; deductible met
+  //   A1 claim 2  ADEFOVIR x30 $691.21: $470.75 of A1's deductible left -> A1 $485.75, plan $205.46; deductible met
+  //   A1 claim 3  ABIGALE  x30 $30.81:  A1 $15.00, plan $15.81
+  //   A2 claim 1  ABACAVIR x30 $29.25:  A2 $29.25, plan $0 (A1's family; no family limit is near)
+  //   B1 claim 1  ABACAVIR x30 $29.25:  B1 $29.25, plan $0
+  //   B2 claim 1  ADEFOVIR x30 $691.21: B2 $500 + $15 = $515.00, plan $176.21; deductible met
   const rest: Array<[string, string, DrugKey, string, Lands]> = [
     ['A1', wallets[0], 'ADEFOVIR', 'A1 claim 2 — crosses the deductible', 'crosses-deductible'],
     ['A1', wallets[0], 'ABIGALE', 'A1 claim 3 — copay only', 'copay-only'],
@@ -664,11 +664,11 @@ async function resumeFromMembers(peopleTemplate: Person[], _planId: string) {
   // same-day duplicate rule does not apply. Plan-bound formularies: the members pay the copay of the plan they enrolled
   // into, the earlier run's, as it was published, whatever the drug's tier (this run's planId names a plan created a
   // moment ago, not theirs). Expected, from the totals the first run leaves (fee $10.00, copay $15):
-  //   A1 claim 4  ABIGALE LO  x30 $34.51:  deductible met -> A1 $15.00, plan $19.51
-  //   A2 claim 2  ADEFOVIR    x30 $720.95: $471.99 of A2's deductible left -> A2 $486.99, plan $233.96; deductible met
-  //   A2 claim 3  ABIGALE     x30 $32.95:  A2 $15.00, plan $17.95
-  //   B1 claim 2  ACAMPROSATE x30 $20.89:  inside B1's deductible -> B1 $20.89, plan $0
-  //   B2 claim 2  ABIRTEGA    x30 $37.15:  deductible met -> B2 $15.00, plan $22.15
+  //   A1 claim 4  ABIGALE LO  x30 $39.01:  deductible met -> A1 $15.00, plan $24.01
+  //   A2 claim 2  ADEFOVIR    x30 $691.21: $470.75 of A2's deductible left -> A2 $485.75, plan $205.46; deductible met
+  //   A2 claim 3  ABIGALE     x30 $30.81:  A2 $15.00, plan $15.81
+  //   B1 claim 2  ACAMPROSATE x30 $28.56:  inside B1's deductible -> B1 $28.56, plan $0
+  //   B2 claim 2  ABIRTEGA    x30 $34.95:  deductible met -> B2 $15.00, plan $19.95
   const earlierPlanId = (st?.enrolledMembers ?? []).find((x: any) => x.walletId === wallets.A1)?.planId ?? _planId;
   const earlierPlan = (await rpc('l2_getPlan', { planId: earlierPlanId })).result;
   planCopayCents = BigInt(earlierPlan?.publishedTerms?.copayAmountCents ?? earlierPlan?.copayAmountCents ?? PLAN_COPAY_CENTS);

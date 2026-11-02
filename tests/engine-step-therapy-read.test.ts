@@ -40,7 +40,7 @@ jest.setTimeout(300_000);
 
 const OPERATOR = 'operator-token-for-step-therapy-read';
 const ABACAVIR = '00378410591';
-const ACULAR = '00023218105';                // step therapy required in the catalog
+const AMRIX = '63459070060';                  // step therapy required in the catalog
 const CONSOLE = '79300000000000000001';      // a member with a device served from the console's formulary
 const FIXTURE = '79300000000000000002';      // a fixture member, served from the console's formulary
 const ON_PLAN = '79300000000000000003';      // a member with a device on its own plan's formulary
@@ -151,7 +151,7 @@ beforeAll(async () => {
   const base: any = {
     planId: 'PLAN-STR', name: 'Step therapy read', coverageType: 1, copayAmountCents: 1500, deductibleAmountCents: 50000, oopMaxCents: 780000,
     annualBenefitMaxCents: 0, familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0, dispensingFeeCents: 1250,
-    formularyNdcs: [ABACAVIR, ACULAR], networkProviderWalletIds: [], published: true, createdAt: 0, updatedAt: 0,
+    formularyNdcs: [ABACAVIR, AMRIX], networkProviderWalletIds: [], published: true, createdAt: 0, updatedAt: 0,
   };
   const root = buildPlanFormulary(base, getAllFormularyEntries()).root.toString();
   await node.storePlan({ ...base, formularyRoot: root, networkRoot: '0', publishedTerms: publishedTermsFrom(base, root, '0', 1) });
@@ -201,7 +201,7 @@ describe('a step-therapy read for a drug the console\'s tree holds is answered a
     const before = engineState();
     for (const who of [CONSOLE, FIXTURE, UNKNOWN, ON_PLAN]) {
       expect(svc.checkStepTherapy(who, ndcHashOf(ABACAVIR))).toEqual({ allowed: true, message: 'Step therapy not required' });
-      expect(svc.checkStepTherapy(who, ndcHashOf(ACULAR)).message).not.toBe('Step therapy not required');
+      expect(svc.checkStepTherapy(who, ndcHashOf(AMRIX)).message).not.toBe('Step therapy not required');
     }
     const r = await stepRead(CONSOLE, ndcHashOf(ABACAVIR));
     expect(r.status).toBe(200);

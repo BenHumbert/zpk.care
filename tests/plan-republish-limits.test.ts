@@ -154,15 +154,15 @@ describe('the member\'s own limits follow a republish at its next action, with t
     expect((await rpc('l2_getPlanLimits', { planId: 'PLAN-RL' })).result).toMatchObject({ deductibleAmountCents: 25000, familyOopMaxCents: 1500000 });
     expect(limitsOf(m)).toEqual([50000, 780000, 0]);
     const quote = (await rpc('l2_estimateCost', { walletId: LOWER_DEDUCTIBLE, ndcHash: ndcHashOf(ABACAVIR), quantity: 30 })).result;
-    expect(quote).toMatchObject({ memberPayCents: 1500, employerPayCents: 1551, phase: 'copay' });
+    expect(quote).toMatchObject({ memberPayCents: 1500, employerPayCents: 1675, phase: 'copay' });
     expect(limitsOf(m)).toEqual([50000, 780000, 0]);   // a quote changes nothing
 
     const fill = await prescribeAndFill(LOWER_DEDUCTIBLE, ABACAVIR, 30);   // the engine's A-35 root check passes inside
-    expect([fill.adjudication.patientPayCents, fill.adjudication.planPayCents]).toEqual([1500, 1551]);
+    expect([fill.adjudication.patientPayCents, fill.adjudication.planPayCents]).toEqual([1500, 1675]);
     expect(fill.accumulator.after.deductiblePaidCents).toBe(30000);   // no deductible credit: the lowered deductible is met
     expect(fill.accumulator.limits).toMatchObject({ deductibleAmountCents: 25000, oopMaxCents: 780000, familyOopMaxCents: 1500000 });
     expect(limitsOf(m)).toEqual([25000, 780000, 0]);
-    expect(paidOf(m)).toEqual([30000, 31500, 1551]);
+    expect(paidOf(m)).toEqual([30000, 31500, 1675]);
   });
 
   test('the rebinding is one queued wallet update: the accumulator leaf and the credential\'s forest root change together', async () => {
@@ -186,10 +186,10 @@ describe('the member\'s own limits follow a republish at its next action, with t
     havePaid(m, { deductiblePaidCents: 50000, oopPaidCents: 600000, annualBenefitUsedCents: 0 });
     await node.storePlan(publishedPlan({ planId: 'PLAN-RL-OOP', oopMaxCents: 500000 }));
     const quote = (await rpc('l2_estimateCost', { walletId: LOWER_OOP, ndcHash: ndcHashOf(ABACAVIR), quantity: 30 })).result;
-    expect(quote).toMatchObject({ memberPayCents: 0, employerPayCents: 3051, phase: 'oop-max-reached' });
+    expect(quote).toMatchObject({ memberPayCents: 0, employerPayCents: 3175, phase: 'oop-max-reached' });
     const fill = await prescribeAndFill(LOWER_OOP, ABACAVIR, 30);
-    expect([fill.adjudication.patientPayCents, fill.adjudication.planPayCents]).toEqual([0, 3051]);
+    expect([fill.adjudication.patientPayCents, fill.adjudication.planPayCents]).toEqual([0, 3175]);
     expect(limitsOf(m)).toEqual([50000, 500000, 0]);
-    expect(paidOf(m)).toEqual([50000, 600000, 3051]);
+    expect(paidOf(m)).toEqual([50000, 600000, 3175]);
   });
 });

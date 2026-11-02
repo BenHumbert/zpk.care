@@ -3251,3 +3251,30 @@ quieter, and the network Overview flashing "No batches yet" before its tab opens
 **Correction, 2026-10-25.** A-60 (a failed prior-authorization approval left its leaf, credential root and index
 behind) was closed by the same change as A-113's second half, with `tests/engine-prior-auth-rollback.test.ts`; it had
 stayed listed as open. Scoreboard: 125 findings; 107 fixed; 18 open, none critical.
+
+**A-126 fixed, 2026-11-02 (the price list).** The NADAC importer built the drug catalog from the whole CMS year file,
+which holds every weekly snapshot since January 2025 (63 of them), and chose each drug's rate by comparing MM/DD/YYYY
+dates as text, so a December rate beat a January one. `src/data/nadac-dedupe.ts` now builds the catalog from the
+newest snapshot alone (its As of Date) and compares dates as dates; drugs that stay keep their catalog positions and
+new ones follow; the 100-drug demo list keeps its continuing drugs in place and takes same-tier substitutes after its
+last continuing drug, preferring names not already on it. `NADAC_CSV` imports from a copy already downloaded.
+Re-imported from the file of 2026-03-11: 30,130 drugs (32,768 before, capped), 28,267 of the 29,136 continuing drugs
+re-priced and 18 re-tiered, the 3,632 entries for drugs CMS no longer surveys dropped, and the 994 current
+over-the-counter drugs they had crowded out added. ABACAVIR 300 MG went from $0.60042 to $0.64179 a tablet;
+ALLOPURINOL 100 MG, the walkthrough's drug, from $0.0394 (a December 2024 rate) to $0.03476. The live harnesses'
+scenario drugs (three in `run.ts`, six in `run-multi.ts`) are all still listed on both lists and every claim still
+lands where its label says; their pinned rates and worked comments follow the new prices, as do the walkthrough's
+claim script and the worked numbers in its notes (a new take speaks the new price; the recorded film keeps the old).
+The README sent operators to `npm run fetch:nadac`, an older script that writes a 500-drug seed file nothing imports;
+it now names the importer.
+
+*Verified.* `tests/nadac-dedupe.test.ts`, 12 tests; with the old text comparison put back, the four year-boundary and
+date-ordering cases fail. Fourteen suites follow the new data: eleven price re-pins, each recomputed from the formula,
+the catalog count, and two that move from ACULAR (no longer surveyed) to AMRIX ER 15 MG, the step-therapy drug that
+took its demo slot. Regression batch 154 suites, 1,844 tests, all passing; typecheck src 18, scripts 2. The seven
+pricing-data suites outside the batch (formulary-update, smoke-e2e, benchmark, onboarding, production-showcase,
+layer5, wallet-migration) fail the same 92 of 222 tests by name with and without the change: the stale calls recorded
+above, and A-124. Operators: the catalog loads at start, so a running network takes the new prices at its next
+restart; the cached tree is rebuilt because the data changed, and the checkpoint check warns that the formulary root
+moved, so witnesses issued before the restart will not verify. Scoreboard: 132 findings; 108 fixed; 24 open, none
+critical.

@@ -34,7 +34,7 @@ jest.setTimeout(300_000);
 
 const OPERATOR = 'operator-token-for-step-display';
 const ABACAVIR = '00378410591';
-const ACULAR = '00023218105';   // step therapy required in the catalog
+const AMRIX = '63459070060';     // step therapy required in the catalog
 const W = '79400000000000000001';
 let node: any;
 let seq: any;
@@ -87,17 +87,17 @@ beforeAll(async () => {
   const { getAllFormularyEntries } = await import('../src/data/index.js');
   LC = await import('../src/engine/lifecycle.js');
   catalog = getAllFormularyEntries();
-  expect(catalog.find((d) => d.ndc === ACULAR)?.stepTherapyRequired).toBe(true);
+  expect(catalog.find((d) => d.ndc === AMRIX)?.stepTherapyRequired).toBe(true);
 
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
   node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-step-display' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
   seq = node.getSequencer();
   await startEngine(false);
-  await node.storePlan(publishedPlan([ABACAVIR]));   // version 1: no ACULAR
+  await node.storePlan(publishedPlan([ABACAVIR]));   // version 1: no AMRIX
   seq.adminMutate('test', ({ provision }: any) => { provision(Field(BigInt(W)), LC.LIFECYCLE_REGISTERED); });
   svc.approveMember({ walletId: W, groupIdHash: ndcHashOf('GRP-STEP'), planIdHash: ndcHashOf('PLAN-STEP'), planId: 'PLAN-STEP', employerId: null, familyIdHash: null });
   await svc.registerMemberFromEnrollment({ walletId: W, ownershipProofJson: '{}', displayName: 'Step member' });
-  await node.storePlan(publishedPlan([ABACAVIR, ACULAR]));   // version 2 lists ACULAR; the member still names version 1
+  await node.storePlan(publishedPlan([ABACAVIR, AMRIX]));   // version 2 lists AMRIX; the member still names version 1
 });
 
 afterAll(async () => { await server?.stop(); });
@@ -107,8 +107,8 @@ test('before a restart: answered from the version published now, and the member 
   const commitment = m.eligibilityData.commitment().toString();
   const updates = svc.walletUpdatesFor(W).length;
   expect(m.eligibilityData.formularyRoot.toString()).not.toBe(seq.getPlan('PLAN-STEP').publishedTerms.formularyRoot);
-  // ACULAR is not on version 1; the answer comes from version 2, where it is and needs step therapy
-  expect(svc.checkStepTherapy(W, ndcHashOf(ACULAR)).message).not.toBe('Step therapy not required');
+  // AMRIX is not on version 1; the answer comes from version 2, where it is and needs step therapy
+  expect(svc.checkStepTherapy(W, ndcHashOf(AMRIX)).message).not.toBe('Step therapy not required');
   expect(svc.checkStepTherapy(W, ndcHashOf(ABACAVIR)).message).toBe('Step therapy not required');
   expect(m.eligibilityData.commitment().toString()).toBe(commitment);
   expect(svc.walletUpdatesFor(W)).toHaveLength(updates);
@@ -121,7 +121,7 @@ test('after a restart, with no version held in memory: still answered, never a 4
   expect(svc.planFormularies.size).toBe(0);
   const m = svc.enrolledMembers.get(W);
   const commitment = m.eligibilityData.commitment().toString();
-  expect(svc.checkStepTherapy(W, ndcHashOf(ACULAR)).allowed).toBe(true);   // no prerequisite class defined for it in the catalog
+  expect(svc.checkStepTherapy(W, ndcHashOf(AMRIX)).allowed).toBe(true);   // no prerequisite class defined for it in the catalog
   const r = await fetch(`${url}/interactive/step-therapy-check?memberWalletId=${W}&ndcHash=${ndcHashOf(ABACAVIR)}`, { headers: { Authorization: `Bearer ${OPERATOR}` } });
   expect(r.status).toBe(200);
   expect((await r.json()).message).toBe('Step therapy not required');

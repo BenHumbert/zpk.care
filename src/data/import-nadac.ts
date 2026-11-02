@@ -30,12 +30,14 @@
  *   B (Brand) + NADAC > $500/unit        → Tier 4, copay $150, prior auth required
  *
  * Usage: npx tsx src/data/import-nadac.ts
+ *        NADAC_CSV=<file> npx tsx src/data/import-nadac.ts   (a copy already downloaded from CMS)
  */
 
 import * as https from 'https';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { deduplicateToLatest, latestSnapshotRows, refreshSubset, stableCatalogOrder } from './nadac-dedupe.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -67,6 +69,7 @@ interface NadacRow {
   otc: string;
   explanationCode: string;
   classification: string; // G=Generic, B=Brand
+  asOfDate: string;       // the weekly snapshot the row belongs to
 }
 
 interface FormularyRecord {
@@ -164,6 +167,7 @@ function parseNadac(csv: string): NadacRow[] {
       otc: fields[6],
       explanationCode: fields[7],
       classification: fields[8], // G or B
+      asOfDate: fields[11] ?? '',
     });
   }
 
@@ -171,19 +175,6 @@ function parseNadac(csv: string): NadacRow[] {
 }
 
 // ── Deduplicate & Tier ───────────────────────────────────
-
-function deduplicateToLatest(rows: NadacRow[]): Map<string, NadacRow> {
-  const latest = new Map<string, NadacRow>();
-
-  for (const row of rows) {
-    const existing = latest.get(row.ndc);
-    if (!existing || row.effectiveDate > existing.effectiveDate) {
-      latest.set(row.ndc, row);
-    }
-  }
-
-  return latest;
-}
 
 function assignTier(row: NadacRow): { tier: number; copay: number; priorAuth: boolean; stepTherapy: boolean } {
   const isGeneric = row.classification === 'G';
@@ -259,18 +250,30 @@ async function main() {
   console.log('NADAC Data Import — CMS Drug Pricing');
   console.log('=====================================\n');
 
-  const csv = await downloadCsv(NADAC_URL);
+  // NADAC_CSV names a CSV already downloaded from CMS (same columns); otherwise the file is fetched.
+  const csv = process.env.NADAC_CSV ? fs.readFileSync(process.env.NADAC_CSV, 'utf8') : await downloadCsv(NADAC_URL);
 
   console.log('\nParsing CSV...');
   const allRows = parseNadac(csv);
   console.log(`  → ${allRows.length} total rows parsed`);
 
+  // A-126: the year file holds every weekly snapshot; the current list is the newest one alone.
+  const current = latestSnapshotRows(allRows);
+  console.log(`  → ${current.length} rows in the newest weekly snapshot (${current[0]?.asOfDate ?? 'none'})`);
   console.log('Deduplicating to latest effective date per NDC...');
-  const deduped = deduplicateToLatest(allRows);
+  const deduped = deduplicateToLatest(current);
   console.log(`  → ${deduped.size} unique NDCs`);
 
   console.log('Assigning tiers and building formulary records...');
   let records = buildFormularyRecords(deduped);
+
+  // Drugs still listed keep their previous positions (stable leaf indices); new ones follow in snapshot order.
+  const formularyPath = path.join(__dirname, 'formulary.json');
+  if (fs.existsSync(formularyPath)) {
+    const previous = (JSON.parse(fs.readFileSync(formularyPath, 'utf8')) as Array<{ ndc: string }>).map((r) => r.ndc);
+    const byNdc = new Map(records.map((r) => [r.ndc, r] as const));
+    records = stableCatalogOrder(previous, records.map((r) => r.ndc)).map((ndc) => byNdc.get(ndc)!);
+  }
 
   // Cap at MerkleTree(16) capacity if needed
   if (records.length > MAX_FORMULARY_SIZE) {
@@ -298,7 +301,6 @@ async function main() {
   console.log(`  Total:                               ${records.length}`);
 
   // Write full formulary
-  const formularyPath = path.join(__dirname, 'formulary.json');
   fs.writeFileSync(formularyPath, JSON.stringify(records, null, 2));
   console.log(`\nWritten: ${formularyPath} (${(fs.statSync(formularyPath).size / 1024 / 1024).toFixed(1)} MB)`);
 
@@ -330,6 +332,15 @@ async function main() {
   const lookupPath = path.join(__dirname, 'formulary-lookup.json');
   fs.writeFileSync(lookupPath, JSON.stringify(lookupRecords));
   console.log(`Written: ${lookupPath} (${(fs.statSync(lookupPath).size / 1024 / 1024).toFixed(1)} MB)`);
+
+  // The 100-drug demo list keeps its slots: a drug still listed takes its new record, a drug that left is replaced by
+  // a current drug of the same tier and OTC status.
+  const demoPath = path.join(__dirname, 'formulary-100.json');
+  if (fs.existsSync(demoPath)) {
+    const demo = refreshSubset(JSON.parse(fs.readFileSync(demoPath, 'utf8')) as FormularyRecord[], records);
+    fs.writeFileSync(demoPath, JSON.stringify(demo, null, 2) + '\n');
+    console.log(`Written: ${demoPath} (${demo.length} drugs)`);
+  }
 }
 
 main().catch((err) => {

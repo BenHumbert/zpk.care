@@ -196,7 +196,7 @@ describe('/estimate-cost', () => {
     const asOperator = (await rpc('l2_estimateCost', { walletId: W, ndcHash: ndcHashOf(ABACAVIR), quantity: 30 })).result;
     expect(r.json.data).toEqual(asOperator);
     expect(r.json.data).toMatchObject({
-      covered: true, phase: 'deductible', memberPayCents: 3101, employerPayCents: 0, ingredientCostCents: 1801, dispensingFeeCents: 1300,
+      covered: true, phase: 'deductible', memberPayCents: 3225, employerPayCents: 0, ingredientCostCents: 1925, dispensingFeeCents: 1300,
       priorAuthRequired: false, stepTherapyRequired: false, maxQuantityPerFill: 90,
     });
     const pa = await call('POST', '/estimate-cost', { ndcHash: ndcHashOf(PA_DRUG), walletId: W, quantity: 30 }, adminHeader);
@@ -214,7 +214,7 @@ describe('/estimate-cost', () => {
   test('the price with no member stays open', async () => {
     const r = await call('POST', '/estimate-cost', { ndcHash: ndcHashOf(ABACAVIR), quantity: 30 });
     expect(r.status).toBe(200);
-    expect(r.json.data).toMatchObject({ covered: true, dispensingFeeSource: 'network-default', ingredientCostCents: 1801 });
+    expect(r.json.data).toMatchObject({ covered: true, dispensingFeeSource: 'network-default', ingredientCostCents: 1925 });
     expect(r.json.data).not.toHaveProperty('priorAuthRequired');
   });
 });

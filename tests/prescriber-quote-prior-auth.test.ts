@@ -184,7 +184,7 @@ describe('the pre-script quote answers a prescriber who may prescribe for the me
     expect(asPcp.error).toBeUndefined();     // before: Forbidden, the tap was the only way in
     expect(asPcp.result).toEqual(asOperator);
     expect(asPcp.result).toMatchObject({
-      covered: true, phase: 'deductible', memberPayCents: 3101, employerPayCents: 0, ingredientCostCents: 1801, dispensingFeeCents: 1300,
+      covered: true, phase: 'deductible', memberPayCents: 3225, employerPayCents: 0, ingredientCostCents: 1925, dispensingFeeCents: 1300,
       priorAuthRequired: false, stepTherapyRequired: false, maxQuantityPerFill: 90,
     });
     expect(asPcp.result).not.toHaveProperty('priorAuth');

@@ -156,9 +156,9 @@ afterAll(async () => { await server?.stop(); });
 describe('with a walletId, the estimate is the fill the member would get today', () => {
   test('the run.ts claims: each quote equals the fill proof that follows it, the accumulator carried from claim to claim', async () => {
     const expected: Array<[string, number, number, string]> = [
-      [ABACAVIR, 3051, 0, 'deductible'],
-      [ADEFOVIR, 48449, 23896, 'deductible'],
-      [ABILIFY, 1500, 55813, 'copay'],
+      [ABACAVIR, 3175, 0, 'deductible'],
+      [ADEFOVIR, 48325, 21046, 'deductible'],
+      [ABILIFY, 1500, 55881, 'copay'],
     ];
     for (const [ndc, member, plan, phase] of expected) {
       const quote = (await rpc('l2_estimateCost', { walletId: W, ndcHash: ndcHashOf(ndc), quantity: 30 })).result;
@@ -182,7 +182,7 @@ describe('with a walletId, the estimate is the fill the member would get today',
     const own = (await rpc('l2_estimateCost', { walletId: W, ndcHash: ndcHashOf(ADVAIR), quantity: 12 })).result;
     const claimed = (await rpc('l2_estimateCost', { walletId: W, ndcHash: ndcHashOf(ADVAIR), quantity: 12, planId: 'PLAN-CHEAP', dispensingFeeCents: 0 })).result;
     expect(claimed).toEqual(own);
-    expect(own).toMatchObject({ dispensingFeeCents: 1250, copayAmountCents: 1500, pricingUnit: 'GM', ingredientCostCents: 22501 });
+    expect(own).toMatchObject({ dispensingFeeCents: 1250, copayAmountCents: 1500, pricingUnit: 'GM', ingredientCostCents: 22456 });
   });
 
   test('the response carries the member\'s share and the rule that set it, no balances and no plan', async () => {
@@ -198,11 +198,11 @@ describe('with a walletId, the estimate is the fill the member would get today',
     await enroll(FAMILY_A, 'PLAN-FAMILY', 'FAMILY-HASH-1');
     await enroll(FAMILY_B, 'PLAN-FAMILY', 'FAMILY-HASH-1');
     const a = await prescribeAndFill(FAMILY_A, ABACAVIR, 30);
-    expect(a.adjudication.patientPayCents).toBe(3051);   // the family has paid 3051 of its $40.00 OOP max
+    expect(a.adjudication.patientPayCents).toBe(3175);   // the family has paid 3175 of its $40.00 OOP max
     const quote = (await rpc('l2_estimateCost', { walletId: FAMILY_B, ndcHash: ndcHashOf(ADVAIR), quantity: 12 })).result;
-    expect(quote).toMatchObject({ covered: true, totalCostCents: 23751, memberPayCents: 949, employerPayCents: 22802, phase: 'oop-max-reached' });
+    expect(quote).toMatchObject({ covered: true, totalCostCents: 23706, memberPayCents: 825, employerPayCents: 22881, phase: 'oop-max-reached' });
     const b = await prescribeAndFill(FAMILY_B, ADVAIR, 12);
-    expect([b.adjudication.patientPayCents, b.adjudication.planPayCents]).toEqual([949, 22802]);
+    expect([b.adjudication.patientPayCents, b.adjudication.planPayCents]).toEqual([825, 22881]);
   });
 
   test('a fixture member keeps its tier copay and the network default fee, as its fill does', () => {
@@ -213,8 +213,8 @@ describe('with a walletId, the estimate is the fill the member would get today',
     });
     const quote = svc.quoteMemberCost(FIXTURE, ndcHashOf(ABACAVIR), 30);
     expect(quote).toMatchObject({ covered: true, copayAmountCents: 1000, copayBasis: 'tier', tierLevel: 1 });
-    expect(quote.price).toMatchObject({ ingredientCostCents: 1801, dispensingFeeCents: 1000, dispensingFeeSource: 'network-default', totalCostCents: 2801 });
-    expect(quote.split).toMatchObject({ patientPayCents: 1000, planPayCents: 1801, phase: 'copay' });
+    expect(quote.price).toMatchObject({ ingredientCostCents: 1925, dispensingFeeCents: 1000, dispensingFeeSource: 'network-default', totalCostCents: 2925 });
+    expect(quote.split).toMatchObject({ patientPayCents: 1000, planPayCents: 1925, phase: 'copay' });
     svc.enrolledMembers.delete(FIXTURE);
   });
 
@@ -253,7 +253,7 @@ describe('with no walletId, a planId reads the plan as published', () => {
     const off = (await rpc('l2_estimateCost', { planId: 'PLAN-QUOTE', ndcHash: ndcHashOf(OFF_PLAN), quantity: 30 })).result;
     expect(off).toMatchObject({ covered: false, reason: 'Drug excluded from this plan' });
     const on = (await rpc('l2_estimateCost', { planId: 'PLAN-QUOTE', ndcHash: ndcHashOf(ABILIFY), quantity: 30 })).result;
-    expect(on).toMatchObject({ covered: true, copayAmountCents: 1500, copayBasis: 'plan', dispensingFeeCents: 1250, totalCostCents: 57313, memberPayCents: 1500, employerPayCents: 55813, phase: 'copay' });
+    expect(on).toMatchObject({ covered: true, copayAmountCents: 1500, copayBasis: 'plan', dispensingFeeCents: 1250, totalCostCents: 57381, memberPayCents: 1500, employerPayCents: 55881, phase: 'copay' });
   });
 
   test('a plan that lists no drugs covers the whole catalog', async () => {
@@ -264,7 +264,7 @@ describe('with no walletId, a planId reads the plan as published', () => {
   test('a plan never published bills no one: not covered, with the price its draft states', async () => {
     await node.storePlan({ planId: 'PLAN-DRAFT', name: 'Draft', coverageType: 1, copayAmountCents: 500, deductibleAmountCents: 0, oopMaxCents: 0, annualBenefitMaxCents: 0, dispensingFeeCents: 1250, formularyNdcs: [], networkProviderWalletIds: [], published: false, createdAt: 0, updatedAt: 0 });
     const r = (await rpc('l2_estimateCost', { planId: 'PLAN-DRAFT', ndcHash: ndcHashOf(ABACAVIR), quantity: 30 })).result;
-    expect(r).toMatchObject({ covered: false, phase: 'not-covered', ingredientCostCents: 1801, dispensingFeeCents: 1250, totalCostCents: 3051 });
+    expect(r).toMatchObject({ covered: false, phase: 'not-covered', ingredientCostCents: 1925, dispensingFeeCents: 1250, totalCostCents: 3175 });
     expect(r.reason).toMatch(/not published/);
   });
 

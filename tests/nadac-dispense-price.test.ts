@@ -28,7 +28,7 @@
  * A real L2Node sequencer and a real AdjudicationService on the plan-bound engine: a member registered against a
  * published plan with a $12.50 fee, programs not compiled; every proof dispatch is stopped, so each case ends right
  * after pricing. The formulary is cut to 100 drugs before anything loads src/data; its first drug is ABACAVIR 300 MG
- * TABLET at $0.60042 per tablet.
+ * TABLET at $0.64179 per tablet.
  */
 import fs from 'fs';
 import { Field, MerkleTree } from 'o1js';
@@ -71,7 +71,7 @@ beforeAll(async () => {
   const { getAllFormularyEntries, MEDICATIONS } = await import('../src/data/index.js');
   const LC = await import('../src/engine/lifecycle.js');
   expect(MEDICATIONS[0].ndc).toBe(ABACAVIR);
-  expect(MEDICATIONS[0].nadacPerUnit).toBe(0.60042);
+  expect(MEDICATIONS[0].nadacPerUnit).toBe(0.64179);
   ndcHash = hashString(ABACAVIR).toString();
 
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
@@ -114,7 +114,7 @@ describe('the engine prices the fill; the pharmacy does not set the price', () =
     const refused = svc.dispensePrescription({ prescriptionId: id, statedIngredientCostCents: 0, statedDispensingFeeCents: 1300 });
     await expect(refused).rejects.toMatchObject({ name: 'RegistrationRefused', status: 409, message: expect.stringMatching(/does not set the price/) });
     await refused.catch((e: Error) => {
-      expect(e.message).toContain('$18.01');
+      expect(e.message).toContain('$19.25');
       expect(e.message).toContain('$12.50 (plan)');
     });
     expect(svc.dispatchProof).not.toHaveBeenCalled();
@@ -124,38 +124,38 @@ describe('the engine prices the fill; the pharmacy does not set the price', () =
 
   test('with no costs it is priced NADAC x quantity + the plan fee', async () => {
     await expect(svc.dispensePrescription({ prescriptionId: filled(W) })).rejects.toThrow('stopped after pricing');
-    expect(costLine()).toBe('  Cost: NADAC $0.60042/EA x 30 = $18.01 + dispensing fee $12.50 (plan) = $30.51');
+    expect(costLine()).toBe('  Cost: NADAC $0.64179/EA x 30 = $19.25 + dispensing fee $12.50 (plan) = $31.75');
   });
 
   test('stating exactly the engine\'s price is accepted', async () => {
-    await expect(svc.dispensePrescription({ prescriptionId: filled(W), statedIngredientCostCents: 1801, statedDispensingFeeCents: 1250 })).rejects.toThrow('stopped after pricing');
+    await expect(svc.dispensePrescription({ prescriptionId: filled(W), statedIngredientCostCents: 1925, statedDispensingFeeCents: 1250 })).rejects.toThrow('stopped after pricing');
   });
 
   test('a fixture member pays the network default', async () => {
     await expect(svc.dispensePrescription({ prescriptionId: filled(FIXTURE_WALLET) })).rejects.toThrow('stopped after pricing');
-    expect(costLine()).toBe('  Cost: NADAC $0.60042/EA x 30 = $18.01 + dispensing fee $10.00 (network default) = $28.01');
+    expect(costLine()).toBe('  Cost: NADAC $0.64179/EA x 30 = $19.25 + dispensing fee $10.00 (network default) = $29.25');
   });
 
   test('a numeric string is refused, never added', async () => {
-    await expect(svc.dispensePrescription({ prescriptionId: filled(W), statedIngredientCostCents: '1801' })).rejects.toMatchObject({ status: 409 });
+    await expect(svc.dispensePrescription({ prescriptionId: filled(W), statedIngredientCostCents: '1925' })).rejects.toMatchObject({ status: 409 });
     expect(svc.dispatchProof).not.toHaveBeenCalled();
   });
 
   test('a partial fill is priced on the quantity dispensed', async () => {
     await expect(svc.dispensePrescription({ prescriptionId: filled(W), quantityDispensed: 10 })).rejects.toThrow('stopped after pricing');
-    expect(costLine()).toBe('  Cost: NADAC $0.60042/EA x 10 = $6.00 + dispensing fee $12.50 (plan) = $18.50');
+    expect(costLine()).toBe('  Cost: NADAC $0.64179/EA x 10 = $6.42 + dispensing fee $12.50 (plan) = $18.92');
   });
 
   test('a fee the insurer is still drafting is not charged: the fill takes the fee the plan was published with', async () => {
     await node.storePlan({ ...plan, dispensingFeeCents: 9999, published: false });   // an edit; the published terms stay
     await expect(svc.dispensePrescription({ prescriptionId: filled(W) })).rejects.toThrow('stopped after pricing');
-    expect(costLine()).toBe('  Cost: NADAC $0.60042/EA x 30 = $18.01 + dispensing fee $12.50 (plan) = $30.51');
+    expect(costLine()).toBe('  Cost: NADAC $0.64179/EA x 30 = $19.25 + dispensing fee $12.50 (plan) = $31.75');
     // published with no fee: the network default
     const noFee = { ...plan, dispensingFeeCents: null };
     await node.storePlan({ ...noFee, publishedTerms: publishedTermsFrom(noFee, plan.formularyRoot, '0', 2) });
     events = [];
     await expect(svc.dispensePrescription({ prescriptionId: filled(W) })).rejects.toThrow('stopped after pricing');
-    expect(costLine()).toBe('  Cost: NADAC $0.60042/EA x 30 = $18.01 + dispensing fee $10.00 (network default) = $28.01');
+    expect(costLine()).toBe('  Cost: NADAC $0.64179/EA x 30 = $19.25 + dispensing fee $10.00 (network default) = $29.25');
     await node.storePlan(plan);
   });
 });

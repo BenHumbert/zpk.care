@@ -39,8 +39,8 @@ import { quantityError, quantityMilli, formatQuantity, priceDispense, quoteNadac
 jest.setTimeout(300_000);
 
 const OPERATOR = 'operator-token-for-quantity-units';
-const ADVAIR = '00173071622';       // $18.75078 per GM
-const ADALIMUMAB = '61314032720';   // $1,590.28426 per ML; one pen is 0.4 ML
+const ADVAIR = '00173071622';       // $18.71328 per GM in the catalog
+const ADALIMUMAB = '61314032720';   // $1,593.64063 per ML in the catalog; one pen is 0.4 ML
 const W = '79500000000000000001';
 let node: any;
 let seq: any;
@@ -128,7 +128,7 @@ describe('the engine, with an ML drug and a GM drug', () => {
     expect(rx.prescriptionData.quantityPrescribed).toBe('400');
     svc.markFilled({ prescriptionId: rx.prescriptionId });
     const fill = await svc.dispensePrescription({ prescriptionId: rx.prescriptionId, quantityDispensed: 0.4 });
-    expect(fill.adjudication).toMatchObject({ ingredientCostCents: 63611, dispensingFeeCents: 1250, totalCostCents: 64861 });
+    expect(fill.adjudication).toMatchObject({ ingredientCostCents: 63746, dispensingFeeCents: 1250, totalCostCents: 64996 });
     expect(fill.fulfillmentDetail.quantityDispensed).toBe('400');   // the circuit compared 400 <= 400 <= 90000
     expect(fill.rxStatus).toBe('DISPENSED');
     const log = events.map((e) => e.message);
@@ -145,7 +145,7 @@ describe('the engine, with an ML drug and a GM drug', () => {
     const second = await svc.dispensePrescription({ prescriptionId: rx.prescriptionId, quantityDispensed: 0.2 });
     expect(second.rxStatus).toBe('DISPENSED');
     expect(second.quantityDispensed).toBe(0.3);
-    expect(second.adjudication.ingredientCostCents).toBe(375);   // 18.75078 x 0.2 = 3.750156 -> $3.75
+    expect(second.adjudication.ingredientCostCents).toBe(374);   // 18.71328 x 0.2 = 3.742656 -> $3.74
   });
 
   test('every door refuses a quantity that is not one, with 400', async () => {

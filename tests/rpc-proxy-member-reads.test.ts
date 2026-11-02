@@ -224,7 +224,7 @@ describe('a proxy configured to forward a member-data read forwards it only for 
   test('a call that names no member is no member-data read: the list price, NADAC x quantity plus the network default fee', async () => {
     const r = await quoteVia(forwardingUrl, { ndcHash, quantity: 30 });
     expect(r.status).toBe(200);
-    expect(r.json.result).toMatchObject({ covered: true, ingredientCostCents: 1801, dispensingFeeCents: 1000, dispensingFeeSource: 'network-default', totalCostCents: 2801 });
+    expect(r.json.result).toMatchObject({ covered: true, ingredientCostCents: 1925, dispensingFeeCents: 1000, dispensingFeeSource: 'network-default', totalCostCents: 2925 });
   });
 });
 

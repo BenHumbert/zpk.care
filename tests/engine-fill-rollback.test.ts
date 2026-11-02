@@ -194,9 +194,9 @@ describe('a member with a device: the claim commit is refused', () => {
     const n0 = svc.walletUpdatesFor(DEVICE).length;
     const claims0 = seq.pendingClaimCount();
     const fill = await svc.dispensePrescription({ prescriptionId: rx, quantityDispensed: 30 });   // before: refused, 'New TRANSACTION slot is not empty'
-    expect([fill.adjudication.patientPayCents, fill.adjudication.planPayCents, fill.adjudication.totalCostCents]).toEqual([3051, 0, 3051]);
+    expect([fill.adjudication.patientPayCents, fill.adjudication.planPayCents, fill.adjudication.totalCostCents]).toEqual([3175, 0, 3175]);
     expect(fill.accumulator.before).toEqual({ deductiblePaidCents: 0, oopPaidCents: 0, benefitUsedCents: 0 });
-    expect(paidOf(m)).toEqual([3051, 3051, 0]);
+    expect(paidOf(m)).toEqual([3175, 3175, 0]);
     const updates = svc.walletUpdatesFor(DEVICE);
     expect(updates).toHaveLength(n0 + 1);
     expect(updates.at(-1)).toMatchObject({ reason: 'fill', claimCommitted: true, newInventoryRoot: m.credentialInventory.getRoot().toString() });
