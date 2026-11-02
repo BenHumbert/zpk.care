@@ -3278,3 +3278,10 @@ above, and A-124. Operators: the catalog loads at start, so a running network ta
 restart; the cached tree is rebuilt because the data changed, and the checkpoint check warns that the formulary root
 moved, so witnesses issued before the restart will not verify. Scoreboard: 132 findings; 108 fixed; 24 open, none
 critical.
+
+*Live, the same day, on cd8a8f2 (secured boot, one member):* 243 of 246 checks. Every price check passed at the new
+rates: the plan's drugs listed at their scenario prices, and each claim's ingredient, fee, landing, split and ledger
+record. The three failures were not the change: another program on this machine held port 8000, so the explorer never
+started (EADDRINUSE); its fixture directory read 0 / 0, and the out-of-network doctor the harness finds through it was
+missing (two checks in step 24). A clean re-run needs port 8000 free; the port is fixed in `start-leviathan.ts` and
+`run.ts`.
