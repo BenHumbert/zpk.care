@@ -73,9 +73,11 @@ test('ingredient is NADAC x quantity rounded half up, in integers', () => {
 });
 
 test('matches exact decimal arithmetic for every drug in src/data/formulary.json at 1, 7, 30 and 90 units', () => {
+  // The live catalog on purpose, not the frozen copy the other suites read: every price CMS publishes must convert
+  // exactly. A-134: no pinned count, since the catalog follows CMS's newest snapshot; it must fit the 32,768-leaf tree.
   const records = JSON.parse(fs.readFileSync('src/data/formulary.json', 'utf8')) as Array<{ nadacPerUnit: number }>;
-  // A-126: the catalog is the newest weekly snapshot of the CMS file of 2026-03-11, which fits the 32,768-leaf tree
-  expect(records.length).toBe(30_130);
+  expect(records.length).toBeGreaterThan(0);
+  expect(records.length).toBeLessThanOrEqual(32_768);
   /** The published decimal, read digit by digit into $0.00001: no float arithmetic at all. */
   const exactE5 = (x: number): bigint => {
     const s = String(x);

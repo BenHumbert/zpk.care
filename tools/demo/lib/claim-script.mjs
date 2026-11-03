@@ -281,7 +281,7 @@ export function castOf(input = {}) {
   const drug = {
     // src/data/formulary-100.json: NDC 00378013701, tier 1, no prior authorization or step therapy, at most 90 a fill
     name: 'Allopurinol 100 mg tablet', match: 'ALLOPURINOL', strengthMatch: '100', ndc: '00378-0137-01', quantity: 30, daysSupply: 30, refills: 0,
-    directions: 'Take 1 tablet by mouth daily after a meal', diagnosis: 'Gout', nadacPerUnit: 0.03476,
+    directions: 'Take 1 tablet by mouth daily after a meal', diagnosis: 'Gout', nadacPerUnit: 0.03118,
     ...(input.drug || {})
   };
   // the batch interval the batch scene says; the director checks it against l2_getStatus before a take

@@ -1,0 +1,154 @@
+[
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "2999000518"
+    },
+    "enrollmentKey": "u2BT_yustgSyYwK1NkkAp_xgO7yRPiYoN2ScJ9-4C14",
+    "storeName": "Kettleby Pharmacy",
+    "chain": "Independent",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "214 Corran Avenue",
+    "city": "Sorrel Prairie",
+    "state": "WI",
+    "zip": "53519",
+    "phone": "608-555-0161",
+    "npi": "2999000518",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  },
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "2999000526"
+    },
+    "enrollmentKey": "h90qZDAqcayxguyyJNGD0QUv5btVgVGbeWiRvbNpork",
+    "storeName": "Wexley Road Pharmacy",
+    "chain": "Independent",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "1180 Wexley Road, Suite 100",
+    "city": "Sorrel Prairie",
+    "state": "WI",
+    "zip": "53519",
+    "phone": "608-555-0162",
+    "npi": "2999000526",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  },
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "2999000534"
+    },
+    "enrollmentKey": "21gwxhegfZxK-hH1AlDW3Xmg-f4xV-BbkXZ2zj6Cpeo",
+    "storeName": "Calder Street Pharmacy",
+    "chain": "Independent",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "431 Calder Street",
+    "city": "Sorrel Prairie",
+    "state": "WI",
+    "zip": "53519",
+    "phone": "608-555-0163",
+    "npi": "2999000534",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  },
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "2999000542"
+    },
+    "enrollmentKey": "Fdxf6bkNzR6gN0tsyJHB22_XvMTXDnMBH1g6dIkAKYA",
+    "storeName": "Tolliver Drug",
+    "chain": "Independent",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "3021 Quillan Avenue",
+    "city": "Sorrel Prairie",
+    "state": "WI",
+    "zip": "53524",
+    "phone": "608-555-0164",
+    "npi": "2999000542",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  },
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "2999000559"
+    },
+    "enrollmentKey": "UmZMsgze6bbM9FqrWhGYcLH-mVLuJTj3eOhFWpO_Th4",
+    "storeName": "Sorrel Prairie Pharmacy",
+    "chain": "Independent",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "1502 Brannock Avenue",
+    "city": "Sorrel Prairie",
+    "state": "WI",
+    "zip": "53524",
+    "phone": "608-555-0165",
+    "npi": "2999000559",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  },
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "2999000567"
+    },
+    "enrollmentKey": "n-D-9ZoQ5_ZG1fEbNqLMXo1_qzYv-peIcKLXJXOEq_k",
+    "storeName": "Okeke Family Pharmacy",
+    "chain": "Independent",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "610 Carrow Street",
+    "city": "Sorrel Prairie",
+    "state": "WI",
+    "zip": "53519",
+    "phone": "608-555-0166",
+    "npi": "2999000567",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  },
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "2999000575"
+    },
+    "enrollmentKey": "o9ONo2rVN-kSeC6Ah3CLkjsIEjPdAWOs7mE5raO0ymI",
+    "storeName": "Brindlewick Pharmacy",
+    "chain": "Independent",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "45 Ashmere Court",
+    "city": "Sorrel Prairie",
+    "state": "WI",
+    "zip": "53524",
+    "phone": "608-555-0167",
+    "npi": "2999000575",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  },
+  {
+    "localData": {
+      "serviceProviderIdQualifier": 1,
+      "serviceProviderId": "2999000583"
+    },
+    "enrollmentKey": "RQYnXdmbyoApJsk0Y-ArgktCUoCYQdRcXHXX_stmUzs",
+    "storeName": "Pellam Apothecary",
+    "chain": "Independent",
+    "pharmacyType": "01",
+    "pharmacyTypeDesc": "Community/Retail",
+    "address": "2756 Marchbank Drive",
+    "city": "Sorrel Prairie",
+    "state": "WI",
+    "zip": "53524",
+    "phone": "608-555-0168",
+    "npi": "2999000583",
+    "ncpdpProviderId": "",
+    "taxonomyCode": "3336C0003X"
+  }
+]

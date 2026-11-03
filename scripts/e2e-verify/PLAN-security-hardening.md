@@ -3311,3 +3311,31 @@ be stopped: they watch the launcher and had already exited. The message now chec
 is still running (a stand-in test first, failing); a second boot showed the launcher stopped, the six children reported
 as already exited, every project port free, and the servers on 8000 and 8080 still running. Scoreboard: 133 findings;
 109 fixed; 24 open, none critical.
+
+**A-134 fixed, 2026-11-03 (an eight-month-old price list).** A-126 made the importer take the newest weekly snapshot
+in the CMS file, but the file itself was fixed: `import-nadac.ts` fetched
+`nadac-national-average-drug-acquisition-cost-03-11-2026.csv` by name, and CMS renames the file with every weekly
+update and starts a new dataset every year. So the catalog committed for A-126 held the snapshot of 2026-03-11; against
+CMS's snapshot of 2026-10-28, 27,774 of its 30,130 drugs were priced differently (median 6.2%, a tenth by more than
+21.8%), 2,040 were no longer surveyed and 2,077 new drugs were missing. Found while reading CMS's dataset catalog to
+design the price-source connector. `src/pricing/cms-nadac.ts` now finds the newest file in that catalog (the CSV of
+the latest year's NADAC dataset, https from medicaid.gov only), and the importer uses it unless NADAC_CSV names a local
+copy. Re-imported from the file CMS changed on 2026-10-27: the snapshot of 2026-10-28, 30,167 drugs; 28,090 continue
+(27,774 re-priced, 4 re-tiered), 2,040 left, 2,077 are new (190 over the counter), and 11 of the 100-drug list's slots
+take same-tier substitutes. Every re-import used to break the suites that pin prices (fourteen at A-126). The suites now
+read a frozen copy of the catalog in `tests/fixtures/data` (jest.config.js setupFiles point ZKP_DATA_DIR at it), and
+`tests/catalog-data.test.ts` checks the live catalog for what must hold whatever its prices. The live harnesses'
+scenario rates (three in run.ts, six in run-multi.ts) and the walkthrough's follow the new catalog; every claim still
+lands where its label says. The importer's comment that drugs keep "stable leaf indices" now says what is true: they
+keep their order, and an index moves when drugs before it leave.
+
+*Verified.* `tests/cms-nadac.test.ts`, 9 tests (the newest year's dataset, its CSV, the other NADAC titles passed over,
+https from medicaid.gov only, the importer naming no dated file); `tests/catalog-data.test.ts`, 6 tests, three of which
+fail without the frozen copy. Regression batch 159 suites, 1,946 tests: the first run failed one test, which pinned the live catalog's count at 30,130 (nadac-pricing reads the live catalog on purpose, to check every price CMS publishes converts exactly; it now checks the tree's bound instead), and it passes re-run; all else passed. Typecheck src 18, scripts 2, unchanged. The seven pricing-data suites outside
+the batch were not re-run: they now read the frozen copy, which is the catalog they read at A-126, where they failed the
+same 92 of 222 tests by name with and without that change.
+
+*Live, the same day (secured boot, one member, explorer on 8010):* 246 of 246 checks on the new catalog, each claim
+priced at its new rate ($0.55226, $21.73128 and $18.61552 a tablet) and landing where its label says; kill:ports then
+freed every project port and left the servers on 8000 and 8080 running. Scoreboard: 134 findings; 110 fixed; 24 open,
+none critical.

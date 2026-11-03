@@ -244,16 +244,16 @@ async function main() {
   // the NADAC records in src/data, the same in formulary-100.json and formulary.json; none needs PA or step therapy, and
   // at most 90 go in a fill. D4: a different drug for each claim, since the same drug twice on the same day at the same
   // pharmacy is a duplicate (probed below).
-  //   1. ABACAVIR 300 MG TABLET          $0.64179 x 30 = $19.25  + $12.50 = $31.75:  member $31.75, plan $0, deductible $31.75 of $500
-  //   2. ADEFOVIR DIPIVOXIL 10 MG TAB    $22.70694 x 30 = $681.21 + $12.50 = $693.71: member $468.25 + $15 = $483.25, plan $210.46, deductible met
-  //   3. ABILIFY 10 MG TABLET (tier 2)   $18.71019 x 30 = $561.31 + $12.50 = $573.81: member $15.00, plan $558.81
+  //   1. ABACAVIR 300 MG TABLET          $0.55226 x 30 = $16.57  + $12.50 = $29.07:  member $29.07, plan $0, deductible $29.07 of $500
+  //   2. ADEFOVIR DIPIVOXIL 10 MG TAB    $21.73128 x 30 = $651.94 + $12.50 = $664.44: member $470.93 + $15 = $485.93, plan $178.51, deductible met
+  //   3. ABILIFY 10 MG TABLET (tier 2)   $18.61552 x 30 = $558.47 + $12.50 = $570.97: member $15.00, plan $555.97
   // ABACAVIR-LAMIVUDINE, which the run could also claim, is left off the plan to show that it is refused at prescribing
   // (7d).
   const SCENARIO_DRUGS = [
-    { label: 'Claim 1 — inside the deductible', ndc: '00378410591', nadac: '0.64179', qty: 30, lands: 'inside-deductible', confirmPrice: false },
-    { label: 'Claim 2 — crosses the deductible', ndc: '42794000308', nadac: '22.70694', qty: 30, lands: 'crosses-deductible', confirmPrice: false },
+    { label: 'Claim 1 — inside the deductible', ndc: '00378410591', nadac: '0.55226', qty: 30, lands: 'inside-deductible', confirmPrice: false },
+    { label: 'Claim 2 — crosses the deductible', ndc: '42794000308', nadac: '21.73128', qty: 30, lands: 'crosses-deductible', confirmPrice: false },
     // Claim 3 states the price it expects; the engine accepts it because it is exactly the engine's own.
-    { label: 'Claim 3 — copay only', ndc: '59148000813', nadac: '18.71019', qty: 30, lands: 'copay-only', confirmPrice: true },
+    { label: 'Claim 3 — copay only', ndc: '59148000813', nadac: '18.61552', qty: 30, lands: 'copay-only', confirmPrice: true },
   ] as const;
   const OFF_PLAN_NDC = '42385096230';                                  // ABACAVIR-LAMIVUDINE 600-300 MG: claimable, not on the plan
 

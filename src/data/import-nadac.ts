@@ -29,8 +29,12 @@
  *   B (Brand) + NADAC $50-$500/unit      → Tier 3, copay $75
  *   B (Brand) + NADAC > $500/unit        → Tier 4, copay $150, prior auth required
  *
- * Usage: npx tsx src/data/import-nadac.ts
+ * Usage: npx tsx src/data/import-nadac.ts                    (the newest file in CMS's dataset catalog)
  *        NADAC_CSV=<file> npx tsx src/data/import-nadac.ts   (a copy already downloaded from CMS)
+ *
+ * A-134: the newest file is found in CMS's dataset catalog each time (src/pricing/cms-nadac.ts). CMS renames the file
+ * with every weekly update and starts a new dataset every year, so the fixed URL this used to fetch kept returning the
+ * file of 2026-03-11.
  */
 
 import * as https from 'https';
@@ -38,12 +42,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { deduplicateToLatest, latestSnapshotRows, refreshSubset, stableCatalogOrder } from './nadac-dedupe.js';
+import { findNewestNadacFile } from '../pricing/cms-nadac.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ── Configuration ────────────────────────────────────────
 
-const NADAC_URL = 'https://download.medicaid.gov/data/nadac-national-average-drug-acquisition-cost-03-11-2026.csv';
 const MAX_FORMULARY_SIZE = 32_768; // MerkleTree(16) capacity
 
 // Tier thresholds (NADAC per unit in dollars)
@@ -250,8 +254,15 @@ async function main() {
   console.log('NADAC Data Import — CMS Drug Pricing');
   console.log('=====================================\n');
 
-  // NADAC_CSV names a CSV already downloaded from CMS (same columns); otherwise the file is fetched.
-  const csv = process.env.NADAC_CSV ? fs.readFileSync(process.env.NADAC_CSV, 'utf8') : await downloadCsv(NADAC_URL);
+  // NADAC_CSV names a CSV already downloaded from CMS (same columns); otherwise the newest file is found and fetched.
+  let csv: string;
+  if (process.env.NADAC_CSV) {
+    csv = fs.readFileSync(process.env.NADAC_CSV, 'utf8');
+  } else {
+    const file = await findNewestNadacFile();
+    console.log(`  ${file.title}, changed by CMS ${file.modified}`);
+    csv = await downloadCsv(file.downloadURL);
+  }
 
   console.log('\nParsing CSV...');
   const allRows = parseNadac(csv);
@@ -267,7 +278,8 @@ async function main() {
   console.log('Assigning tiers and building formulary records...');
   let records = buildFormularyRecords(deduped);
 
-  // Drugs still listed keep their previous positions (stable leaf indices); new ones follow in snapshot order.
+  // Drugs still listed keep their order (a leaf index moves only when drugs before it leave); new ones follow in
+  // snapshot order.
   const formularyPath = path.join(__dirname, 'formulary.json');
   if (fs.existsSync(formularyPath)) {
     const previous = (JSON.parse(fs.readFileSync(formularyPath, 'utf8')) as Array<{ ndc: string }>).map((r) => r.ndc);

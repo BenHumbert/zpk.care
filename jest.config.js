@@ -30,5 +30,7 @@ export default {
     ],
   },
   testMatch: ['**/tests/**/*.test.ts'],
+  // A-134: the suites read the frozen catalog in tests/fixtures/data; the network reads src/data, which follows CMS.
+  setupFiles: ['<rootDir>/tests/setup/frozen-data-dir.ts'],
   testTimeout: 300000,
 };
