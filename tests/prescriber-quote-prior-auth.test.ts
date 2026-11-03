@@ -214,7 +214,8 @@ describe('the pre-script quote answers a prescriber who may prescribe for the me
     const body = JSON.stringify({ jsonrpc: '2.0', id: rpcId++, method: 'l2_registerPcpAssignment', params: { memberWalletId: W2, prescriberWalletId: prescriberWallet(2), effectiveDate: '2026-10-19' } });
     const link = await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...signRequest({ signerId: W2, privateKey: memberKey.privateKey, method: 'POST', path: '/rpc', body }) }, body });
     expect((await link.json()).error).toBeUndefined();
-    // the sequencer keeps such links for good, through a change of PCP and a suspension (tests/prior-auth-review-fixes.test.ts)
+    // a link opens only the 'pcp' reads, and since A-59 only while it is the member's latest choice, the engine records
+    // the same one and the plan keeps the prescriber active (tests/pcp-reads-follow-choice.test.ts); never the quote
     const q = await quoteAsPrescriber(2, { walletId: W2, ndcHash: ndcHashOf(ABACAVIR), quantity: 30 });
     expect(q.result).toBeUndefined();
     expect(q.error?.message).toMatch(/Forbidden/);

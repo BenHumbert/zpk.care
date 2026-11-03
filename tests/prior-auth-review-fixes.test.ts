@@ -91,6 +91,13 @@ async function quoteAsPrescriber(i: number, walletId: string, ndc: string, quant
   return r.json();
 }
 
+/** The member's claims, read as seed prescriber i's own wallet: the 'pcp' reader (A-59). */
+async function claimsAsPrescriber(i: number, walletId: string): Promise<any> {
+  const body = JSON.stringify({ jsonrpc: '2.0', id: rpcId++, method: 'l2_getClaimsByMember', params: { walletId } });
+  const r = await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...asPrescriber(i, 'POST', '/rpc', body) }, body });
+  return r.json();
+}
+
 async function engine(method: 'GET' | 'POST', path: string, bodyObj: unknown, headers: Record<string, string>): Promise<{ status: number; json: any }> {
   const body = bodyObj === undefined ? undefined : JSON.stringify(bodyObj);
   const r = await fetch(url + path, { method, headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers }, body });
@@ -184,13 +191,18 @@ describe('1. the quote answers the prescriber the member consents to now, not a 
     expect(MEMBER_DATA_METHODS.l2_getClaimsByMember.readers).toContain('pcp');
   });
 
-  test('a former primary-care prescriber, whose link the sequencer keeps, reads nothing; the one she names now reads her quote', async () => {
+  test('a former primary-care prescriber reads nothing and no longer lists the member; the one named now reads the quote', async () => {
     await namePcp(W1, 0);
     expect((await quoteAsPrescriber(0, W1, ABACAVIR)).result).toMatchObject({ covered: true, phase: 'deductible' });
+    expect(Array.isArray((await claimsAsPrescriber(0, W1)).result)).toBe(true);
     await namePcp(W1, 1);
-    // the sequencer still lists her under prescriber 0
+    // A-59: the sequencer keeps the old link but lists and answers by the member's latest choice, as the engine records it
     const links = (await rpc('l2_getPcpAssignments', { prescriberWalletId: prescriberWallet(0) })).result;
-    expect(links.map((l: any) => l.memberWalletId)).toContain(W1);
+    expect(links.map((l: any) => l.memberWalletId)).not.toContain(W1);           // before A-59: listed for good
+    const current = (await rpc('l2_getPcpAssignments', { prescriberWalletId: prescriberWallet(1) })).result;
+    expect(current.map((l: any) => l.memberWalletId)).toContain(W1);
+    expect((await claimsAsPrescriber(0, W1)).error?.message).toMatch(/Forbidden/); // before A-59: every claim
+    expect(Array.isArray((await claimsAsPrescriber(1, W1)).result)).toBe(true);
     expect(svc.prescribingConsentFor(W1, prescriberWallet(0), ndcHashOf(ABACAVIR))).toBeNull();
     const former = await quoteAsPrescriber(0, W1, ABACAVIR);
     expect(former.result).toBeUndefined();                 // before: her share and phase, through the kept link
@@ -209,6 +221,7 @@ describe('1. the quote answers the prescriber the member consents to now, not a 
     const suspended = await quoteAsPrescriber(2, W2, ABACAVIR);
     expect(suspended.result).toBeUndefined();              // before: answered through the sequencer's link
     expect(suspended.error?.message).toMatch(/Forbidden/);
+    expect((await claimsAsPrescriber(2, W2)).error?.message).toMatch(/Forbidden/); // before A-59: every claim
   });
 });
 

@@ -333,6 +333,12 @@ export interface PrescribingConsentRequest {
 export interface MemberQuoteEngine {
   quote: MemberCostQuoteProvider;
   mayPrescribe?: (request: PrescribingConsentRequest) => boolean;
+  /**
+   * The wallet of the primary-care prescriber the member names now, as the engine records it, or null: no choice, or
+   * a wallet the engine has not enrolled. Where it is registered, the 'pcp' reader also needs it to name the prescriber
+   * (A-59).
+   */
+  primaryCareOf?: (memberWalletId: string) => string | null;
 }
 
 // ─── L2RpcServer ────────────────────────────────────────
@@ -399,6 +405,9 @@ export class L2RpcServer {
 
   // PCP assignment registry: prescriberWalletId → [{ memberWalletId, effectiveDate }]
   private pcpAssignments: Map<string, { memberWalletId: string; effectiveDate: string; timestamp: number }[]> = new Map();
+  // A-59: memberWalletId → the prescriber the member named last. Only that link counts, for the 'pcp' reader and for
+  // a prescriber's patient list; the earlier ones stay in pcpAssignments, so naming one again restores it.
+  private latestPcpOf: Map<string, string> = new Map();
 
   // Peer network (set externally when replication is enabled)
   private peerNetwork: L2PeerNetwork | null = null;
@@ -2494,11 +2503,14 @@ export class L2RpcServer {
           throw new Error('Missing memberWalletId or prescriberWalletId');
         }
         const list = this.pcpAssignments.get(prescriberWalletId) ?? [];
-        // Avoid duplicates
-        if (!list.some((a) => a.memberWalletId === memberWalletId)) {
-          list.push({ memberWalletId, effectiveDate: effectiveDate ?? new Date().toISOString().slice(0, 10), timestamp: Date.now() });
-          this.pcpAssignments.set(prescriberWalletId, list);
-        }
+        // One entry per member and prescriber; naming the prescriber again dates it afresh and, A-59, makes it the
+        // member's choice again.
+        const entry = { memberWalletId, effectiveDate: effectiveDate ?? new Date().toISOString().slice(0, 10), timestamp: Date.now() };
+        const at = list.findIndex((a) => a.memberWalletId === memberWalletId);
+        if (at === -1) list.push(entry);
+        else list[at] = entry;
+        this.pcpAssignments.set(prescriberWalletId, list);
+        this.latestPcpOf.set(memberWalletId, prescriberWalletId);
         return { ok: true, prescriberWalletId, memberWalletId, effectiveDate };
       }
 
@@ -2507,7 +2519,10 @@ export class L2RpcServer {
         if (!prescriberWalletId) {
           throw new Error('Missing prescriberWalletId');
         }
-        return this.pcpAssignments.get(prescriberWalletId) ?? [];
+        // A-59: the members who name this prescriber now; one that has named another since is no longer its patient.
+        // The provider's status is not asked, so the list of a suspended or terminated prescriber still shows the plan
+        // whom that leaves without primary care.
+        return (this.pcpAssignments.get(prescriberWalletId) ?? []).filter((a) => this.latestPcpOf.get(a.memberWalletId) === prescriberWalletId);
       }
 
       // ── Accumulator Reconstruction ──
@@ -3199,15 +3214,31 @@ export class L2RpcServer {
     if (spec.readers.includes('attestation') && this.attestationCovers(params, subject!)) return who;
     if (spec.readers.includes('signed')) return who;
     const also = [
-      spec.readers.includes('pcp') ? 'its primary-care prescriber' : '',
+      spec.readers.includes('pcp') ? 'the primary-care prescriber it names now, while the plan keeps that prescriber active' : '',
       spec.readers.includes('prescriber') ? 'a prescriber it consented to (its primary-care prescriber, or one its device authorized for this visit)' : '',
       spec.readers.includes('attestation') ? "a caller presenting the member's attestation" : '',
     ].filter(Boolean);
     return { ok: false, status: 403, message: `Forbidden — ${method} for wallet ${short(subject!)} answers that wallet, the plan or the operator${also.length ? ', or ' + also.join(', or ') : ''}` };
   }
 
+  /**
+   * Whether this wallet is the member's primary-care prescriber now (A-59): the prescriber the member named last, a
+   * credentialed prescriber the provider registry shows active, and, where the engine registered its record of the
+   * member's choice, the one that record names. Before, every wallet the member had ever named read its claims,
+   * receipts, accumulator and directory entry for good: a prescriber it had left, one the plan had suspended, and a
+   * wallet never credentialed as a prescriber.
+   */
   private isPrimaryCareOf(prescriberWalletId: string, memberWalletId: string): boolean {
-    return (this.pcpAssignments.get(prescriberWalletId) ?? []).some((a) => a.memberWalletId === memberWalletId);
+    if (this.latestPcpOf.get(memberWalletId) !== prescriberWalletId) return false;
+    const provider = this.node.getSequencer().getProvider(prescriberWalletId);
+    if (!provider || provider.metadata.providerType !== 'prescriber' || Number(provider.leaf.credentialState) !== ProviderLifecycle.ACTIVE) return false;
+    const recorded = this.memberQuoteEngine?.primaryCareOf;
+    if (!recorded) return true;
+    try {
+      return recorded(memberWalletId) === prescriberWalletId;
+    } catch {
+      return false;
+    }
   }
 
   /**

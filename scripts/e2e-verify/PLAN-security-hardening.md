@@ -3339,3 +3339,31 @@ same 92 of 222 tests by name with and without that change.
 priced at its new rate ($0.55226, $21.73128 and $18.61552 a tablet) and landing where its label says; kill:ports then
 freed every project port and left the servers on 8000 and 8080 running. Scoreboard: 134 findings; 110 fixed; 24 open,
 none critical.
+
+**A-59 fixed, 2026-11-03 (a prescriber the member had left kept reading its claims).** The sequencer's 'pcp' reader
+opens a member's claims, receipts, rebuilt accumulator and directory entry to its primary-care prescriber, and decided
+who that is from links that only grew: `l2_registerPcpAssignment` appended, and `isPrimaryCareOf` asked whether any link
+named the caller. So every wallet a member had ever named kept reading for good, drug names, dates and amounts
+included: a prescriber the member had replaced, one the plan had suspended or terminated, a wallet in the directory as a
+prescriber that the plan never credentialed, and even a pharmacy, had the member named one. Recorded open on
+2026-10-19, when the same hole was closed for the quote. The reader is now the prescriber the member named last (the
+sequencer keeps one choice per member beside the links; naming an earlier one again restores it), only while the
+provider registry shows it a credentialed, active prescriber, and, where the engine registered its record of the
+member's choice (`primaryCareOf`, registered with the quote), only when that record names the same one. A prescriber's
+patient list follows the member's choice the same way; it still names the members of a suspended or terminated
+prescriber, so the plan sees whom that leaves without primary care. Refusals now say the reader is "the primary-care
+prescriber it names now, while the plan keeps that prescriber active".
+
+*Verified.* `tests/pcp-reads-follow-choice.test.ts`, 8 tests on a real sequencer server, 7 of which fail on the old code
+(the member's latest choice, a choice restored, the refusal's wording, suspension, reinstatement and termination, a
+wallet never credentialed and a pharmacy, the engine's record disagreeing or recording none); the eighth, the prescriber
+the member names reading every one of the four, guards what stays. `tests/prior-auth-review-fixes.test.ts`, with a real
+engine, now reads the claims as the former, the current and a suspended primary-care prescriber; its check that the
+sequencer still listed a member under a former prescriber is reversed. `tests/member-data-reads.test.ts` credentials its
+prescriber, as the reader now needs. Regression batch 160 suites, 1,954 tests, all passing. Typecheck src 18, scripts 2,
+the same errors as before.
+
+*Live, the same day (secured boot, one member, explorer on 8010):* 246 of 246 checks, among them the member naming the
+prescriber node as primary care from its device and the sequencer listing it under that prescriber; kill:ports then
+stopped the network and left the servers on 8000 and 8080 running. Scoreboard: 134 findings; 111 fixed; 23 open, none
+critical.

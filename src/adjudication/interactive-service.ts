@@ -2421,6 +2421,15 @@ export class AdjudicationService {
     return this.prescriberAuthorizationFor(memberWalletId, prescriberWalletId, ndcHash, now) ? 'authorization' : null;
   }
 
+  /**
+   * The wallet of the primary-care prescriber the member names now, or null: no choice yet, or a wallet this engine has
+   * not enrolled. The sequencer's read gate asks it before a prescriber reads the member's claims as its primary care
+   * (A-59, registered with the quote), beside its own checks of the member's latest link and the provider registry.
+   */
+  primaryCareOf(memberWalletId: string): string | null {
+    return this.enrolledMembers.get(memberWalletId)?.pcpAssignment?.pcpWalletId.toString() ?? null;
+  }
+
   /** The engine's seed index for a prescriber's wallet, the name prescribing and prior authorization use; null for none. */
   private prescriberIndexOf(prescriberWalletId: string): number | null {
     for (const [index, wallet] of this.prescriberWalletIds) {

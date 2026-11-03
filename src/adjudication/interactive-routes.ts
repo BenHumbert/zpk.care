@@ -280,10 +280,12 @@ export function registerInteractiveRoutes(
   // The prescriber's pre-script estimate (l2_estimateCost with a walletId) is this engine's quote for that member,
   // reached through one narrow call that can become an RPC when the engine moves into its own process, together with the
   // member's consent the read gate asks before a prescriber reads it (B5: the named primary-care prescriber, or one the
-  // member's device authorized for the visit). The service is asked only when a quote or a consent is.
+  // member's device authorized for the visit). The service is asked only when a quote or a consent is. With them, the
+  // member's current primary-care choice, which the 'pcp' reads of its claims also need (A-59).
   server.setMemberCostQuoteProvider({
     quote: (request) => service.quoteMemberCost(request.walletId, request.ndcHash, request.quantity),
     mayPrescribe: (request) => service.prescribingConsentFor(request.memberWalletId, request.prescriberWalletId, request.ndcHash) !== null,
+    primaryCareOf: (memberWalletId) => service.primaryCareOf(memberWalletId),
   });
 
   // Helper: register route with the admin gate (A11, D2), the wallet gate for wallet routes, the proving budget and the

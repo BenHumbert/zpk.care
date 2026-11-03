@@ -25,8 +25,9 @@
 
 /**
  * Who may read a member-data method, besides the plan (a node key with the insurer role) and the operator, who always may:
- * 'self', the wallet itself; 'pcp', a prescriber the member named as primary care (the sequencer's PCP links);
- * 'prescriber', a prescriber the member's consent lets prescribe for it now, as the engine holds that consent (B5: the
+ * 'self', the wallet itself; 'pcp', the prescriber the member names as primary care now, while the provider registry
+ * shows it a credentialed, active prescriber (A-59: the member's latest PCP link on the sequencer, and the engine's
+ * record of the choice where an engine registered one); 'prescriber', a prescriber the member's consent lets prescribe for it now, as the engine holds that consent (B5: the
  * primary-care prescriber the member named, or one its device authorized for this visit, within the visit's window and
  * for the drug asked about); 'attestation', any signed caller presenting the member's own unexpired attestation;
  * 'signed', any signed caller (the handler answers it with its own data only).
@@ -45,17 +46,17 @@ export interface MemberDataSpec {
  * The methods that return a member's data, and who may read them (D1, finding A-2). Until this gate, a bare wallet ID
  * returned a member's claims, receipts, messages, accumulator and keys to anyone, and the receipt and audit lists
  * enumerated every wallet. Readers: the wallet itself (its registered signing key), the plan (a node key with the
- * insurer role) and the operator, always; a prescriber the member named as primary care, for claims, receipts and the
- * directory entry; and any signed caller presenting the member's own unexpired attestation, the tap at a counter, for
+ * insurer role) and the operator, always; the prescriber the member names as primary care now, while the plan keeps it
+ * active, for claims, receipts, the rebuilt accumulator and the directory entry; and any signed caller presenting the member's own unexpired attestation, the tap at a counter, for
  * claims, receipts, accumulator and wallet state. Enumerations answer the plan and the operator only. A thread answers
  * any signed caller with that caller's own messages. The pre-script quote (l2_estimateCost with a walletId) also answers
  * a prescriber who may prescribe for the member (owner decision 2026-10-19): the member's price, the drug's availability
  * on its plan and its prior-authorization status, so the prescriber can start a prior authorization before writing. That
  * reader is 'prescriber' alone, the engine's record of the member's consent: the primary-care prescriber the member
  * names now, or one its device authorized for this visit, and only while the provider registry shows the prescriber
- * active. Not 'pcp': the sequencer's PCP links keep every prescriber a member ever named and do not follow a provider's
- * status, so they would let a former or suspended primary-care prescriber read the member's price and prior
- * authorizations.
+ * active. Not 'pcp' beside it: the engine's consent covers the primary-care prescriber already. (Until A-59 the 'pcp'
+ * reader answered every prescriber a member had ever named, a former or suspended one included, which is why the quote
+ * was kept from it; the other reads it opens had the same hole.)
  *
  * The duplicate-claims check (l2_detectDuplicateClaims) is an enumeration too: it groups the audit log's fills by wallet,
  * drug, date of service and fill number, so each group it returns says that a wallet filled a drug on a day. It answered

@@ -80,6 +80,9 @@ beforeAll(async () => {
   await register(memberNode, 'bob', 'member');
   await register(prescriberNode, 'drP', 'prescriber');
   await register(pharmacyNode, 'rx', 'pharmacy');
+  // Dr P is credentialed, so the provider registry shows it an active prescriber, as the 'pcp' reader needs (A-59).
+  const credentialed = await rpcWith(bearer, envelope('l2_credentialProvider', { walletId: W.drP, displayName: 'drP', providerType: 'prescriber' }));
+  if (credentialed.error) throw new Error(`fixture credentialing of drP failed: ${credentialed.error.message}`);
   // Alice and Bob exist on the ledger, so attestations can be issued for them.
   node.getSequencer().adminMutate('test: provision members', ({ provision }) => {
     provision(Field(BigInt(W.alice)), LIFECYCLE_ELIGIBLE);
