@@ -656,8 +656,8 @@
     importPanel.style.display = 'block';
     importPanel.innerHTML = '<div class="panel"><div class="panel-header"><span class="panel-title">Step 3: Generate Enrollment Codes</span></div><div class="panel-body">' +
       '<div class="form-grid">' +
-        '<div class="form-group"><label for="imp-valid-until">Code Expiration Date</label>' +
-          '<input type="date" id="imp-valid-until" value="' + defaultExpiry() + '"></div>' +
+        '<div class="form-group"><label for="imp-valid-until">Code Expiration Date (at most 14 days)</label>' +
+          '<input type="date" id="imp-valid-until" value="' + defaultExpiry() + '" min="' + utcDateIn(0) + '" max="' + defaultExpiry() + '"></div>' +
       '</div>' +
       '<div class="form-actions" style="margin-top:16px">' +
         '<button class="btn" id="btn-dry-run">Preview (No Changes)</button>' +
@@ -668,10 +668,14 @@
     document.getElementById('btn-import-go').onclick = function() { doImport(false); };
   }
 
+  // A-138: an invite lasts at most 14 days, counted on the UTC calendar the employer node checks expiry against
+  // (owner decision 2026-11-03); the page used to offer a year.
+  var INVITE_MAX_DAYS = 14;
+  function utcDateIn(days) {
+    return new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+  }
   function defaultExpiry() {
-    var d = new Date();
-    d.setFullYear(d.getFullYear() + 1);
-    return d.toISOString().slice(0, 10);
+    return utcDateIn(INVITE_MAX_DAYS);
   }
 
   async function doImport(dryRun) {

@@ -3385,3 +3385,30 @@ A-138 (low): an invite's expiry is neither checked nor capped. A-139 (low): the 
 refused invite, so "already used" reads like a mistyped PIN. A-140 (low): the HR Tool's reconcile reports every
 unredeemed invite as a mismatch. A-141 (low): the command-line import issues invites with no PIN. All but A-136 are
 planned into A-109's slices; A-136 follows them. Scoreboard: 141 findings; 111 fixed; 30 open, none critical.
+
+**A-109 slice 1, with A-135 and A-138 fixed, 2026-11-03 (the employer node's invites).** The first of the four slices of
+the owner's enrollment design, on the employer node. It kept every code as issued, beside the hash of its PIN; the code
+is the PIN hash's other input, so a copy of the node's records gave up each unused invite's PIN to 100 million tries. A
+record is now kept under the code's one-way fingerprint, the Poseidon hash the invite's own struct carries, and a caller
+holding the code is answered by hashing it; the roster carries the fingerprint, and the code itself leaves the node
+once, in the answer to the HR Tool that asked for it. A-135: retiring a roster row now withdraws its unused invite, a
+new invite for an employee withdraws the previous one, an employee who has enrolled is issued none (a second invite
+would enroll a second wallet), a redemption whose employee has left is refused before its PIN is looked at and the
+invite withdrawn, and a redemption never marks a retired row enrolled. A-138: an invite's expiry is a calendar date from
+today to 14 days out, both inclusive, on the UTC calendar the node checks expiry against, at the route (400) and in the
+node, and the HR Tool's page offers 14 days where it offered a year. The live harnesses, the walkthrough and the suites
+that issued invites for a year or more now ask for seven or fourteen days, and the harness finds the member's roster row
+by fingerprint and checks that no row carries a code.
+
+*Verified.* `tests/employer-invites.test.ts`, 10 tests, 7 of which fail on the old code (the fingerprint, the four ways
+an invite follows its roster row, a removal that crosses a redemption, the node's limit); the other three check the
+expiry rule itself. `tests/enrollment-codes.test.ts` adds the route's refusals; `tests/employer-roster.test.ts` pins the
+fingerprint column. Regression batch 161 suites, 1,965 tests, all passing. Typecheck src 18, scripts 2, the same errors.
+The suites outside the batch that use the token authority fail as before, by name: `onboarding` and `wallet-migration`
+the same 17, `formulary-update` 2, all from the enrollment service reading fields the token authority no longer returns.
+`smoke-e2e`, also outside the batch, was not re-run; its invite step now asks for seven days.
+
+*Live, the same day (secured boot, one member, explorer on 8010):* 247 of 247 checks, the new one among them: the
+employer's roster carries each code only as its fingerprint, and the member's code is nowhere in it; kill:ports then
+stopped the network and left the servers on 8000 and 8080 running. Scoreboard: 141 findings; 113 fixed; 28 open, none
+critical.

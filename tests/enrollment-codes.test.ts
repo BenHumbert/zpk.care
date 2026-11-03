@@ -98,6 +98,8 @@ const CODE_RE = /^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){4}$/;
 const INSURER_SEED = 'insurer-seed-for-enrollment-code-tests';
 const ATTACKER_SEED = 'a-seed-the-insurer-never-had';
 const PIN = '48213976';
+/** A date n days from today, CCYYMMDD: an invite lasts at most 14 days (A-138). */
+const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10).replace(/-/g, '');
 const DATE = '20260601';
 
 // ─── Harness ────────────────────────────────────────────────────────────────────
@@ -450,7 +452,7 @@ describe('the validate oracle answers only the insurer, and consumes what it val
     if (attest) node.setAttestation(attestationFor('FERNHILL-TEST', insurerPublicKeyFromSeed(INSURER_SEED)));
     const grp = await call(find(routes, 'POST', '/groups'), { body: { groupId: 'G1', planId: 'PLAN-1', effectiveDate: '20260101' } });
     expect(grp.status).toBe(201);
-    const gen = await call(find(routes, 'POST', '/tokens/generate'), { body: { groupId: 'G1', employeeIdHash: 'emp-hash-1', validUntil: '20271231' } });
+    const gen = await call(find(routes, 'POST', '/tokens/generate'), { body: { groupId: 'G1', employeeIdHash: 'emp-hash-1', validUntil: inDays(7) } });
     expect(gen.status).toBe(201);
     const code = gen.payload.data.tokenId as string;
     expect(code).toMatch(CODE_RE);
@@ -524,7 +526,7 @@ describe('the validate oracle answers only the insurer, and consumes what it val
     expect(r1.payload.data.valid).toBe(true);
     expect(r1.payload.data.consumed).toBe(true);
     expect(e.node.getTokenRecord(e.code)!.status).toBe('consumed');
-    const entry = e.node.listRoster().find((x) => x.tokenId === e.code)!;
+    const entry = e.node.listRoster().find((x) => x.tokenIdHash === hashString(e.code).toString())!;   // A-109: the roster keeps the code's fingerprint
     expect(entry.status).toBe('enrolled');
     expect('walletId' in entry).toBe(false);          // I6: the roster has no wallet column at all (B6)
     expect(e.node.getGroup('G1')!.enrolledCount).toBe(1);
@@ -568,9 +570,23 @@ describe('the validate oracle answers only the insurer, and consumes what it val
 
   test('a caller-chosen code is refused at generation', async () => {
     const e = await employerWithCode();
-    const r = await call(find(e.routes, 'POST', '/tokens/generate'), { body: { groupId: 'G1', employeeIdHash: 'emp-hash-2', validUntil: '20271231', tokenId: 'TKN-CHOSEN' } });
+    const r = await call(find(e.routes, 'POST', '/tokens/generate'), { body: { groupId: 'G1', employeeIdHash: 'emp-hash-2', validUntil: inDays(7), tokenId: 'TKN-CHOSEN' } });
     expect(r.status).toBe(400);
     expect(r.payload.error).toMatch(/caller-chosen/);
+  });
+
+  test('an expiry past 14 days, already past, or not a calendar date is refused at generation (A-138)', async () => {
+    const e = await employerWithCode();
+    const generate = find(e.routes, 'POST', '/tokens/generate');
+    const ask = (validUntil: unknown, employeeIdHash = 'emp-hash-3') => call(generate, { body: { groupId: 'G1', employeeIdHash, validUntil } });
+    for (const [validUntil, why] of [[inDays(15), /at most 14 days/], ['20271231', /at most 14 days/], [inDays(-1), /already past/], ['2026-02-30', /calendar date/], ['soon', /calendar date/]] as const) {
+      const r = await ask(validUntil);
+      expect([validUntil, r.status]).toEqual([validUntil, 400]);       // before: 201, an invite good until then
+      expect(r.payload.error).toMatch(why);
+    }
+    expect(e.node.getRosterEntry('emp-hash-3')).toBeUndefined();
+    const last = inDays(14);
+    expect((await ask(last.slice(0, 4) + '-' + last.slice(4, 6) + '-' + last.slice(6, 8))).status).toBe(201);
   });
 
   test('one client’s 600 unsigned requests in a minute leave the insurer’s next signed request answered', async () => {

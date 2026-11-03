@@ -22,18 +22,55 @@ import {
 } from './group-enrollment-token.js';
 import type { GroupEnrollmentTokenLocalData } from './group-enrollment-token.js';
 import { generateEnrollmentCode } from './enrollment-code.js';
+import { hashString } from '../zkp/hash-utils.js';
+
+/** The longest an employee's invite may last, in days (owner decision 2026-11-03, A-109; A-138). */
+export const INVITE_MAX_DAYS = 14;
+
+const DAY_MS = 86_400_000;
+const utcCompact = (d: Date): string => d.toISOString().slice(0, 10).replace(/-/g, '');
+
+/** An invite's expiry as CCYYMMDD, or null when it is not a calendar date written CCYYMMDD or YYYY-MM-DD. */
+export function compactInviteDate(validUntil: unknown): string | null {
+  if (typeof validUntil !== 'string' || !/^(\d{8}|\d{4}-\d{2}-\d{2})$/.test(validUntil)) return null;
+  const compact = validUntil.replace(/-/g, '');
+  const [y, m, d] = [Number(compact.slice(0, 4)), Number(compact.slice(4, 6)), Number(compact.slice(6, 8))];
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d ? compact : null;
+}
+
+/**
+ * Why an invite's expiry cannot be used, or null when it can: a calendar date from today to INVITE_MAX_DAYS out, both
+ * inclusive, on the UTC calendar the node checks expiry against. Before A-138 any string passed, compared as a number,
+ * and the HR Tool's page offered a year.
+ */
+export function inviteExpiryProblem(validUntil: unknown, now: Date = new Date()): string | null {
+  const compact = compactInviteDate(validUntil);
+  if (compact === null) {
+    return `An invite's expiry must be a calendar date, written CCYYMMDD or YYYY-MM-DD, not ${JSON.stringify(validUntil) ?? String(validUntil)}`;
+  }
+  const today = utcCompact(now);
+  const last = utcCompact(new Date(now.getTime() + INVITE_MAX_DAYS * DAY_MS));
+  if (compact < today) return `An invite's expiry of ${compact} is already past`;
+  if (compact > last) return `An invite lasts at most ${INVITE_MAX_DAYS} days: its expiry may be ${last} at the latest, not ${compact}`;
+  return null;
+}
 
 /**
  * Token record — the TokenAuthority's internal tracking of a token.
  *
  * Stores only the ZK-compatible struct (all Poseidon hashes) and opaque metadata.
  * NO plaintext PII — the HR Tool on the admin's machine holds the correlation table.
+ *
+ * A-109: not the code either. A record is kept under the code's one-way fingerprint, which is the struct's own
+ * tokenIdHash, and a caller that holds the code is answered by hashing it. The code is the other input of the PIN
+ * hash, so records that kept it gave up each unused invite's PIN to 100 million tries.
  */
 export interface TokenRecord {
   /** The ZK-compatible enrollment token (all fields are Poseidon hashes) */
   token: GroupEnrollmentToken;
-  /** Token ID (opaque identifier) */
-  tokenId: string;
+  /** The code's one-way fingerprint, Poseidon(code): the key the record is kept under */
+  tokenIdHash: string;
   /** Expiration date as CCYYMMDD */
   validUntil: string;
   /** Group ID hash (from the token struct) */
@@ -92,6 +129,7 @@ export interface TokenValidationResult {
  *   - The insurer sees (tokenId, groupId, planId, hashedEmployeeId)
  */
 export class TokenAuthority {
+  /** The records, each under its code's fingerprint (A-109): no code is kept. */
   private tokens: Map<string, TokenRecord>;
   private nonceCounter: number;
   private issuer: string;
@@ -100,6 +138,11 @@ export class TokenAuthority {
     this.tokens = new Map();
     this.nonceCounter = 0;
     this.issuer = issuer;
+  }
+
+  /** A code's one-way fingerprint, Poseidon(code): the tokenIdHash its invite's struct carries. */
+  static fingerprintOf(tokenId: string): string {
+    return hashString(tokenId).toString();
   }
 
   /**
@@ -137,7 +180,7 @@ export class TokenAuthority {
     // caller may still name one, which tests and the in-process service rely on; over the network
     // the employer route refuses that (employer-routes.ts, /tokens/generate).
     let id = tokenId ?? generateEnrollmentCode(this.issuer);
-    while (tokenId === undefined && this.tokens.has(id)) id = generateEnrollmentCode(this.issuer);
+    while (tokenId === undefined && this.tokens.has(TokenAuthority.fingerprintOf(id))) id = generateEnrollmentCode(this.issuer);
     const nonce = this.nonceCounter++;
 
     // Build the ZK-compatible token using the hashes as the "local data"
@@ -158,10 +201,10 @@ export class TokenAuthority {
 
     const token = buildGroupEnrollmentToken(localData);
 
-    // Store ONLY hashes and opaque metadata — discard localData
+    // Store ONLY hashes and opaque metadata — discard localData, and the code with it (A-109)
     const record: TokenRecord = {
       token,
-      tokenId: id,
+      tokenIdHash: token.tokenIdHash.toString(),
       validUntil,
       groupIdHash: token.groupIdHash.toString(),
       planIdHash: token.planIdHash.toString(),
@@ -169,7 +212,7 @@ export class TokenAuthority {
       status: 'unused',
     };
 
-    this.tokens.set(id, record);
+    this.tokens.set(record.tokenIdHash, record);
 
     return { token, tokenId: id };
   }
@@ -189,7 +232,7 @@ export class TokenAuthority {
     tokenId: string,
     currentDate: string,
   ): TokenValidationResult {
-    const record = this.tokens.get(tokenId);
+    const record = this.tokens.get(TokenAuthority.fingerprintOf(tokenId));
     if (!record) {
       return { valid: false, reason: 'Token not found' };
     }
@@ -221,7 +264,7 @@ export class TokenAuthority {
    * @param walletId — the wallet ID that enrolled with this token
    */
   consumeToken(tokenId: string, walletId: Field): void {
-    const record = this.tokens.get(tokenId);
+    const record = this.tokens.get(TokenAuthority.fingerprintOf(tokenId));
     if (!record) throw new Error('Token not found');
     if (record.status !== 'unused') {
       throw new Error(`Cannot consume token: already ${record.status}`);
@@ -237,7 +280,12 @@ export class TokenAuthority {
    * Cannot revoke already-consumed tokens.
    */
   revokeToken(tokenId: string): void {
-    const record = this.tokens.get(tokenId);
+    this.revokeTokenByHash(TokenAuthority.fingerprintOf(tokenId));
+  }
+
+  /** Revoke an unused token by its code's fingerprint, for a holder of the fingerprint alone, as the roster is (A-135). */
+  revokeTokenByHash(tokenIdHash: string): void {
+    const record = this.tokens.get(tokenIdHash);
     if (!record) throw new Error('Token not found');
     if (record.status === 'consumed') {
       throw new Error('Cannot revoke consumed token');
@@ -253,7 +301,7 @@ export class TokenAuthority {
    * Cannot be called twice — prevents overwrite attacks.
    */
   setTokenPinHash(tokenId: string, tokenPinHash: string): void {
-    const record = this.tokens.get(tokenId);
+    const record = this.tokens.get(TokenAuthority.fingerprintOf(tokenId));
     if (!record) throw new Error('Token not found');
     if (record.status !== 'unused') throw new Error(`Cannot set PIN hash: token already ${record.status}`);
     if (record.tokenPinHash) throw new Error('PIN hash already set — cannot overwrite');
@@ -283,7 +331,7 @@ export class TokenAuthority {
     const baseResult = this.validateToken(tokenId, currentDate);
     if (!baseResult.valid) return baseResult;
 
-    const record = this.tokens.get(tokenId)!;
+    const record = this.tokens.get(TokenAuthority.fingerprintOf(tokenId))!;
 
     // If token has a PIN hash, verify it
     if (record.tokenPinHash) {
@@ -321,7 +369,7 @@ export class TokenAuthority {
 
   /** Get the internal token record (for inspection/debugging) */
   getTokenRecord(tokenId: string): TokenRecord | undefined {
-    return this.tokens.get(tokenId);
+    return this.tokens.get(TokenAuthority.fingerprintOf(tokenId));
   }
 
   /**
@@ -342,13 +390,13 @@ export class TokenAuthority {
     currentDate: string,
     tokenPinHash: string | undefined,
   ): TokenValidationResult & { consumed?: boolean } {
-    const record = this.tokens.get(tokenId);
+    const record = this.tokens.get(TokenAuthority.fingerprintOf(tokenId));
     if (record && record.status === 'unused' && !record.tokenPinHash) {
       return { valid: false, reason: 'Enrollment PIN not set for this code; ask HR to re-issue it' };
     }
     const result = this.validateTokenWithPin(tokenId, currentDate, tokenPinHash);
     if (!result.valid) return result;
-    const live = this.tokens.get(tokenId)!;
+    const live = this.tokens.get(TokenAuthority.fingerprintOf(tokenId))!;
     live.status = 'consumed';
     live.consumedAt = new Date().toISOString();
     return { ...result, consumed: true };
@@ -365,12 +413,7 @@ export class TokenAuthority {
    * @returns The matching token record, or undefined if not found
    */
   getTokenByHash(tokenIdHash: string): TokenRecord | undefined {
-    for (const record of this.tokens.values()) {
-      if (record.token.tokenIdHash.toString() === tokenIdHash) {
-        return record;
-      }
-    }
-    return undefined;
+    return this.tokens.get(tokenIdHash);
   }
 
   /** Get total number of tokens managed */

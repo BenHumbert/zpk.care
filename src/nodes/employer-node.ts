@@ -30,7 +30,7 @@
  */
 import { Field, Poseidon } from 'o1js';
 import { hashString } from '../zkp/hash-utils.js';
-import { TokenAuthority } from '../onboarding/token-authority.js';
+import { TokenAuthority, inviteExpiryProblem, compactInviteDate } from '../onboarding/token-authority.js';
 import type { TokenRecord, TokenValidationResult } from '../onboarding/token-authority.js';
 import type { GroupEnrollmentToken } from '../onboarding/group-enrollment-token.js';
 import { EntityNodeBase } from './entity-node-base.js';
@@ -81,7 +81,8 @@ export interface EmployerRosterEntry {
   employeeIdHash: string;
   groupIdHash: string;
   familyIdHash: string;
-  tokenId: string | null;
+  /** The fingerprint of the employee's current invite, Poseidon(code); never the code itself (A-109). */
+  tokenIdHash: string | null;
   status: 'pending' | 'enrolled' | 'terminated';
   createdAt: number;
 }
@@ -374,6 +375,11 @@ export class EmployerNode extends EntityNodeBase {
    * Accepts pre-hashed identifiers only — the HR Tool on the admin's machine
    * hashes plaintext PII with a groupSeed before calling this method.
    * The employer node never sees plaintext employee IDs or family IDs.
+   *
+   * The code is returned once, here, and kept only as its fingerprint (A-109). The expiry is a calendar date from today
+   * to INVITE_MAX_DAYS out (A-138). One working invite per employee (A-135): a new one withdraws the employee's unused
+   * invite, and an employee who has enrolled is issued none, since a second invite would enroll a second wallet. An
+   * employee removed from the roster and taken back on is issued a fresh one.
    */
   generateToken(
     groupId: string,
@@ -386,6 +392,13 @@ export class EmployerNode extends EntityNodeBase {
     if (!group) throw new Error(`Group ${groupId} not found`);
     if (group.status === 'terminated') throw new Error(`Group ${groupId} is terminated`);
 
+    const expiryProblem = inviteExpiryProblem(validUntil);
+    if (expiryProblem) throw new Error(expiryProblem);
+    const previous = this.roster.get(employeeIdHash);
+    if (previous?.status === 'enrolled') {
+      throw new Error('This employee has already enrolled; a second invite would enroll a second wallet');
+    }
+
     if (group.enrollmentCap > 0 && group.enrolledCount >= group.enrollmentCap) {
       throw new Error(`Group ${groupId} has reached enrollment cap (${group.enrollmentCap})`);
     }
@@ -395,21 +408,34 @@ export class EmployerNode extends EntityNodeBase {
       group.planId,
       employeeIdHash,
       familyIdHash,
-      validUntil,
+      compactInviteDate(validUntil)!,
       tokenId,
     );
+    if (previous?.tokenIdHash) this.withdrawInvite(previous.tokenIdHash);
 
-    // Track on roster — hash-only, no plaintext PII
+    // Track on roster — hash-only, no plaintext PII, and the invite by its fingerprint
     this.roster.set(employeeIdHash, {
       employeeIdHash,
       groupIdHash: group.groupIdHash,
       familyIdHash,
-      tokenId: result.tokenId,
+      tokenIdHash: result.token.tokenIdHash.toString(),
       status: 'pending',
       createdAt: Date.now(),
     });
 
     return result;
+  }
+
+  /** Withdraw an unused invite by its fingerprint; one already used, expired or withdrawn is left as it is (A-135). */
+  private withdrawInvite(tokenIdHash: string): void {
+    const record = this.tokenAuthority.getTokenByHash(tokenIdHash);
+    if (record && record.status === 'unused') this.tokenAuthority.revokeTokenByHash(tokenIdHash);
+  }
+
+  /** The roster entry whose current invite has this fingerprint. */
+  private rosterEntryForInvite(tokenIdHash: string): EmployerRosterEntry | undefined {
+    for (const entry of this.roster.values()) if (entry.tokenIdHash === tokenIdHash) return entry;
+    return undefined;
   }
 
   /** Revoke an unused token */
@@ -442,22 +468,30 @@ export class EmployerNode extends EntityNodeBase {
    * used, and when; no wallet ID crosses this boundary (rule I6). The roster and enrollment-cap
    * bookkeeping that `confirmEnrollment` used to do on the member's say-so now happens here, on
    * the oracle's own verdict, which is the only place it can be trusted.
+   *
+   * A-135: an invite whose employee has left the roster is refused and withdrawn before its PIN is looked at, whatever
+   * its own record says, so a redemption that crosses the employee's removal cannot enroll them again.
    */
   redeemTokenWithPin(
     tokenId: string,
     currentDate: string,
     tokenPinHash: string | undefined,
   ): TokenValidationResult & { consumed?: boolean } {
+    const fingerprint = TokenAuthority.fingerprintOf(tokenId);
+    if (this.rosterEntryForInvite(fingerprint)?.status === 'terminated') {
+      this.withdrawInvite(fingerprint);
+      return { valid: false, reason: "This invite was withdrawn: its employee is no longer on the employer's roster" };
+    }
     const result = this.tokenAuthority.redeemTokenWithPin(tokenId, currentDate, tokenPinHash);
-    if (result.valid && result.consumed) this.markRosterEnrolled(tokenId);
+    if (result.valid && result.consumed) this.markRosterEnrolled(fingerprint);
     return result;
   }
 
-  /** Mark the roster entry that carries `tokenId` enrolled and count it against its group once. */
-  private markRosterEnrolled(tokenId: string): void {
+  /** Mark the roster entry whose invite has this fingerprint enrolled, and count it against its group once; never one that has left. */
+  private markRosterEnrolled(tokenIdHash: string): void {
     for (const entry of this.roster.values()) {
-      if (entry.tokenId !== tokenId) continue;
-      if (entry.status !== 'enrolled') {
+      if (entry.tokenIdHash !== tokenIdHash) continue;
+      if (entry.status === 'pending') {
         entry.status = 'enrolled';
         for (const group of this.groups.values()) {
           if (group.groupIdHash === entry.groupIdHash) {
@@ -497,11 +531,12 @@ export class EmployerNode extends EntityNodeBase {
     return this.roster.get(employeeIdHash);
   }
 
-  /** Terminate a roster entry */
+  /** Terminate a roster entry, and withdraw the employee's unused invite with it (A-135: it used to stay redeemable). */
   terminateRosterEntry(employeeIdHash: string): void {
     const entry = this.roster.get(employeeIdHash);
     if (!entry) throw new Error('Roster entry not found');
     entry.status = 'terminated';
+    if (entry.tokenIdHash) this.withdrawInvite(entry.tokenIdHash);
   }
 
   /** Get active roster count */

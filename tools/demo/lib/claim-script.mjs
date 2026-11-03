@@ -130,7 +130,8 @@ export const BEATS = Object.freeze({
 const cents = (n) => `$${(Number(n) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const grouped = (n) => Number(n).toLocaleString('en-US');
 const ymd = (d) => d.toISOString().slice(0, 10);
-const lastDayOfNextMonth = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 2, 0));
+// An invite lasts at most 14 days (A-138, owner decision 2026-11-03); the walkthrough's codes take the full 14.
+const inviteExpiryFrom = (d) => new Date(d.getTime() + 14 * 86_400_000);
 const capital = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 /** Whole dollars the way people say them: 50000 cents -> 'five hundred', 780000 -> 'seventy-eight hundred'. */
 const dollarWords = (n) => (Number(n) % 100 === 0 ? sayAmount(Number(n) / 100) : cents(n));
@@ -274,7 +275,7 @@ export function castOf(input = {}) {
     ...others.map(([f, l, dob], i) => ({ employeeId: `FTW-${tag}-${String(i + 2).padStart(3, '0')}`, familyId: `FAM-${tag}-${String(i + 2).padStart(2, '0')}`, firstName: f, lastName: l, dob, email: '' }))
   ];
   roster.fileName = 'fernhill-roster.csv';
-  const codes = { validUntil: ymd(lastDayOfNextMonth(now)), ...(input.codes || {}) };
+  const codes = { validUntil: ymd(inviteExpiryFrom(now)), ...(input.codes || {}) };
   // match strings for the provider lists: row 0 of the fictional src/data/prescribers.json and pharmacies.json (3f2a192)
   const prescriber = { display: PEOPLE.prescriber.name, lastName: 'Fallowmere', match: 'Fallowmere', ...(input.prescriber || {}) };
   const pharmacy = { display: 'Kettleby Pharmacy', short: "Kettleby's", match: 'Kettleby', ...(input.pharmacy || {}) };

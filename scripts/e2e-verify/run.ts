@@ -363,7 +363,9 @@ async function main() {
   const csv = ['employee_id,family_id,first_name,last_name,dob,email',
     `${MEMBER.employeeId},${MEMBER.familyId},${MEMBER.firstName},${MEMBER.lastName},${MEMBER.dob},${MEMBER.email}`,
     `${DECOY.employeeId},${DECOY.familyId},${DECOY.firstName},${DECOY.lastName},${DECOY.dob},`].join('\n');
-  const imp = await http('POST', `${hrToolUrl}/api/import`, { csvContent: csv, validUntil: '2027-12-31', dryRun: false });
+  // An invite lasts at most 14 days (A-138); this run's codes take seven.
+  const validUntil = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
+  const imp = await http('POST', `${hrToolUrl}/api/import`, { csvContent: csv, validUntil, dryRun: false });
   const impData = unwrap(imp.json) ?? imp.json;
   trace.check('Both employees imported', impData?.success === 2, 2, imp.json);
   const issued = ((impData?.results ?? []) as Array<{ employeeId: string; status: string; tokenId?: string; tokenPIN?: string }>).filter(r => r.status === 'ok');
@@ -609,8 +611,9 @@ async function main() {
   const roster = await http('GET', `${employerNodeUrl}/roster`, undefined, { Authorization: `Bearer ${empAdmin}` });
   const rosterData = unwrap(roster.json) ?? {};
   const rosterEntries = (rosterData.entries ?? []) as any[];
-  const myRow = rosterEntries.find((e: any) => e.tokenId === myToken.tokenId); // the row that carries the member's own code; the HR Tool keys rows by its own employee hash
+  const myRow = rosterEntries.find((e: any) => e.tokenIdHash === hashString(myToken.tokenId).toString()); // the row that carries the fingerprint of the member's own code (A-109: never the code); the HR Tool keys rows by its own employee hash
   trace.check('The roster row for this employee is marked enrolled', roster.status === 200 && myRow?.status === 'enrolled', 'enrolled', myRow?.status ?? roster.status);
+  trace.check('The roster carries each code only as its fingerprint, never the code itself (A-109)', roster.status === 200 && rosterEntries.length > 0 && rosterEntries.every((e: any) => !('tokenId' in e) && typeof e.tokenIdHash === 'string') && !roster.text.includes(myToken.tokenId), 'fingerprints only', roster.text.includes(myToken.tokenId) ? 'the code is in the roster' : rosterEntries.map((e: any) => Object.keys(e).join(',')));
   trace.check('No roster row has a wallet column, and the member\'s wallet id is nowhere in the response', roster.status === 200 && rosterEntries.every((e: any) => !('walletId' in e)) && !roster.text.includes(walletId) && !/wallet/i.test(roster.text), 'no wallet', rosterEntries.length ? Object.keys(rosterEntries[0]).join(',') : roster.status);
 
   // ── 7b. Primary care, from the device (B1 step two, commit three; B5 put it before the claims) ──

@@ -339,7 +339,7 @@ async function startedEmployer(pinHash: string): Promise<{ url: string; code: st
   expect((await call(routeOf(routes, 'POST', '/onboarding/configure'), hr, { employerId: 'EMP-RELAY' })).status).toBe(200);
   (server.getEntityNode() as EmployerNode).setAttestation(attestationFor('EMP-RELAY', insurerPublicKeyFromSeed(INSURER_SEED)));
   expect((await call(routeOf(routes, 'POST', '/groups'), hr, { groupId: 'G1', planId: 'PLAN-1', effectiveDate: '20260101' })).status).toBe(201);
-  const issued = await call(routeOf(routes, 'POST', '/tokens/generate'), hr, { groupId: 'G1', employeeIdHash: 'employee-hash-1', validUntil: '20991231' });
+  const issued = await call(routeOf(routes, 'POST', '/tokens/generate'), hr, { groupId: 'G1', employeeIdHash: 'employee-hash-1', validUntil: new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10) });
   expect(issued.status).toBe(201);
   const code = issued.data.tokenId as string;
   expect((await call(routeOf(routes, 'POST', '/tokens/:tokenId/set-pin-hash'), hr, { tokenPinHash: pinHash }, { tokenId: code })).status).toBe(200);

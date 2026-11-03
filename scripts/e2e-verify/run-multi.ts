@@ -187,7 +187,9 @@ async function onboardEmployer(label: string, planId: string, people: Array<{ em
   t.check('HR Tool set up on the employer machine', setup.status < 300, '2xx', setup.status);
   await http('POST', `${hrToolUrl}/api/group/select`, { groupId });
   const csv = ['employee_id,family_id,first_name,last_name,dob,email', ...people.map(p => `${p.employeeId},${p.familyId},${p.firstName},${p.lastName},${p.dob},${p.email}`)].join('\n');
-  const imp = await http('POST', `${hrToolUrl}/api/import`, { csvContent: csv, validUntil: '2027-12-31', dryRun: false });
+  // An invite lasts at most 14 days (A-138); this run's codes take seven.
+  const validUntil = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
+  const imp = await http('POST', `${hrToolUrl}/api/import`, { csvContent: csv, validUntil, dryRun: false });
   const impData = unwrap(imp.json) ?? imp.json;
   t.check(`${people.length} employees imported`, impData?.success === people.length, people.length, imp.json);
   // PINs are returned once, in the import result; the export never carries them again.

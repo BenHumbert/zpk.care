@@ -475,12 +475,13 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
   });
 
   test('P2d — employer generates enrollment tokens', async () => {
+    const inviteExpiry = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);   // at most 14 days (A-138)
     const CODE = /^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){4}$/;
     // Token for Alice (member)
     const r1 = await post(employerPort, '/tokens/generate', {
       groupId: 'GRP-FERN-2026',
       employeeIdHash: 'EMP-10001',
-      validUntil: '20261231',
+      validUntil: inviteExpiry,
     }, AUTH);
     expect(r1.status).toBe(201);
     aliceCode = (r1.body as any).data.tokenId;
@@ -490,7 +491,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
     const r2 = await post(employerPort, '/tokens/generate', {
       groupId: 'GRP-FERN-2026',
       employeeIdHash: 'PROV-RX-001',
-      validUntil: '20261231',
+      validUntil: inviteExpiry,
     }, AUTH);
     expect(r2.status).toBe(201);
     prescriberCode = (r2.body as any).data.tokenId;
@@ -499,7 +500,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
     const r3 = await post(employerPort, '/tokens/generate', {
       groupId: 'GRP-FERN-2026',
       employeeIdHash: 'PROV-PH-001',
-      validUntil: '20261231',
+      validUntil: inviteExpiry,
     }, AUTH);
     expect(r3.status).toBe(201);
     pharmacyCode = (r3.body as any).data.tokenId;
@@ -508,7 +509,7 @@ describe('E2E Smoke — Plan → Employer → Enrollment → Prescription → Cl
     const r4 = await post(employerPort, '/tokens/generate', {
       groupId: 'GRP-FERN-2026',
       employeeIdHash: 'EMP-10002',
-      validUntil: '20261231',
+      validUntil: inviteExpiry,
       tokenId: 'TKN-CHOSEN-001',
     }, AUTH);
     expect(r4.status).toBe(400);

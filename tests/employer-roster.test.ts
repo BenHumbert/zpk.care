@@ -17,25 +17,28 @@
 /**
  * The employer never learns the wallet ID, by construction — plan item B6, rule I6, finding PHI-9.
  *
- * The employer's roster holds the employee hash, the group and family hashes, the code it issued and
- * whether that code was used. It has no wallet column: A6 removed the only call that would have
- * filled one, and B6 removed the column itself, so the employer learns that an enrollment happened
- * and never which wallet it produced.
+ * The employer's roster holds the employee hash, the group and family hashes, the fingerprint of the
+ * code it issued (A-109: never the code) and whether that code was used. It has no wallet column: A6
+ * removed the only call that would have filled one, and B6 removed the column itself, so the employer
+ * learns that an enrollment happened and never which wallet it produced.
  */
 import fs from 'fs';
 import { EmployerNode } from '../src/nodes/employer-node.js';
+import { hashString } from '../src/zkp/hash-utils.js';
+
+const inSevenDays = () => new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10).replace(/-/g, '');
 
 describe('the employer roster', () => {
   const node = new EmployerNode({ role: 'employer', sequencerUrl: 'http://127.0.0.1:1', employerId: 'E2E-TEST-EMPLOYER' });
 
-  test('an entry created through the node has exactly the hash, code and status columns, and no wallet', () => {
+  test('an entry created through the node has exactly the hash, code fingerprint and status columns, and no wallet', () => {
     node.createGroup('G-ROSTER', 'PLAN-ROSTER', '20260101', 10);
-    const issued = node.generateToken('G-ROSTER', 'employee-hash-1', 'family-hash-1', '20271231');
+    const issued = node.generateToken('G-ROSTER', 'employee-hash-1', 'family-hash-1', inSevenDays());
     const entries = node.listRoster();
     expect(entries).toHaveLength(1);
     const entry = entries[0] as Record<string, unknown>;
-    expect(Object.keys(entry).sort()).toEqual(['createdAt', 'employeeIdHash', 'familyIdHash', 'groupIdHash', 'status', 'tokenId']);
-    expect(entry.tokenId).toBe(issued.tokenId);
+    expect(Object.keys(entry).sort()).toEqual(['createdAt', 'employeeIdHash', 'familyIdHash', 'groupIdHash', 'status', 'tokenIdHash']);
+    expect(entry.tokenIdHash).toBe(hashString(issued.tokenId).toString());
     expect(entry.status).toBe('pending');
     expect(JSON.stringify(entry)).not.toMatch(/wallet/i);
   });
