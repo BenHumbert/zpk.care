@@ -44,11 +44,17 @@ import { fileURLToPath } from 'url';
 import {
   resolveBindHost, resolveAllowedOrigins, corsOriginHeader, resolveRpcProxyPolicy, resolvePublicHosts,
   requestHostAllowed, bodyTypeAccepted, MISDIRECTED_REQUEST, UNSUPPORTED_BODY_TYPE, NO_FRAMING_HEADERS,
-  type HostPolicy,
+  resolveExplorerPort, type HostPolicy,
 } from '../security/network-policy.js';
 
 const env = process.env;
-const port = parseInt(env.ZKTRIDENT_EXPLORER_PORT ?? '8000', 10);
+let port: number;
+try {
+  port = resolveExplorerPort(env);
+} catch (err) {
+  console.error('  [FATAL] explorer: %s', (err as Error).message);
+  process.exit(1);
+}
 const bindHost = resolveBindHost(env, 'explorer');
 /** A-82: the names this explorer answers to in a request's Host. */
 const hostPolicy: HostPolicy = { bindHost, publicHosts: resolvePublicHosts(env) };
@@ -350,6 +356,20 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   res.writeHead(404, { ...corsHeaders(req), 'Content-Type': 'text/plain' });
   res.end('Not found');
 }
+
+// A-133: a port another program holds used to end the explorer with an unhandled 'error' event and a stack trace.
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(
+      '  [FATAL] explorer: port %d is already in use by another program. Set ZKTRIDENT_EXPLORER_PORT to a free port, ' +
+        'or stop that program.',
+      port,
+    );
+  } else {
+    console.error('  [FATAL] explorer: could not listen on %s:%d: %s', bindHost, port, err.message);
+  }
+  process.exit(1);
+});
 
 server.listen(port, bindHost, () => {
   console.log('');

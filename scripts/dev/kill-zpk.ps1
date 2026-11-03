@@ -3,8 +3,9 @@
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/kill-zpk.ps1
 #
-# `npm run kill:ports` frees the well-known ports; this also catches the workers and the
-# harness, which hold no port, and leaves every unrelated node process alone.
+# `npm run kill:ports` stops this checkout's processes on the well-known ports; this also
+# catches the workers and the harness, which hold no port, and leaves every unrelated node
+# process alone.
 $patterns = 'zpk_care|start-leviathan|e2e-verify|hr-tool-server|proof-pool-worker|l2-verify-worker|l2-proving-worker'
 $exclude  = 'Adobe|SwapStreet|lan\.mjs|bots-join'
 
@@ -23,7 +24,9 @@ foreach ($p in $procs) {
 Start-Sleep -Seconds 2
 $after = @(Get-ZpkNode)
 Write-Output "matched after: $($after.Count)"
-$ports = @(3030, 3031, 3032, 4001, 4002, 4003, 4004, 4040, 5050, 8000)
+# The explorer's port moves with ZKTRIDENT_EXPLORER_PORT (A-133).
+$explorer = if ($env:ZKTRIDENT_EXPLORER_PORT) { [int]$env:ZKTRIDENT_EXPLORER_PORT } else { 8000 }
+$ports = @(3030, 3031, 3032, 4001, 4002, 4003, 4004, 4040, 5050, $explorer)
 $listening = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $ports -contains $_.LocalPort })
 Write-Output "zpk ports listening: $($listening.Count)"
 $others = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { -not ($_.CommandLine -match $patterns) })

@@ -43,7 +43,7 @@
  * Usage:
  *   npx tsx scripts/bootstrap-system.ts
  *   npx tsx scripts/bootstrap-system.ts --tokens 5    # generate 5 tokens
- *   npx tsx scripts/bootstrap-system.ts --skip-kill    # don't kill existing ports
+ *   npx tsx scripts/bootstrap-system.ts --skip-kill    # don't first stop this checkout's processes on the ports
  *
  * After this script completes:
  *   → Open http://localhost:4001 (Member Dashboard)
@@ -53,6 +53,8 @@
 import { execSync, spawn, type ChildProcess } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { resolveExplorerPort } from '../src/security/network-policy.js';
+import { freeProjectPorts } from './dev/kill-ports-lib.js';
 
 const thisDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(thisDir, '..');
@@ -78,7 +80,8 @@ const PORTS = {
   insurer: 4004,
   employer: 4005,
   prover: 4040,
-  explorer: 8000,
+  // A-133: wherever ZKTRIDENT_EXPLORER_PORT puts it, which start-leviathan reads from the same environment
+  explorer: resolveExplorerPort(process.env),
 };
 
 const ADMIN_TOKEN = 'admin123';
@@ -162,25 +165,9 @@ async function apiCall(
 
 async function killPorts(): Promise<void> {
   banner('Step 1: Clean up existing processes');
-  const allPorts = Object.values(PORTS);
-  for (const port of allPorts) {
-    try {
-      const output = execSync('netstat -ano', { encoding: 'utf8' });
-      const line = output.split('\n').find(
-        (l) => l.includes(`:${port} `) && l.includes('LISTEN'),
-      );
-      if (line) {
-        const pid = line.trim().split(/\s+/).pop();
-        if (pid && pid !== '0') {
-          execSync(`taskkill /F /PID ${pid}`);
-          log('kill', `Killed PID ${pid} on port ${port}`);
-        }
-      }
-    } catch {
-      // Port not in use — fine
-    }
-  }
-  log('kill', 'Ports cleared');
+  // A-133: stops this checkout's own processes only. This used to force-kill whatever held each port, another
+  // project's web server on 8000 included; now any other program is named and left running.
+  freeProjectPorts(process.env, projectRoot, (line) => log('kill', line));
   await sleep(1000); // Give OS time to release ports
 }
 

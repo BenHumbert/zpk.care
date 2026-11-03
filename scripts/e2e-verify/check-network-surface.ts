@@ -47,13 +47,17 @@
  *
  *   --strict         exit 1 if any check fails (for use as an acceptance test)
  *   E2E_LAN_IP       this host's LAN address (default: first non-loopback IPv4 found)
- *   E2E_PORTS        ports to probe (default 3030,3031,3032,4001,4002,4003,4004,4040,8000)
+ *   E2E_PORTS        ports to probe (default 3030,3031,3032,4001,4002,4003,4004,4040 and the explorer's)
+ *   ZKTRIDENT_EXPLORER_PORT  the explorer's port, as the network was started with (default 8000)
  */
 import os from 'os';
+import { resolveExplorerPort } from '../../src/security/network-policy.js';
 
 const args = process.argv.slice(2);
 const STRICT = args.includes('--strict');
-const PORTS = (process.env.E2E_PORTS ?? '3030,3031,3032,4001,4002,4003,4004,4040,8000')
+/** Where the explorer serves, which ZKTRIDENT_EXPLORER_PORT may have moved off 8000 (A-133). */
+const EXPLORER_PORT = resolveExplorerPort(process.env);
+const PORTS = (process.env.E2E_PORTS ?? `3030,3031,3032,4001,4002,4003,4004,4040,${EXPLORER_PORT}`)
   .split(',').map((s) => Number(s.trim())).filter(Boolean);
 /**
  * How long to wait for one answer. Generous on purpose: the sequencer compiles ten
@@ -200,7 +204,7 @@ async function main(): Promise<void> {
     // ── 4. the /rpc proxy is narrow, not absent ─────────────────────
     // The entity nodes and the explorer carry a proxy; :3030's own /rpc is the real API and
     // is not one, so it is left out here.
-    const hasProxy = (port >= 4001 && port <= 4004) || port === 8000;
+    const hasProxy = (port >= 4001 && port <= 4004) || port === EXPLORER_PORT;
     if (hasProxy) {
       const rpc = (method: string): Promise<Probe> => probe(base + '/rpc', {
         method: 'POST',

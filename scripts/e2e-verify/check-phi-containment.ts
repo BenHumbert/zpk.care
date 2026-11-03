@@ -40,11 +40,13 @@
  *   E2E_REPLICA       replica base URL to probe as well (default http://localhost:3031)
  *   E2E_MEMBER_PORTS  member node ports whose public endpoints to probe (default 4001,4011,4012,4013)
  *   E2E_SSE_MS        how long to sample the SSE stream, ms (default 6000)
+ *   ZKTRIDENT_EXPLORER_PORT  the explorer's port, as the network was started with (default 8000)
  */
 import fs from 'fs';
 import path from 'path';
 import { hashString, hashDate } from '../../src/zkp/hash-utils.js';
 import { NautilusLocalState } from '../../src/nodes/nautilus-local-state.js';
+import { resolveExplorerPort } from '../../src/security/network-policy.js';
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '../..');
 const args = process.argv.slice(2);
@@ -53,6 +55,7 @@ const [runDir, networkLog] = args.filter(a => !a.startsWith('--'));
 const SEQ = process.env.E2E_SEQ ?? 'http://localhost:3030';
 const REPLICA = process.env.E2E_REPLICA ?? 'http://localhost:3031';
 const MEMBER_PORTS = (process.env.E2E_MEMBER_PORTS ?? '4001,4011,4012,4013').split(',').map(s => s.trim()).filter(Boolean);
+const EXPLORER = `http://localhost:${resolveExplorerPort(process.env)}`;
 const SSE_MS = Number(process.env.E2E_SSE_MS ?? 6000);
 const DEVICES = path.join(path.dirname(runDir), 'devices');
 const PINS: Record<string, string> = { A1: '864209', A2: '531907', B1: '702318', B2: '416685' };
@@ -279,7 +282,7 @@ async function main() {
   places.push({
     name: 'Explorer /rpc proxy, no credentials',
     text: async () => (await Promise.all(
-      Object.values(devices).map(d => rpc('http://localhost:8000', 'l2_getClaimsByMember', { memberWalletId: d.walletId })),
+      Object.values(devices).map(d => rpc(EXPLORER, 'l2_getClaimsByMember', { memberWalletId: d.walletId })),
     )).join('\n'),
   });
   places.push({

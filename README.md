@@ -44,7 +44,7 @@ zpk.care is free and always will be. If it has helped you and you would like to 
 zpk.care is a **hardened production candidate** running end to end on a one-computer test network. It is not yet ready for a pilot. Where it stands, as of 2026-10-26:
 
 - **Works end to end:** plan publishing, employer signup, enrollment on the member's device, primary-care choice, prescribing with the member's price shown first, fill and adjudication. Live end-to-end runs on 2026-10-25 passed 246 of 246 checks (one member) and 221 of 221 (four members, two employers); the regression batch is 153 suites and 1,832 tests, all passing.
-- **Hardened by an internal audit:** 132 findings, 108 fixed, 24 open, none critical. Every route that changes state or returns member data authenticates its caller; requests are signed and replay-protected; every submitted proof is verified against a pinned key before anything is written; the member's device proves every change to its own record, and the engine holds no identity inputs.
+- **Hardened by an internal audit:** 133 findings, 109 fixed, 24 open, none critical. Every route that changes state or returns member data authenticates its caller; requests are signed and replay-protected; every submitted proof is verified against a pinned key before anything is written; the member's device proves every change to its own record, and the engine holds no identity inputs.
 - **Not yet built or not yet complete:** outside verification of each fill's money (option A, step 1 of 8 done), the price lock and signed pickup with a 14-day reversal, providers holding their own keys, end-to-end message encryption, the NCPDP standard claim format, pharmacy payments, a native phone app and employer reports.
 - **Not independently audited.** The cryptography, key management and network protocol need a third-party review before any deployment that handles real data.
 - **Demo data is fictional.** The bundled prescribers, pharmacies, medications and members are invented.
@@ -136,7 +136,9 @@ The sequencer does the heavy zero-knowledge work, since proving runs inside it. 
    ```bash
    npm run start:leviathan:clean:100:unsecure
    ```
-   This frees the dev ports, clears local state, and then boots the Leviathan sequencer, two replicas, the proof workers, and every participant node with its dashboard. `:100` loads a 100-drug formulary so the first boot is fast. `:unsecure` relaxes RPC authentication and CORS for single-machine development. Never use this mode beyond `localhost`.
+   This stops any of this project's own processes still holding its ports, clears local state, and then boots the Leviathan sequencer, two replicas, the proof workers, and every participant node with its dashboard. `:100` loads a 100-drug formulary so the first boot is fast. `:unsecure` relaxes RPC authentication and CORS for single-machine development. Never use this mode beyond `localhost`.
+
+   If another program already uses port 8000, set `ZKTRIDENT_EXPLORER_PORT` to a free port (for example 8010) before starting, and the explorer serves there.
 
    > The first boot takes a few minutes while the zero-knowledge circuits compile. This is expected and happens once per run. Wait for the startup banner.
 
@@ -149,7 +151,7 @@ The sequencer does the heavy zero-knowledge work, since proving runs inside it. 
    | Member (patient) | http://localhost:4001/ |
    | Prescriber | http://localhost:4002/ |
    | Pharmacy | http://localhost:4003/ |
-   | Network explorer | http://localhost:8000/ |
+   | Network explorer | http://localhost:8000/, or the port in `ZKTRIDENT_EXPLORER_PORT` |
 
 5. **Walk through the full flow:**
    1. **Marketplace.** An employer browses plans, applies, signs, and activates. Activation starts that employer's private node and HR Tool on their own ports.
@@ -161,7 +163,7 @@ The sequencer does the heavy zero-knowledge work, since proving runs inside it. 
 
 6. **Stop**
    - Press Ctrl+C in the terminal.
-   - If a port is still held afterward, run `npm run kill:ports`.
+   - If a port is still held afterward, run `npm run kill:ports`. It stops only this checkout's own processes; a port another program holds is named and left alone.
 
 7. **Run the tests** (optional)
    ```bash

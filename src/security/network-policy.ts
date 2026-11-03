@@ -45,8 +45,34 @@ const LOCAL_HOSTS = ['localhost', '127.0.0.1'] as const;
  * itself and are therefore same-origin, which needs no CORS grant. An employer page that
  * needed to call another service cross-origin would have to be given its origin explicitly
  * through `ZKTRIDENT_CORS_ORIGINS`.
+ *
+ * The explorer is absent here too, because its port moves: `resolveAllowedOrigins` adds the
+ * one `resolveExplorerPort` reads.
  */
-const LOCAL_PORTS = [3030, 3031, 3032, 4001, 4002, 4003, 4004, 4040, 8000] as const;
+const LOCAL_PORTS = [3030, 3031, 3032, 4001, 4002, 4003, 4004, 4040] as const;
+
+/** The explorer's port when ZKTRIDENT_EXPLORER_PORT does not name one. */
+export const DEFAULT_EXPLORER_PORT = 8000;
+
+/**
+ * The port the explorer serves on: `ZKTRIDENT_EXPLORER_PORT`, or 8000.
+ *
+ * Finding A-133: the whole-network launcher started the explorer on 8000 whatever this said,
+ * so a network could not run where another program held 8000. The launcher, the explorer and
+ * the CORS list now all read the port here.
+ *
+ * Throws, naming the variable, on anything but a whole number from 1 to 65535. parseInt,
+ * which the explorer used, read `80x` as 80 and `8e3` as 8.
+ */
+export function resolveExplorerPort(env: NodeJS.ProcessEnv): number {
+  const raw = env.ZKTRIDENT_EXPLORER_PORT?.trim();
+  if (!raw) return DEFAULT_EXPLORER_PORT;
+  const port = /^\d{1,5}$/.test(raw) ? Number(raw) : NaN;
+  if (!(port >= 1 && port <= 65535)) {
+    throw new Error(`ZKTRIDENT_EXPLORER_PORT must be a port number from 1 to 65535, not "${raw}"`);
+  }
+  return port;
+}
 
 /**
  * Resolve the address a listener binds to. **Loopback by default**, which is the change:
@@ -76,6 +102,9 @@ export function resolveBindHost(env: NodeJS.ProcessEnv, role: string): string {
  * of `['http://localhost', 'http://127.0.0.1']` matched nothing, because a browser sends
  * `http://localhost:4001`, so the policy denied every browser and one endpoint had to opt
  * out with a wildcard to work at all.
+ *
+ * The explorer's origin is the port it serves on. Once ZKTRIDENT_EXPLORER_PORT moves it,
+ * 8000 is no longer granted: whatever serves there is not part of this deployment.
  */
 export function resolveAllowedOrigins(
   env: NodeJS.ProcessEnv,
@@ -102,7 +131,8 @@ export function resolveAllowedOrigins(
     return configured;
   }
 
-  return LOCAL_HOSTS.flatMap((h) => LOCAL_PORTS.map((p) => `http://${h}:${p}`));
+  const ports = [...new Set<number>([...LOCAL_PORTS, resolveExplorerPort(env)])];
+  return LOCAL_HOSTS.flatMap((h) => ports.map((p) => `http://${h}:${p}`));
 }
 
 /**

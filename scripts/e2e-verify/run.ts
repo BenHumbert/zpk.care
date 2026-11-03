@@ -34,6 +34,8 @@
  *
  * Usage:
  *   ZKTRIDENT_ADMIN_TOKEN=... npx tsx scripts/e2e-verify/run.ts <outDir> [networkLogPath]
+ *
+ *   ZKTRIDENT_EXPLORER_PORT  the explorer's port, as the network was started with (default 8000)
  */
 import fs from 'fs';
 import path from 'path';
@@ -53,8 +55,10 @@ import { NautilusLocalState } from '../../src/nodes/nautilus-local-state.js';
 import { l2Parse } from '../../src/l2/l2-json.js';
 import { deriveNodeAdminToken } from '../../src/security/node-roles.js';
 import { SequencerAttestationAuthority } from '../../src/credentials/nfc-attestation.js';
+import { resolveExplorerPort } from '../../src/security/network-policy.js';
 
-const SEQ = 'http://localhost:3030', INS = 'http://localhost:4004', MEM = 'http://localhost:4001', EXP = 'http://localhost:8000';
+// The explorer is wherever ZKTRIDENT_EXPLORER_PORT put it when the network started (A-133); export the same value here.
+const SEQ = 'http://localhost:3030', INS = 'http://localhost:4004', MEM = 'http://localhost:4001', EXP = `http://localhost:${resolveExplorerPort(process.env)}`;
 const PRE = 'http://localhost:4002', PHA = 'http://localhost:4003';
 const ADMIN = process.env.ZKTRIDENT_ADMIN_TOKEN || '';
 const OUT = path.resolve(process.argv[2] || './e2e-out');

@@ -3285,3 +3285,29 @@ record. The three failures were not the change: another program on this machine 
 started (EADDRINUSE); its fixture directory read 0 / 0, and the out-of-network doctor the harness finds through it was
 missing (two checks in step 24). A clean re-run needs port 8000 free; the port is fixed in `start-leviathan.ts` and
 `run.ts`.
+
+**A-133 fixed, 2026-11-03 (other programs' ports).** `npm run kill:ports`, which six package scripts run first (the
+README quick start among them), and the bootstrap script's own clean-up ran `taskkill /F` on whatever listened on each
+project port. On this machine that was another project's web server on 8000 and another on 8080: starting the network
+the documented way would have closed both. Separately, start-leviathan started the explorer with
+ZKTRIDENT_EXPLORER_PORT=8000 whatever the environment said, which is why the A-126 live run lost three checks. Now
+`scripts/dev/kill-ports-lib.ts`, shared by kill:ports and the bootstrap script, reads each listener's program and
+command line and stops only node running from this checkout; every other listener is named with its process ID and left
+running, and nothing is stopped when netstat or the process list cannot be read. `resolveExplorerPort` (8000 unless
+ZKTRIDENT_EXPLORER_PORT names a port; anything else stops the boot, naming the variable) feeds the launcher, the
+explorer, the CORS list, the live harness, the PHI containment and network surface checks, the bootstrap script and the
+dev stop script. Once the explorer moves, 8000 is no longer a CORS origin, so a page another program serves there gets
+no grant. An explorer whose port is taken now says so and names the variable, instead of dying on an unhandled error.
+
+*Verified.* `tests/explorer-port.test.ts`, 26 tests; 23 fail on the old code and three guard what stays the same (the
+default CORS list, an operator's own list, the explorer serving on the port it is given). `tests/kill-ports.test.ts`,
+30 tests: netstat parsing in any display language, telling this checkout from every other program, the plan, the package
+scripts, and, on a stand-in machine, each outcome of freeing the ports. Regression batch 156 suites (the A-126 batch and these two), 1,900 tests, all passing. Typecheck src 18, scripts 2, the same
+two script errors as before.
+
+*Live, the same day (secured boot, one member, explorer on 8010 while the other project's server kept 8000):* 246 of 246
+checks. Run against that network, kill:ports stopped the launcher and reported its six children as ones that could not
+be stopped: they watch the launcher and had already exited. The message now checks whether a process it failed to stop
+is still running (a stand-in test first, failing); a second boot showed the launcher stopped, the six children reported
+as already exited, every project port free, and the servers on 8000 and 8080 still running. Scoreboard: 133 findings;
+109 fixed; 24 open, none critical.

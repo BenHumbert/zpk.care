@@ -103,6 +103,7 @@ Most runs need none — the npm scripts set sensible defaults. The notable ones:
 | `ZKTRIDENT_POOL_SIZE` | Entity proof-pool size |
 | `ZKTRIDENT_UNSECURE` | `true` relaxes auth/CORS for local demos only |
 | `ZKTRIDENT_PORT` / `ZKTRIDENT_HOST` | Bind address for a node |
+| `ZKTRIDENT_EXPLORER_PORT` | The explorer's port (default `8000`), for a machine where another program holds 8000. The launcher, the explorer, the CORS list and the verification scripts all read it; anything but a port number stops the boot |
 | `ZKTRIDENT_PUBLIC_HOSTS` | Host names a listener answers beyond loopback and its bind address, comma-separated `name` or `name:port` (a proxy's or a peer's); any other Host gets 421 |
 | `ZKTRIDENT_TRUSTED_PROXIES` | The reverse proxies in front of a node, comma-separated exact IP addresses (IPv4 or IPv6). A node reads `X-Forwarded-For` only from these, to count each caller as the client the proxy names; an entry that is not an IP address stops the node at boot. See [Behind a reverse proxy](#behind-a-reverse-proxy) |
 | `ZKTRIDENT_SEQUENCER_URL` | Where a node finds the sequencer |
@@ -174,7 +175,9 @@ state and checkpoints so you can start fresh.
 - **First boot seems stuck for minutes.** Expected — circuits are compiling.
   Watch for each node logging `ready`.
 - **Port already in use.** Run `npm run kill:ports`, or use a `:clean` script
-  which does it for you.
+  which does it for you. It stops only this checkout's own processes. A port
+  another program holds is named, with its process ID, and left alone: stop that
+  program yourself, or for port 8000 set `ZKTRIDENT_EXPLORER_PORT` to a free port.
 - **Memory grows during very long runs.** o1js's proving engine grows its WASM
   heap over time and has no compaction API; a long-running single-process demo
   can eventually slow down. Restart with a `:clean` script. (In a real

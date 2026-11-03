@@ -51,6 +51,7 @@
  *   ZKTRIDENT_TLS_KEY          — Path to the matching PEM private key.
  *   ZKTRIDENT_CORS_ORIGINS     — Comma-separated allowed CORS origins
  *                                (default: the local dashboard origins)
+ *   ZKTRIDENT_EXPLORER_PORT    — Explorer port, for a machine where 8000 is taken (default: 8000)
  *   ZKTRIDENT_POOL_SIZE        — Proving pool workers: number or "auto" (default: "auto", min 3)
  *   ZKTRIDENT_MEMBER_DEVICE_PORTS — Extra member devices to boot, comma-separated ports (default: none)
  *   ZKTRIDENT_MEMBER_DEVICES_DIR  — Their state directories, one per port (default: ./e2e-devices)
@@ -79,7 +80,7 @@ import { WALLET_TREE_HEIGHT } from '../wallets/wallet-state.js';
 import type { PartitionConfig } from '../l2/l2-partition.js';
 import type { VizEvent } from '../l2/l2-rpc-server.js';
 import http from 'http';
-import { resolveBindHost, resolveAllowedOrigins } from '../security/network-policy.js';
+import { resolveBindHost, resolveAllowedOrigins, resolveExplorerPort } from '../security/network-policy.js';
 import crypto from 'crypto';
 import { insurerPublicKeyFromSeed } from '../onboarding/employer-attestation.js';
 import { generateNodeKey, childEnvironment, deriveNodeAdminToken, NODE_ID_ENV, NODE_KEY_SEED_ENV, type NodeRole } from '../security/node-roles.js';
@@ -94,6 +95,8 @@ const env = process.env;
 
 const port = parseInt(env.ZKTRIDENT_PORT ?? '3030', 10);
 const host = resolveBindHost(env, 'sequencer');
+// A-133: read here, before anything starts, so a setting that is not a port stops the boot with the reason.
+const explorerPort = resolveExplorerPort(env);
 const nodeId = env.ZKTRIDENT_NODE_ID;
 const batchIntervalMs = parseInt(env.ZKTRIDENT_BATCH_INTERVAL_MS ?? '30000', 10);
 const partitionCount = parseInt(env.ZKTRIDENT_PARTITION_COUNT ?? '1', 10);
@@ -591,7 +594,7 @@ async function main(): Promise<void> {
         `http://localhost:4002/`,          // Prescriber
         `http://localhost:4003/`,          // Pharmacy
         `http://localhost:4004/`,          // Insurer (includes marketplace at /marketplace/)
-        `http://localhost:8000/`,          // Explorer
+        `http://localhost:${explorerPort}/`,  // Explorer
       ];
       const { exec } = await import('child_process');
       const openCmd = process.platform === 'win32' ? 'start ""' : process.platform === 'darwin' ? 'open' : 'xdg-open';
@@ -878,13 +881,13 @@ async function main(): Promise<void> {
 
   console.log('  [boot] Employer nodes + HR Tools: on-demand via marketplace activation (no boot-time spawn)');
 
-  // Explorer (port 8000) — static file server + proxy to sequencer
+  // Explorer (ZKTRIDENT_EXPLORER_PORT, 8000 by default) — static file server + proxy to sequencer
   {
     const explorerScript = path.resolve(thisDir, 'start-explorer.ts');
     if (fs.existsSync(explorerScript)) {
       const child = spawn(process.execPath, ['--import', 'tsx', explorerScript], {
         // A9: the explorer serves pages and proxies read methods; it gets no secret and no key.
-        env: childEnvironment(process.env, { ZKTRIDENT_EXPLORER_PORT: '8000', ZKTRIDENT_SEQUENCER_URL: `http://localhost:${port}`, ZKTRIDENT_PARENT_PID: String(process.pid) }),
+        env: childEnvironment(process.env, { ZKTRIDENT_EXPLORER_PORT: String(explorerPort), ZKTRIDENT_SEQUENCER_URL: `http://localhost:${port}`, ZKTRIDENT_PARENT_PID: String(process.pid) }),
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
       });
@@ -893,8 +896,8 @@ async function main(): Promise<void> {
       child.on('exit', (code) => {
         if (!stopping) console.error('  [entity] explorer exited unexpectedly (code %d)', code);
       });
-      entityChildren.push({ name: 'explorer', child, port: 8000 });
-      console.log('  [entity] explorer spawned (port 8000)');
+      entityChildren.push({ name: 'explorer', child, port: explorerPort });
+      console.log('  [entity] explorer spawned (port %d)', explorerPort);
     }
   }
 
