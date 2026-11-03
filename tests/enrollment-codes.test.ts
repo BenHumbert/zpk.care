@@ -589,6 +589,41 @@ describe('the validate oracle answers only the insurer, and consumes what it val
     expect((await ask(last.slice(0, 4) + '-' + last.slice(4, 6) + '-' + last.slice(6, 8))).status).toBe(201);
   });
 
+  /** A call to /tokens/:tokenId/enrollment-cancelled signed by `seed` (A-109), or unsigned. */
+  function cancellation(code: string, seed: string | null = INSURER_SEED) {
+    const p = `/tokens/${encodeURIComponent(code)}/enrollment-cancelled`;
+    const body = { reason: 'reported' };
+    const headers = seed === null ? {} : signRequest({ signerId: 'insurer', privateKey: deriveInsurerKeypair(seed).privateKey, method: 'POST', path: p, body: JSON.stringify(body) });
+    return { req: fakeReq({ url: p, headers }), params: { tokenId: code }, body };
+  }
+
+  test('the plan cancels an enrollment someone else made with a code, and the employee is back on the roster for a new invite (A-109)', async () => {
+    const e = await employerWithCode();
+    expect((await call(e.validate, signed(e.code, { tokenPinHash: hashTokenPIN(e.code, PIN) }))).payload.data.consumed).toBe(true);
+    expect(e.node.getRosterEntry('emp-hash-1')!.status).toBe('enrolled');
+    expect(e.node.getGroup('G1')!.enrolledCount).toBe(1);
+    const cancel = find(e.routes, 'POST', '/tokens/:tokenId/enrollment-cancelled');   // before: no such route
+    const r = await call(cancel, cancellation(e.code));
+    expect(r.status).toBe(200);
+    expect(r.payload.data).toMatchObject({ cancelled: true });
+    expect(e.node.getTokenRecord(e.code)!.status).toBe('revoked');        // the code is spent for good
+    expect(e.node.getRosterEntry('emp-hash-1')!.status).toBe('pending');
+    expect(e.node.getGroup('G1')!.enrolledCount).toBe(0);
+    // HR can now send the employee a new invite, which A-135 refuses for an enrolled employee
+    const again = await call(find(e.routes, 'POST', '/tokens/generate'), { body: { groupId: 'G1', employeeIdHash: 'emp-hash-1', validUntil: inDays(7) } });
+    expect(again.status).toBe(201);
+  });
+
+  test('a cancellation answers only the insurer, and only for a code that was used', async () => {
+    const e = await employerWithCode();
+    const cancel = find(e.routes, 'POST', '/tokens/:tokenId/enrollment-cancelled');
+    expect((await call(cancel, cancellation(e.code, null))).status).toBe(401);
+    expect((await call(cancel, cancellation(e.code, 'some-other-seed'))).status).toBe(401);
+    const unused = await call(cancel, cancellation(e.code));
+    expect(unused.status).toBe(409);                                        // nothing to cancel: the code was never used
+    expect(e.node.getTokenRecord(e.code)!.status).toBe('unused');
+  });
+
   test('one client’s 600 unsigned requests in a minute leave the insurer’s next signed request answered', async () => {
     const e = await employerWithCode();
     const junk = await statuses(600, () => call(e.validate, unsigned(e.code, '203.0.113.7')));

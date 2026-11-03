@@ -229,6 +229,16 @@ const STEP_THERAPY_MAP: Record<string, string[]> = {
 
 type LifecycleStatus = 'ELIGIBLE' | 'ACTIVE' | 'REVOKED';
 
+/**
+ * A-109: the plan's hold on a member's coverage while a report about its enrollment is reviewed (an employee said
+ * someone else used their invite). Unlike a termination it is lifted when the report proves mistaken.
+ */
+export interface MemberHold {
+  reason: string;
+  /** ms since the epoch */
+  at: number;
+}
+
 interface EnrolledMember {
   memberIndex: number;  // -1 for members enrolled via dashboard (no seed index)
   walletId: Field;
@@ -252,6 +262,8 @@ interface EnrolledMember {
   inNetworkPharmacyIndices: number[];
   lifecycle: LifecycleStatus;
   terminationDate?: string;
+  /** A-109: set while a report about this member's enrollment is reviewed; nothing is quoted, authorized, written or filled */
+  held?: MemberHold;
   walletIndex: number;
   nonce: number;
   credentialInventoryRoot: Field;
@@ -396,6 +408,8 @@ interface SerializedEnrolledMember {
   inNetworkPharmacyIndices: number[];
   lifecycle: LifecycleStatus;
   terminationDate?: string;
+  /** A-109; absent in older checkpoints, and for a member not held */
+  held?: MemberHold;
   walletIndex: number;
   nonce: number;
   credentialInventoryRoot: string;            // Field as decimal string
@@ -565,15 +579,17 @@ export class RegistrationRefused extends Error {
  * Whether a member may be billed, asked of the ledger (the sequencer's lifecycle tree) and not only of the engine's
  * copy: the two can disagree after a restore or a termination that stopped half-way. The ledger must show the wallet
  * ELIGIBLE or ACTIVE. A ledger that shows it revoked brings the engine's copy into step; an engine copy that shows it
- * terminated still refuses, whatever the ledger says.
+ * terminated still refuses, whatever the ledger says. A-109: so does a member the plan holds while a report about its
+ * enrollment is reviewed.
  */
 export function refuseUnlessLedgerBillable(
   ledger: { name: 'registered' | 'eligible' | 'active' | 'revoked' } | null,
-  enrolled: { lifecycle: 'ELIGIBLE' | 'ACTIVE' | 'REVOKED' },
+  enrolled: { lifecycle: 'ELIGIBLE' | 'ACTIVE' | 'REVOKED'; held?: MemberHold },
   refusal: string,
 ): void {
   if (ledger?.name === 'revoked') enrolled.lifecycle = 'REVOKED';
   if (enrolled.lifecycle === 'REVOKED') throw new RegistrationRefused(409, `This member is terminated; ${refusal}`);
+  if (enrolled.held) throw new RegistrationRefused(409, `This member's coverage is held while a report about its enrollment is reviewed; ${refusal}`);
   if (ledger?.name !== 'eligible' && ledger?.name !== 'active') {
     throw new RegistrationRefused(409, `The ledger does not show this member eligible (${ledger ? ledger.name : 'not on the ledger'}); ${refusal}`);
   }
@@ -1085,6 +1101,7 @@ export class AdjudicationService {
     const enrolled = this.enrolledMembers.get(walletId);
     if (!enrolled) return null;
     if (enrolled.lifecycle === 'REVOKED') return { covered: false, reason: 'The member is terminated; nothing can be prescribed or filled for it' };
+    if (enrolled.held) return { covered: false, reason: 'The member\'s coverage is held while a report about its enrollment is reviewed; nothing can be prescribed or filled for it now' };
     if (!this.medByNdcHash.has(ndcHash)) return { covered: false, reason: 'The drug is not in the formulary catalog' };
     let coverage: { entry: FormularyEntry; copayAmountCents: number };
     try {
@@ -2428,6 +2445,25 @@ export class AdjudicationService {
    */
   primaryCareOf(memberWalletId: string): string | null {
     return this.enrolledMembers.get(memberWalletId)?.pcpAssignment?.pcpWalletId.toString() ?? null;
+  }
+
+  /**
+   * Hold a member's coverage, or lift the hold (A-109): the plan's answer to an employee's report that someone else used
+   * their invite. Held, the member is quoted nothing and no prior authorization, prescription or fill goes through
+   * (refuseUnlessLedgerBillable); lifted, everything does again. A termination is for good; a hold is not, since a
+   * report can prove mistaken. Nothing on the ledger changes. 404 for a wallet this engine has not enrolled.
+   */
+  setMemberHold(walletId: string, held: boolean, reason: string): { walletId: string; held: boolean } {
+    const enrolled = this.enrolledMembers.get(walletId);
+    if (!enrolled) throw new RegistrationRefused(404, 'This wallet is not registered with the engine');
+    if (held) {
+      enrolled.held = { reason: reason.slice(0, 200) || 'A report about this member\'s enrollment is reviewed', at: Date.now() };
+      this.emit('info', 'hold', `  Coverage held for ${walletId.slice(0, 12)}…: ${enrolled.held.reason}`);
+    } else if (enrolled.held) {
+      enrolled.held = undefined;
+      this.emit('info', 'hold', `  Hold lifted for ${walletId.slice(0, 12)}…`);
+    }
+    return { walletId, held: enrolled.held !== undefined };
   }
 
   /** The engine's seed index for a prescriber's wallet, the name prescribing and prior authorization use; null for none. */
@@ -7225,6 +7261,7 @@ export class AdjudicationService {
         inNetworkPharmacyIndices: m.inNetworkPharmacyIndices,
         lifecycle: m.lifecycle,
         terminationDate: m.terminationDate,
+        held: m.held,
         walletIndex: m.walletIndex,
         nonce: m.nonce,
         credentialInventoryRoot: m.credentialInventoryRoot.toString(),
@@ -7473,6 +7510,7 @@ export class AdjudicationService {
         inNetworkPharmacyIndices: sm.inNetworkPharmacyIndices,
         lifecycle: sm.lifecycle,
         terminationDate: sm.terminationDate,
+        held: sm.held && typeof sm.held.reason === 'string' && Number.isFinite(sm.held.at) ? { reason: sm.held.reason, at: sm.held.at } : undefined,
         walletIndex: sm.walletIndex,
         nonce: sm.nonce,
         credentialInventoryRoot: Field(BigInt(sm.credentialInventoryRoot)),
@@ -7623,6 +7661,7 @@ export class AdjudicationService {
         inNetworkPharmacies: m.inNetworkPharmacyIndices,
         lifecycle: m.lifecycle,
         terminationDate: m.terminationDate,
+        held: m.held ?? null,
         nonce: m.nonce,
         l2Receipts: m.l2Receipts,
         credentialJson: m.lastCredentialJson ?? null,

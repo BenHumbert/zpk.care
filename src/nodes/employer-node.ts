@@ -550,6 +550,28 @@ export class EmployerNode extends EntityNodeBase {
     if (entry.tokenIdHash) this.withdrawInvite(entry.tokenIdHash);
   }
 
+  /**
+   * The plan cancelled the enrollment a code made (A-109): someone else used the employee's invite, the employee reported
+   * it, and the employer confirmed its real employee. The code is spent for good, and the employee's roster row goes back
+   * to pending and out of the enrollment count, so HR can send a new invite, which A-135 refuses an enrolled employee.
+   * Throws for a code this node never issued, or one never used.
+   */
+  cancelEnrollment(tokenId: string): { cancelled: true; employeeIdHash: string | null } {
+    const fingerprint = TokenAuthority.fingerprintOf(tokenId);
+    this.tokenAuthority.withdrawConsumedByHash(fingerprint);
+    const entry = this.rosterEntryForInvite(fingerprint);
+    if (entry && entry.status === 'enrolled') {
+      entry.status = 'pending';
+      for (const group of this.groups.values()) {
+        if (group.groupIdHash === entry.groupIdHash) {
+          group.enrolledCount = Math.max(0, group.enrolledCount - 1);
+          break;
+        }
+      }
+    }
+    return { cancelled: true, employeeIdHash: entry?.employeeIdHash ?? null };
+  }
+
   /** Get active roster count */
   get activeRosterCount(): number {
     let count = 0;

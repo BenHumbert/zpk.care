@@ -205,6 +205,10 @@ async function runWalletUpdates(server: NautilusAppServer): Promise<WalletUpdate
   return run;
 }
 
+/** A-139, A-109: what the phone says when another phone used the invite, and once the report is filed. */
+const USED_ELSEWHERE = 'This invite was already used to set up another phone. If that was not you, report it: the plan freezes the phone that used it until your HR department confirms it is you.';
+const REPORTED = 'Reported. The plan has frozen the phone that used your invite. Your HR department will confirm it is you and send you a new invite; then choose Start over.';
+
 export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[] {
   const routes: RouteRegistration[] = [];
 
@@ -457,6 +461,13 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
             return server.sendResponse(res, 502, false, undefined,
               'The insurer could not check this enrollment code now. Try again later.');
           }
+          // A-139: the insurer marks the refusal of the right PIN from another device. That is the sign someone else used
+          // the invite, which the member must be able to tell from a mistyped PIN, and report (A-109).
+          let refused: { errorCode?: unknown; reported?: unknown } | undefined;
+          try { refused = (JSON.parse(text) as { data?: typeof refused } | null)?.data; } catch { refused = undefined; }
+          if (resp.status === 403 && refused?.errorCode === 'USED_ELSEWHERE') {
+            return server.sendResponse(res, 409, false, { errorCode: 'USED_ELSEWHERE', reported: refused.reported === true }, USED_ELSEWHERE);
+          }
           return server.sendResponse(res, 403, false, undefined,
             'The insurer did not accept this enrollment code and PIN.');
         }
@@ -474,6 +485,60 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       await state.save(data);
       server.setOnboardingPhase('code_redeemed');
       server.sendResponse(res, 200, true, { phase: 'code_redeemed', groupIdHash: answer.groupIdHash, planIdHash: answer.planIdHash, employerId: answer.employerId ?? null });
+    },
+  });
+
+  // ── Onboarding: report an invite another phone used (A-109) ──
+  // The redemption above answered USED_ELSEWHERE. The member reports it with the PIN from the text, and this device's
+  // commitment, which shows the plan it is not the device that used the code. The plan holds what the code enrolled
+  // until the employer confirms its real employee, then sends a new invite through HR; this device then starts over.
+  routes.push({
+    method: 'POST',
+    path: '/onboarding/report-used-invite',
+    deviceOnly: true,
+    handler: async (_req, res, _params, _query, body) => {
+      const state = server.getLocalState();
+      const data = state.getState();
+      if (!data?.onboarding?.tokenId) {
+        return server.sendResponse(res, 409, false, undefined, 'No enrollment code has been accepted on this device');
+      }
+      if (!data.completionSecret) {
+        return server.sendResponse(res, 409, false, undefined, 'Redeem the code on this device first, so the plan can tell it is not the device that used it');
+      }
+      const insurerUrl = server.getConfig().insurerUrl || null;
+      if (!insurerUrl) {
+        return server.sendResponse(res, 503, false, undefined, 'No insurer is configured for this device, so the report cannot be filed');
+      }
+      const b = body as { tokenPIN?: unknown } | undefined;
+      if (typeof b?.tokenPIN !== 'string' || b.tokenPIN.length === 0) {
+        return server.sendResponse(res, 400, false, undefined, 'The enrollment PIN from the text is required');
+      }
+      const tokenPinHash = Poseidon.hash([
+        ...Encoding.stringToFields(data.onboarding.tokenId),
+        Field(0),
+        ...Encoding.stringToFields(b.tokenPIN),
+      ]).toString();
+      let resp: Response;
+      try {
+        resp = await fetch(`${insurerUrl.replace(/\/+$/, '')}/enrollment/report`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tokenId: data.onboarding.tokenId, tokenPinHash, completionCommitment: completionCommitmentOf(data.completionSecret) }),
+        });
+      } catch (err: unknown) {
+        console.warn('[report] Insurer unreachable:', err instanceof Error ? err.message : String(err));
+        return server.sendResponse(res, 502, false, undefined, 'Cannot reach the plan to file the report. Try again later.');
+      }
+      const json = await resp.json().catch(() => ({})) as { data?: { held?: unknown } };
+      if (resp.ok) {
+        return server.sendResponse(res, 200, true, { reported: true, held: json.data?.held ?? null, message: REPORTED });
+      }
+      const retryAfter = resp.headers.get('retry-after');
+      if (retryAfter !== null && /^\d+$/.test(retryAfter)) res.setHeader('Retry-After', retryAfter);
+      if (resp.status === 403) return server.sendResponse(res, 403, false, undefined, 'The plan did not take the report: check the PIN from the text.');
+      if (resp.status === 409) return server.sendResponse(res, 409, false, undefined, 'This phone used the invite itself; there is nothing to report.');
+      if (resp.status === 429) return server.sendResponse(res, 429, false, undefined, 'Too many attempts with this invite. Try again later, or tell your HR department.');
+      return server.sendResponse(res, 502, false, undefined, 'The report could not be filed now. Try again later, or tell your HR department.');
     },
   });
 

@@ -1087,7 +1087,16 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
     if (!reauth(res, body?.passphrase)) return;
     const entry = activeTable!.entries.find(e => e.employeeIdHash === hash);
     if (!entry) return errRes(res, 404, 'Employee not found');
-    if (entry.status === 'enrolled' || entry.status === 'terminated') {
+    // A-109: an employee this tool saw enrolled may be pending again on the employer node, once the plan cancelled an
+    // enrollment someone else made with the invite; the node's roster decides.
+    let cancelledOnNode = false;
+    if (entry.status === 'enrolled') {
+      try {
+        const onNode = await proxyToEmployer('GET', '/roster/' + encodeURIComponent(entry.employeeIdHash));
+        cancelledOnNode = onNode.status === 200 && onNode.data?.status === 'pending';
+      } catch { cancelledOnNode = false; }
+    }
+    if ((entry.status === 'enrolled' && !cancelledOnNode) || entry.status === 'terminated') {
       return errRes(res, 409, `This employee is ${entry.status}; a new invite is for an employee who has not enrolled`);
     }
     const asked = body?.validUntil;

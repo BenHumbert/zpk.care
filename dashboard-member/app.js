@@ -693,6 +693,12 @@
           body: JSON.stringify({ tokenPIN: onboardState.enrollPIN }),
         });
         var redeemRes = await redeemResp.json();
+        // A-139, A-109: another phone used the invite. Not a wrong PIN, so no retry: the member is told so and can report
+        // it in one tap; the plan then freezes the phone that used it until HR confirms who the member is.
+        if (!redeemRes.ok && redeemRes.data && redeemRes.data.errorCode === 'USED_ELSEWHERE') {
+          showUsedElsewhere(errMsg(redeemRes.error), redeemRes.data.reported === true);
+          return;
+        }
         if (!redeemRes.ok) {
           retry = redeemResp.status !== 403;
           // Kept for Start over, which then says the insurer refused the code rather than that the same code still works.
@@ -741,6 +747,37 @@
         renderOnboardStep();
       }
     }
+  }
+
+  /**
+   * A-109: the invite was used on another phone. Say so, and offer the report: the code, the PIN the member typed and
+   * this phone's commitment go to the plan, which freezes what the other phone enrolled until HR confirms the member.
+   */
+  function showUsedElsewhere(message, alreadyReported) {
+    var box = $('ob-keygen-msg');
+    if (!box) { toast(message, 'error'); return; }
+    if (alreadyReported) {
+      box.textContent = 'This invite was used on another phone, and it has been reported. Your HR department will confirm it is you and send you a new invite; then choose Start over.';
+      return;
+    }
+    box.innerHTML = '<div class="error-banner">' + esc(message) + '</div>' +
+      '<button class="btn primary" id="ob-report-used" style="margin-top:8px">Report it</button>';
+    $('ob-report-used').onclick = async function () {
+      var btn = $('ob-report-used');
+      btn.disabled = true;
+      try {
+        var r = await fetch(location.origin + '/onboarding/report-used-invite', {
+          method: 'POST', headers: RPC.deviceHeaders(), body: JSON.stringify({ tokenPIN: onboardState.enrollPIN }),
+        });
+        var j = await r.json();
+        if (!j.ok) throw new Error(errMsg(j.error) || 'The report was not filed');
+        box.textContent = j.data && j.data.message ? j.data.message : 'Reported.';
+        toast('Reported to the plan', 'success');
+      } catch (e) {
+        btn.disabled = false;
+        toast(e.message, 'error');
+      }
+    };
   }
 
   /** The device's onboarding phase. /onboarding/status is open; the session only adds identity to it. */

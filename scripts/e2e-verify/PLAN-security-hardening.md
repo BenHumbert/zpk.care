@@ -3464,3 +3464,37 @@ errors.
 employer's roster said the member's invite was consumed, and the member was texted once, with no PIN, that the invite
 was used; kill:ports then stopped the network and left the servers on 8000 and 8080 running. Scoreboard: 141 findings;
 116 fixed; 25 open, none critical.
+
+**A-109 fixed, with A-139, 2026-11-03 (slice 4: the report and the hold).** An employee whose invite another phone used
+heard only that the code and PIN were refused, as after a mistyped PIN, and had nothing to report; and the plan had no
+way to freeze what the other phone enrolled short of terminating it for good. The insurer now answers the right PIN from
+another device `USED_ELSEWHERE` (a wrong PIN keeps the refusal it had), and the phone says what happened and offers a
+Report button (`/onboarding/report-used-invite`), which sends the code, the PIN hash and this phone's commitment to
+`/enrollment/report`. The insurer takes a report only with the PIN hash the code was redeemed with and a commitment that
+is not the redeeming device's; its refusals count against the code and the source. It then holds what the code enrolled:
+the wallet, through the engine's new hold (`/interactive/hold-member`, the plan and the operator only: while held, no
+quote, prior authorization, prescription or fill, and the hold survives a restart of the engine's state), or, while the
+other device has not completed, the completion. A report the engine cannot hold is not filed. The plan sees each report
+by the invite's fingerprint (`GET /enrollment/reports`) and resolves it once the employer has confirmed its employee
+(`/enrollment/reports/resolve`): release lifts the hold; cancel terminates the wallet and tells the employer node,
+signed as the oracle is asked (`/tokens/:tokenId/enrollment-cancelled`), which spends the code and puts the employee
+back to pending, out of the enrollment count, so the HR Tool, which now asks the node when its own record says enrolled,
+sends a new invite. The employer learns no wallet; the plan learns no name. With slices 1 to 3 this completes the
+owner's design: A-109 is fixed. Remaining with the owner: an SMS provider account, and whether a notice due while the HR
+Tool is locked should go out at once.
+
+*Verified.* `tests/member-hold.test.ts`, 5 tests on a real sequencer and engine, 4 failing on the old code;
+`tests/enrollment-complete-binding.test.ts`, 7 new tests, all failing on the old code (used elsewhere told apart from a
+wrong PIN, a report after and before the other device completed, the report's checks and limits, a hold the engine
+cannot make, release and cancel, the phone end to end); `tests/enrollment-codes.test.ts`, 2 new (the employer's
+cancellation, signed and only for a used code); `tests/hr-tool-lockdown.test.ts`, 1 new (a new invite once the plan
+cancelled); `tests/locked-route-budget.test.ts` lists the hold among the routes under the proving lock. Regression batch
+163 suites, 2,004 tests, all passing. Typecheck src 18, scripts 2, the same errors.
+
+*Live, the same day (secured boot, one member, explorer on 8010):* 262 of 262 checks across 35 steps. The new step takes
+the second employee's invite with another phone that holds its code and texted PIN; the employee is texted that the
+invite was used, the employee's own phone is told it was used elsewhere, the report holds the other phone's completion,
+which is then refused, the plan sees the report by the invite's fingerprint and cancels it, the employer's roster puts
+the employee back to pending with the invite spent, and HR's new invite is texted to the employee. kill:ports then
+stopped the network and left the servers on 8000 and 8080 running. Scoreboard: 141 findings; 118 fixed; 23 open, none
+critical.

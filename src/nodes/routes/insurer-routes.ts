@@ -71,10 +71,29 @@ import { ReportTooLargeError } from '../../reporting/reporting-service.js';
 // Kept out of the handler so /enrollment/process reads as the sequence it is. The Step 1 comment
 // in that handler says what changed and why.
 
+/**
+ * A-109: an employee's report that another device used their enrollment code, and what the plan did with it. The plan
+ * holds what the code enrolled until the employer confirms its real employee: the wallet, or, while the other device
+ * has not completed, the completion. Then it releases the hold (the report was mistaken) or cancels: the wallet is
+ * terminated and the employer told, so HR can send the employee a new invite.
+ */
+interface EnrollmentReport {
+  at: number;
+  /** The reporting device's commitment: not the one the code was redeemed with */
+  reporterCommitment: string;
+  held: 'wallet' | 'completion';
+  status: 'open' | 'released' | 'cancelled';
+  resolvedAt?: number;
+  /** Set once the employer node has been told of a cancellation; a cancel is retried until it is */
+  employerTold?: boolean;
+}
+
 /** What the insurer remembers about a code it has redeemed, keyed by the canonical code. */
 interface RedeemedCode {
   /** The wallet bound at /enrollment/complete; null between redemption and completion (C2). */
   walletId: string | null;
+  /** A-109: an employee's report that another device used the code */
+  report?: EnrollmentReport;
   /** The PIN hash the code was redeemed with: a repeat of the redemption must present it, with the commitment below. */
   pinHash: string | null;
   /**
@@ -430,6 +449,28 @@ export function priorAuthView(raw: unknown): PriorAuthView | null {
 /** What the engine answered a call: the HTTP status, the JSON body, and its error or message text. */
 interface EngineAnswer { status: number; json: Record<string, unknown> | null; message: string }
 
+/**
+ * Tell the employer that issued a code that the plan cancelled the enrollment the code made (A-109), signed as the
+ * insurer, as the validate oracle is asked, so its roster puts the employee back to pending for a new invite. True once a
+ * candidate answers 200; no wallet is sent.
+ */
+async function tellEmployerCancelled(server: NautilusAppServer, code: string, employerId: string | null): Promise<boolean> {
+  const signer = insurerSigner(server);
+  if (!signer) return false;
+  const targets = await resolveCodeTargets(server, code, employerId ?? undefined);
+  if ('error' in targets) return false;
+  const path = `/tokens/${encodeURIComponent(code)}/enrollment-cancelled`;
+  for (const c of targets.candidates) {
+    const body = JSON.stringify({ reason: 'reported', nonce: randomBytes(16).toString('hex') });
+    const headers = { 'Content-Type': 'application/json', ...signRequest({ signerId: 'insurer', privateKey: signer.privateKey, method: 'POST', path, body }) };
+    try {
+      const resp = await fetch(`${c.url.replace(/\/+$/, '')}${path}`, { method: 'POST', headers, body, signal: AbortSignal.timeout(5000) });
+      if (resp.status === 200) return true;
+    } catch { /* the next candidate */ }
+  }
+  return false;
+}
+
 /** A call to an engine route, signed with this node's key (A9) over the exact request sent. */
 async function callEngine(server: NautilusAppServer, method: 'GET' | 'POST', pathAndQuery: string, body?: Record<string, unknown>): Promise<EngineAnswer> {
   const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
@@ -725,6 +766,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     res.setHeader('Retry-After', '3600');
     server.sendResponse(res, 429, false, { errorCode: 'TOO_MANY_FOR_CODE' }, TOO_MANY_FOR_CODE);
   };
+  // A-109: the report of a code another device used. Its refusals count against the code, as a wrong redemption does, and
+  // against the source, ten a minute, as refused completions do.
+  const REFUSED_REPORTS_PER_SOURCE_PER_MINUTE = 10;
+  const refusedReportsPerSource = new SlidingWindowLimiter(REFUSED_REPORTS_PER_SOURCE_PER_MINUTE, 60_000);
+  const NOT_A_REPORT = 'This report does not match an enrollment code another device used: check the code and the PIN from the text.';
+  const HELD_COMPLETION = 'Enrollment denied: this enrollment code was reported by its employee and is held until the plan reviews it.';
+  const HOLD_REASON = 'An employee reported that someone else used their enrollment invite';
 
   routes.push({
     method: 'POST',
@@ -770,10 +818,14 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         // A repeat with another PIN hash or another commitment is an attempt on a code redeemed by someone else, so it
         // counts against the code (wrongAttemptsPerCode), and past the limit nothing is compared.
         if (wrongAttemptsPerCode.count(code) >= WRONG_ATTEMPTS_PER_CODE_PER_HOUR) return tooManyForCode(res);
-        if (!prior.pinHash || !sameHex(prior.pinHash, b.tokenPinHash)
-          || !prior.completionCommitment || !sameHex(prior.completionCommitment, commitment)) {
+        const samePin = !!prior.pinHash && sameHex(prior.pinHash, b.tokenPinHash);
+        if (!samePin || !prior.completionCommitment || !sameHex(prior.completionCommitment, commitment)) {
           wrongAttemptsPerCode.allow(code);
-          return server.sendResponse(res, 403, false, undefined, 'Enrollment denied: this enrollment code has already been used.');
+          // A-139: the right PIN from another device means another device used the code: the phone says so and offers
+          // the report (/enrollment/report), where a wrong PIN gets the refusal it always got. The difference tells a
+          // holder of the code that a PIN is right only for a code already spent, five tries an hour.
+          return server.sendResponse(res, 403, false, samePin ? { errorCode: 'USED_ELSEWHERE', ...(prior.report ? { reported: true } : {}) } : undefined,
+            'Enrollment denied: this enrollment code has already been used.');
         }
         console.log('[enrollment] Code already redeemed with this PIN; answering the same group and plan');
         return server.sendResponse(res, 200, true, { redeemed: true, repeated: true, groupIdHash: prior.groupIdHash, planIdHash: prior.planIdHash, employerId: prior.employerId });
@@ -811,6 +863,145 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       await persistRedeemedCodes(server);
       console.log('[enrollment] Code redeemed with employer %s; awaiting the wallet', outcome.employerId ?? 'static');
       server.sendResponse(res, 200, true, { redeemed: true, groupIdHash: outcome.groupIdHash, planIdHash: outcome.planIdHash, employerId: outcome.employerId });
+    },
+  });
+
+  // ── Enrollment report: an invite someone else used (A-109) ──
+  /*
+   * The employee's device redeemed its code and heard that another device had used it (USED_ELSEWHERE). It reports that
+   * here with the code, the PIN hash and its own commitment. The PIN hash must be the one the code was redeemed with,
+   * which the employee holds from the text; the commitment must not be the redeeming device's, or there is nothing to
+   * report. The plan then holds what the code enrolled until the employer confirms its real employee: the wallet, by
+   * the engine's hold, or, while the other device has not completed, the completion. A report the engine cannot hold
+   * is not filed. Refusals count against the code like wrong redemptions, and against the source. The employer learns
+   * nothing here; the plan learns only that its own record's code was reported.
+   */
+  routes.push({
+    method: 'POST',
+    path: '/enrollment/report',
+    handler: async (req, res, _params, _query, body) => {
+      const b = body as { tokenId?: unknown; tokenPinHash?: unknown; completionCommitment?: unknown } | undefined;
+      if (typeof b?.tokenId !== 'string' || b.tokenId.trim().length === 0) {
+        return server.sendResponse(res, 400, false, undefined, 'An enrollment code is required.');
+      }
+      if (typeof b.tokenPinHash !== 'string' || b.tokenPinHash.length === 0) {
+        return server.sendResponse(res, 400, false, undefined, 'The enrollment PIN hash is required.');
+      }
+      if (typeof b.completionCommitment !== 'string' || !HEX64.test(b.completionCommitment)) {
+        return server.sendResponse(res, 400, false, undefined, 'The reporting device\'s completion commitment is required.');
+      }
+      const source = server.callerKey(req);
+      if (refusedReportsPerSource.count(source) >= REFUSED_REPORTS_PER_SOURCE_PER_MINUTE) {
+        res.setHeader('Retry-After', '60');
+        return server.sendResponse(res, 429, false, undefined, 'Too many refused reports from this address in the last minute. Try again in a minute.');
+      }
+      const code = canonicalizeEnrollmentCode(b.tokenId) ?? b.tokenId.trim();
+      if (wrongAttemptsPerCode.count(code) >= WRONG_ATTEMPTS_PER_CODE_PER_HOUR) return tooManyForCode(res);
+      const rec = redeemedCodes(server).get(code);
+      if (!rec || !rec.pinHash || !sameHex(rec.pinHash, b.tokenPinHash)) {
+        wrongAttemptsPerCode.allow(code);
+        refusedReportsPerSource.allow(source);
+        return server.sendResponse(res, 403, false, undefined, NOT_A_REPORT);
+      }
+      const commitment = b.completionCommitment.toLowerCase();
+      if (rec.completionCommitment && sameHex(rec.completionCommitment, commitment)) {
+        return server.sendResponse(res, 409, false, undefined, 'This device used the enrollment code itself; there is nothing to report.');
+      }
+      if (rec.report && rec.report.status === 'open') {
+        return server.sendResponse(res, 200, true, { reported: true, held: rec.report.held, already: true });
+      }
+      // A completion in flight for the other device is waited for, so its wallet is what is held, not a completion
+      // already past the check.
+      const inFlight = completing.get(code);
+      if (inFlight) { try { await inFlight.approval; } catch { /* its outcome is read from the record below */ } }
+      const held: EnrollmentReport['held'] = rec.walletId ? 'wallet' : 'completion';
+      if (rec.walletId) {
+        let answer: EngineAnswer | null = null;
+        try { answer = await callEngine(server, 'POST', '/interactive/hold-member', { walletId: rec.walletId, held: true, reason: HOLD_REASON }); } catch { answer = null; }
+        if (!answer || answer.status !== 200) {
+          console.warn('[enrollment] A report was not filed: the engine did not hold the wallet (%s)', answer ? `${answer.status} ${answer.message}` : 'unreachable');
+          return server.sendResponse(res, 502, false, undefined, 'The report could not be filed now: the plan could not hold the wallet this code enrolled. Try again later.');
+        }
+      }
+      rec.report = { at: Date.now(), reporterCommitment: commitment, held, status: 'open' };
+      await persistRedeemedCodes(server);
+      console.log('[enrollment] Report filed: another device used a code; its %s is held', held);
+      server.sendResponse(res, 200, true, { reported: true, held });
+    },
+  });
+
+  // ── The plan's reports (A-109) ──
+  // Each by its code's fingerprint, the Poseidon hash the employer's roster carries, so HR and the plan name the same
+  // invite without either handing the other a code or a wallet.
+  routes.push({
+    method: 'GET',
+    path: '/enrollment/reports',
+    adminOnly: true,
+    handler: async (_req, res) => {
+      const reports = [...redeemedCodes(server)].filter(([, r]) => r.report).map(([code, r]) => ({
+        tokenIdHash: hashString(code).toString(),
+        employerId: r.employerId,
+        walletId: r.walletId,
+        reportedAt: r.report!.at,
+        held: r.report!.held,
+        status: r.report!.status,
+        resolvedAt: r.report!.resolvedAt ?? null,
+        employerTold: r.report!.employerTold ?? null,
+      }));
+      server.sendResponse(res, 200, true, { reports });
+    },
+  });
+
+  /*
+   * The plan resolves a report once the employer has confirmed its real employee. release: the report was mistaken, the
+   * hold is lifted and a held completion may go ahead. cancel: the wallet the code enrolled is terminated, the code is
+   * spent, and the employer node is told (signed, as the oracle is asked), so its roster puts the employee back to
+   * pending and HR can send a new invite; a cancel whose employer could not be told is retried by cancelling again.
+   */
+  routes.push({
+    method: 'POST',
+    path: '/enrollment/reports/resolve',
+    adminOnly: true,
+    handler: async (_req, res, _params, _query, body) => {
+      const b = body as { tokenIdHash?: unknown; action?: unknown } | undefined;
+      if (b?.action !== 'release' && b?.action !== 'cancel') {
+        return server.sendResponse(res, 400, false, undefined, 'action must be "release" or "cancel"');
+      }
+      const found = [...redeemedCodes(server)].find(([code, r]) => r.report && hashString(code).toString() === b.tokenIdHash);
+      if (!found) return server.sendResponse(res, 404, false, undefined, 'No report for this code');
+      const [code, rec] = found;
+      const report = rec.report!;
+      if (report.status === 'released' || (report.status === 'cancelled' && report.employerTold)) {
+        return server.sendResponse(res, 409, false, undefined, `This report is already ${report.status}`);
+      }
+      if (b.action === 'release') {
+        if (report.status !== 'open') return server.sendResponse(res, 409, false, undefined, `This report is already ${report.status}`);
+        if (rec.walletId) {
+          const answer = await callEngine(server, 'POST', '/interactive/hold-member', { walletId: rec.walletId, held: false, reason: HOLD_REASON });
+          if (answer.status !== 200) return server.sendResponse(res, 502, false, undefined, `The engine did not lift the hold: ${answer.message}`);
+        }
+        report.status = 'released';
+        report.resolvedAt = Date.now();
+        await persistRedeemedCodes(server);
+        return server.sendResponse(res, 200, true, { status: 'released' });
+      }
+      if (report.status === 'open') {
+        if (rec.walletId) {
+          const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+          const answer = await callEngine(server, 'POST', '/interactive/terminate-member', { memberWalletId: rec.walletId, terminationDate: today });
+          if (answer.status !== 200) return server.sendResponse(res, 502, false, undefined, `The engine did not terminate the wallet: ${answer.message}`);
+        }
+        report.status = 'cancelled';
+        report.resolvedAt = Date.now();
+        await persistRedeemedCodes(server);
+      }
+      report.employerTold = await tellEmployerCancelled(server, code, rec.employerId);
+      await persistRedeemedCodes(server);
+      if (!report.employerTold) {
+        return server.sendResponse(res, 502, false, undefined,
+          'The enrollment was cancelled, but the employer could not be told, so HR cannot send a new invite yet: cancel again to retry.');
+      }
+      server.sendResponse(res, 200, true, { status: 'cancelled', employerTold: true });
     },
   });
 
@@ -930,6 +1121,10 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         refusedCompletionsPerSource.allow(source);
         wrongAttemptsPerCode.allow(code);
         return server.sendResponse(res, 403, false, undefined, NOT_COMPLETED);
+      }
+      // A-109: its employee reported that another device used the code; nothing completes until the plan releases it
+      if (rec.report && rec.report.status !== 'released') {
+        return server.sendResponse(res, 403, false, undefined, HELD_COMPLETION);
       }
       const deposits = b.recoveryDeposits === undefined ? [] : parseDeposits(b.recoveryDeposits);
       if (deposits === null) {

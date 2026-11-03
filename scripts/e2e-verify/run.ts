@@ -46,6 +46,7 @@ import { Trace, makeHttp, poll, sleep, abbrev } from './trace.js';
 import { waitForEngineReady } from './engine-ready.js';
 import { expectedAdjudication, findSecrets, nadacE5, expectedNadacIngredientCents, deductibleLanding } from './reference.js';
 import { hashString, hashIdentityField, hashIdentityDate, isIdentitySalt } from '../../src/zkp/hash-utils.js';
+import { hashTokenPIN } from '../../src/tools/hr-tool-core.js';
 import { combineEnrollmentKey, recoveryPinVerifier, type RecoveryCardV3 } from '../../src/security/recovery-card.js';
 import { deriveMemberWalletId, derivePrescriberWalletId, derivePharmacyWalletId } from '../../src/wallets/wallet-derivation.js';
 import { CREDENTIAL_INVENTORY_HEIGHT } from '../../src/wallets/wallet-state.js';
@@ -635,6 +636,40 @@ async function main() {
   const usedNotices = (fs.existsSync(hrTextOutbox) ? fs.readFileSync(hrTextOutbox, 'utf8').trim().split('\n').filter(Boolean) : [])
     .map(l => JSON.parse(l) as { to: string; body: string }).filter(t => t.to === MEMBER.mobile && /was just used/.test(t.body));
   trace.check('The member is texted that the invite was used, once, and the text carries no PIN (A-109)', noticeRun.status === 200 && usedNotices.length === 1 && !/\b\d{8}\b/.test(usedNotices[0].body), '1 notice, no PIN', `${noticeRun.status}, ${usedNotices.length} notice(s)`);
+
+  // ── 6c. An invite someone else used: reported, held, cancelled and sent again (A-109) ──
+  // The second employee's invite, taken by another phone that holds its code and its texted PIN: the employee hears of
+  // it, reports it from a phone of their own, the plan holds the other phone's completion, the employer confirms its
+  // employee, the plan cancels, and HR sends a new invite.
+  trace.begin('employer HR', 'Another phone uses the second employee\'s invite first; the employee is told, reports it, the plan holds and cancels it, and HR sends a new invite');
+  const decoyCode = issued.find(r => r.employeeId === DECOY.employeeId)?.tokenId ?? '';
+  const decoyPinHash = decoyCode ? hashTokenPIN(decoyCode, textedPin(DECOY.mobile)) : '';
+  const deviceSecret = () => { const s = crypto.randomBytes(32); return { secret: s.toString('hex'), commitment: crypto.createHash('sha256').update(s).digest('hex') }; };
+  const thief = deviceSecret();
+  const owner = deviceSecret();
+  const taken = await http('POST', `${INS}/enrollment/process`, { tokenId: decoyCode, tokenPinHash: decoyPinHash, completionCommitment: thief.commitment, role: 'member' });
+  trace.check('Another phone holding the code and the texted PIN redeems the invite first', taken.status === 200, 200, taken.status);
+  await http('POST', `${hrToolUrl}/api/notices`, {});
+  const decoyTexts = () => (fs.existsSync(hrTextOutbox) ? fs.readFileSync(hrTextOutbox, 'utf8').trim().split('\n').filter(Boolean) : []).map(l => JSON.parse(l) as { to: string; body: string }).filter(t => t.to === DECOY.mobile);
+  trace.check('The employee is texted that the invite was just used', decoyTexts().some(t => /was just used/.test(t.body)), 'notice', decoyTexts().length);
+  const tried = await http('POST', `${INS}/enrollment/process`, { tokenId: decoyCode, tokenPinHash: decoyPinHash, completionCommitment: owner.commitment, role: 'member' });
+  trace.check('The employee\'s own phone is told the invite was used elsewhere, not that the PIN is wrong (A-139)', tried.status === 403 && tried.json?.data?.errorCode === 'USED_ELSEWHERE', '403 USED_ELSEWHERE', `${tried.status} ${tried.json?.data?.errorCode ?? ''}`);
+  const reportFiled = await http('POST', `${INS}/enrollment/report`, { tokenId: decoyCode, tokenPinHash: decoyPinHash, completionCommitment: owner.commitment });
+  trace.check('The employee reports it, and the plan holds the other phone\'s completion', reportFiled.status === 200 && unwrap(reportFiled.json)?.held === 'completion', 'held: completion', unwrap(reportFiled.json) ?? reportFiled.status);
+  const late = await http('POST', `${INS}/enrollment/complete`, { tokenId: decoyCode, walletId: '4242424242424242424242424242424242424', completionSecret: thief.secret });
+  trace.check('The other phone\'s completion is refused while the report is reviewed', late.status === 403 && /held until the plan reviews it/.test(String(late.json?.error ?? '')), 403, late.status);
+  const decoyPrint = hashString(decoyCode).toString();
+  const reportList = await insAdmin('GET', '/enrollment/reports');
+  trace.check('The plan sees the report by the invite\'s fingerprint, open', ((unwrap(reportList.json)?.reports ?? []) as any[]).some(r => r.tokenIdHash === decoyPrint && r.status === 'open'), 'open', reportList.status);
+  const cancelled = await insAdmin('POST', '/enrollment/reports/resolve', { tokenIdHash: decoyPrint, action: 'cancel' });
+  trace.check('The employer confirms its employee and the plan cancels the enrollment, telling the employer node', cancelled.status === 200 && unwrap(cancelled.json)?.employerTold === true, 'cancelled, employer told', unwrap(cancelled.json) ?? cancelled.status);
+  const decoyRow = ((unwrap((await http('GET', `${employerNodeUrl}/roster`, undefined, { Authorization: `Bearer ${empAdmin}` })).json)?.entries ?? []) as any[]).find(e => e.tokenIdHash === decoyPrint);
+  trace.check('The employer\'s roster has the employee pending again and the invite spent', decoyRow?.status === 'pending' && decoyRow?.inviteStatus === 'revoked', 'pending, revoked', decoyRow ? `${decoyRow.status}, ${decoyRow.inviteStatus}` : 'no row');
+  const decoyHrHash = tokens.find(t => (t as { displayName?: string }).displayName?.startsWith(DECOY.firstName))?.employeeIdHash ?? '';
+  const textsBefore = decoyTexts().length;
+  const reissued = await http('POST', `${hrToolUrl}/api/employees/${encodeURIComponent(decoyHrHash)}/reissue`, { passphrase });
+  const fresh = decoyTexts().slice(textsBefore);
+  trace.check('HR sends the employee a new invite, and its PIN is texted to the employee', reissued.status === 200 && fresh.length === 1 && /earlier invite no longer works/.test(fresh[0].body), 'a new invite, texted', `${reissued.status}, ${fresh.length} text(s)`);
 
   // ── 7b. Primary care, from the device (B1 step two, commit three; B5 put it before the claims) ──
   trace.begin('member', 'The member names the prescriber node as primary care; the engine queues it, the device proves it');

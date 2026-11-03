@@ -165,7 +165,7 @@ afterAll(async () => {
 // ── Stand-ins ───────────────────────────────────────────────
 
 /** A request a stand-in received. */
-interface Seen { method: string; path: string; body: any }
+interface Seen { method: string; path: string; body: any; headers: Record<string, string | string[] | undefined> }
 /** How a stand-in answers one request. */
 interface Reply { status: number; headers?: Record<string, string>; body: unknown }
 
@@ -181,7 +181,7 @@ async function service(reply: (seen: Seen) => Reply | Promise<Reply>): Promise<s
       let body: any = null;
       try { body = text ? JSON.parse(text) : null; } catch { body = null; }
       let r: Reply;
-      try { r = await reply({ method: req.method ?? 'GET', path: req.url ?? '/', body }); }
+      try { r = await reply({ method: req.method ?? 'GET', path: req.url ?? '/', body, headers: req.headers }); }
       catch (err) { r = { status: 500, body: { ok: false, error: String(err) } }; }
       res.writeHead(r.status, { 'Content-Type': 'application/json', ...r.headers });
       res.end(JSON.stringify(r.body));
@@ -204,9 +204,17 @@ async function network() {
   const issued = new Map<string, string>();
   const relayed: any[] = [];
   const approvals: Array<Record<string, unknown>> = [];
-  const refusing = { approvals: 0 };
+  const refusing = { approvals: 0, holds: 0 };
   const keys = new Map<string, string>();
-  const employerUrl = await service(({ path: p, body }) => {
+  /** A-109: the engine's holds and terminations the insurer asked for, and the cancellations it told the employer of. */
+  const holds: any[] = [];
+  const terminations: any[] = [];
+  const cancellations: Array<{ path: string; body: any; signed: boolean }> = [];
+  const employerUrl = await service(({ path: p, body, headers }) => {
+    if (/^\/tokens\/[^/]+\/enrollment-cancelled$/.test(p)) {
+      cancellations.push({ path: p, body, signed: typeof headers['x-admin-signature'] === 'string' });
+      return { status: 200, body: { ok: true, data: { cancelled: true } } };
+    }
     relayed.push(body);
     const code = decodeURIComponent(/^\/tokens\/([^/]+)\/validate$/.exec(p)?.[1] ?? '');
     const bound = issued.get(code);
@@ -224,6 +232,15 @@ async function network() {
       approvals.push(body);
       return { status: 200, body: { approved: true } };
     }
+    if (p === '/interactive/hold-member') {
+      if (refusing.holds > 0) { refusing.holds--; return { status: 503, body: { error: 'The engine is busy' } }; }
+      holds.push(body);
+      return { status: 200, body: { walletId: body?.walletId, held: body?.held } };
+    }
+    if (p === '/interactive/terminate-member') {
+      terminations.push(body);
+      return { status: 200, body: { terminated: true } };
+    }
     if (body?.method === 'l2_getPlans') return rpc(body, [PLAN_1]);
     if (body?.method === 'l2_registerEntity') {
       if (typeof body.params?.signingPublicKeyHex === 'string') keys.set(body.params.walletId, body.params.signingPublicKeyHex);
@@ -237,7 +254,7 @@ async function network() {
     issued.set(code, hashTokenPIN(code, pin));
     return code;
   };
-  return { approvals, refusing, keys, relayed, employerUrl, sequencerUrl, issue };
+  return { approvals, refusing, keys, relayed, holds, terminations, cancellations, employerUrl, sequencerUrl, issue };
 }
 type Network = Awaited<ReturnType<typeof network>>;
 
@@ -647,5 +664,153 @@ describe('the member\'s device: its completion carries the secret it made when i
     const r = await m.dev('/onboarding/enroll', { recoveryPin: RECOVERY_PIN });
     expect([r.status, r.json?.error]).toEqual([409, NO_SECRET]);   // before: [200, undefined], completed with the PIN hash
     expect(insurer.sent.complete).toHaveLength(0);                  // before: 1
+  });
+});
+
+// ── A-109: the report of an invite someone else used ────────
+
+/** The insurer's answer to a report that does not match a code another device used with this PIN. */
+const NOT_A_REPORT = 'This report does not match an enrollment code another device used: check the code and the PIN from the text.';
+/** Its answer to the device that used the code reporting it. */
+const SELF_REPORT = 'This device used the enrollment code itself; there is nothing to report.';
+/** Its answer to a completion of a code its employee reported. */
+const HELD_COMPLETION = 'Enrollment denied: this enrollment code was reported by its employee and is held until the plan reviews it.';
+/** Its answer when the engine cannot hold the wallet the code enrolled. */
+const NOT_FILED = 'The report could not be filed now: the plan could not hold the wallet this code enrolled. Try again later.';
+/** What the phone says when another phone used the invite. */
+const USED_ELSEWHERE_ON_PHONE = 'This invite was already used to set up another phone. If that was not you, report it: the plan freezes the phone that used it until your HR department confirms it is you.';
+/** What the phone says once the report is filed. */
+const REPORTED_ON_PHONE = 'Reported. The plan has frozen the phone that used your invite. Your HR department will confirm it is you and send you a new invite; then choose Start over.';
+
+describe('A-109: an employee reports an invite someone else used, and the plan holds what it enrolled', () => {
+  type Ins = Awaited<ReturnType<typeof insurerOf>>;
+  const redeemWith = (ins: Ins, code: string, commitment: string, who: StandIn, pin: string = PIN) =>
+    call(ins.process, who, { tokenId: code, tokenPinHash: hashTokenPIN(code, pin), completionCommitment: commitment, role: 'member' });
+  const report = (ins: Ins, code: string, commitment: string, pin: string = PIN, who: StandIn = device) =>
+    call(routeOf(ins.routes, 'POST', '/enrollment/report'), who, { tokenId: code, tokenPinHash: hashTokenPIN(code, pin), completionCommitment: commitment });
+  const reports = async (ins: Ins) => (await call(routeOf(ins.routes, 'GET', '/enrollment/reports'), from('127.0.0.1'))).data?.reports as any[];
+  const resolve = (ins: Ins, code: string, action: string) =>
+    call(routeOf(ins.routes, 'POST', '/enrollment/reports/resolve'), from('127.0.0.1'), { tokenIdHash: hashString(code).toString(), action });
+
+  test('another phone used the code: the employee is told so, which a wrong PIN is not', async () => {
+    const net = await network();
+    const ins = await insurerOf(net);
+    const code = net.issue();
+    expect((await redeemWith(ins, code, completionPair().commitment, stranger)).status).toBe(200);
+    const used = await redeemWith(ins, code, completionPair().commitment, device);
+    expect([used.status, used.error, used.data?.errorCode]).toEqual([403, USED, 'USED_ELSEWHERE']);   // before: no errorCode, and the phone said only that the code and PIN were refused
+    const wrong = await redeemWith(ins, code, completionPair().commitment, device, '00000000');
+    expect([wrong.status, wrong.error, wrong.data?.errorCode]).toEqual([403, USED, undefined]);
+  });
+
+  test('reported after the other phone completed: the wallet it enrolled is held, once', async () => {
+    const net = await network();
+    const ins = await insurerOf(net);
+    const code = net.issue();
+    const other = completionPair();
+    expect((await redeemWith(ins, code, other.commitment, stranger)).status).toBe(200);
+    expect((await call(ins.complete, stranger, { tokenId: code, walletId: STRANGER_WALLET, completionSecret: other.secret })).status).toBe(200);
+    const mine = completionPair();
+    const filed = await report(ins, code, mine.commitment);
+    expect([filed.status, filed.data]).toEqual([200, { reported: true, held: 'wallet' }]);   // before: no such route; the stranger's wallet stayed covered
+    expect(net.holds).toEqual([expect.objectContaining({ walletId: STRANGER_WALLET, held: true })]);
+    const again = await report(ins, code, mine.commitment);
+    expect([again.status, again.data]).toEqual([200, { reported: true, held: 'wallet', already: true }]);
+    expect(net.holds).toHaveLength(1);
+    expect(await reports(ins)).toEqual([expect.objectContaining({ tokenIdHash: hashString(code).toString(), held: 'wallet', walletId: STRANGER_WALLET, status: 'open' })]);
+  });
+
+  test('reported before the other phone completed: its completion is held', async () => {
+    const net = await network();
+    const ins = await insurerOf(net);
+    const code = net.issue();
+    const other = completionPair();
+    expect((await redeemWith(ins, code, other.commitment, stranger)).status).toBe(200);
+    const filed = await report(ins, code, completionPair().commitment);
+    expect([filed.status, filed.data]).toEqual([200, { reported: true, held: 'completion' }]);
+    expect(net.holds).toEqual([]);
+    const late = await call(ins.complete, stranger, { tokenId: code, walletId: STRANGER_WALLET, completionSecret: other.secret });
+    expect([late.status, late.error]).toEqual([403, HELD_COMPLETION]);   // before: 200, the stranger's wallet approved into the employee's plan
+    expect(net.approvals).toEqual([]);
+  });
+
+  test('a report needs the PIN of a code another phone used, and counts against the code like any wrong attempt', async () => {
+    const net = await network();
+    const ins = await insurerOf(net);
+    const never = net.issue();
+    expect([(await report(ins, never, completionPair().commitment)).status, (await report(ins, never, completionPair().commitment)).error]).toEqual([403, NOT_A_REPORT]);
+    const code = net.issue();
+    const own = completionPair();
+    expect((await redeemWith(ins, code, own.commitment, device)).status).toBe(200);
+    const self = await report(ins, code, own.commitment);
+    expect([self.status, self.error]).toEqual([409, SELF_REPORT]);
+    for (let i = 0; i < 5; i++) expect((await report(ins, code, completionPair().commitment, '00000000')).error).toBe(NOT_A_REPORT);
+    const limited = await report(ins, code, completionPair().commitment);
+    expect([limited.status, limited.error]).toEqual([429, TOO_MANY_FOR_CODE]);   // past the limit nothing is compared, the right PIN included
+  });
+
+  test('if the engine cannot hold the wallet, the report is not filed, and the employee is told to try again', async () => {
+    const net = await network();
+    const ins = await insurerOf(net);
+    const code = net.issue();
+    const other = completionPair();
+    await redeemWith(ins, code, other.commitment, stranger);
+    await call(ins.complete, stranger, { tokenId: code, walletId: STRANGER_WALLET, completionSecret: other.secret });
+    net.refusing.holds = 1;
+    const mine = completionPair();
+    const failed = await report(ins, code, mine.commitment);
+    expect([failed.status, failed.error]).toEqual([502, NOT_FILED]);
+    expect(await reports(ins)).toEqual([]);
+    expect((await report(ins, code, mine.commitment)).data).toEqual({ reported: true, held: 'wallet' });
+  });
+
+  test('the plan resolves a report: release lifts the hold; cancel terminates the wallet and tells the employer, signed', async () => {
+    const net = await network();
+    const ins = await insurerOf(net);
+    expect(routeOf(ins.routes, 'GET', '/enrollment/reports').adminOnly).toBe(true);
+    expect(routeOf(ins.routes, 'POST', '/enrollment/reports/resolve').adminOnly).toBe(true);
+    const code = net.issue();
+    const other = completionPair();
+    await redeemWith(ins, code, other.commitment, stranger);
+    await call(ins.complete, stranger, { tokenId: code, walletId: STRANGER_WALLET, completionSecret: other.secret });
+    await report(ins, code, completionPair().commitment);
+    const released = await resolve(ins, code, 'release');
+    expect([released.status, released.data?.status]).toEqual([200, 'released']);
+    expect(net.holds.at(-1)).toMatchObject({ walletId: STRANGER_WALLET, held: false });
+    expect(net.terminations).toEqual([]);
+    // reported again, and this time it was not the employee: cancelled
+    const second = net.issue();
+    const thief = completionPair();
+    await redeemWith(ins, second, thief.commitment, stranger);
+    await call(ins.complete, stranger, { tokenId: second, walletId: EMPLOYER_WALLET, completionSecret: thief.secret });
+    await report(ins, second, completionPair().commitment);
+    const cancelled = await resolve(ins, second, 'cancel');
+    expect([cancelled.status, cancelled.data?.status]).toEqual([200, 'cancelled']);
+    expect(net.terminations).toEqual([expect.objectContaining({ memberWalletId: EMPLOYER_WALLET })]);
+    expect(net.cancellations).toEqual([{ path: `/tokens/${encodeURIComponent(second)}/enrollment-cancelled`, body: expect.anything(), signed: true }]);
+    expect((await reports(ins)).map((r) => r.status).sort()).toEqual(['cancelled', 'released']);
+    expect((await resolve(ins, second, 'cancel')).status).toBe(409);       // a report is resolved once
+    expect((await resolve(ins, second, 'shrug')).status).toBe(400);
+  });
+
+  test('on the phone: an invite used elsewhere is told apart from a wrong PIN, and the report is one tap', async () => {
+    const net = await network();
+    const ins = await startedInsurerOf(net);
+    const code = net.issue();
+    const other = completionPair();
+    expect((await post(ins.url, '/enrollment/process', { tokenId: code, tokenPinHash: hashTokenPIN(code, PIN), completionCommitment: other.commitment, role: 'member' })).status).toBe(200);
+    const m = await memberAt(ins.url, net.sequencerUrl);
+    expect((await m.dev('/onboarding/accept-token', { tokenId: code })).status).toBe(200);
+    expect((await m.dev('/onboarding/generate-key')).status).toBe(200);
+    const wrong = await m.dev('/onboarding/redeem', { tokenPIN: '00000000' });
+    expect([wrong.status, wrong.json?.error]).toEqual([403, 'The insurer did not accept this enrollment code and PIN.']);
+    const used = await m.dev('/onboarding/redeem', { tokenPIN: PIN });
+    expect([used.status, used.json?.error, used.data?.errorCode]).toEqual([409, USED_ELSEWHERE_ON_PHONE, 'USED_ELSEWHERE']);   // before: [403, the refusal a wrong PIN gets, undefined] (A-139)
+    const badPin = await m.dev('/onboarding/report-used-invite', { tokenPIN: '00000000' });
+    expect(badPin.status).toBe(403);
+    const filed = await m.dev('/onboarding/report-used-invite', { tokenPIN: PIN });
+    expect([filed.status, filed.data?.reported, filed.data?.message]).toEqual([200, true, REPORTED_ON_PHONE]);
+    const late = await post(ins.url, '/enrollment/complete', { tokenId: code, walletId: STRANGER_WALLET, completionSecret: other.secret });
+    expect(late.status).toBe(403);                                          // the other phone's completion is held
   });
 });

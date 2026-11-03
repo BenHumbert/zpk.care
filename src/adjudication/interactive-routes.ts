@@ -107,6 +107,8 @@ export function registerInteractiveRoutes(
     '/interactive/deny-prior-auth',
     '/interactive/terminate-member',
     '/interactive/terminate-group',
+    // A-109: the plan holds a member while a report about its enrollment is reviewed
+    '/interactive/hold-member',
     '/interactive/decrypt-thread',
     '/interactive/create-delegation',
     '/interactive/update-formulary',
@@ -1384,6 +1386,26 @@ export function registerInteractiveRoutes(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       sendError(res, 500, message);
+    }
+  });
+
+  // POST /interactive/hold-member — A-109: hold a member's coverage while a report about its enrollment is reviewed, or
+  // lift the hold. Synchronous and small, as a termination is, and under the proving lock for the same reason: a fill
+  // being proved for the member when the hold lands would otherwise go through.
+  reg('POST', '/interactive/hold-member', async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      const params = JSON.parse(await readBody(req)) as { walletId?: unknown; held?: unknown; reason?: unknown };
+      if (typeof params.walletId !== 'string' || !/^\d+$/.test(params.walletId)) return sendError(res, 400, 'walletId (decimal) is required');
+      if (typeof params.held !== 'boolean') return sendError(res, 400, 'held must be true or false');
+      const reason = typeof params.reason === 'string' ? params.reason : '';
+      const result = await underProvingLock(req, res, async () => service.setMemberHold(params.walletId as string, params.held as boolean, reason));
+      if (res.writableEnded) return;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(safeJsonStringify(result));
+    } catch (err) {
+      if (res.writableEnded) return;
+      if (err instanceof RegistrationRefused) return sendError(res, err.status, err.message);
+      sendError(res, 500, err instanceof Error ? err.message : String(err));
     }
   });
 

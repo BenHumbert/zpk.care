@@ -93,6 +93,7 @@ const LOCKED_ROUTES: Array<{ route: string; body: Record<string, unknown>; as: '
   { route: '/interactive/enroll-family', body: { subscriberIndex: 0 }, as: 'operator' },
   { route: TERMINATE_MEMBER, body: termination, as: 'operator' },
   { route: '/interactive/terminate-group', body: { groupId: 'ACME-CORP', terminationDate: '20261031' }, as: 'operator' },
+  { route: '/interactive/hold-member', body: { walletId: ALICE, held: true, reason: 'A report about this member is reviewed' }, as: 'operator' },   // A-109
   { route: '/interactive/send-message', body: { senderType: 'prescriber', recipientType: 'member', subject: 'Refill', body: 'Ready' }, as: 'operator' },
   { route: '/interactive/create-delegation', body: { delegatorWalletId: ALICE, delegateWalletId: '1002', scopeFlags: 1, relationshipCode: 1 }, as: 'operator' },
   { route: '/interactive/verify-credential', body: { credentialJson: '{"version":1}' }, as: 'anyone' },

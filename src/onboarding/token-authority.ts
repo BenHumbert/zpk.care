@@ -298,6 +298,18 @@ export class TokenAuthority {
   }
 
   /**
+   * Withdraw a consumed token, by its code's fingerprint (A-109): the plan cancelled the enrollment it made, after a report
+   * that someone else used it. Spent for good, as a revoked token is; only a consumed one, since an unused one is
+   * revoked and a revoked or expired one is spent already.
+   */
+  withdrawConsumedByHash(tokenIdHash: string): void {
+    const record = this.tokens.get(tokenIdHash);
+    if (!record) throw new Error('Token not found');
+    if (record.status !== 'consumed') throw new Error(`Nothing to cancel: the code was never used (it is ${record.status})`);
+    record.status = 'revoked';
+  }
+
+  /**
    * Set the PIN hash on a token record.
    * Called by the HR Tool after token generation to bind the enrollment PIN.
    * Only the hash is stored — the PIN itself never touches this node.

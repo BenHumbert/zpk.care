@@ -26,6 +26,7 @@
  *   - Roster management (list, query, terminate)
  *   - Read-only sequencer queries (chain state, status)
  */
+import type { IncomingMessage, ServerResponse } from 'http';
 import { EmployerNode } from '../employer-node.js';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
 import type { RouteRegistration } from '../nautilus-app-types.js';
@@ -47,6 +48,54 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
   const validatePerCaller = new SlidingWindowLimiter(VALIDATE_PER_CALLER_PER_MINUTE, 60_000);
   const validateOverall = new SlidingWindowLimiter(600, 60_000);
   const validateReplay = new ReplayCache();
+
+  /**
+   * Whether a request is the insurer's, signed as the validate oracle requires (the oracle's comment says why each check
+   * is where it is); when it is not, the refusal is sent and false returned. `what` names the route in the refusal.
+   * Shared by the oracle and, A-109, by the plan's cancellation of an enrollment, with the oracle's limits.
+   */
+  function insurerSigned(req: IncomingMessage, res: ServerResponse, node: EmployerNode, body: unknown, what: string): boolean {
+    const caller = server.callerKey(req);
+    if (validatePerCaller.count(caller) >= VALIDATE_PER_CALLER_PER_MINUTE) {
+      server.sendResponse(res, 429, false, undefined, 'Too many validation requests. Try again in a minute.');
+      return false;
+    }
+    // An unsigned request is the caller's problem and is answered as such, before anything about
+    // this node's own readiness is disclosed.
+    if (!req.headers['x-admin-signature']) {
+      validatePerCaller.allow(caller);
+      server.sendResponse(res, 401, false, undefined, `${what} answers only the insurer: the request is not signed.`);
+      return false;
+    }
+    const pinnedInsurerKey = node.getInsurerPublicKeyHex();
+    if (!pinnedInsurerKey) {
+      validatePerCaller.allow(caller);
+      server.sendResponse(res, 503, false, undefined,
+        'This employer node has no attestation loaded, so it cannot tell who the insurer is. Refresh the attestation first.');
+      return false;
+    }
+    let pathname: string;
+    try { pathname = new URL(req.url ?? '/', 'http://localhost').pathname; } catch { pathname = req.url ?? '/'; }
+    const verdict = verifySignedRequest({
+      method: 'POST',
+      path: pathname,
+      headers: req.headers,
+      expectedSignerId: 'insurer',
+      publicKeyHex: pinnedInsurerKey,
+      body: body === undefined ? '' : JSON.stringify(body),
+      replayCache: validateReplay,
+    });
+    if (!verdict.ok) {
+      validatePerCaller.allow(caller);
+      server.sendResponse(res, 401, false, undefined, `${what} answers only the insurer: ${verdict.reason}.`);
+      return false;
+    }
+    if (!validateOverall.allow('*')) {
+      server.sendResponse(res, 429, false, undefined, 'Too many validation requests. Try again in a minute.');
+      return false;
+    }
+    return true;
+  }
 
   // ══════════════════════════════════════════════════════════
   //  ONBOARDING (simplified — no wallet, no key)
@@ -342,43 +391,7 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
       // (60 answered 401, 540 refused by its own limit, all 600 counted) had the insurer's next
       // signed request refused 429, and every enrollment with this employer failed for that
       // minute; and the insurer had only the 60 a minute any caller has.
-      const caller = server.callerKey(req);
-      if (validatePerCaller.count(caller) >= VALIDATE_PER_CALLER_PER_MINUTE) {
-        return server.sendResponse(res, 429, false, undefined, 'Too many validation requests. Try again in a minute.');
-      }
-
-      // An unsigned request is the caller's problem and is answered as such, before anything about
-      // this node's own readiness is disclosed.
-      if (!req.headers['x-admin-signature']) {
-        validatePerCaller.allow(caller);
-        return server.sendResponse(res, 401, false, undefined, 'This oracle answers only the insurer: the request is not signed.');
-      }
-
-      const pinnedInsurerKey = node.getInsurerPublicKeyHex();
-      if (!pinnedInsurerKey) {
-        validatePerCaller.allow(caller);
-        return server.sendResponse(res, 503, false, undefined,
-          'This employer node has no attestation loaded, so it cannot tell who the insurer is. Refresh the attestation first.');
-      }
-
-      let pathname: string;
-      try { pathname = new URL(req.url ?? '/', 'http://localhost').pathname; } catch { pathname = req.url ?? '/'; }
-      const verdict = verifySignedRequest({
-        method: 'POST',
-        path: pathname,
-        headers: req.headers,
-        expectedSignerId: 'insurer',
-        publicKeyHex: pinnedInsurerKey,
-        body: body === undefined ? '' : JSON.stringify(body),
-        replayCache: validateReplay,
-      });
-      if (!verdict.ok) {
-        validatePerCaller.allow(caller);
-        return server.sendResponse(res, 401, false, undefined, `This oracle answers only the insurer: ${verdict.reason}.`);
-      }
-      if (!validateOverall.allow('*')) {
-        return server.sendResponse(res, 429, false, undefined, 'Too many validation requests. Try again in a minute.');
-      }
+      if (!insurerSigned(req, res, node, body, 'This oracle')) return;
 
       const tokenId = normalizeTokenId(params.tokenId);
       const b = body as { tokenPinHash?: unknown } | undefined;
@@ -396,6 +409,28 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
       const date = new Date().toISOString().replace(/\D/g, '').slice(0, 8);
       const result = node.redeemTokenWithPin(tokenId, date, b.tokenPinHash);
       server.sendResponse(res, 200, true, result);
+    },
+  });
+
+  routes.push({
+    method: 'POST',
+    path: '/tokens/:tokenId/enrollment-cancelled',
+    handler: async (req, res, params, _query, body) => {
+      /*
+       * A-109: the plan cancelled the enrollment this code made. An employee reported that someone else used the invite,
+       * the plan held the wallet that used it, and once the employer confirmed its real employee the plan terminated that
+       * wallet and says so here. Only the insurer, signed and limited as the oracle is. The code is spent for good and the
+       * employee's roster row goes back to pending, out of the enrollment count, so HR can send a new invite; no wallet
+       * crosses this boundary (I6).
+       */
+      const node = server.getEntityNode() as EmployerNode | null;
+      if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
+      if (!insurerSigned(req, res, node, body, 'A cancellation')) return;
+      try {
+        server.sendResponse(res, 200, true, node.cancelEnrollment(normalizeTokenId(params.tokenId)));
+      } catch (err: unknown) {
+        server.sendResponse(res, 409, false, undefined, err instanceof Error ? err.message : String(err));
+      }
     },
   });
 

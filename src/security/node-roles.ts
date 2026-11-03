@@ -84,6 +84,8 @@ export const ROUTES_BY_ROLE: Readonly<Record<Exclude<NodeRole, 'operator'>, Read
     'GET:/interactive/prior-auths',
     'POST:/interactive/terminate-member',
     'POST:/interactive/terminate-group',
+    // A-109: the plan holds a member while a report about its enrollment is reviewed
+    'POST:/interactive/hold-member',
     'POST:/interactive/update-formulary',
     'POST:/interactive/plan-year-rollover',
     'POST:/interactive/approve-member',

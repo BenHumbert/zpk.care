@@ -119,6 +119,10 @@ beforeAll(async () => {
       }
       if (req.method === 'POST' && /^\/tokens\/[^/]+\/revoke$/.test(url)) return send(res, 200, { ok: true, data: { revoked: true } });
       if (req.method === 'GET' && url === '/roster') return send(res, 200, { ok: true, data: { total: stubRoster.length, entries: stubRoster } });
+      if (req.method === 'GET' && url.startsWith('/roster/')) {
+        const row = stubRoster.find((r) => r.employeeIdHash === decodeURIComponent(url.slice('/roster/'.length)));
+        return row ? send(res, 200, { ok: true, data: row }) : send(res, 404, { ok: false, error: 'Roster entry not found' });
+      }
       if (req.method === 'GET' && url === '/health') return send(res, 200, { ok: true, data: { phase: 'ready' } });
       return send(res, 404, { ok: false, error: 'not stubbed: ' + url });
     });
@@ -421,6 +425,21 @@ describe('the employee hears what became of the invite (A-109)', () => {
     const [notice] = outbox().slice(before);
     expect(notice.to).toBe('+15555550199');
     expect(notice.body).toMatch(/was just used/);
+  });
+
+  test('once the plan cancels an enrollment someone else made, HR sends the employee a new invite', async () => {
+    const e1 = (await employees()).find((e) => e.employeeId === 'E-1')!;
+    expect(e1.status).toBe('enrolled');                      // the HR Tool heard the invite was used
+    const h = encodeURIComponent(e1.employeeIdHash);
+    stubRoster = [{ employeeIdHash: e1.employeeIdHash, status: 'enrolled', inviteStatus: 'consumed', tokenIdHash: e1.tokenIdHash }, ...stubRoster.slice(1)];
+    expect((await api('POST', `/api/employees/${h}/reissue`, { passphrase: PASS })).status).toBe(409);   // still enrolled on the node
+    // the plan held the other phone's wallet, the employer confirmed its employee, and the plan cancelled: the node's row is pending again
+    stubRoster = [{ employeeIdHash: e1.employeeIdHash, status: 'pending', inviteStatus: 'revoked', tokenIdHash: e1.tokenIdHash }, ...stubRoster.slice(1)];
+    const before = outbox().length;
+    const r = await api('POST', `/api/employees/${h}/reissue`, { passphrase: PASS });
+    expect(r.status).toBe(200);                              // before: 409, the HR Tool's own record said enrolled
+    expect(outbox().slice(before).map((t) => t.to)).toEqual(['+15555550101']);
+    expect((await employees()).find((e) => e.employeeId === 'E-1')!.status).toBe('token_generated');
   });
 
   test('the audit log records each notice by hash, and notices need the HR Tool unlocked', async () => {
