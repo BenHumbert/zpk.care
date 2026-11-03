@@ -505,6 +505,57 @@ async function issueInvite(entry: CorrelationEntry, validUntil: string, wording:
   return { ok: true, tokenId, tokenIdHash, pinSentTo: maskMobile(mobile) };
 }
 
+/** How often the HR Tool checks what became of its invites while it is unlocked (A-109 notices); 0 turns the timer off. */
+const NOTICE_INTERVAL_MS = Number(process.env.HR_TOOL_NOTICE_INTERVAL_MS ?? 60_000);
+
+/**
+ * The notices (A-109): each employee is texted once when the current invite is used, and once when five wrong PINs
+ * lock it, so an invite someone else used does not go unnoticed. The employer node's roster says what became of each
+ * invite and holds no number; the numbers are here, so this runs only while the HR Tool is unlocked, every
+ * NOTICE_INTERVAL_MS, and catches up when a group is selected. An invite is matched by its fingerprint, so a new one is
+ * noticed afresh; a text that fails is tried again the next time. Returns the number of texts sent.
+ */
+async function sendDueNotices(): Promise<number> {
+  if (!activeTable || !activeGroupId || !TEXT_SERVICE) return 0;
+  const table = activeTable;
+  const resp = await proxyToEmployer('GET', '/roster');
+  if (resp.status !== 200) throw new Error(`the employer node answered ${resp.status} for its roster`);
+  type OnNode = { employeeIdHash: string; tokenIdHash?: string | null; inviteStatus?: string | null };
+  const byEmployee = new Map<string, OnNode>(((resp.data?.entries ?? []) as OnNode[]).map((e) => [e.employeeIdHash, e]));
+  let sent = 0;
+  for (const entry of table.entries) {
+    const onNode = byEmployee.get(entry.employeeIdHash);
+    const mobile = entry.mobile ? normalizeMobile(entry.mobile) : null;
+    if (!onNode || !mobile || !entry.tokenIdHash || onNode.tokenIdHash !== entry.tokenIdHash) continue;   // the current invite only
+    const due = onNode.inviteStatus === 'consumed' && entry.noticedUse !== entry.tokenIdHash ? 'used'
+      : onNode.inviteStatus === 'locked' && entry.noticedLock !== entry.tokenIdHash ? 'locked'
+        : null;
+    if (!due) continue;
+    try {
+      await TEXT_SERVICE.send({ to: mobile, body: due === 'used' ? TEXTS.inviteUsed() : TEXTS.inviteLocked() });
+    } catch {
+      continue;   // tried again the next time
+    }
+    if (due === 'used') {
+      entry.noticedUse = entry.tokenIdHash;
+      entry.status = 'enrolled';
+    } else {
+      entry.noticedLock = entry.tokenIdHash;
+    }
+    sent++;
+    auditLog(due === 'used' ? 'notice:used' : 'notice:locked', `employeeIdHash=${entry.employeeIdHash.slice(0, 12)}`);
+  }
+  if (sent > 0 && activeTable === table) saveTable();
+  return sent;
+}
+
+let noticesInFlight: Promise<number> | null = null;
+/** One run of the notices at a time, whoever asks: the timer, a group select, or HR. */
+function runNotices(): Promise<number> {
+  if (!noticesInFlight) noticesInFlight = sendDueNotices().finally(() => { noticesInFlight = null; });
+  return noticesInFlight;
+}
+
 // ─── API Routes ─────────────────────────────────────────────
 
 async function handleApi(req: any, res: any, path: string, method: string): Promise<void> {
@@ -781,6 +832,8 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
     touchSession();
     auditLog('group:select', `groupId=${groupId} firstSelect=${firstSelect} entries=${table.entries.length}`);
     if (pinsDeleted > 0) auditLog('pins:deleted', `count=${pinsDeleted}`);
+    // A-109: the notices that came due while the HR Tool was locked go out now
+    runNotices().catch(() => { /* the employer node is unreachable; the timer tries again */ });
 
     return ok(res, {
       groupId,
@@ -1083,6 +1136,17 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
     return ok(res, { mobile: maskMobile(mobile), reissued: true, tokenId: issued.tokenId, pinSentTo: issued.pinSentTo });
   }
 
+  // ── The notices, now (A-109): what the timer does every NOTICE_INTERVAL_MS while the HR Tool is unlocked
+  if (path === '/api/notices' && method === 'POST') {
+    if (!requireGroup(res)) return;
+    if (!TEXT_SERVICE) return errRes(res, 503, NO_TEXT_SERVICE);
+    try {
+      return ok(res, { sent: await runNotices() });
+    } catch (e: any) {
+      return errRes(res, 502, `Could not read the employer node's roster: ${e?.message || 'unreachable'}`);
+    }
+  }
+
   // ── Reconcile with employer node
   if (path === '/api/reconcile' && method === 'POST') {
     if (!requireGroup(res)) return;
@@ -1259,6 +1323,8 @@ ensureDataDir(DATA_DIR);
 
 // Session timeout checker — runs every 60 seconds
 sessionTimeoutTimer = setInterval(checkSessionTimeout, 60_000);
+// A-109: the notices, while unlocked; locked, there is no number to text
+if (NOTICE_INTERVAL_MS > 0) setInterval(() => { runNotices().catch(() => { /* tried again next time */ }); }, NOTICE_INTERVAL_MS);
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log('');

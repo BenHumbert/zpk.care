@@ -91,6 +91,9 @@ export interface CorrelationEntry {
   tokenIdHash?: string;
   /** The current invite's expiry, YYYY-MM-DD */
   validUntil?: string;
+  /** A-109 notices: the fingerprint of the invite whose use, or whose lock, the employee was texted about, once each */
+  noticedUse?: string;
+  noticedLock?: string;
   status: 'pending' | 'token_generated' | 'enrolled' | 'terminated';
   createdAt: string;
 }

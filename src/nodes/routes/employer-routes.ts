@@ -441,7 +441,7 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
       const entry = node.getRosterEntry(params.employeeIdHash);
       if (!entry) return server.sendResponse(res, 404, false, undefined, 'Roster entry not found');
-      server.sendResponse(res, 200, true, entry);
+      server.sendResponse(res, 200, true, node.rosterView(entry));
     },
   });
 

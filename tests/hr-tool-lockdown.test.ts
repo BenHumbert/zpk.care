@@ -55,6 +55,8 @@ let dataDir: string;
 let lastIssuedCode = '';
 let codesIssued = 0;
 let refuseNextPinHash = false;
+/** What the stub employer node's /roster answers: what became of each invite, as the tests set it (A-109 notices). */
+let stubRoster: Array<{ employeeIdHash: string; status: string; inviteStatus: string; tokenIdHash: string }> = [];
 /** The text outbox the HR Tool writes to: the employees' phones, for this test (A-109). */
 const outboxFile = () => path.join(dataDir, 'texts.jsonl');
 const outbox = (): Array<{ at: string; to: string; body: string }> =>
@@ -116,6 +118,7 @@ beforeAll(async () => {
         return send(res, 200, { ok: true, data: { pinHashSet: true } });
       }
       if (req.method === 'POST' && /^\/tokens\/[^/]+\/revoke$/.test(url)) return send(res, 200, { ok: true, data: { revoked: true } });
+      if (req.method === 'GET' && url === '/roster') return send(res, 200, { ok: true, data: { total: stubRoster.length, entries: stubRoster } });
       if (req.method === 'GET' && url === '/health') return send(res, 200, { ok: true, data: { phase: 'ready' } });
       return send(res, 404, { ok: false, error: 'not stubbed: ' + url });
     });
@@ -129,7 +132,7 @@ beforeAll(async () => {
   hrUrl = `http://127.0.0.1:${port}`;
   hrTool = spawn(process.execPath, ['--import', 'tsx', path.join(REPO, 'src', 'tools', 'hr-tool-server.ts')], {
     cwd: REPO,
-    env: { ...process.env, PORT: String(port), HR_TOOL_DATA_DIR: dataDir, EMPLOYER_NODE_URL: 'http://127.0.0.1:1', EMPLOYER_ADMIN_TOKEN: 'must-be-ignored', HR_TOOL_TEXT_SERVICE: 'outbox', HR_TOOL_TEXT_OUTBOX: path.join(dataDir, 'texts.jsonl') },
+    env: { ...process.env, PORT: String(port), HR_TOOL_DATA_DIR: dataDir, EMPLOYER_NODE_URL: 'http://127.0.0.1:1', EMPLOYER_ADMIN_TOKEN: 'must-be-ignored', HR_TOOL_TEXT_SERVICE: 'outbox', HR_TOOL_TEXT_OUTBOX: path.join(dataDir, 'texts.jsonl'), HR_TOOL_NOTICE_INTERVAL_MS: '0' },
     stdio: ['ignore', 'ignore', 'pipe'],
     windowsHide: true,
   });
@@ -378,6 +381,56 @@ describe('the PIN goes straight to the employee\'s phone, and no one at HR sees 
     expect(log).not.toContain('E-2');
     expect(log).not.toMatch(/555\D?555/);                  // no phone number
     expect(log).not.toMatch(/\b\d{8}\b/);                 // no PIN ever
+  });
+});
+
+describe('the employee hears what became of the invite (A-109)', () => {
+  type Listed = { employeeId: string; employeeIdHash: string; tokenIdHash: string; status: string };
+  const employees = async (): Promise<Listed[]> => data(await api('GET', '/api/employees')).entries;
+
+  test('a used invite and a locked one are each texted to their employee, once, with no PIN', async () => {
+    const list = await employees();
+    const e1 = list.find((e) => e.employeeId === 'E-1')!;
+    const e2 = list.find((e) => e.employeeId === 'E-2')!;
+    stubRoster = [
+      { employeeIdHash: e1.employeeIdHash, status: 'enrolled', inviteStatus: 'consumed', tokenIdHash: e1.tokenIdHash },
+      { employeeIdHash: e2.employeeIdHash, status: 'pending', inviteStatus: 'locked', tokenIdHash: e2.tokenIdHash },
+    ];
+    const before = outbox().length;
+    const r = await api('POST', '/api/notices');
+    expect(r.status).toBe(200);                            // before: no such thing; an employee whose invite was used never heard
+    expect(data(r).sent).toBe(2);
+    const sent = outbox().slice(before);
+    expect(sent.find((t) => t.to === '+15555550101')?.body).toMatch(/was just used/);
+    expect(sent.find((t) => t.to === '+15555550199')?.body).toMatch(/locked after five wrong PINs/);
+    expect(sent.every((t) => pinIn(t.body) === '')).toBe(true);
+    const again = await api('POST', '/api/notices');
+    expect(data(again).sent).toBe(0);                      // once per invite
+    expect(outbox()).toHaveLength(before + 2);
+    expect((await employees()).find((e) => e.employeeId === 'E-1')!.status).toBe('enrolled');
+  });
+
+  test('a new invite is noticed afresh', async () => {
+    const e2 = (await employees()).find((e) => e.employeeId === 'E-2')!;
+    expect((await api('POST', `/api/employees/${encodeURIComponent(e2.employeeIdHash)}/reissue`, { passphrase: PASS })).status).toBe(200);
+    const fresh = (await employees()).find((e) => e.employeeId === 'E-2')!;
+    expect(fresh.tokenIdHash).not.toBe(e2.tokenIdHash);
+    stubRoster = [stubRoster[0], { employeeIdHash: fresh.employeeIdHash, status: 'enrolled', inviteStatus: 'consumed', tokenIdHash: fresh.tokenIdHash }];
+    const before = outbox().length;
+    expect(data(await api('POST', '/api/notices')).sent).toBe(1);
+    const [notice] = outbox().slice(before);
+    expect(notice.to).toBe('+15555550199');
+    expect(notice.body).toMatch(/was just used/);
+  });
+
+  test('the audit log records each notice by hash, and notices need the HR Tool unlocked', async () => {
+    const groupAudit = path.join(dataDir, fs.readdirSync(dataDir).find((n) => n.startsWith('workspace-'))!, 'groups', 'G1', 'audit.log');
+    const log = fs.readFileSync(groupAudit, 'utf8');
+    expect(log).toMatch(/notice:used/);
+    expect(log).toMatch(/notice:locked/);
+    expect(log).not.toMatch(/555\D?555/);
+    await api('POST', '/api/lock');
+    expect((await api('POST', '/api/notices')).status).toBe(401);
   });
 });
 

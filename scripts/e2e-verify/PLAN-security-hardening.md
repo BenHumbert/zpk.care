@@ -3441,3 +3441,26 @@ the same errors.
 and named where each went, each PIN was texted to its employee's number, no route of the HR Tool showed one again, and
 the member enrolled with the PIN read off the outbox; kill:ports then stopped the network and left the servers on 8000
 and 8080 running. Scoreboard: 141 findings; 116 fixed; 25 open, none critical.
+
+**A-109 slice 3, 2026-11-03 (the employee hears what became of the invite).** An employee whose invite someone else used
+learned of it only by trying it. The employer node's roster now says what became of each invite (`inviteStatus`: unused,
+consumed, locked after five wrong PINs, expired, revoked; `TokenAuthority.inviteStatusOf`), with no code and no wallet,
+as before. The HR Tool, which alone holds the numbers, reads it every minute while it is unlocked
+(`HR_TOOL_NOTICE_INTERVAL_MS`; `POST /api/notices` runs it at once) and catches up when a group is selected, and texts
+the employee once when the current invite is used ("If that was not you, tell your HR department right away") and once
+when it is locked. An invite is matched by its fingerprint, so a new invite is noticed afresh; a text that fails is
+tried again the next time; each notice lands in the audit log by hash only, and none carries a PIN. Open with the owner:
+locked, the HR Tool holds no readable number, so a notice due while it is locked goes out at the next unlock; sending it
+at once needs the numbers readable without the passphrase, protected by the computer's login instead.
+
+*Verified.* `tests/employer-invites.test.ts` 4 new tests (the roster's invite status through use, five wrong PINs,
+removal and expiry, and still no code or wallet), 3 failing on the old code; `tests/employer-roster.test.ts` pins the
+new column; `tests/hr-tool-lockdown.test.ts` 3 new tests, all failing on the old code (a used and a locked invite each
+texted once with no PIN, a new invite noticed afresh, the audit lines and the lock); `tests/hr-tool-texts.test.ts` the
+two notices' wording. Regression batch 162 suites, 1,988 tests, all passing. Typecheck src 18, scripts 2, the same
+errors.
+
+*Live, the same day (secured boot, one member, explorer on 8010):* 251 of 251 checks, the two new ones among them: the
+employer's roster said the member's invite was consumed, and the member was texted once, with no PIN, that the invite
+was used; kill:ports then stopped the network and left the servers on 8000 and 8080 running. Scoreboard: 141 findings;
+116 fixed; 25 open, none critical.

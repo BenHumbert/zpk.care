@@ -92,6 +92,9 @@ export interface TokenRecord {
   consumedAt?: string;
 }
 
+/** What became of an invite (inviteStatusOf): a record's status, or locked by wrong PINs (A-109 notices). */
+export type InviteStatus = TokenRecord['status'] | 'locked';
+
 /**
  * Token validation result.
  */
@@ -414,6 +417,21 @@ export class TokenAuthority {
    */
   getTokenByHash(tokenIdHash: string): TokenRecord | undefined {
     return this.tokens.get(tokenIdHash);
+  }
+
+  /**
+   * What became of an invite, by its code's fingerprint, for the employer's roster and the HR Tool's notices (A-109):
+   * consumed, revoked or expired as the record says; and, while it is unused, locked after MAX_PIN_ATTEMPTS wrong PINs
+   * or expired once past its date, whether or not anyone has tried it since. Null for an invite this authority never
+   * issued.
+   */
+  inviteStatusOf(tokenIdHash: string, today: string = new Date().toISOString().slice(0, 10).replace(/-/g, '')): InviteStatus | null {
+    const record = this.tokens.get(tokenIdHash);
+    if (!record) return null;
+    if (record.status !== 'unused') return record.status;
+    if ((record.pinAttempts ?? 0) >= TokenAuthority.MAX_PIN_ATTEMPTS) return 'locked';
+    if (BigInt(today) > BigInt(record.validUntil)) return 'expired';
+    return 'unused';
   }
 
   /** Get total number of tokens managed */

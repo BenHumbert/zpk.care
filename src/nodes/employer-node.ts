@@ -31,7 +31,7 @@
 import { Field, Poseidon } from 'o1js';
 import { hashString } from '../zkp/hash-utils.js';
 import { TokenAuthority, inviteExpiryProblem, compactInviteDate } from '../onboarding/token-authority.js';
-import type { TokenRecord, TokenValidationResult } from '../onboarding/token-authority.js';
+import type { TokenRecord, TokenValidationResult, InviteStatus } from '../onboarding/token-authority.js';
 import type { GroupEnrollmentToken } from '../onboarding/group-enrollment-token.js';
 import { EntityNodeBase } from './entity-node-base.js';
 import type { EmployerNodeConfig } from './entity-node-types.js';
@@ -86,6 +86,12 @@ export interface EmployerRosterEntry {
   status: 'pending' | 'enrolled' | 'terminated';
   createdAt: number;
 }
+
+/**
+ * A roster entry as the employer's HR Tool reads it: with what became of the current invite, which the HR Tool texts
+ * the employee about when it is used or locked (A-109). Still no code and no wallet.
+ */
+export type EmployerRosterView = EmployerRosterEntry & { inviteStatus: InviteStatus | null };
 
 // ─── EmployerNode ────────────────────────────────────────────
 
@@ -521,14 +527,19 @@ export class EmployerNode extends EntityNodeBase {
 
   // ─── Roster Management ─────────────────────────────────────
 
-  /** List all roster entries */
-  listRoster(): EmployerRosterEntry[] {
-    return [...this.roster.values()];
+  /** List all roster entries, each with what became of its current invite (A-109: the HR Tool's notices read it) */
+  listRoster(): EmployerRosterView[] {
+    return [...this.roster.values()].map((entry) => this.rosterView(entry));
   }
 
   /** Get roster entry by employee ID hash */
   getRosterEntry(employeeIdHash: string): EmployerRosterEntry | undefined {
     return this.roster.get(employeeIdHash);
+  }
+
+  /** A roster entry as the roster routes answer it: with what became of its current invite. */
+  rosterView(entry: EmployerRosterEntry): EmployerRosterView {
+    return { ...entry, inviteStatus: entry.tokenIdHash ? this.tokenAuthority.inviteStatusOf(entry.tokenIdHash) : null };
   }
 
   /** Terminate a roster entry, and withdraw the employee's unused invite with it (A-135: it used to stay redeemable). */

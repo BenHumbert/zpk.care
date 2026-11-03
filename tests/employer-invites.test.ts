@@ -153,3 +153,44 @@ describe('an invite lasts at most 14 days (A-138)', () => {
     expect(() => node.generateToken('G1', 'emp-7', 'fam-7', iso(inDays(14)))).not.toThrow();
   });
 });
+
+describe('the roster says what became of each invite, for the HR Tool\'s notices (A-109)', () => {
+  const inviteOf = (node: EmployerNode, employeeIdHash: string) =>
+    (node.listRoster().find((e) => e.employeeIdHash === employeeIdHash) as unknown as { inviteStatus?: string }).inviteStatus;
+
+  test('unused, then consumed once redeemed', () => {
+    const node = freshNode();
+    const code = issue(node, 'emp-8');
+    expect(inviteOf(node, 'emp-8')).toBe('unused');                       // before: no such column
+    redeem(node, code);
+    expect(inviteOf(node, 'emp-8')).toBe('consumed');
+  });
+
+  test('locked after five wrong PINs, before any other answer', () => {
+    const node = freshNode();
+    const code = issue(node, 'emp-9');
+    for (let i = 0; i < 5; i++) expect(redeem(node, code, '00000000').valid).toBe(false);
+    expect(inviteOf(node, 'emp-9')).toBe('locked');
+    expect(redeem(node, code).valid).toBe(false);                         // the right PIN no longer opens it
+    expect(inviteOf(node, 'emp-9')).toBe('locked');
+  });
+
+  test('revoked when the employee leaves, expired once past its date', () => {
+    const node = freshNode();
+    issue(node, 'emp-10');
+    node.terminateRosterEntry('emp-10');
+    expect(inviteOf(node, 'emp-10')).toBe('revoked');
+    const code = issue(node, 'emp-11');
+    node.getTokenRecord(code)!.validUntil = inDays(-1);                  // as if two weeks went by
+    expect(inviteOf(node, 'emp-11')).toBe('expired');
+  });
+
+  test('the roster still carries no code and no wallet', () => {
+    const node = freshNode();
+    const code = issue(node, 'emp-12');
+    redeem(node, code);
+    const text = JSON.stringify(node.listRoster());
+    expect(text).not.toContain(code);
+    expect(text).not.toMatch(/wallet/i);
+  });
+});

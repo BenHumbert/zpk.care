@@ -106,6 +106,12 @@ describe('the texts', () => {
     expect(body).toContain('•••0199');
     expect(body).toMatch(/If you did not ask for this/);
   });
+
+  test('the notices say what became of the invite, what to do if it was not the employee, and carry no PIN', () => {
+    expect(TEXTS.inviteUsed()).toMatch(/was just used[\s\S]*If that was not you/);
+    expect(TEXTS.inviteLocked()).toMatch(/locked after five wrong PINs[\s\S]*If that was not you[\s\S]*new invite/);
+    for (const body of [TEXTS.inviteUsed(), TEXTS.inviteLocked()]) expect(body).not.toMatch(/\d{8}/);
+  });
 });
 
 describe('the reconcile (A-140)', () => {

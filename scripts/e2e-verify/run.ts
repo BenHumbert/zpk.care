@@ -629,6 +629,12 @@ async function main() {
   trace.check('The roster row for this employee is marked enrolled', roster.status === 200 && myRow?.status === 'enrolled', 'enrolled', myRow?.status ?? roster.status);
   trace.check('The roster carries each code only as its fingerprint, never the code itself (A-109)', roster.status === 200 && rosterEntries.length > 0 && rosterEntries.every((e: any) => !('tokenId' in e) && typeof e.tokenIdHash === 'string') && !roster.text.includes(myToken.tokenId), 'fingerprints only', roster.text.includes(myToken.tokenId) ? 'the code is in the roster' : rosterEntries.map((e: any) => Object.keys(e).join(',')));
   trace.check('No roster row has a wallet column, and the member\'s wallet id is nowhere in the response', roster.status === 200 && rosterEntries.every((e: any) => !('walletId' in e)) && !roster.text.includes(walletId) && !/wallet/i.test(roster.text), 'no wallet', rosterEntries.length ? Object.keys(rosterEntries[0]).join(',') : roster.status);
+  trace.check('The roster says the member\'s invite was consumed (A-109: what the notices read)', myRow?.inviteStatus === 'consumed', 'consumed', myRow?.inviteStatus ?? 'none');
+  // A-109: the employee hears that the invite was used, from the HR Tool on the employer's machine (its timer, or now)
+  const noticeRun = await http('POST', `${hrToolUrl}/api/notices`, {});
+  const usedNotices = (fs.existsSync(hrTextOutbox) ? fs.readFileSync(hrTextOutbox, 'utf8').trim().split('\n').filter(Boolean) : [])
+    .map(l => JSON.parse(l) as { to: string; body: string }).filter(t => t.to === MEMBER.mobile && /was just used/.test(t.body));
+  trace.check('The member is texted that the invite was used, once, and the text carries no PIN (A-109)', noticeRun.status === 200 && usedNotices.length === 1 && !/\b\d{8}\b/.test(usedNotices[0].body), '1 notice, no PIN', `${noticeRun.status}, ${usedNotices.length} notice(s)`);
 
   // ── 7b. Primary care, from the device (B1 step two, commit three; B5 put it before the claims) ──
   trace.begin('member', 'The member names the prescriber node as primary care; the engine queues it, the device proves it');

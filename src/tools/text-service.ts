@@ -88,4 +88,10 @@ export const TEXTS = {
     'No one from HR or your health plan will ever ask you for it.',
   mobileChanged: (maskedNew: string): string =>
     `zpk.care: the mobile number for your enrollment invite was changed to ${maskedNew}. If you did not ask for this, tell your HR department.`,
+  // The notices (A-109): what became of the invite, so an invite someone else used does not go unnoticed
+  inviteUsed: (): string =>
+    'zpk.care: your enrollment invite was just used to set up the zpk.care app. If that was not you, tell your HR department right away; ' +
+    'they can stop it and send you a new invite.',
+  inviteLocked: (): string =>
+    'zpk.care: your enrollment invite was locked after five wrong PINs. If that was not you, tell your HR department; they can send you a new invite.',
 };
