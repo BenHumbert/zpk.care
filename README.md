@@ -44,7 +44,7 @@ zpk.care is free and always will be. If it has helped you and you would like to 
 zpk.care is a **hardened production candidate** running end to end on a one-computer test network. It is not yet ready for a pilot. Where it stands, as of 2026-10-26:
 
 - **Works end to end:** plan publishing, employer signup, enrollment on the member's device, primary-care choice, prescribing with the member's price shown first, fill and adjudication. Live end-to-end runs on 2026-10-25 passed 246 of 246 checks (one member) and 221 of 221 (four members, two employers); the regression batch is 153 suites and 1,832 tests, all passing.
-- **Hardened by an internal audit:** 141 findings, 113 fixed, 28 open, none critical. Every route that changes state or returns member data authenticates its caller; requests are signed and replay-protected; every submitted proof is verified against a pinned key before anything is written; the member's device proves every change to its own record, and the engine holds no identity inputs.
+- **Hardened by an internal audit:** 141 findings, 116 fixed, 25 open, none critical. Every route that changes state or returns member data authenticates its caller; requests are signed and replay-protected; every submitted proof is verified against a pinned key before anything is written; the member's device proves every change to its own record, and the engine holds no identity inputs.
 - **Not yet built or not yet complete:** outside verification of each fill's money (option A, step 1 of 8 done), the price lock and signed pickup with a 14-day reversal, providers holding their own keys, end-to-end message encryption, the NCPDP standard claim format, pharmacy payments, a native phone app and employer reports.
 - **Not independently audited.** The cryptography, key management and network protocol need a third-party review before any deployment that handles real data.
 - **Demo data is fictional.** The bundled prescribers, pharmacies, medications and members are invented.
@@ -154,8 +154,8 @@ The sequencer does the heavy zero-knowledge work, since proving runs inside it. 
    | Network explorer | http://localhost:8000/, or the port in `ZKTRIDENT_EXPLORER_PORT` |
 
 5. **Walk through the full flow:**
-   1. **Marketplace.** An employer browses plans, applies, signs, and activates. Activation starts that employer's private node and HR Tool on their own ports.
-   2. **HR Tool.** Import an employee list and issue enrollment codes. All personal data is hashed locally on the employer's machine.
+   1. **Marketplace.** An employer browses plans, applies, signs, and activates. Activation starts that employer's private node; the employer runs the HR Tool on its own machine.
+   2. **HR Tool.** Import an employee list and issue enrollment codes. All personal data is hashed locally on the employer's machine, and the tool texts each PIN straight to its employee, so no one at HR sees one.
    3. **Member.** Enroll with a code, then view coverage and drug history.
    4. **Prescriber.** Write an e-prescription.
    5. **Pharmacy.** Fill it and watch the claim settle.

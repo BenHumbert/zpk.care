@@ -3412,3 +3412,32 @@ the same 17, `formulary-update` 2, all from the enrollment service reading field
 employer's roster carries each code only as its fingerprint, and the member's code is nowhere in it; kill:ports then
 stopped the network and left the servers on 8000 and 8080 running. Scoreboard: 141 findings; 113 fixed; 28 open, none
 critical.
+
+**A-109 slice 2, with A-137, A-140 and A-141 fixed, 2026-11-03 (the HR Tool texts each PIN).** The HR Tool showed every
+PIN to HR, for HR to text by hand, and could show any PIN again to anyone who could unlock it, so the employer's HR
+staff held both halves of every unused invite. It now texts each PIN straight to the employee's mobile, through a text
+service (`src/tools/text-service.ts`, `HR_TOOL_TEXT_SERVICE`; `outbox` writes each text as a JSON line, readable by its
+owner only, for a demonstration and the live harness, until the operator has an SMS account), and keeps no PIN and no
+PIN hash; a table saved before keeps them until it is next opened, when they are deleted. With no text service the HR
+Tool issues no invite. The roster's `mobile` column is the number; a row without one gets no invite, and every screen
+and answer shows a number's last four digits. The reveal route is gone. A lost text means a new invite
+(`/api/employees/:hash/reissue`, passphrase again): a fresh code and PIN, the old invite withdrawn by the employer node
+(slice 1). A new mobile number (`/contact`, passphrase again) is told to the old number first, naming only the new one's
+last four digits, and an invite not yet used goes again to the new number. Both land in the audit log by hash only.
+A-137: every answer of the employer node is read, and a code the node did not issue, a PIN hash it refused or a PIN the
+text service could not send withdraws the code and reports the row. A-140: an unredeemed invite is the node's `pending`,
+not a mismatch. A-141: the command-line import refuses and points at the HR Tool. The export gives each code's expiry,
+which it left empty. The HR Tool's page, both live harnesses and the walkthrough read PINs from the outbox where they
+read them from the import's answer; the run guide and the README say how the text service is set.
+
+*Verified.* `tests/hr-tool-texts.test.ts`, 11 tests (the outbox, the setting, numbers and their masking, the CSV column,
+the texts' wording, the reconcile, the command-line refusal); `tests/hr-tool-lockdown.test.ts` drives the server: 9 new
+tests, all failing on the old code (an expiry past 14 days refused first, the PINs texted and the answer carrying none,
+no number no invite, lists that show four digits, the export's expiry, no reveal, a new invite, a new number, a refused
+PIN hash), beside the 10 that stay. Regression batch 162 suites, 1,980 tests, all passing. Typecheck src 18, scripts 2,
+the same errors.
+
+*Live, the same day (secured boot, one member, explorer on 8010):* 249 of 249 checks: the import's answer carried no PIN
+and named where each went, each PIN was texted to its employee's number, no route of the HR Tool showed one again, and
+the member enrolled with the PIN read off the outbox; kill:ports then stopped the network and left the servers on 8000
+and 8080 running. Scoreboard: 141 findings; 116 fixed; 25 open, none critical.

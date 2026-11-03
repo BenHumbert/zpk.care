@@ -82,11 +82,28 @@ import {
   loadWorkspaceMeta,
 } from './hr-tool-core.js';
 import type { CorrelationTable, CorrelationEntry, TokenDistributionRecord, HrToolClientKey, WorkspaceMeta } from './hr-tool-core.js';
+import { textServiceFromEnv, normalizeMobile, maskMobile, TEXTS } from './text-service.js';
+import type { TextService } from './text-service.js';
+import { INVITE_MAX_DAYS, inviteExpiryProblem, compactInviteDate } from '../onboarding/token-authority.js';
 
 const PORT = parseInt(process.env.PORT || '5050', 10);
 /** A-82: the names this tool answers to in a request's Host, beside loopback with its port. */
 const HOST_POLICY: HostPolicy = { bindHost: '127.0.0.1', publicHosts: resolvePublicHosts(process.env) };
 const DATA_DIR = process.env.HR_TOOL_DATA_DIR || './hr-tool-data';
+/**
+ * A-109: the service that texts each PIN straight to its employee, so no one at HR sees one; null when none is set, and
+ * then no invite is issued. HR_TOOL_TEXT_SERVICE (text-service.ts); an unknown one stops the start.
+ */
+let TEXT_SERVICE: TextService | null = null;
+try {
+  TEXT_SERVICE = textServiceFromEnv(process.env, DATA_DIR);
+} catch (err) {
+  console.error(`[FATAL] hr-tool: ${err instanceof Error ? err.message : String(err)}`);
+  process.exit(1);
+}
+const NO_TEXT_SERVICE =
+  'No text service is set up, so no PIN can be texted to an employee, and the HR Tool issues no invite without one. ' +
+  'Set HR_TOOL_TEXT_SERVICE (outbox, for a demonstration) and restart the HR Tool.';
 /** Wrong-passphrase counter: plaintext, no secrets, beside the encrypted workspaces (A7). */
 const attempts = new PersistedAttemptLimiter(join(DATA_DIR, 'attempts.json'));
 /** Offered as the default on the setup screen; the workspace records the real one. */
@@ -404,10 +421,88 @@ function reauth(res: any, passphrase: unknown): boolean {
   return true;
 }
 
-/** What a list or lookup may return: everything the HR admin manages, minus the second factor. */
-function publicEntry(e: CorrelationEntry): Omit<CorrelationEntry, 'tokenPIN' | 'tokenPinHash'> {
-  const { tokenPIN: _pin, tokenPinHash: _hash, ...rest } = e;
-  return rest;
+/** An entry as a table saved before A-109 may still hold it: with the PIN and its hash. */
+type LegacyEntry = CorrelationEntry & { tokenPIN?: string; tokenPinHash?: string };
+
+/**
+ * What a list or lookup may return: everything the HR admin manages, minus the second factor, and a mobile number as
+ * its last four digits (A-109).
+ */
+function publicEntry(e: CorrelationEntry): CorrelationEntry {
+  const { tokenPIN: _pin, tokenPinHash: _hash, ...rest } = e as LegacyEntry;
+  return rest.mobile ? { ...rest, mobile: maskMobile(rest.mobile) } : rest;
+}
+
+/** Delete the PINs and PIN hashes a table saved before A-109 kept (A-109: the HR Tool keeps none); how many entries had one. */
+function scrubLegacyPins(table: CorrelationTable): number {
+  let scrubbed = 0;
+  for (const e of table.entries as LegacyEntry[]) {
+    if (e.tokenPIN !== undefined || e.tokenPinHash !== undefined) {
+      delete e.tokenPIN;
+      delete e.tokenPinHash;
+      scrubbed++;
+    }
+  }
+  return scrubbed;
+}
+
+const isoDate = (ccyymmdd: string): string => `${ccyymmdd.slice(0, 4)}-${ccyymmdd.slice(4, 6)}-${ccyymmdd.slice(6, 8)}`;
+/** The latest expiry an invite may have (A-138), CCYYMMDD: the default for a new invite. */
+const latestInviteExpiry = (): string => compactInviteDate(new Date(Date.now() + INVITE_MAX_DAYS * 86_400_000).toISOString().slice(0, 10))!;
+
+type IssueOutcome = { ok: true; tokenId: string; tokenIdHash: string; pinSentTo: string } | { ok: false; status: number; error: string };
+
+/**
+ * Issue an employee an invite (A-109): the employer node's code, a fresh PIN whose hash the node binds to it, and the PIN
+ * texted straight to the employee's mobile. The PIN is kept nowhere. Every answer of the employer node is read (A-137:
+ * one that refused used to count as success), and an invite that does not work is withdrawn, so a code goes out only
+ * with its PIN bound and texted. The node withdraws the employee's earlier invite itself (A-135). On success the entry
+ * carries the new code; the caller saves the table.
+ */
+async function issueInvite(entry: CorrelationEntry, validUntil: string, wording: 'pin' | 'replacedPin'): Promise<IssueOutcome> {
+  const mobile = entry.mobile ? normalizeMobile(entry.mobile) : null;
+  if (!mobile) return { ok: false, status: 400, error: 'No mobile number to text the PIN to: add one in the mobile column, or with Change mobile' };
+  if (!TEXT_SERVICE) return { ok: false, status: 503, error: NO_TEXT_SERVICE };
+  let gen: { status: number; data: any };
+  try {
+    gen = await proxyToEmployer('POST', '/tokens/generate', {
+      groupId: activeGroupId, employeeIdHash: entry.employeeIdHash, familyIdHash: entry.familyIdHash, validUntil,
+    });
+  } catch (e: any) {
+    return { ok: false, status: 502, error: e?.name === 'AbortError' ? 'Employer node timeout' : 'Connection failed' };
+  }
+  const tokenId = gen.status === 201 && typeof gen.data?.tokenId === 'string' ? (gen.data.tokenId as string) : null;
+  if (!tokenId) {
+    return { ok: false, status: gen.status >= 400 && gen.status < 500 ? gen.status : 502, error: gen.data?.error || `The employer node issued no code (${gen.status})` };
+  }
+  const withdraw = async (): Promise<void> => {
+    try { await proxyToEmployer('POST', '/tokens/' + encodeURIComponent(tokenId) + '/revoke', {}); } catch { /* the code has no working PIN either way */ }
+  };
+  const pin = generateTokenPIN();
+  let bound: { status: number; data: any };
+  try {
+    bound = await proxyToEmployer('POST', '/tokens/' + encodeURIComponent(tokenId) + '/set-pin-hash', { tokenPinHash: hashTokenPIN(tokenId, pin) });
+  } catch (e: any) {
+    await withdraw();
+    return { ok: false, status: 502, error: e?.name === 'AbortError' ? 'PIN hash set timeout; no invite was issued' : 'PIN hash set failed; no invite was issued' };
+  }
+  if (bound.status !== 200) {
+    await withdraw();
+    return { ok: false, status: 502, error: `The employer node refused the PIN hash (${bound.status}${bound.data?.error ? ': ' + bound.data.error : ''}); no invite was issued` };
+  }
+  try {
+    await TEXT_SERVICE.send({ to: mobile, body: TEXTS[wording](pin) });
+  } catch (e: any) {
+    await withdraw();
+    return { ok: false, status: 502, error: `The PIN could not be texted (${e?.message || 'the text service failed'}); no invite was issued` };
+  }
+  const tokenIdHash: string = typeof gen.data?.tokenIdHash === 'string' ? gen.data.tokenIdHash : '';
+  entry.mobile = mobile;
+  entry.tokenId = tokenId;
+  entry.tokenIdHash = tokenIdHash;
+  entry.validUntil = isoDate(validUntil);
+  entry.status = 'token_generated';
+  return { ok: true, tokenId, tokenIdHash, pinSentTo: maskMobile(mobile) };
 }
 
 // ─── API Routes ─────────────────────────────────────────────
@@ -579,6 +674,8 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
               try {
                 const tbl = loadCorrelationTable(gp.tableFile, activePassphrase);
                 localEntryCount = tbl.entries.length;
+                // A-109: a table saved before it loses its PINs the first time it is opened
+                if (scrubLegacyPins(tbl) > 0) saveCorrelationTable(gp.tableFile, tbl, activePassphrase);
               } catch { /* ignore — may be re-encrypted with different passphrase */ }
             }
           }
@@ -619,6 +716,7 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
     const gp = workspaceGroupPaths(DATA_DIR, activeWorkspaceUrl!, groupId);
     let seed: Buffer;
     let table: CorrelationTable;
+    let pinsDeleted = 0;
     let firstSelect = false;
 
     if (existsSync(gp.seedFile)) {
@@ -633,6 +731,9 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
       if (existsSync(gp.tableFile)) {
         try {
           table = loadCorrelationTable(gp.tableFile, activePassphrase!);
+          // A-109: a table saved before it loses its PINs the first time it is opened
+          pinsDeleted = scrubLegacyPins(table);
+          if (pinsDeleted > 0) saveCorrelationTable(gp.tableFile, table, activePassphrase!);
         } catch (e: any) {
           console.error('[hr-tool-server] Corrupt correlation table for group %s:', groupId, e?.message || e);
           return errRes(res, 500,
@@ -679,6 +780,7 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
     activeTable = table;
     touchSession();
     auditLog('group:select', `groupId=${groupId} firstSelect=${firstSelect} entries=${table.entries.length}`);
+    if (pinsDeleted > 0) auditLog('pins:deleted', `count=${pinsDeleted}`);
 
     return ok(res, {
       groupId,
@@ -761,8 +863,12 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
   if (path === '/api/import' && method === 'POST') {
     if (!requireGroup(res)) return;
     const body = await readBody(req);
-    const { csvContent, validUntil, dryRun } = body;
-    if (!csvContent || !validUntil) return errRes(res, 400, 'Missing CSV content or expiration date');
+    const { csvContent, validUntil: askedExpiry, dryRun } = body;
+    if (!csvContent || !askedExpiry) return errRes(res, 400, 'Missing CSV content or expiration date');
+    // A-138: the employer node refuses an invite past 14 days; said here before anything is issued
+    const expiryProblem = inviteExpiryProblem(askedExpiry);
+    if (expiryProblem) return errRes(res, 400, expiryProblem);
+    const validUntil = compactInviteDate(askedExpiry)!;
 
     try {
       const records = parseCsv(csvContent);
@@ -786,14 +892,24 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
           total: records.length,
           newEntries: toProcess.length,
           skipped,
-          preview: toProcess.slice(0, 20).map(e => ({
-            employeeId: e.employeeId,
-            familyId: e.familyId,
-            name: e.firstName + ' ' + e.lastName,
-            employeeIdHash: e.employeeIdHash.slice(0, 16) + '...',
-          })),
+          preview: toProcess.slice(0, 20).map(e => {
+            const mobile = e.mobile ? normalizeMobile(e.mobile) : null;
+            return {
+              employeeId: e.employeeId,
+              familyId: e.familyId,
+              name: e.firstName + ' ' + e.lastName,
+              employeeIdHash: e.employeeIdHash.slice(0, 16) + '...',
+              // A-109: where the PIN will be texted; an employee with none is issued no invite
+              mobile: mobile ? maskMobile(mobile) : null,
+            };
+          }),
+          textService: TEXT_SERVICE ? TEXT_SERVICE.description : null,
         });
       }
+
+      // A-109: each PIN is texted straight to its employee; with no text service no invite is issued, since its PIN
+      // would reach nobody, or HR
+      if (!TEXT_SERVICE) return errRes(res, 503, NO_TEXT_SERVICE);
 
       // Phase F1 + F5: capacity pre-check. Fetch fresh stats from the employer
       // node and abort the entire import if the new entries would exceed the
@@ -823,74 +939,19 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
           `currently used: ${stats.enrolledCount + stats.pendingTokens}). Reduce the CSV size or terminate existing roster entries to make room.`);
       }
 
-      // Generate tokens + PINs — only add entries to table AFTER successful generation
-      // A7: the PIN rides in this response once, for the SMS step, and is not listed or exported again.
-      const results: Array<{ employeeId: string; status: string; tokenId?: string; tokenPIN?: string; error?: string }> = [];
+      // Issue the invites — only working ones join the table. A-109: each PIN is texted straight to its employee and
+      // kept nowhere, so the answer names where it went and never what it is.
+      const results: Array<{ employeeId: string; status: string; tokenId?: string; pinSentTo?: string; error?: string }> = [];
       const successEntries: CorrelationEntry[] = [];
       const failedEntries: CorrelationEntry[] = [];
 
       for (const entry of toProcess) {
-        try {
-          // Generate 8-digit PIN
-          const pin = generateTokenPIN();
-
-          // Step 1: Generate token on employer node
-          // On retry, token may already exist (409) — retrieve tokenId and continue to PIN hash step
-          let tokenId: string | undefined;
-          let tokenIdHash: string | undefined;
-          const resp = await proxyToEmployer('POST', '/tokens/generate', {
-            groupId: activeGroupId,
-            employeeIdHash: entry.employeeIdHash,
-            familyIdHash: entry.familyIdHash,
-            validUntil,
-          });
-
-          if (resp.status === 201 || (resp.data && resp.data.tokenId)) {
-            tokenId = resp.data.tokenId;
-            tokenIdHash = resp.data.tokenIdHash;
-          } else if (resp.status === 409) {
-            // Token already exists for this employee — likely a retry after PIN hash failure
-            // Look up existing token by querying the roster
-            try {
-              const rosterResp = await proxyToEmployer('GET', '/roster/' + encodeURIComponent(entry.employeeIdHash));
-              if (rosterResp.data?.tokenId) {
-                tokenId = rosterResp.data.tokenId;
-                tokenIdHash = rosterResp.data.tokenIdHash || '';
-              }
-            } catch { /* roster lookup failed — fall through to error */ }
-          }
-
-          if (!tokenId) {
-            results.push({ employeeId: entry.employeeId, status: 'error', error: resp.data?.error || 'Token generation failed' });
-            failedEntries.push(entry);
-            continue;
-          }
-
-          // Step 2: Compute PIN hash and set on employer node
-          const pinHash = hashTokenPIN(tokenId, pin);
-          try {
-            await proxyToEmployer('POST', '/tokens/' + encodeURIComponent(tokenId) + '/set-pin-hash', {
-              tokenPinHash: pinHash,
-            });
-          } catch (pinErr: any) {
-            // PIN hash set failed — revoke the orphaned token so it can't be used without 2FA
-            try { await proxyToEmployer('POST', '/tokens/' + encodeURIComponent(tokenId) + '/revoke', {}); } catch { /* best effort */ }
-            const msg = pinErr.name === 'AbortError' ? 'PIN hash set timeout' : 'PIN hash set failed';
-            results.push({ employeeId: entry.employeeId, status: 'error', error: msg });
-            failedEntries.push(entry);
-            continue;
-          }
-
-          entry.tokenId = tokenId;
-          entry.tokenIdHash = tokenIdHash || '';
-          entry.tokenPIN = pin;
-          entry.tokenPinHash = pinHash;
-          entry.status = 'token_generated';
-          results.push({ employeeId: entry.employeeId, status: 'ok', tokenId, tokenPIN: pin });
+        const issued = await issueInvite(entry, validUntil, 'pin');
+        if (issued.ok) {
+          results.push({ employeeId: entry.employeeId, status: 'ok', tokenId: issued.tokenId, pinSentTo: issued.pinSentTo });
           successEntries.push(entry);
-        } catch (e: any) {
-          const msg = e.name === 'AbortError' ? 'Employer node timeout' : 'Connection failed';
-          results.push({ employeeId: entry.employeeId, status: 'error', error: msg });
+        } else {
+          results.push({ employeeId: entry.employeeId, status: 'error', error: issued.error });
           failedEntries.push(entry);
         }
       }
@@ -910,7 +971,7 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
       return ok(res, {
         total: records.length, processed: toProcess.length, skipped, success, failed, results,
         csvWarning: 'Remember to securely delete the source CSV file after import.',
-        pinNotice: 'PINs are shown here once. Send each by SMS now; they are not listed or exported afterwards.',
+        pinNotice: 'Each PIN was texted straight to its employee: no one at HR sees it, and it is kept nowhere. Send each employee the invite code (export the codes, or print them).',
       });
     } catch (e: any) {
       return errRes(res, 400, 'Import failed: check CSV format');
@@ -960,21 +1021,66 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
     return ok(res, publicEntry(entry));
   }
 
-  // ── Reveal one employee's PIN again (A7)
-  // PINs are shown once, at import, for the SMS step. They stay encrypted in the table so that a
-  // lost text can be re-sent, but reading one back is a deliberate act: passphrase again, counted
-  // on the unlock limiter, and an audit line that names the hash and never the person.
-  if (path.startsWith('/api/employees/') && path.endsWith('/pin') && method === 'POST') {
+  // ── Send an employee a new invite (A-109)
+  // This replaces the reveal of a PIN (A7), which let anyone who could unlock the HR Tool read any unused invite's PIN.
+  // A lost text now means a new invite: a fresh code and PIN, the PIN texted to the employee, and the old invite
+  // withdrawn by the employer node (A-135). A deliberate act: passphrase again, counted on the unlock limiter, and an
+  // audit line that names the hash and never the person.
+  if (path.startsWith('/api/employees/') && path.endsWith('/reissue') && method === 'POST') {
     if (!requireGroup(res)) return;
-    const hash = decodeURIComponent(path.slice('/api/employees/'.length, -'/pin'.length));
+    const hash = decodeURIComponent(path.slice('/api/employees/'.length, -'/reissue'.length));
     if (!hash || hash.includes('/')) return errRes(res, 400, 'Invalid employee identifier');
     const body = await readBody(req);
     if (!reauth(res, body?.passphrase)) return;
     const entry = activeTable!.entries.find(e => e.employeeIdHash === hash);
     if (!entry) return errRes(res, 404, 'Employee not found');
-    if (!entry.tokenPIN || !entry.tokenId) return errRes(res, 404, 'No PIN on file for this employee');
-    auditLog('pin:reveal', `employeeIdHash=${hash.slice(0, 12)}`);
-    return ok(res, { tokenId: entry.tokenId, tokenPIN: entry.tokenPIN });
+    if (entry.status === 'enrolled' || entry.status === 'terminated') {
+      return errRes(res, 409, `This employee is ${entry.status}; a new invite is for an employee who has not enrolled`);
+    }
+    const asked = body?.validUntil;
+    const askedProblem = asked === undefined || asked === null || asked === '' ? null : inviteExpiryProblem(asked);
+    if (askedProblem) return errRes(res, 400, askedProblem);
+    const issued = await issueInvite(entry, askedProblem === null && asked ? compactInviteDate(asked)! : latestInviteExpiry(), 'replacedPin');
+    if (!issued.ok) return errRes(res, issued.status, issued.error);
+    saveTable();
+    auditLog('invite:reissue', `employeeIdHash=${hash.slice(0, 12)}`);
+    return ok(res, { tokenId: issued.tokenId, tokenIdHash: issued.tokenIdHash, pinSentTo: issued.pinSentTo, validUntil: entry.validUntil });
+  }
+
+  // ── Change an employee's mobile number (A-109)
+  // The old number is told first, naming only the new number's last four digits, so a number changed behind the
+  // employee's back does not go unnoticed; an invite not yet used goes again to the new number, since its PIN went to
+  // the old one. Passphrase again; the audit line names the hash. (The HR Tool sends no email: codes go out by HR's
+  // export or print, so an email address is not a channel to alert.)
+  if (path.startsWith('/api/employees/') && path.endsWith('/contact') && method === 'POST') {
+    if (!requireGroup(res)) return;
+    const hash = decodeURIComponent(path.slice('/api/employees/'.length, -'/contact'.length));
+    if (!hash || hash.includes('/')) return errRes(res, 400, 'Invalid employee identifier');
+    const body = await readBody(req);
+    if (!reauth(res, body?.passphrase)) return;
+    const entry = activeTable!.entries.find(e => e.employeeIdHash === hash);
+    if (!entry) return errRes(res, 404, 'Employee not found');
+    const mobile = normalizeMobile(body?.mobile);
+    if (!mobile) return errRes(res, 400, 'A mobile number is 8 to 15 digits, with an optional leading +');
+    if (!TEXT_SERVICE) return errRes(res, 503, NO_TEXT_SERVICE);
+    const old = entry.mobile ? normalizeMobile(entry.mobile) : null;
+    if (old === mobile) return ok(res, { mobile: maskMobile(mobile), reissued: false });
+    if (old) {
+      try {
+        await TEXT_SERVICE.send({ to: old, body: TEXTS.mobileChanged(maskMobile(mobile)) });
+      } catch (e: any) {
+        return errRes(res, 502, `The old number could not be told of the change (${e?.message || 'the text service failed'}); nothing was changed`);
+      }
+    }
+    entry.mobile = mobile;
+    saveTable();
+    auditLog('contact:change', `employeeIdHash=${hash.slice(0, 12)}`);
+    if (entry.status !== 'token_generated') return ok(res, { mobile: maskMobile(mobile), reissued: false });
+    const issued = await issueInvite(entry, latestInviteExpiry(), 'pin');
+    if (!issued.ok) return ok(res, { mobile: maskMobile(mobile), reissued: false, reissueError: issued.error });
+    saveTable();
+    auditLog('invite:reissue', `employeeIdHash=${hash.slice(0, 12)}`);
+    return ok(res, { mobile: maskMobile(mobile), reissued: true, tokenId: issued.tokenId, pinSentTo: issued.pinSentTo });
   }
 
   // ── Reconcile with employer node
@@ -1029,7 +1135,7 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
         employeeIdHash: e.employeeIdHash,
         tokenId: e.tokenId!,
         tokenIdHash: e.tokenIdHash || '',
-        validUntil: '',
+        validUntil: e.validUntil || '',
         displayName: e.firstName + ' ' + e.lastName.charAt(0) + '.',
       }));
     auditLog('export:tokens', `count=${tokens.length}`);
@@ -1167,5 +1273,9 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log('  ║  All PII stays on this machine.              ║');
   console.log('  ║  Only Poseidon hashes are transmitted.       ║');
   console.log('  ╚══════════════════════════════════════════════╝');
+  // A-109: where each enrollment PIN goes; with no service the HR Tool issues no invite
+  console.log(TEXT_SERVICE
+    ? `  Text service: ${TEXT_SERVICE.description}`
+    : '  Text service: none. No invite can be issued until HR_TOOL_TEXT_SERVICE is set, since each PIN is texted to its employee.');
   console.log('');
 });

@@ -901,10 +901,9 @@ async function main(): Promise<void> {
     }
   }
 
-  // NOTE: HR Tool is NOT spawned at boot. Like the employer node, it is
-  // spawned on-demand by the marketplace activation handler, bound 1:1
-  // to its employer node via EMPLOYER_NODE_URL and pinned to a specific
-  // employerId + public key.
+  // NOTE: the HR Tool is NOT spawned here or anywhere on this machine. Since A7 it runs on the employer's own
+  // machine (npm run start:hr-tool), set up from the activation handover, and texts each enrollment PIN straight
+  // to its employee (A-109). Only the employer node is spawned, by the marketplace activation handler.
 
   // Auto-enrollment removed — members enroll manually via dashboard onboarding flow.
 

@@ -260,7 +260,8 @@ export function castOf(input = {}) {
     letterFileName: 'sample-ein-letter.pdf', ...(input.employer || {})
   };
   const group = { id: 'GRP-FERNHILL-LAB', effectiveDate: ymd(now), cap: 25, ...(input.group || {}) };
-  const member = { firstName: 'Avery', lastName: 'Quillfeather', dob: '19870412', email: 'avery.quillfeather@example.test', ...(input.member || {}) };
+  // her mobile is a fictional 555-01xx number: the HR Tool texts her enrollment PIN there (A-109)
+  const member = { firstName: 'Avery', lastName: 'Quillfeather', dob: '19870412', email: 'avery.quillfeather@example.test', mobile: '+1 608 555 0101', ...(input.member || {}) };
   member.employeeId = member.employeeId || `FTW-${tag}-001`;
   member.familyId = member.familyId || `FAM-${tag}-01`;
   // the cardholder ID is the plan's member ID from her benefits card, typed on the phone under blur. It is her own
@@ -271,8 +272,8 @@ export function castOf(input = {}) {
     ['Imogen', 'Strayhorn', '19780629'], ['Bastian', 'Wrenfield', '19951208']
   ];
   const roster = [
-    { employeeId: member.employeeId, familyId: member.familyId, firstName: member.firstName, lastName: member.lastName, dob: member.dob, email: member.email },
-    ...others.map(([f, l, dob], i) => ({ employeeId: `FTW-${tag}-${String(i + 2).padStart(3, '0')}`, familyId: `FAM-${tag}-${String(i + 2).padStart(2, '0')}`, firstName: f, lastName: l, dob, email: '' }))
+    { employeeId: member.employeeId, familyId: member.familyId, firstName: member.firstName, lastName: member.lastName, dob: member.dob, email: member.email, mobile: member.mobile },
+    ...others.map(([f, l, dob], i) => ({ employeeId: `FTW-${tag}-${String(i + 2).padStart(3, '0')}`, familyId: `FAM-${tag}-${String(i + 2).padStart(2, '0')}`, firstName: f, lastName: l, dob, email: '', mobile: `+1 608 555 01${String(i + 2).padStart(2, '0')}` }))
   ];
   roster.fileName = 'fernhill-roster.csv';
   const codes = { validUntil: ymd(inviteExpiryFrom(now)), ...(input.codes || {}) };
@@ -440,9 +441,9 @@ export function storyLines(c) {
       setup: [L('hr', 'Node address. Token. Passphrase, twice.')],
       group: [L('hr', 'Lab staff.')],
       preview: [L('hr', `${capital(sayNumber(c.roster.length))} rows. Same as the roster.`)],
-      expiry: [L('hr', 'Codes expire end of next month.')],
-      after: [N("This tool is meant for Fernhill's own computer. It hashes each employee ID and family ID with a secret seed it keeps for this group, and sends Fernhill's node only those hashes. The node issues one code per person. The tool adds an eight-digit PIN; the node gets only a hash of code and PIN together.")],
-      channels: [L('hr', 'Codes go in the welcome letters. PINs by text.')]
+      expiry: [L('hr', 'Codes expire in two weeks.')],
+      after: [N("This tool is meant for Fernhill's own computer. It hashes each employee ID and family ID with a secret seed it keeps for this group, and sends Fernhill's node only those hashes. The node issues one code per person and keeps only its fingerprint. The tool adds an eight-digit PIN and texts it straight to the employee, so no one at HR sees it; the node gets only a hash of code and PIN together.")],
+      channels: [L('hr', 'Codes go in the welcome letters. The tool texted the PINs.')]
     },
     enroll: {
       intro: [N('A few days later, Avery Quillfeather, a lab technician at Fernhill, has a letter with a code and a text with a PIN. Here the member node on port 4001 plays her phone.')],

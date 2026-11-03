@@ -288,7 +288,8 @@ let hrErr = '';
   if (!(await portFree(port))) throw new Error(`port ${port} is busy (an HR Tool from an earlier take?): stop it or pass --hr-port`);
   hrChild = spawn(process.execPath, ['--import', 'tsx', path.join(REPO, 'src', 'tools', 'hr-tool-server.ts')], {
     cwd: REPO,
-    env: { ...process.env, PORT: String(port), HR_TOOL_DATA_DIR: path.join(OUT, 'hr-tool-data') },
+    // A-109: the HR Tool texts each PIN; in a take the employees' phones are this outbox, in the take folder
+    env: { ...process.env, PORT: String(port), HR_TOOL_DATA_DIR: path.join(OUT, 'hr-tool-data'), HR_TOOL_TEXT_SERVICE: 'outbox', HR_TOOL_TEXT_OUTBOX: path.join(OUT, 'hr-texts.jsonl') },
     stdio: ['ignore', 'ignore', 'pipe'],
     windowsHide: true
   });
@@ -841,9 +842,15 @@ const SCENE_RUN = {
     await pg.locator('#btn-import-go').click();
     const imp = await timed('import', () => sniffer.waitFor('import', { since, timeout: 180000 }));
     const mine = (imp.value?.data?.results || []).find((r) => r.employeeId === c.member.employeeId);
-    if (!mine || !mine.tokenId || !mine.tokenPIN) throw new Error('the import did not return a code and PIN for the member');
+    if (!mine || !mine.tokenId) throw new Error('the import did not return a code for the member');
+    // A-109: the PIN is nowhere in the import's answer; it was texted to her phone, which in a take is the outbox
+    const outbox = path.join(OUT, 'hr-texts.jsonl');
+    const texted = (fs.existsSync(outbox) ? fs.readFileSync(outbox, 'utf8').trim().split('\n').filter(Boolean) : [])
+      .map((l) => JSON.parse(l)).filter((t) => t.to === c.member.mobile.replace(/[\s().-]/g, '')).pop();
+    const pin = /\b(\d{8})\b/.exec(texted?.body || '')?.[1];
+    if (!pin) throw new Error('no PIN was texted to the member');
     secrets.code = mine.tokenId;
-    secrets.pin = mine.tokenPIN;
+    secrets.pin = pin;
     // the results open under Step 3, below the fold: scroll down to the codes and PINs (redacted on screen,
     // lib/masks.mjs) before the card and the lines about them. To the table, not the panel: its title already peeks in
     const pins = pg.locator('#csv-results-panel .table-wrap');

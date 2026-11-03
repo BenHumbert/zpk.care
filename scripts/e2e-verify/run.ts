@@ -62,6 +62,8 @@ const SEQ = 'http://localhost:3030', INS = 'http://localhost:4004', MEM = 'http:
 const PRE = 'http://localhost:4002', PHA = 'http://localhost:4003';
 const ADMIN = process.env.ZKTRIDENT_ADMIN_TOKEN || '';
 const OUT = path.resolve(process.argv[2] || './e2e-out');
+// A-109: the HR Tool texts each PIN; for this run the employees' phones are this outbox, beside the run's other secrets.
+const hrTextOutbox = path.join(OUT, 'hr-texts.jsonl');
 const NETWORK_LOG = process.argv[3] || '';
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 // A7: the harness runs the HR Tool as the employer's machine would. Spawned without npx or a shell
@@ -79,9 +81,11 @@ async function startHrTool(employerId: string): Promise<string> {
       s.close(() => resolve(p));
     });
   });
+  fs.mkdirSync(OUT, { recursive: true });
+  fs.rmSync(hrTextOutbox, { force: true });   // this run's texts only
   hrToolChild = spawn(process.execPath, ['--import', 'tsx', path.join(REPO, 'src', 'tools', 'hr-tool-server.ts')], {
     cwd: REPO,
-    env: { ...process.env, PORT: String(port), HR_TOOL_DATA_DIR: `./hr-tool-data/${employerId}` },
+    env: { ...process.env, PORT: String(port), HR_TOOL_DATA_DIR: `./hr-tool-data/${employerId}`, HR_TOOL_TEXT_SERVICE: 'outbox', HR_TOOL_TEXT_OUTBOX: hrTextOutbox },
     stdio: ['ignore', 'ignore', 'pipe'],
     windowsHide: true,
   });
@@ -140,8 +144,9 @@ const RECOVERY_PIN = '246813';
 const MEMBER = {
   employeeId: `E2E-${RUN}-1`, familyId: `FAM-${RUN}`, firstName: 'Avery', lastName: 'Quillfeather',
   dob: '19870412', email: 'avery.quillfeather@example.test', memberPin: '864209',
+  mobile: '+15555550101',   // a fictional 555-01xx number: the PIN is texted here (A-109)
 };
-const DECOY = { employeeId: `E2E-${RUN}-2`, familyId: `FAM-${RUN}-B`, firstName: 'Rowan', lastName: 'Ashgrove', dob: '19921103' };
+const DECOY = { employeeId: `E2E-${RUN}-2`, familyId: `FAM-${RUN}-B`, firstName: 'Rowan', lastName: 'Ashgrove', dob: '19921103', mobile: '+15555550102' };
 
 const results: Record<string, any> = { run: RUN, startedAt: new Date().toISOString(), claims: [] as any[], findings: [] as any[] };
 const unwrap = (j: any) => (j && typeof j === 'object' && 'ok' in j && 'data' in j ? j.data : j);
@@ -360,25 +365,34 @@ async function main() {
   const setupRes = await http('POST', `${hrToolUrl}/api/setup`, { employerNodeUrl, adminToken: empAdmin, passphrase, passphraseConfirm: passphrase });
   trace.check('HR Tool workspace set up with the activation credentials', setupRes.status < 300, '2xx', setupRes.json);
   await http('POST', `${hrToolUrl}/api/group/select`, { groupId });
-  const csv = ['employee_id,family_id,first_name,last_name,dob,email',
-    `${MEMBER.employeeId},${MEMBER.familyId},${MEMBER.firstName},${MEMBER.lastName},${MEMBER.dob},${MEMBER.email}`,
-    `${DECOY.employeeId},${DECOY.familyId},${DECOY.firstName},${DECOY.lastName},${DECOY.dob},`].join('\n');
+  // A-109: the roster carries each employee's mobile number, where the HR Tool texts the PIN
+  const csv = ['employee_id,family_id,first_name,last_name,dob,email,mobile',
+    `${MEMBER.employeeId},${MEMBER.familyId},${MEMBER.firstName},${MEMBER.lastName},${MEMBER.dob},${MEMBER.email},${MEMBER.mobile}`,
+    `${DECOY.employeeId},${DECOY.familyId},${DECOY.firstName},${DECOY.lastName},${DECOY.dob},,${DECOY.mobile}`].join('\n');
   // An invite lasts at most 14 days (A-138); this run's codes take seven.
   const validUntil = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
   const imp = await http('POST', `${hrToolUrl}/api/import`, { csvContent: csv, validUntil, dryRun: false });
   const impData = unwrap(imp.json) ?? imp.json;
   trace.check('Both employees imported', impData?.success === 2, 2, imp.json);
-  const issued = ((impData?.results ?? []) as Array<{ employeeId: string; status: string; tokenId?: string; tokenPIN?: string }>).filter(r => r.status === 'ok');
-  trace.check('PINs were returned once, at import', issued.length === 2 && issued.every(r => /^\d{8}$/.test(r.tokenPIN ?? '')), '2 eight-digit PINs', issued.map(r => (r.tokenPIN ? 'pin' : 'none')));
+  const issued = ((impData?.results ?? []) as Array<{ employeeId: string; status: string; tokenId?: string; pinSentTo?: string }>).filter(r => r.status === 'ok');
+  trace.check('The import answer carries no PIN, only where each was texted (A-109)', issued.length === 2 && !JSON.stringify(imp.json).includes('tokenPIN') && issued.map(r => r.pinSentTo).sort().join(',') === '•••0101,•••0102', '•••0101,•••0102', issued.map(r => r.pinSentTo ?? 'none'));
+  // The employees' phones, for this run: the HR Tool's text outbox.
+  const texts = (fs.existsSync(hrTextOutbox) ? fs.readFileSync(hrTextOutbox, 'utf8').trim().split('\n').filter(Boolean) : []).map(l => JSON.parse(l) as { to: string; body: string });
+  const textedPin = (to: string) => /\b(\d{8})\b/.exec(texts.filter(t => t.to === to).pop()?.body ?? '')?.[1] ?? '';
+  trace.check('Each PIN was texted straight to its employee\'s number (A-109)', texts.length === 2 && /^\d{8}$/.test(textedPin(MEMBER.mobile)) && /^\d{8}$/.test(textedPin(DECOY.mobile)) && textedPin(MEMBER.mobile) !== textedPin(DECOY.mobile), 'one eight-digit PIN per number', texts.map(t => t.to.slice(-4)));
   const tok = await http('GET', `${hrToolUrl}/api/export/tokens`);
   const tokens = (unwrap(tok.json)?.tokens ?? tok.json?.tokens ?? []) as Array<{ tokenId: string; tokenPIN?: string; employeeIdHash: string }>;
   trace.check('Two enrollment codes issued', tokens.length === 2, 2, tokens.length);
   trace.check('The export carries no PINs', tokens.every(t => !t.tokenPIN), 'none', tokens.some(t => t.tokenPIN) ? 'a PIN was exported' : 'none');
+  // The HR Tool's own hash of the member: the key its employee routes take.
+  const hrHashOfMember = tokens.find(t => (t as { displayName?: string }).displayName?.startsWith(MEMBER.firstName))?.employeeIdHash ?? '';
+  const reveal = await http('POST', `${hrToolUrl}/api/employees/${encodeURIComponent(hrHashOfMember)}/pin`, { passphrase });
+  trace.check('No route of the HR Tool shows a PIN again (A-109)', hrHashOfMember.length > 0 && reveal.status === 404 && !reveal.text.includes(textedPin(MEMBER.mobile)), 404, reveal.status);
   const empl = await http('GET', `${hrToolUrl}/api/employees`);
   trace.check('The employee list carries no PINs', !JSON.stringify(unwrap(empl.json) ?? empl.json ?? '').includes('tokenPIN'), 'none', 'checked');
   const empHash = hashString(MEMBER.employeeId).toString();
   const myIssue = issued.find(r => r.employeeId === MEMBER.employeeId) ?? issued[0];
-  const myToken = { tokenId: myIssue?.tokenId ?? tokens[0]?.tokenId ?? '', tokenPIN: myIssue?.tokenPIN ?? '' };
+  const myToken = { tokenId: myIssue?.tokenId ?? tokens[0]?.tokenId ?? '', tokenPIN: textedPin(MEMBER.mobile) };
   trace.check('Codes reference employees only by hash', tokens.every(t => !JSON.stringify(t).includes(MEMBER.lastName)), 'no names', 'checked');
   trace.secret('member enrollment code', myToken.tokenId);
   trace.secret('member enrollment PIN', myToken.tokenPIN);

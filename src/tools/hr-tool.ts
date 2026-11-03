@@ -194,120 +194,14 @@ async function cmdInit(flags: Record<string, string>): Promise<void> {
   info('will be permanently lost.');
 }
 
-/** import — Read CSV roster, hash PII, generate tokens via employer node */
-async function cmdImport(flags: Record<string, string>): Promise<void> {
-  const groupId = flags['group'];
-  const csvPath = flags['csv'];
-  const validUntil = flags['valid-until'];
-  const dryRun = flags['dry-run'] === 'true';
-
-  if (!groupId || !csvPath || !validUntil) {
-    die('Usage: import --group GROUP_ID --csv ROSTER.csv --valid-until YYYY-MM-DD [--dry-run]');
-  }
-
-  if (!existsSync(csvPath)) die(`CSV file not found: ${csvPath}`);
-
-  const dataDir = process.env.HR_TOOL_DATA_DIR || './hr-tool-data';
-  const paths = groupPaths(dataDir, groupId);
-  if (!existsSync(paths.seedFile)) die(`Group ${groupId} not initialized. Run 'init' first.`);
-
-  const passphrase = await getPassphrase();
-  const seed = loadGroupSeed(paths.seedFile, passphrase);
-  const table = loadCorrelationTable(paths.tableFile, passphrase);
-
-  // Parse CSV
-  const csvContent = readFileSync(resolve(csvPath), 'utf8');
-  const records = parseCsv(csvContent);
-  info(`Parsed ${records.length} employee records from CSV`);
-
-  // Check for duplicates against existing table
-  const existingHashes = new Set(table.entries.map(e => e.employeeIdHash));
-  const { entries: newEntries } = hashEmployeeRecords(records, seed, groupId, table.planId);
-
-  const toProcess: CorrelationEntry[] = [];
-  let skipped = 0;
-  for (const entry of newEntries) {
-    if (existingHashes.has(entry.employeeIdHash)) {
-      warn(`Skipping duplicate: ${entry.employeeId} (hash already in table)`);
-      skipped++;
-    } else {
-      toProcess.push(entry);
-    }
-  }
-
-  info(`${toProcess.length} new entries to process (${skipped} duplicates skipped)`);
-
-  if (dryRun) {
-    info('DRY RUN — no tokens generated, no API calls made');
-    for (const entry of toProcess) {
-      info(`  ${entry.employeeId} → ${entry.employeeIdHash.slice(0, 16)}...`);
-    }
-    return;
-  }
-
-  // Generate tokens via employer node API
-  const tokenRecords: TokenDistributionRecord[] = [];
-  let success = 0;
-  let failed = 0;
-
-  for (const entry of toProcess) {
-    try {
-      const resp = await callEmployerNode('POST', '/tokens/generate', {
-        groupId,
-        employeeIdHash: entry.employeeIdHash,
-        familyIdHash: entry.familyIdHash,
-        validUntil,
-      });
-
-      if (resp.status === 201 && resp.data.ok) {
-        entry.tokenId = resp.data.data.tokenId;
-        entry.tokenIdHash = resp.data.data.tokenIdHash;
-        entry.status = 'token_generated';
-
-        tokenRecords.push({
-          employeeIdHash: entry.employeeIdHash,
-          tokenId: resp.data.data.tokenId,
-          tokenIdHash: resp.data.data.tokenIdHash,
-          validUntil,
-          displayName: `${entry.firstName} ${entry.lastName.charAt(0)}.`,
-        });
-
-        success++;
-      } else {
-        warn(`Token generation failed for ${entry.employeeId}: ${resp.data.error || 'Unknown error'}`);
-        failed++;
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      warn(`API error for ${entry.employeeId}: ${msg}`);
-      failed++;
-    }
-
-    // Add to table regardless (pending if failed)
-    table.entries.push(entry);
-  }
-
-  // Save updated correlation table
-  saveCorrelationTable(paths.tableFile, table, passphrase);
-
-  // Save token distribution file (encrypted)
-  if (tokenRecords.length > 0) {
-    const distJson = JSON.stringify(tokenRecords, null, 2);
-    const encrypted = encryptWithPassphrase(distJson, passphrase);
-    writeFileSync(paths.tokensFile, encrypted);
-    info(`Token distribution file: ${paths.tokensFile} (encrypted)`);
-  }
-
-  info('');
-  info(`Import complete: ${success} tokens generated, ${failed} failed, ${skipped} skipped`);
-  if (failed > 0) {
-    info('Re-run import with the same CSV to retry failed entries (duplicates auto-skipped)');
-  }
-  info('');
-  info('NEXT STEPS:');
-  info('  1. Use "export" command to create token distribution file');
-  info('  2. Distribute tokens to employees via secure channel (portal, sealed envelope)');
-  info('  3. NEVER email token IDs — use the export file for distribution');
+/**
+ * import: refused (A-141). It asked the employer node for codes and bound no PIN, so the node refused every invite it
+ * issued at redemption. A working invite needs its PIN texted straight to its employee (A-109), which the HR Tool
+ * server does: run it and import there.
+ */
+async function cmdImport(_flags: Record<string, string>): Promise<void> {
+  die('The command-line import cannot issue a working invite: the PIN of each invite is texted straight to its employee, ' +
+    'which the HR Tool does. Start it with npm run start:hr-tool and import there.');
 }
 
 /** lookup — Find an employee by ID or hash */

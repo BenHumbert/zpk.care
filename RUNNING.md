@@ -61,7 +61,7 @@ This is the recommended way to start everything fresh. It:
 | `npm run start:flowchart` | Run the animated end-to-end visualizer demo |
 | `npm run fetch:nadac` | Fetch fresh NADAC drug-pricing data |
 | `npm run bootstrap` | Scripted full-system bootstrap |
-| `npm run hr-tool` / `npm run start:hr-tool` | Run the HR Tool standalone (normally spawned per-employer by the marketplace) |
+| `npm run start:hr-tool` | Run the HR Tool, on the employer's own machine (since A7 nothing spawns it); set `HR_TOOL_TEXT_SERVICE` or it issues no invite (A-109). `npm run hr-tool` is its command line, whose import refuses (A-141) |
 
 > Individual `start:member` / `start:prescriber` / `start:pharmacy` /
 > `start:insurer` scripts exist for running one node against an already-running
@@ -80,14 +80,16 @@ This is the recommended way to start everything fresh. It:
 | 4004 | Insurer node + employer marketplace (`/marketplace/`) |
 | 4040 | Proof delegate (prover) |
 | 8000 | Block explorer |
-| ephemeral | Employer nodes + HR Tools (assigned at activation) |
+| ephemeral | Employer nodes (assigned at activation) |
 
 ## A typical first walkthrough
 
 1. Open the **marketplace** at `http://localhost:4004/marketplace/`, apply as an
    employer, sign the agreement, and activate. Note the HR Tool URL it returns.
-2. In the **HR Tool**, import a small employee CSV and generate enrollment codes.
-3. Open the **member portal** (`:4001`), enroll with a code + PIN.
+2. Start the **HR Tool** with a text service: `HR_TOOL_TEXT_SERVICE=outbox npm run start:hr-tool` for a
+   demonstration, which writes each text to `hr-tool-data/text-outbox.jsonl`. Import a small employee CSV with a
+   `mobile` column. The tool texts each employee's PIN and shows HR none; send each enrollment code yourself.
+3. Open the **member portal** (`:4001`), enroll with the code and the PIN from the text.
 4. Write a script in the **prescriber** dashboard (`:4002`), fill it in the
    **pharmacy** dashboard (`:4003`).
 5. Watch it all land in the **explorer** (`:8000`) as batched, proven claims.
@@ -103,6 +105,8 @@ Most runs need none — the npm scripts set sensible defaults. The notable ones:
 | `ZKTRIDENT_POOL_SIZE` | Entity proof-pool size |
 | `ZKTRIDENT_UNSECURE` | `true` relaxes auth/CORS for local demos only |
 | `ZKTRIDENT_PORT` / `ZKTRIDENT_HOST` | Bind address for a node |
+| `HR_TOOL_TEXT_SERVICE` | How the HR Tool texts each enrollment PIN straight to its employee (A-109): `outbox` writes each text as a JSON line to `HR_TOOL_TEXT_OUTBOX`, for a demonstration; unset, the HR Tool issues no invite. A real SMS provider plugs in here once the operator has an account |
+| `HR_TOOL_TEXT_OUTBOX` | The outbox file (default `<HR_TOOL_DATA_DIR>/text-outbox.jsonl`); it holds PINs, so keep it off shared drives |
 | `ZKTRIDENT_EXPLORER_PORT` | The explorer's port (default `8000`), for a machine where another program holds 8000. The launcher, the explorer, the CORS list and the verification scripts all read it; anything but a port number stops the boot |
 | `ZKTRIDENT_PUBLIC_HOSTS` | Host names a listener answers beyond loopback and its bind address, comma-separated `name` or `name:port` (a proxy's or a peer's); any other Host gets 421 |
 | `ZKTRIDENT_TRUSTED_PROXIES` | The reverse proxies in front of a node, comma-separated exact IP addresses (IPv4 or IPv6). A node reads `X-Forwarded-For` only from these, to count each caller as the client the proxy names; an entry that is not an IP address stops the node at boot. See [Behind a reverse proxy](#behind-a-reverse-proxy) |

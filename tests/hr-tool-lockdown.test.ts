@@ -36,6 +36,7 @@ import http from 'http';
 import net from 'net';
 import { spawn, type ChildProcess } from 'child_process';
 import { verifySignedRequest } from '../src/security/signed-request.js';
+import { hashTokenPIN } from '../src/tools/hr-tool-core.js';
 
 const REPO = path.resolve(__dirname, '..');
 const PASS = 'correct-horse-battery-staple-12';
@@ -50,6 +51,17 @@ let employerUrl: string;
 let hrTool: ChildProcess | null = null;
 let hrUrl: string;
 let dataDir: string;
+/** The stub employer node's last issued code, and whether it refuses the next PIN hash (A-137). */
+let lastIssuedCode = '';
+let codesIssued = 0;
+let refuseNextPinHash = false;
+/** The text outbox the HR Tool writes to: the employees' phones, for this test (A-109). */
+const outboxFile = () => path.join(dataDir, 'texts.jsonl');
+const outbox = (): Array<{ at: string; to: string; body: string }> =>
+  fs.existsSync(outboxFile()) ? fs.readFileSync(outboxFile(), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+const pinIn = (body: string) => /\b(\d{8})\b/.exec(body)?.[1] ?? '';
+/** A date n days from today, YYYY-MM-DD: an invite lasts at most 14 days (A-138). */
+const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
 
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -95,10 +107,15 @@ beforeAll(async () => {
       if (req.method === 'GET' && url === '/groups/G1') return send(res, 200, { ok: true, data: { groupId: 'G1', planId: 'PLAN-1', status: 'active', enrollmentCap: 0 } });
       if (req.method === 'GET' && url === '/groups/G1/stats') return send(res, 200, { ok: true, data: { isUnlimited: true, remainingSlots: 999, enrollmentCap: 0, enrolledCount: 0, pendingTokens: 0 } });
       if (req.method === 'POST' && url === '/tokens/generate') {
-        const n = seen.filter((s) => s.path === '/tokens/generate').length;
-        return send(res, 201, { ok: true, data: { tokenId: `ABCD-0000-0000-0000-000${n}`, tokenIdHash: String(1000 + n) } });
+        const n = ++codesIssued;                             // its own count: the tests clear `seen`
+        lastIssuedCode = `ABCD-0000-0000-0000-${String(n).padStart(4, '0')}`;
+        return send(res, 201, { ok: true, data: { tokenId: lastIssuedCode, tokenIdHash: String(1000 + n) } });
       }
-      if (req.method === 'POST' && /^\/tokens\/[^/]+\/set-pin-hash$/.test(url)) return send(res, 200, { ok: true, data: { pinHashSet: true } });
+      if (req.method === 'POST' && /^\/tokens\/[^/]+\/set-pin-hash$/.test(url)) {
+        if (refuseNextPinHash) { refuseNextPinHash = false; return send(res, 409, { ok: false, error: 'PIN hash already set — cannot overwrite' }); }
+        return send(res, 200, { ok: true, data: { pinHashSet: true } });
+      }
+      if (req.method === 'POST' && /^\/tokens\/[^/]+\/revoke$/.test(url)) return send(res, 200, { ok: true, data: { revoked: true } });
       if (req.method === 'GET' && url === '/health') return send(res, 200, { ok: true, data: { phase: 'ready' } });
       return send(res, 404, { ok: false, error: 'not stubbed: ' + url });
     });
@@ -112,7 +129,7 @@ beforeAll(async () => {
   hrUrl = `http://127.0.0.1:${port}`;
   hrTool = spawn(process.execPath, ['--import', 'tsx', path.join(REPO, 'src', 'tools', 'hr-tool-server.ts')], {
     cwd: REPO,
-    env: { ...process.env, PORT: String(port), HR_TOOL_DATA_DIR: dataDir, EMPLOYER_NODE_URL: 'http://127.0.0.1:1', EMPLOYER_ADMIN_TOKEN: 'must-be-ignored' },
+    env: { ...process.env, PORT: String(port), HR_TOOL_DATA_DIR: dataDir, EMPLOYER_NODE_URL: 'http://127.0.0.1:1', EMPLOYER_ADMIN_TOKEN: 'must-be-ignored', HR_TOOL_TEXT_SERVICE: 'outbox', HR_TOOL_TEXT_OUTBOX: path.join(dataDir, 'texts.jsonl') },
     stdio: ['ignore', 'ignore', 'pipe'],
     windowsHide: true,
   });
@@ -213,27 +230,52 @@ describe('unlocking is attempt-limited and never a wipe', () => {
   }, 15_000);
 });
 
-describe('the second factor is shown once and never listed', () => {
-  let pins: Record<string, string> = {};
-  let hashes: Record<string, string> = {};
+describe('the PIN goes straight to the employee\'s phone, and no one at HR sees it (A-109)', () => {
+  const pins: Record<string, string> = {};
+  const codes: Record<string, string> = {};
+  const hashes: Record<string, string> = {};
+  const HEADER = 'employee_id,family_id,first_name,last_name,dob,email,mobile';
 
-  test('import returns each PIN once, in the import result', async () => {
+  test('an expiry past 14 days is refused before anything is issued (A-138)', async () => {
     await api('POST', '/api/group/select', { groupId: 'G1' });
-    const csv = ['employee_id,family_id,first_name,last_name,dob,email', 'E-1,F-1,Avery,Lindqvist,19900101,a@example.test', 'E-2,F-2,Rowan,Ashgrove,19921103,'].join('\n');
-    const r = await api('POST', '/api/import', { csvContent: csv, validUntil: '2027-12-31', dryRun: false });
-    expect(r.status).toBe(200);
-    const d = data(r);
-    expect(d.success).toBe(2);
-    expect(d.pinNotice).toMatch(/once/);
-    for (const row of d.results as Array<{ employeeId: string; status: string; tokenId: string; tokenPIN: string }>) {
-      expect(row.status).toBe('ok');
-      expect(row.tokenPIN).toMatch(/^\d{8}$/);
-      pins[row.employeeId] = row.tokenPIN;
-    }
-    expect(Object.keys(pins)).toHaveLength(2);
+    seen.length = 0;
+    const r = await api('POST', '/api/import', { csvContent: [HEADER, 'E-1,F-1,Avery,Lindqvist,19900101,,+15555550101'].join('\n'), validUntil: inDays(15), dryRun: false });
+    expect(r.status).toBe(400);                            // before: the employer node was asked for a code good for longer
+    expect(r.json.error).toMatch(/at most 14 days/);
+    expect(seen.some((s) => s.path === '/tokens/generate')).toBe(false);
+    expect(outbox()).toEqual([]);
   });
 
-  test('the employee list and lookup carry no PIN and no PIN hash', async () => {
+  test('import texts each PIN to its employee\'s mobile and returns none; no number, no invite', async () => {
+    const csv = [HEADER, 'E-1,F-1,Avery,Lindqvist,19900101,a@example.test,+1 (555) 555-0101', 'E-2,F-2,Rowan,Ashgrove,19921103,,555.555.0102',
+      'E-3,F-3,Sasha,Merriweather,19880214,s@example.test,'].join('\n');
+    seen.length = 0;
+    const r = await api('POST', '/api/import', { csvContent: csv, validUntil: inDays(7), dryRun: false });
+    expect(r.status).toBe(200);
+    const d = data(r);
+    expect([d.success, d.failed]).toEqual([2, 1]);
+    expect(d.pinNotice).toMatch(/texted/);
+    expect(JSON.stringify(d)).not.toMatch(/tokenPIN/);     // before: every PIN, in the answer, for HR to text by hand
+    const rows = Object.fromEntries((d.results as Array<Record<string, string>>).map((row) => [row.employeeId, row]));
+    expect(rows['E-1']).toMatchObject({ status: 'ok', pinSentTo: '•••0101' });
+    expect(rows['E-2']).toMatchObject({ status: 'ok', pinSentTo: '•••0102' });
+    expect(rows['E-3'].status).toBe('error');
+    expect(rows['E-3'].error).toMatch(/mobile number/);
+    expect(seen.filter((s) => s.path === '/tokens/generate')).toHaveLength(2);   // none asked for the employee with no number
+    // One text per invite, to its employee's number, carrying the PIN whose hash the employer node was given.
+    const texts = outbox();
+    expect(texts.map((t) => t.to).sort()).toEqual(['+15555550101', '5555550102']);
+    for (const [id, to] of [['E-1', '+15555550101'], ['E-2', '5555550102']]) {
+      pins[id] = pinIn(texts.find((t) => t.to === to)!.body);
+      codes[id] = rows[id].tokenId;
+      expect(pins[id]).toMatch(/^\d{8}$/);
+      const bound = seen.find((s) => s.path === `/tokens/${encodeURIComponent(codes[id])}/set-pin-hash`)!;
+      expect(JSON.parse(bound.body).tokenPinHash).toBe(hashTokenPIN(codes[id], pins[id]));
+    }
+    expect(JSON.stringify(d)).not.toContain(pins['E-1']);
+  });
+
+  test('the employee list and lookup carry no PIN, no PIN hash, and only the last four digits of a number', async () => {
     const list = data(await api('GET', '/api/employees'));
     expect(list.total).toBe(2);
     for (const e of list.entries) {
@@ -244,41 +286,97 @@ describe('the second factor is shown once and never listed', () => {
     }
     const one = data(await api('GET', '/api/employees/E-1'));
     expect(one.employeeId).toBe('E-1');
-    expect(one.tokenPIN).toBeUndefined();
+    expect(one.mobile).toBe('•••0101');
+    expect(JSON.stringify(list) + JSON.stringify(one)).not.toMatch(/5555550101|5555550102/);
+    for (const pin of Object.values(pins)) expect(JSON.stringify(list)).not.toContain(pin);
   });
 
-  test('the export carries codes and no PINs', async () => {
+  test('the export carries codes with their expiry, and no PINs', async () => {
     const exp = data(await api('GET', '/api/export/tokens'));
     expect(exp.tokens).toHaveLength(2);
     for (const t of exp.tokens) {
       expect(t.tokenId).toMatch(/^ABCD-/);
       expect(t.tokenPIN).toBeUndefined();
+      expect(t.validUntil).toBe(inDays(7));                // before: always empty
     }
   });
 
-  test('a reveal needs the passphrase again, is counted, and returns the same PIN', async () => {
-    const wrong = await api('POST', `/api/employees/${encodeURIComponent(hashes['E-1'])}/pin`, { passphrase: 'not-it-at-all' });
-    expect(wrong.status).toBe(403);
-    const none = await api('POST', `/api/employees/${encodeURIComponent(hashes['E-1'])}/pin`, {});
-    expect(none.status).toBe(403);
-    const right = await api('POST', `/api/employees/${encodeURIComponent(hashes['E-1'])}/pin`, { passphrase: PASS });
-    expect(right.status).toBe(200);
-    expect(data(right).tokenPIN).toBe(pins['E-1']);
-    const unknown = await api('POST', '/api/employees/nope/pin', { passphrase: PASS });
-    expect(unknown.status).toBe(404);
+  test('no route shows a PIN again', async () => {
+    for (const body of [{ passphrase: PASS }, {}]) {
+      const r = await api('POST', `/api/employees/${encodeURIComponent(hashes['E-1'])}/pin`, body);
+      expect(r.status).toBe(404);                          // before: the PIN, to anyone who could unlock the HR Tool
+      expect(JSON.stringify(r.json)).not.toContain(pins['E-1']);
+    }
   });
 
-  test('the audit log names hashes and events, never people or what was searched for', async () => {
+  test('a new invite needs the passphrase again, and replaces the old one with a fresh code and PIN by text', async () => {
+    const h = encodeURIComponent(hashes['E-1']);
+    expect((await api('POST', `/api/employees/${h}/reissue`, {})).status).toBe(403);
+    expect((await api('POST', `/api/employees/${h}/reissue`, { passphrase: 'not-it-at-all' })).status).toBe(403);
+    seen.length = 0;
+    const before = outbox().length;
+    const r = await api('POST', `/api/employees/${h}/reissue`, { passphrase: PASS });
+    expect(r.status).toBe(200);
+    expect(data(r).pinSentTo).toBe('•••0101');
+    expect(data(r).tokenId).not.toBe(codes['E-1']);
+    const asked = seen.filter((s) => s.path === '/tokens/generate');
+    expect(asked).toHaveLength(1);                         // the employer node withdraws the old invite itself (A-135)
+    expect(JSON.parse(asked[0].body).employeeIdHash).toBe(hashes['E-1']);
+    const sent = outbox().slice(before);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toBe('+15555550101');
+    expect(sent[0].body).toMatch(/earlier invite no longer works/);
+    expect(pinIn(sent[0].body)).toMatch(/^\d{8}$/);
+    expect(JSON.stringify(r.json)).not.toContain(pinIn(sent[0].body));
+    expect((await api('POST', '/api/employees/nope/reissue', { passphrase: PASS })).status).toBe(404);
+  });
+
+  test('a new mobile number alerts the old one, and the new one gets a fresh invite', async () => {
+    const h = encodeURIComponent(hashes['E-2']);
+    expect((await api('POST', `/api/employees/${h}/contact`, { mobile: '+15555550199' })).status).toBe(403);
+    const before = outbox().length;
+    const bad = await api('POST', `/api/employees/${h}/contact`, { passphrase: PASS, mobile: 'call me' });
+    expect(bad.status).toBe(400);
+    expect(outbox()).toHaveLength(before);
+    const r = await api('POST', `/api/employees/${h}/contact`, { passphrase: PASS, mobile: '+1 555 555 0199' });
+    expect(r.status).toBe(200);
+    expect(data(r)).toMatchObject({ mobile: '•••0199', reissued: true, pinSentTo: '•••0199' });
+    const [alert, fresh] = outbox().slice(before);
+    expect(alert.to).toBe('5555550102');
+    expect(alert.body).toMatch(/changed to •••0199/);
+    expect(fresh.to).toBe('+15555550199');
+    expect(pinIn(fresh.body)).toMatch(/^\d{8}$/);
+    expect(data(await api('GET', `/api/employees/${h}`)).mobile).toBe('•••0199');
+  });
+
+  test('a PIN hash the employer node refuses issues no invite, and the code is withdrawn (A-137)', async () => {
+    refuseNextPinHash = true;
+    seen.length = 0;
+    const before = outbox().length;
+    const r = await api('POST', '/api/import', { csvContent: [HEADER, 'E-4,F-4,Kit,Okonkwo,19850505,,+15555550104'].join('\n'), validUntil: inDays(7), dryRun: false });
+    expect(r.status).toBe(200);
+    const [row] = data(r).results;
+    expect(row.status).toBe('error');                      // before: 'ok', and a PIN for a code no one could ever redeem
+    expect(row.error).toMatch(/PIN/);
+    expect(seen.some((s) => s.path === `/tokens/${encodeURIComponent(lastIssuedCode)}/revoke`)).toBe(true);
+    expect(outbox()).toHaveLength(before);                 // no text for an invite that does not work
+    expect((await api('GET', '/api/employees/E-4')).status).toBe(404);
+  });
+
+  test('the audit log names hashes and events, never people, numbers or what was searched for', async () => {
     await api('GET', '/api/employees?search=Lindqvist');
     await api('GET', '/api/employees/E-2');
     const groupAudit = path.join(dataDir, fs.readdirSync(dataDir).find((n) => n.startsWith('workspace-'))!, 'groups', 'G1', 'audit.log');
     const log = fs.readFileSync(groupAudit, 'utf8');
-    expect(log).toContain('pin:reveal');
-    expect(log).toContain(`employeeIdHash=${hashes['E-1'].slice(0, 12)}`);
+    const lineOf = (action: string) => log.split('\n').filter((l) => l.split('\t')[1]?.startsWith(action + ' ')).map((l) => l.split('\t')[2]);
+    expect(lineOf('invite:reissue')).toContain(`employeeIdHash=${hashes['E-1'].slice(0, 12)}`);
+    expect(lineOf('contact:change')).toContain(`employeeIdHash=${hashes['E-2'].slice(0, 12)}`);
+    expect(log).not.toContain('pin:reveal');
     expect(log).toContain('search=yes');
     expect(log).not.toContain('Lindqvist');
     expect(log).not.toContain('employeeId=E-');
     expect(log).not.toContain('E-2');
+    expect(log).not.toMatch(/555\D?555/);                  // no phone number
     expect(log).not.toMatch(/\b\d{8}\b/);                 // no PIN ever
   });
 });

@@ -11,8 +11,9 @@ import path from 'node:path';
 const csvCell = (v) => (/[",\n]/.test(String(v ?? '')) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? ''));
 
 export function rosterCsv(cast) {
-  const rows = [['employee_id', 'family_id', 'first_name', 'last_name', 'dob', 'email']];
-  for (const e of cast.roster) rows.push([e.employeeId, e.familyId, e.firstName, e.lastName, e.dob, e.email || '']);
+  // A-109: the mobile column is where the HR Tool texts each PIN
+  const rows = [['employee_id', 'family_id', 'first_name', 'last_name', 'dob', 'email', 'mobile']];
+  for (const e of cast.roster) rows.push([e.employeeId, e.familyId, e.firstName, e.lastName, e.dob, e.email || '', e.mobile || '']);
   return rows.map((r) => r.map(csvCell).join(',')).join('\n') + '\n';
 }
 

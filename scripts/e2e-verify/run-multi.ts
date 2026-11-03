@@ -49,6 +49,10 @@ import { WalletRegistryWitness, WalletState } from '../../src/wallets/wallet-sta
 const SEQ = 'http://localhost:3030', INS = 'http://localhost:4004', PHA = 'http://localhost:4003';
 const ADMIN = process.env.ZKTRIDENT_ADMIN_TOKEN || '';
 const OUT = path.resolve(process.argv[2] || './e2e-multi-out');
+// A-109: each employer's HR Tool texts its PINs; for this run the employees' phones are one outbox per employer, beside
+// the run's other secrets.
+const hrTextOutboxOf = (employerId: string) => path.join(OUT, `hr-texts-${employerId}.jsonl`);
+let nextMobile = 101;   // fictional 555-01xx numbers, one per employee
 const DEVICES = path.resolve(process.argv[3] || './e2e-devices');
 const NETWORK_LOG = process.argv[4] || '';
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -68,9 +72,11 @@ async function startHrTool(label: string, employerId: string): Promise<string> {
       s.close(() => resolve(p));
     });
   });
+  fs.mkdirSync(OUT, { recursive: true });
+  fs.rmSync(hrTextOutboxOf(employerId), { force: true });   // this run's texts only
   const child = spawn(process.execPath, ['--import', 'tsx', path.join(REPO, 'src', 'tools', 'hr-tool-server.ts')], {
     cwd: REPO,
-    env: { ...process.env, PORT: String(port), HR_TOOL_DATA_DIR: `./hr-tool-data/${employerId}` },
+    env: { ...process.env, PORT: String(port), HR_TOOL_DATA_DIR: `./hr-tool-data/${employerId}`, HR_TOOL_TEXT_SERVICE: 'outbox', HR_TOOL_TEXT_OUTBOX: hrTextOutboxOf(employerId) },
     stdio: ['ignore', 'ignore', 'pipe'],
     windowsHide: true,
   });
@@ -186,19 +192,26 @@ async function onboardEmployer(label: string, planId: string, people: Array<{ em
   const setup = await http('POST', `${hrToolUrl}/api/setup`, { employerNodeUrl: act.employerNodeUrl, adminToken: act.adminToken, passphrase, passphraseConfirm: passphrase });
   t.check('HR Tool set up on the employer machine', setup.status < 300, '2xx', setup.status);
   await http('POST', `${hrToolUrl}/api/group/select`, { groupId });
-  const csv = ['employee_id,family_id,first_name,last_name,dob,email', ...people.map(p => `${p.employeeId},${p.familyId},${p.firstName},${p.lastName},${p.dob},${p.email}`)].join('\n');
+  const mobiles = people.map(() => `+15555550${nextMobile++}`);
+  const csv = ['employee_id,family_id,first_name,last_name,dob,email,mobile', ...people.map((p, i) => `${p.employeeId},${p.familyId},${p.firstName},${p.lastName},${p.dob},${p.email},${mobiles[i]}`)].join('\n');
   // An invite lasts at most 14 days (A-138); this run's codes take seven.
   const validUntil = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
   const imp = await http('POST', `${hrToolUrl}/api/import`, { csvContent: csv, validUntil, dryRun: false });
   const impData = unwrap(imp.json) ?? imp.json;
   t.check(`${people.length} employees imported`, impData?.success === people.length, people.length, imp.json);
-  // PINs are returned once, in the import result; the export never carries them again.
+  // A-109: the import answer names where each PIN was texted and never the PIN; each PIN is read off its employee's
+  // "phone", the outbox. The export never carries one either.
+  t.check('The import answer carries no PIN', !JSON.stringify(imp.json).includes('tokenPIN'), 'none', 'checked');
+  const outboxFile = hrTextOutboxOf(employerId);
+  const texts = (fs.existsSync(outboxFile) ? fs.readFileSync(outboxFile, 'utf8').trim().split('\n').filter(Boolean) : []).map(l => JSON.parse(l) as { to: string; body: string });
   const byEmployee: Record<string, { tokenId: string; tokenPIN: string }> = {};
-  for (const r of (impData?.results ?? []) as Array<{ employeeId: string; status: string; tokenId?: string; tokenPIN?: string }>) {
-    if (r.status !== 'ok' || !r.tokenId || !r.tokenPIN) continue;
-    byEmployee[r.employeeId] = { tokenId: r.tokenId, tokenPIN: r.tokenPIN };
+  for (const r of (impData?.results ?? []) as Array<{ employeeId: string; status: string; tokenId?: string }>) {
+    const to = mobiles[people.findIndex(x => x.employeeId === r.employeeId)];
+    const pin = /\b(\d{8})\b/.exec(texts.filter(x => x.to === to).pop()?.body ?? '')?.[1];
+    if (r.status !== 'ok' || !r.tokenId || !pin) continue;
+    byEmployee[r.employeeId] = { tokenId: r.tokenId, tokenPIN: pin };
     const p = people.find(x => x.employeeId === r.employeeId);
-    t.secret(`code for ${p?.firstName ?? r.employeeId}`, `${r.tokenId} / PIN ${r.tokenPIN}`);
+    t.secret(`code for ${p?.firstName ?? r.employeeId}`, `${r.tokenId} / PIN ${pin}`);
   }
   const exported = (unwrap((await http('GET', `${hrToolUrl}/api/export/tokens`)).json)?.tokens ?? []) as any[];
   t.check('The export carries codes and no PINs', exported.length === people.length && exported.every(x => !x.tokenPIN), 'codes only', exported.some(x => x.tokenPIN) ? 'a PIN was exported' : `${exported.length} codes`);

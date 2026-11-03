@@ -64,11 +64,18 @@ export interface EmployeeRecord {
   lastName: string;
   dob: string;
   email?: string;
+  /** The `mobile` column as written: the number the HR Tool texts the enrollment PIN to (A-109) */
+  mobile?: string;
   /** Additional CSV columns preserved as-is */
   extra: Record<string, string>;
 }
 
-/** Correlation table entry — maps hashes back to plaintext for HR use */
+/**
+ * Correlation table entry — maps hashes back to plaintext for HR use.
+ *
+ * A-109: no PIN and no PIN hash. The HR Tool texts each PIN straight to the employee and keeps neither; a table saved
+ * before that has them deleted when it is next opened.
+ */
 export interface CorrelationEntry {
   employeeIdHash: string;
   familyIdHash: string;
@@ -78,12 +85,12 @@ export interface CorrelationEntry {
   lastName: string;
   dob: string;
   email?: string;
+  /** The employee's mobile number, as normalizeMobile keeps it: where the PIN and the invite's notices go */
+  mobile?: string;
   tokenId?: string;
   tokenIdHash?: string;
-  /** 8-digit enrollment PIN — second factor, delivered via SMS */
-  tokenPIN?: string;
-  /** Poseidon(tokenId || PIN) — sent to employer node, never the PIN itself */
-  tokenPinHash?: string;
+  /** The current invite's expiry, YYYY-MM-DD */
+  validUntil?: string;
   status: 'pending' | 'token_generated' | 'enrolled' | 'terminated';
   createdAt: string;
 }
@@ -107,13 +114,11 @@ export interface WorkspaceMeta {
   label?: string;
 }
 
-/** Token distribution record (for secure output file) */
+/** Token distribution record (for secure output file): the invite code, which HR sends; never its PIN, which is texted (A-109) */
 export interface TokenDistributionRecord {
   employeeIdHash: string;
   tokenId: string;
   tokenIdHash: string;
-  /** A7: never populated by the server's export. PINs are returned once, at import. */
-  tokenPIN?: string;
   validUntil: string;
   /** First name + last initial for distribution (e.g. "Jane D.") */
   displayName: string;
@@ -318,7 +323,8 @@ export function hashTokenPIN(tokenId: string, pin: string): string {
  * Parse a CSV file into EmployeeRecord[].
  *
  * Expected columns (case-insensitive, order-independent):
- *   employee_id, family_id, first_name, last_name, dob, email (optional)
+ *   employee_id, family_id, first_name, last_name, dob, email (optional), mobile (optional; an employee without one is
+ *   issued no invite, since the PIN is texted to it, A-109)
  *
  * Any additional columns are preserved in the `extra` field.
  */
@@ -357,7 +363,7 @@ export function parseCsv(csvContent: string): EmployeeRecord[] {
 
     const extra: Record<string, string> = {};
     for (const key of Object.keys(row)) {
-      if (!requiredCols.includes(key) && key !== 'email') {
+      if (!requiredCols.includes(key) && key !== 'email' && key !== 'mobile') {
         extra[key] = row[key];
       }
     }
@@ -369,6 +375,7 @@ export function parseCsv(csvContent: string): EmployeeRecord[] {
       lastName: row['last_name'],
       dob: row['dob'],
       email: row['email'] || undefined,
+      mobile: row['mobile'] || undefined,
       extra,
     });
   }
@@ -464,6 +471,7 @@ export function hashEmployeeRecords(
       lastName: rec.lastName,
       dob: rec.dob,
       email: rec.email,
+      mobile: rec.mobile,
       status: 'pending',
       createdAt: new Date().toISOString(),
     });
@@ -507,7 +515,9 @@ export function reconcile(
     } else {
       matched++;
       const nodeStatus = nodeHashMap.get(entry.employeeIdHash)!;
-      if (entry.status !== nodeStatus) {
+      // A-140: an invite issued and not yet used is 'token_generated' here and 'pending' on the employer node.
+      const localAsNode = entry.status === 'token_generated' ? 'pending' : entry.status;
+      if (localAsNode !== nodeStatus) {
         statusMismatches.push({
           employeeIdHash: entry.employeeIdHash,
           localStatus: entry.status,

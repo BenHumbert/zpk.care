@@ -81,7 +81,9 @@
     unlock(passphrase)        { return this.call('POST', '/api/unlock', { passphrase }); },
     setup(employerNodeUrl, adminToken, passphrase, passphraseConfirm) { return this.call('POST', '/api/setup', { employerNodeUrl, adminToken, passphrase, passphraseConfirm }); },
     workspaces()              { return this.call('GET', '/api/workspaces'); },
-    revealPin(employeeIdHash, passphrase) { return this.call('POST', '/api/employees/' + encodeURIComponent(employeeIdHash) + '/pin', { passphrase }); },
+    // A-109: no PIN is ever shown again. A lost text means a new invite; a new number alerts the old one.
+    reissueInvite(employeeIdHash, passphrase) { return this.call('POST', '/api/employees/' + encodeURIComponent(employeeIdHash) + '/reissue', { passphrase }); },
+    changeMobile(employeeIdHash, passphrase, mobile) { return this.call('POST', '/api/employees/' + encodeURIComponent(employeeIdHash) + '/contact', { passphrase, mobile }); },
     lock()                    { return this.call('POST', '/api/lock'); },
     getSession()              { return this.call('GET', '/api/session'); },
     // Phase F3: listGroups now proxies to the employer node and returns
@@ -699,12 +701,15 @@
           '</div>' +
           (data.preview && data.preview.length > 0 ?
             '<div class="table-wrap" style="margin-top:16px"><table class="data-table"><thead><tr>' +
-            '<th>Employee ID</th><th>Name</th><th>Identifier (preview)</th></tr></thead><tbody>' +
+            '<th>Employee ID</th><th>Name</th><th>Identifier (preview)</th><th>PIN will be texted to</th></tr></thead><tbody>' +
             data.preview.map(function(p) {
               return '<tr><td class="mono">' + esc(p.employeeId) + '</td>' +
               '<td>' + esc(p.name) + '</td>' +
-              '<td class="mono">' + esc(p.employeeIdHash) + '</td></tr>';
+              '<td class="mono">' + esc(p.employeeIdHash) + '</td>' +
+              // A-109: an employee with no mobile number is issued no invite
+              '<td class="mono">' + (p.mobile ? esc(p.mobile) : '<span style="color:var(--red)">no mobile number: no invite</span>') + '</td></tr>';
             }).join('') + '</tbody></table></div>' : '') +
+          (data.textService === null ? '<div class="error-banner" style="margin-top:16px">No text service is set up, so no invite can be issued: each PIN is texted to its employee. Set HR_TOOL_TEXT_SERVICE and restart the HR Tool.</div>' : '') +
           '</div></div>';
         toast('Preview complete — no changes made', 'info');
       } else {
@@ -718,14 +723,14 @@
           '</div>' +
           '<div class="progress-bar" style="margin-top:16px"><div class="progress-fill green" style="width:' + pct + '%"></div></div>' +
           '<div style="text-align:center;margin-top:8px;font-size:12px;color:var(--text-muted)">' + esc(pct) + '% success rate</div>' +
-          (data.results && data.results.some(function(r) { return r.tokenPIN; }) ?
-            '<div style="margin-top:16px"><div class="recon-section-title">PINs for SMS — shown once</div>' +
-            '<div class="info-banner warning">' + esc(data.pinNotice || 'PINs are shown here once. Send each by SMS now; they are not listed or exported afterwards.') + '</div>' +
-            '<div class="table-wrap"><table class="data-table"><thead><tr><th>Employee ID</th><th>Enrollment Code</th><th>PIN</th></tr></thead><tbody>' +
-            data.results.filter(function(r) { return r.tokenPIN; }).map(function(r) {
-              return '<tr><td class="mono">' + esc(r.employeeId) + '</td><td class="mono">' + esc(r.tokenId) + '</td><td class="mono" style="font-size:16px;letter-spacing:2px">' + esc(r.tokenPIN) + '</td></tr>';
-            }).join('') + '</tbody></table></div>' +
-            '<button class="btn sm" id="btn-download-pins-once" style="margin-top:8px">Download PINs CSV (shown once)</button></div>' : '') +
+          // A-109: the PINs went straight to the employees' phones; this page never has one to show
+          (data.results && data.results.some(function(r) { return r.status === 'ok'; }) ?
+            '<div style="margin-top:16px"><div class="recon-section-title">Invites issued</div>' +
+            '<div class="info-banner">' + esc(data.pinNotice || 'Each PIN was texted straight to its employee.') + '</div>' +
+            '<div class="table-wrap"><table class="data-table"><thead><tr><th>Employee ID</th><th>Enrollment Code</th><th>PIN texted to</th></tr></thead><tbody>' +
+            data.results.filter(function(r) { return r.status === 'ok'; }).map(function(r) {
+              return '<tr><td class="mono">' + esc(r.employeeId) + '</td><td class="mono">' + esc(r.tokenId) + '</td><td class="mono">' + esc(r.pinSentTo || '') + '</td></tr>';
+            }).join('') + '</tbody></table></div></div>' : '') +
           (data.csvWarning ? '<div class="info-banner warning" style="margin-top:16px">' + esc(data.csvWarning) + '</div>' : '') +
           (data.results && data.results.some(function(r) { return r.status === 'error'; }) ?
             '<div style="margin-top:16px"><div class="recon-section-title recon-danger">Failed — Will Retry on Next Import</div>' +
@@ -733,19 +738,7 @@
               return '<div style="padding:4px 0;font-size:12px"><span class="mono">' + esc(r.employeeId) + '</span>: <span style="color:var(--red)">' + esc(r.error) + '</span></div>';
             }).join('') + '</div>' : '') +
           '</div></div>';
-        toast(data.success + ' enrollment codes generated', 'success');
-        // A7: the one chance to take the PINs away for the SMS step.
-        var dl = document.getElementById('btn-download-pins-once');
-        if (dl) dl.onclick = function () {
-          var rows = (data.results || []).filter(function(r) { return r.tokenPIN; });
-          var csv = 'EmployeeId,EnrollmentCode,PIN\n' + rows.map(function(r) { return csvEscape(r.employeeId) + ',' + csvEscape(r.tokenId) + ',' + csvEscape(r.tokenPIN); }).join('\n');
-          var blob = new Blob([csv], { type: 'text/csv' });
-          var url = URL.createObjectURL(blob);
-          var a = document.createElement('a');
-          a.href = url; a.download = 'enrollment-pins-SMS.csv'; a.click();
-          URL.revokeObjectURL(url);
-          toast('Downloaded. These PINs will not be shown again.', 'info');
-        };
+        toast(data.success + ' invites issued; each PIN was texted to its employee', 'success');
       }
     } catch (e) {
       resultsPanel.innerHTML = '<div class="error-banner">' + esc(e.message) + '</div>';
@@ -828,6 +821,7 @@
           detailRow('Name', e.firstName + ' ' + e.lastName) +
           detailRow('Date of Birth', e.dob) +
           detailRow('Email', e.email || '--') +
+          detailRow('Mobile (PIN texted to)', e.mobile || '--') +
           detailRow('Status', e.status) +
           detailRow('Enrollment Code', e.tokenId || 'Not yet issued') +
           detailRow('Added', e.createdAt) +
@@ -846,15 +840,16 @@
   async function renderTokens() {
     app.innerHTML =
       '<div class="section-header"><div><div class="section-title">Enrollment Codes</div>' +
-        '<div class="section-subtitle">Each employee needs TWO things to enroll: their enrollment code AND their PIN.</div></div></div>' +
+        '<div class="section-subtitle">Each employee needs TWO things to enroll: the enrollment code you send them, and the PIN the HR Tool texted to their phone.</div></div></div>' +
       activeGroupBanner() +
-      '<div class="info-banner warning">Distribute the enrollment code via portal or sealed letter. PINs were shown once, at import, for SMS to the employee\'s personal phone. To resend one, reveal it below with your passphrase; every reveal is recorded in the audit log.</div>' +
+      // A-109: no one at HR sees a PIN, and none can be shown again
+      '<div class="info-banner warning">Send each enrollment code by portal, email or sealed letter. Each PIN was texted straight to the employee\'s phone; no one at HR sees it. If a text was lost, send a new invite: a fresh code and PIN replace the old ones. A new mobile number is told to the old one first. Both need your passphrase and are recorded in the audit log.</div>' +
       '<div class="two-col">' +
         '<div class="panel"><div class="panel-header"><span class="panel-title">Channel A: Enrollment Codes</span>' +
           '<button class="btn sm primary" id="btn-export-codes">Download Codes CSV</button></div>' +
           '<div class="panel-body no-pad" id="codes-table">' + loading() + '</div></div>' +
-        '<div class="panel"><div class="panel-header"><span class="panel-title">Channel B: PINs (SMS) — resend</span>' +
-          '<input type="password" id="reveal-passphrase" placeholder="Passphrase to reveal" style="max-width:220px"></div>' +
+        '<div class="panel"><div class="panel-header"><span class="panel-title">Channel B: PINs, texted to each employee</span>' +
+          '<input type="password" id="action-passphrase" placeholder="Passphrase" style="max-width:220px"></div>' +
           '<div class="panel-body no-pad" id="pins-table">' + loading() + '</div></div>' +
       '</div>';
 
@@ -882,27 +877,49 @@
           return '<tr><td>' + esc(t.displayName) + '</td>' +
           '<td class="mono">' + esc(t.tokenId) + '</td></tr>';
         }).join('') + '</tbody></table></div>';
-      // Channel B: PINs are not listed. One row per employee with a deliberate reveal.
+      // Channel B (A-109): the PINs went to the employees' phones. One row per employee: where its PIN went (the last four
+      // digits), a new invite for a lost text, and a change of number.
+      var listed = await API.listEmployees('token_generated');
+      var mobileOf = {};
+      (listed.entries || []).forEach(function(e) { mobileOf[e.employeeIdHash] = e.mobile || ''; });
       pinsEl.innerHTML = '<div class="table-wrap"><table class="data-table"><thead><tr>' +
-        '<th>Employee</th><th>PIN</th><th></th></tr></thead><tbody>' +
+        '<th>Employee</th><th>PIN texted to</th><th></th></tr></thead><tbody>' +
         tokens.map(function(t) {
           return '<tr><td>' + esc(t.displayName) + '</td>' +
-          '<td class="mono" style="font-size:16px;letter-spacing:2px" id="pin-' + esc(t.employeeIdHash) + '">••••••••</td>' +
-          '<td><button class="btn sm" data-reveal="' + esc(t.employeeIdHash) + '">Reveal</button></td></tr>';
+          '<td class="mono" id="mobile-' + esc(t.employeeIdHash) + '">' + esc(mobileOf[t.employeeIdHash] || 'no number') + '</td>' +
+          '<td><button class="btn sm" data-reissue="' + esc(t.employeeIdHash) + '">Send new invite</button> ' +
+          '<button class="btn sm" data-contact="' + esc(t.employeeIdHash) + '">Change mobile</button></td></tr>';
         }).join('') + '</tbody></table></div>';
-      pinsEl.querySelectorAll('button[data-reveal]').forEach(function (btn) {
+      var passphraseOrSay = function() {
+        var pass = document.getElementById('action-passphrase').value;
+        if (!pass) toast('Enter your passphrase first', 'error');
+        return pass;
+      };
+      pinsEl.querySelectorAll('button[data-reissue]').forEach(function (btn) {
         btn.onclick = async function () {
-          var hash = btn.getAttribute('data-reveal');
-          var pass = document.getElementById('reveal-passphrase').value;
-          if (!pass) { toast('Enter your passphrase to reveal a PIN', 'error'); return; }
+          var pass = passphraseOrSay();
+          if (!pass) return;
           try {
-            var r = await API.revealPin(hash, pass);
-            var cell = document.getElementById('pin-' + hash);
-            if (cell) cell.textContent = r.tokenPIN;
-            btn.disabled = true;
-            toast('PIN revealed and recorded in the audit log', 'info');
+            var r = await API.reissueInvite(btn.getAttribute('data-reissue'), pass);
+            toast('New invite issued: its PIN was texted to ' + r.pinSentTo + '. Send the employee the new code.', 'success');
+            loadTokenTable();
           } catch (e) {
-            toast(e.message || 'Reveal failed', 'error');
+            toast(e.message || 'The new invite was not issued', 'error');
+          }
+        };
+      });
+      pinsEl.querySelectorAll('button[data-contact]').forEach(function (btn) {
+        btn.onclick = async function () {
+          var pass = passphraseOrSay();
+          if (!pass) return;
+          var mobile = window.prompt('The employee\'s new mobile number. The old number is told of the change first.');
+          if (!mobile) return;
+          try {
+            var r = await API.changeMobile(btn.getAttribute('data-contact'), pass, mobile);
+            toast('Mobile changed to ' + r.mobile + (r.reissued ? '; a new invite\'s PIN was texted there. Send the employee the new code.' : '.'), 'success');
+            loadTokenTable();
+          } catch (e) {
+            toast(e.message || 'The number was not changed', 'error');
           }
         };
       });
