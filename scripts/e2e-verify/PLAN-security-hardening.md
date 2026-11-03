@@ -3367,3 +3367,21 @@ the same errors as before.
 prescriber node as primary care from its device and the sequencer listing it under that prescriber; kill:ports then
 stopped the network and left the servers on 8000 and 8080 running. Scoreboard: 134 findings; 111 fixed; 23 open, none
 critical.
+
+**Owner decision on A-109, and A-135 to A-141 recorded, 2026-11-03.** The owner chose the enrollment design that keeps
+the employer issuing invites while no person sees a PIN (docs/AUDIT.md, A-109): the HR Tool texts each PIN straight to
+the employee and keeps none, the invite and the PIN never travel together, contact changes and resent invites alert the
+old contact, the employee hears when the invite is used, an "already used" refusal on the phone carries a report on
+which the plan freezes the wallet that used it, five wrong PINs end an invite, invites last at most 14 days, and the
+employer node keeps only a fingerprint of each code. The plan never sends a PIN or holds a phone number, so no breach of
+the plan can put names to wallets. Order agreed the same day: A-59 (done above), this design, then the price sources.
+
+Mapping the enrollment code for it found seven defects, entered as open findings. A-135 (medium): a terminated employee
+can still enroll, since retiring a roster row leaves the unused invite redeemable and a redemption marks the row
+enrolled again; a new invite for an employee leaves the old one live. A-136 (medium): the employer node keeps its
+groups, roster and invites only in memory, and a tenant ends with the plan's process, so a restart loses every unused
+invite. A-137 (low): the HR Tool hands out a PIN the employer node refused, because it never reads the answer's status.
+A-138 (low): an invite's expiry is neither checked nor capped. A-139 (low): the phone shows one message for every
+refused invite, so "already used" reads like a mistyped PIN. A-140 (low): the HR Tool's reconcile reports every
+unredeemed invite as a mismatch. A-141 (low): the command-line import issues invites with no PIN. All but A-136 are
+planned into A-109's slices; A-136 follows them. Scoreboard: 141 findings; 111 fixed; 30 open, none critical.
