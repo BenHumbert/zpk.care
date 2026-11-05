@@ -2182,7 +2182,7 @@ Right now none of it is in force. Both replicas hold zero receipts and sit at th
 | E2 | Authenticated gossip with per-node credentials, and signatures covering the payload rather than only the header | integrity | A-8, REP-03, A-145 |
 | E3 | WAL enabled and fsynced before mutation, with crash replay and compaction after checkpoint | durability | C-3, claim 18 |
 | E4 | Quorum writes: no client acknowledgment until a majority has logged and signed. Quorum certificates on receipts, state certificates at batch boundaries | durability | C-3, claims 18, 10(d), A-144 |
-| E5 | Heartbeat failover and split-brain demotion in the live topology | availability | C-3, claim 14, A-145 |
+| E5 | Heartbeat failover and split-brain demotion in the live topology | availability | C-3, claim 14, A-145, A-146 |
 | E6 | **Enable the chain proof** so the global state root and block height are non-zero, binding the audit chain into one verifiable commitment | integrity | C-4, claims 8(c), 9, 11(b) |
 | E7 | Replica batch verification enabled, so a replica checks before it applies | integrity | A-8, REP-02 |
 | E8 | Epoch accumulator rotation wired into the product, with persistence | scale | claim 16 |
