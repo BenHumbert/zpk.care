@@ -638,7 +638,11 @@ export class EmployerNode extends EntityNodeBase {
    * Throws for a code this node never issued, or one never used.
    */
   cancelEnrollment(tokenId: string): { cancelled: true; employeeIdHash: string | null } {
-    const fingerprint = TokenAuthority.fingerprintOf(tokenId);
+    return this.cancelEnrollmentByHash(TokenAuthority.fingerprintOf(tokenId));
+  }
+
+  /** cancelEnrollment, by the invite's fingerprint: how the plan names it, since it keeps no code (A-143). */
+  cancelEnrollmentByHash(fingerprint: string): { cancelled: true; employeeIdHash: string | null } {
     this.tokenAuthority.withdrawConsumedByHash(fingerprint);
     const entry = this.rosterEntryForInvite(fingerprint);
     if (entry && entry.status === 'enrolled') {

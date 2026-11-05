@@ -97,7 +97,8 @@ import type { AddressInfo } from 'net';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { NautilusAppServer } from '../src/nodes/nautilus-app-server.js';
 import type { NautilusAppConfig, RouteRegistration } from '../src/nodes/nautilus-app-types.js';
-import { buildInsurerRoutes } from '../src/nodes/routes/insurer-routes.js';
+import { buildInsurerRoutes, openPlanRecords, closePlanRecords } from '../src/nodes/routes/insurer-routes.js';
+import type { NodeKeyring } from '../src/keys/node-keyring.js';
 import { buildMemberRoutes } from '../src/nodes/routes/member-routes.js';
 import { NautilusLocalState, type NautilusStateData } from '../src/nodes/nautilus-local-state.js';
 import { generateEnrollmentCode } from '../src/onboarding/enrollment-code.js';
@@ -211,7 +212,7 @@ async function network() {
   const terminations: any[] = [];
   const cancellations: Array<{ path: string; body: any; signed: boolean }> = [];
   const employerUrl = await service(({ path: p, body, headers }) => {
-    if (/^\/tokens\/[^/]+\/enrollment-cancelled$/.test(p)) {
+    if (/^\/invites\/\d+\/enrollment-cancelled$/.test(p)) {
       cancellations.push({ path: p, body, signed: typeof headers['x-admin-signature'] === 'string' });
       return { status: 200, body: { ok: true, data: { cancelled: true } } };
     }
@@ -292,13 +293,17 @@ function routeOf(routes: RouteRegistration[], method: string, p: string): RouteR
   return r;
 }
 
-/** An insurer node, configured, that redeems codes with `net`'s employer and approves wallets with its sequencer. */
-async function insurerOf(net: Network) {
+/**
+ * An insurer node, configured, that redeems codes with `net`'s employer and approves wallets with its sequencer. With
+ * `keys` its records are in sealed stores under `dir`, as its keyring opens them once unlocked (A-142).
+ */
+async function insurerOf(net: Network, opts: { dir?: string; keys?: { subkey(label: string): Buffer } } = {}) {
   const server = new NautilusAppServer({
     role: 'insurer', port: 0, host: '127.0.0.1', sequencerUrl: net.sequencerUrl, employerUrl: net.employerUrl, insurerSigningSeed: INSURER_SEED,
-    stateDir: tmp('bind-ins-'), enableSSE: false, maxSseConnections: 0, allowedOrigins: [], adminToken: 'admin-token-for-binding',
+    stateDir: opts.dir ?? tmp('bind-ins-'), enableSSE: false, maxSseConnections: 0, allowedOrigins: [], adminToken: 'admin-token-for-binding',
     publicHosts: [], trustedProxies: [],
   } as unknown as NautilusAppConfig);
+  if (opts.keys) openPlanRecords(server, opts.keys);
   const routes = buildInsurerRoutes(server);
   expect((await call(routeOf(routes, 'POST', '/onboarding/configure'), from('127.0.0.1'), {})).status).toBe(200);
   return { server, routes, process: routeOf(routes, 'POST', '/enrollment/process'), complete: routeOf(routes, 'POST', '/enrollment/complete') };
@@ -787,7 +792,8 @@ describe('A-109: an employee reports an invite someone else used, and the plan h
     const cancelled = await resolve(ins, second, 'cancel');
     expect([cancelled.status, cancelled.data?.status]).toEqual([200, 'cancelled']);
     expect(net.terminations).toEqual([expect.objectContaining({ memberWalletId: EMPLOYER_WALLET })]);
-    expect(net.cancellations).toEqual([{ path: `/tokens/${encodeURIComponent(second)}/enrollment-cancelled`, body: expect.anything(), signed: true }]);
+    // A-143: by the invite's fingerprint, since the plan keeps no code
+    expect(net.cancellations).toEqual([{ path: `/invites/${hashString(second).toString()}/enrollment-cancelled`, body: expect.anything(), signed: true }]);
     expect((await reports(ins)).map((r) => r.status).sort()).toEqual(['cancelled', 'released']);
     expect((await resolve(ins, second, 'cancel')).status).toBe(409);       // a report is resolved once
     expect((await resolve(ins, second, 'shrug')).status).toBe(400);
@@ -814,3 +820,100 @@ describe('A-109: an employee reports an invite someone else used, and the plan h
     expect(late.status).toBe(403);                                          // the other phone's completion is held
   });
 });
+
+// ── A-142, A-143: the plan's records in its sealed stores, under fingerprints ───
+
+/** A stand-in for the plan's ceremony keyring: the subkeys of one master. */
+const keysOf = (master: Buffer) => ({ subkey: (label: string) => createHash('sha256').update(master).update(label).digest() });
+
+describe('the plan keeps its enrollment records across a restart, under fingerprints and with no PIN hash (A-142, A-143)', () => {
+  test('a redemption, its completion, a recovery deposit and a report survive the restart, and no file names a code or a PIN hash', async () => {
+    const net = await network();
+    const dir = tmp('bind-sealed-');
+    const keys = keysOf(randomBytes(32));
+    let ins = await insurerOf(net, { dir, keys });
+    const code = net.issue();
+    const own = completionPair();
+    const pinHash = hashTokenPIN(code, PIN);
+    expect((await call(ins.process, device, { tokenId: code, tokenPinHash: pinHash, completionCommitment: own.commitment })).status).toBe(200);
+    const deposit = {
+      cardId: 'a1b2c3d4e5f60718', share2Hex: randomBytes(32).toString('hex'), pinVerifier: randomBytes(32).toString('hex'),
+      identitySalt: randomBytes(32).toString('hex'), groupIdHash: G1, planIdHash: P1, domainTag: 0,
+    };
+    const done = await call(ins.complete, device, { tokenId: code, walletId: DEVICE_WALLET, completionSecret: own.secret, recoveryDeposits: [deposit] });
+    expect([done.status, done.data?.tokenIdHash, done.data?.tokenId]).toEqual([200, hashString(code).toString(), undefined]);   // before: the code itself
+    // a second code another device used, and the employee's own device reports it
+    const second = net.issue();
+    const secondPin = hashTokenPIN(second, PIN);
+    const thief = completionPair();
+    expect((await call(ins.process, stranger, { tokenId: second, tokenPinHash: secondPin, completionCommitment: thief.commitment })).status).toBe(200);
+    expect((await call(routeOf(ins.routes, 'POST', '/enrollment/report'), device, { tokenId: second, tokenPinHash: secondPin, completionCommitment: completionPair().commitment })).status).toBe(200);
+    // nothing the plan wrote names a code, a PIN hash or the card's share
+    const files = fs.readdirSync(path.join(dir, 'plan-records'));
+    expect(files).toEqual(expect.arrayContaining(['redeemed-codes.journal', 'recovery-deposits.journal', 'enrollment-registry.journal']));
+    for (const f of files) {
+      const raw = fs.readFileSync(path.join(dir, 'plan-records', f), 'utf8');
+      for (const secret of [code, second, pinHash, secondPin, deposit.share2Hex]) expect(raw).not.toContain(secret);
+    }
+
+    // the plan's process stops and starts again on the same directory, with the same keys
+    closePlanRecords(ins.server);
+    ins = await insurerOf(net, { dir, keys });
+    const repeat = await call(ins.process, device, { tokenId: code, tokenPinHash: pinHash, completionCommitment: own.commitment });
+    expect([repeat.status, repeat.data?.repeated]).toEqual([200, true]);   // before: the code unknown, and the employer refused it as used
+    expect((await call(ins.process, stranger, { tokenId: code, tokenPinHash: hashTokenPIN(code, '00000000'), completionCommitment: thief.commitment })).status).toBe(403);
+    expect((await call(ins.complete, stranger, { tokenId: second, walletId: STRANGER_WALLET, completionSecret: thief.secret })).status).toBe(403);   // still held by the report
+    const listed = await call(routeOf(ins.routes, 'GET', '/enrollment/reports'), from('127.0.0.1'));
+    expect(listed.data.reports.map((r: any) => [r.tokenIdHash, r.status, r.held])).toEqual([[hashString(second).toString(), 'open', 'completion']]);   // before: no report
+    const released = await call(routeOf(ins.routes, 'POST', '/recovery/release'), device, { cardId: deposit.cardId, pinVerifier: deposit.pinVerifier });
+    expect([released.status, released.data?.share2Hex]).toEqual([200, deposit.share2Hex]);   // before: 403, the card's other half forgotten
+    expect(net.relayed).toHaveLength(2);   // the employer was asked once per code, before the restart only
+    closePlanRecords(ins.server);
+  });
+
+  test('another key opens none of it, and the plan then takes no record rather than run from memory', async () => {
+    const net = await network();
+    const dir = tmp('bind-sealed-');
+    const ins = await insurerOf(net, { dir, keys: keysOf(randomBytes(32)) });
+    const code = net.issue();
+    expect((await call(ins.process, device, { tokenId: code, tokenPinHash: hashTokenPIN(code, PIN), completionCommitment: completionPair().commitment })).status).toBe(200);
+    closePlanRecords(ins.server);
+    await expect(insurerOf(net, { dir, keys: keysOf(randomBytes(32)) })).rejects.toThrow(/could not be opened/);
+    // a node whose stores would not open stays up and refuses, with the reason (fail closed)
+    const server = new NautilusAppServer({
+      role: 'insurer', port: 0, host: '127.0.0.1', sequencerUrl: net.sequencerUrl, employerUrl: net.employerUrl, insurerSigningSeed: INSURER_SEED,
+      stateDir: dir, enableSSE: false, maxSseConnections: 0, allowedOrigins: [], adminToken: 'admin-token-for-binding', publicHosts: [], trustedProxies: [],
+    } as unknown as NautilusAppConfig);
+    expect(() => openPlanRecords(server, keysOf(randomBytes(32)))).toThrow(/could not be opened/);
+    const routes = buildInsurerRoutes(server);
+    expect((await call(routeOf(routes, 'POST', '/onboarding/configure'), from('127.0.0.1'), {})).status).toBe(200);
+    const other = net.issue();
+    const refused = await call(routeOf(routes, 'POST', '/enrollment/process'), device, { tokenId: other, tokenPinHash: hashTokenPIN(other, PIN), completionCommitment: completionPair().commitment });
+    expect([refused.status, refused.error]).toEqual([503, expect.stringMatching(/could not be opened/)]);
+    expect(net.relayed).toHaveLength(1);   // the employer was asked for the first code only
+  });
+
+  test('a node the ceremony keyed takes no enrollment record until its keys are open on this machine', async () => {
+    const net = await network();
+    const ins = await insurerOf(net);
+    ins.server.setKeyring({ isUnlocked: () => false } as unknown as NodeKeyring);
+    const code = net.issue();
+    const asked: Array<[string, string, unknown]> = [
+      ['POST', '/enrollment/process', { tokenId: code, tokenPinHash: hashTokenPIN(code, PIN), completionCommitment: completionPair().commitment }],
+      ['POST', '/enrollment/complete', { tokenId: code, walletId: DEVICE_WALLET, completionSecret: completionPair().secret }],
+      ['POST', '/enrollment/report', { tokenId: code, tokenPinHash: hashTokenPIN(code, PIN), completionCommitment: completionPair().commitment }],
+      ['GET', '/enrollment/reports', undefined],
+      ['POST', '/enrollment/reports/resolve', { tokenIdHash: hashString(code).toString(), action: 'release' }],
+      ['POST', '/recovery/release', { cardId: 'a1b2c3d4e5f60718', pinVerifier: 'ab'.repeat(32) }],
+      ['POST', '/recovery/deposit', { walletId: DEVICE_WALLET, deposits: [] }],
+      ['POST', '/roster/register', { walletId: DEVICE_WALLET }],
+    ];
+    for (const [method, p, body] of asked) {
+      const r = await call(routeOf(ins.routes, method, p), device, body);
+      expect([p, r.status, r.error]).toEqual([p, 503, expect.stringMatching(/locked until its key holders provision this machine/)]);
+    }
+    expect(net.relayed).toEqual([]);   // no employer was asked
+    expect(net.approvals).toEqual([]);
+  });
+});
+

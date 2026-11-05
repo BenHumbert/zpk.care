@@ -87,7 +87,7 @@ import { deriveInsurerKeypair, insurerPublicKeyFromSeed } from '../src/onboardin
 import { hashTokenPIN } from '../src/tools/hr-tool-core.js';
 import { NautilusAppServer } from '../src/nodes/nautilus-app-server.js';
 import { buildEmployerRoutes } from '../src/nodes/routes/employer-routes.js';
-import { buildInsurerRoutes } from '../src/nodes/routes/insurer-routes.js';
+import { buildInsurerRoutes, openPlanRecords, closePlanRecords } from '../src/nodes/routes/insurer-routes.js';
 import { buildMemberRoutes } from '../src/nodes/routes/member-routes.js';
 import { EmployerNode } from '../src/nodes/employer-node.js';
 import type { NautilusAppConfig, RouteRegistration } from '../src/nodes/nautilus-app-types.js';
@@ -95,6 +95,8 @@ import type { EmployerAttestation } from '../src/l2/l2-types.js';
 import type { NautilusStateData } from '../src/nodes/nautilus-local-state.js';
 
 const CODE_RE = /^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){4}$/;
+/** A stand-in for the plan's ceremony keyring: the same subkeys for every server of these tests (A-142). */
+const PLAN_KEYS = { subkey: (label: string) => createHash('sha256').update('enrollment-codes test master').update(label).digest() };
 const INSURER_SEED = 'insurer-seed-for-enrollment-code-tests';
 const ATTACKER_SEED = 'a-seed-the-insurer-never-had';
 const PIN = '48213976';
@@ -589,12 +591,13 @@ describe('the validate oracle answers only the insurer, and consumes what it val
     expect((await ask(last.slice(0, 4) + '-' + last.slice(4, 6) + '-' + last.slice(6, 8))).status).toBe(201);
   });
 
-  /** A call to /tokens/:tokenId/enrollment-cancelled signed by `seed` (A-109), or unsigned. */
+  /** A call to /invites/:tokenIdHash/enrollment-cancelled signed by `seed` (A-109; by the fingerprint since A-143), or unsigned. */
   function cancellation(code: string, seed: string | null = INSURER_SEED) {
-    const p = `/tokens/${encodeURIComponent(code)}/enrollment-cancelled`;
+    const fp = hashString(code).toString();
+    const p = `/invites/${fp}/enrollment-cancelled`;
     const body = { reason: 'reported' };
     const headers = seed === null ? {} : signRequest({ signerId: 'insurer', privateKey: deriveInsurerKeypair(seed).privateKey, method: 'POST', path: p, body: JSON.stringify(body) });
-    return { req: fakeReq({ url: p, headers }), params: { tokenId: code }, body };
+    return { req: fakeReq({ url: p, headers }), params: { tokenIdHash: fp }, body };
   }
 
   test('the plan cancels an enrollment someone else made with a code, and the employee is back on the roster for a new invite (A-109)', async () => {
@@ -602,7 +605,7 @@ describe('the validate oracle answers only the insurer, and consumes what it val
     expect((await call(e.validate, signed(e.code, { tokenPinHash: hashTokenPIN(e.code, PIN) }))).payload.data.consumed).toBe(true);
     expect(e.node.getRosterEntry('emp-hash-1')!.status).toBe('enrolled');
     expect(e.node.getGroup('G1')!.enrolledCount).toBe(1);
-    const cancel = find(e.routes, 'POST', '/tokens/:tokenId/enrollment-cancelled');   // before: no such route
+    const cancel = find(e.routes, 'POST', '/invites/:tokenIdHash/enrollment-cancelled');   // before: no such route
     const r = await call(cancel, cancellation(e.code));
     expect(r.status).toBe(200);
     expect(r.payload.data).toMatchObject({ cancelled: true });
@@ -616,7 +619,7 @@ describe('the validate oracle answers only the insurer, and consumes what it val
 
   test('a cancellation answers only the insurer, and only for a code that was used', async () => {
     const e = await employerWithCode();
-    const cancel = find(e.routes, 'POST', '/tokens/:tokenId/enrollment-cancelled');
+    const cancel = find(e.routes, 'POST', '/invites/:tokenIdHash/enrollment-cancelled');
     expect((await call(cancel, cancellation(e.code, null))).status).toBe(401);
     expect((await call(cancel, cancellation(e.code, 'some-other-seed'))).status).toBe(401);
     const unused = await call(cancel, cancellation(e.code));
@@ -735,13 +738,9 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
   }
   async function insurer(dir: string, seed: string | undefined) {
     const server = new NautilusAppServer(baseConfig('insurer', dir, { sequencerUrl: seqUrl, insurerSigningSeed: seed }));
-    // Unlocked, so persistence is real in this test; in a deployment this is the node's own PIN.
-    const ls = server.getLocalState();
-    await ls.unlock('123456');
-    if (!(await ls.load())) {
-      await ls.save({ version: 1, role: 'insurer', onboarding: { phase: 'awaiting_token' }, lastSavedAt: '' } as NautilusStateData);
-      await ls.load();
-    }
+    // A-142: the plan's records in its sealed stores, under keys a stand-in for its ceremony keyring derives, so
+    // persistence is real here and a second server on the same directory plays the plan after a restart
+    openPlanRecords(server, PLAN_KEYS);
     const routes = buildInsurerRoutes(server);
     const conf = await call(find(routes, 'POST', '/onboarding/configure'), { body: {} });
     expect(conf.status).toBe(200);
@@ -801,23 +800,32 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
     expect(JSON.parse(probesA[0].body)).toEqual({ tokenPinHash: 'pinhash-1', nonce: expect.stringMatching(/^[0-9a-f]{32}$/) });
   });
 
-  test('the redemption is persisted immediately, with no wallet yet', async () => {
-    const data = main.server.getLocalState().getState() as unknown as { redeemedEnrollmentCodes?: Record<string, { walletId: string | null; pinHash: string | null; completionCommitment?: string }> };
-    expect(data.redeemedEnrollmentCodes?.[codeA]?.walletId).toBeNull();
-    expect(data.redeemedEnrollmentCodes?.[codeA]?.pinHash).toBe('pinhash-1');
-    expect(data.redeemedEnrollmentCodes?.[codeA]?.completionCommitment).toBe(DEVICE_A.commitment);   // before: undefined, nothing bound the completion to the device
+  test('the redemption is persisted immediately, with no wallet yet, under the code\'s fingerprint and with no PIN hash (A-142, A-143)', async () => {
+    const records = (main.server as unknown as { __redeemedEnrollmentCodes: Map<string, { walletId: string | null; pinCheck?: string | null; pinHash?: string; completionCommitment?: string }> }).__redeemedEnrollmentCodes;
+    const rec = records.get(hashString(codeA).toString())!;
+    expect(rec.walletId).toBeNull();
+    expect(records.has(codeA)).toBe(false);                     // before: kept under the code itself
+    expect(rec.pinHash).toBeUndefined();                        // before: the PIN hash itself, beside the code
+    expect(rec.pinCheck).toMatch(/^[0-9a-f]{64}$/);
+    expect(rec.pinCheck).not.toBe('pinhash-1');
+    expect(rec.completionCommitment).toBe(DEVICE_A.commitment);   // before: undefined, nothing bound the completion to the device
+    // and it is on disk: a store opened afresh on the same directory holds it
+    const files = fs.readdirSync(path.join(stateDir, 'plan-records'));
+    expect(files).toEqual(expect.arrayContaining(['redeemed-codes.journal', 'enrollment-registry.journal', 'recovery-deposits.journal']));
+    expect(fs.readFileSync(path.join(stateDir, 'plan-records', 'redeemed-codes.journal'), 'utf8')).not.toContain(codeA);
   });
   test('complete binds the wallet to the redemption and records the enrollment with the canonical code', async () => {
     const r = await call(main.complete, { body: { walletId: '11', tokenId: codeA.toLowerCase(), completionSecret: DEVICE_A.secret } });
     expect(r.status).toBe(200);
     expect(r.payload.data.enrolled).toBe(true);
-    expect(r.payload.data.tokenId).toBe(codeA);                 // stored canonical, not as typed
+    expect(r.payload.data.tokenIdHash).toBe(hashString(codeA).toString());   // the canonical code's fingerprint, not as typed
+    expect(r.payload.data.tokenId).toBeUndefined();             // A-143: the plan keeps no code
     expect(r.payload.data.groupIdHash).toBe(G1);
     // completion approved the wallet with the engine, naming the plan it resolved from the hash
     expect(approvals.length).toBe(1);
     expect(approvals[0]).toMatchObject({ walletId: '11', groupIdHash: G1, planIdHash: P1, planId: 'PLAN-1', employerId: 'EMP-A', familyIdHash: F1 });
-    const data = main.server.getLocalState().getState() as unknown as { redeemedEnrollmentCodes?: Record<string, { walletId: string | null }> };
-    expect(data.redeemedEnrollmentCodes?.[codeA]?.walletId).toBe('11');
+    const records = (main.server as unknown as { __redeemedEnrollmentCodes: Map<string, { walletId: string | null }> }).__redeemedEnrollmentCodes;
+    expect(records.get(hashString(codeA).toString())?.walletId).toBe('11');
     expect(probesA).toHaveLength(1);                            // completion asks the employer nothing
   });
 
@@ -899,7 +907,10 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
   });
 
   test('redeemed codes survive a restart, with the commitment that completes them', async () => {
+    // the plan's process stops and starts again on the same directory: its stores are closed and opened afresh
+    closePlanRecords(main.server);
     const restarted = await insurer(stateDir, INSURER_SEED);
+    main = restarted;
     const before = probesA.length;
     const otherPin = await call(restarted.process, { body: { tokenId: codeA, tokenPinHash: 'pinhash-9', completionCommitment: DEVICE_A.commitment } });
     expect(otherPin.status).toBe(403);

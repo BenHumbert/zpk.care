@@ -121,20 +121,29 @@ export class SealedRecordStore<V = unknown> implements Iterable<[string, V]> {
     return { generation: this.generation, seq: this.seq };
   }
 
-  /** Keep a record. It is on disk before this returns. A record read with get() and changed must be put back. */
+  /**
+   * Keep a record. It is on disk before this returns. The store keeps the object it is given, as a Map would, so a
+   * caller that changes a record it read must put it back for the change to reach the disk.
+   */
   put(key: string, value: V): void {
     checkKey(key);
-    const written = this.append({ op: 'put', k: key, v: value }) as { v: V };
-    this.records.set(key, written.v);
+    this.append({ op: 'put', k: key, v: value });
+    this.records.set(key, value);
     this.afterWrite();
+  }
+
+  /** put, as a Map's set, so a store can stand where a Map of records stood (the plan's records, A-142). */
+  set(key: string, value: V): this {
+    this.put(key, value);
+    return this;
   }
 
   /** Keep several records in one journal entry. */
   putMany(entries: Array<[string, V]>): void {
     if (!Array.isArray(entries) || entries.length === 0) return;
     for (const [k] of entries) checkKey(k);
-    const written = this.append({ op: 'putMany', e: entries }) as { e: Array<[string, V]> };
-    for (const [k, v] of written.e) this.records.set(k, v);
+    this.append({ op: 'putMany', e: entries });
+    for (const [k, v] of entries) this.records.set(k, v);
     this.afterWrite();
   }
 
@@ -270,8 +279,8 @@ export class SealedRecordStore<V = unknown> implements Iterable<[string, V]> {
     else throw new SealedStoreError(`${this.name}: journal entry ${line} is not an operation`);
   }
 
-  /** Write one journal entry, durably, and return the operation as it was written (what a reload would read). */
-  private append(op: Op<V>): Op<V> {
+  /** Write one journal entry, durably. */
+  private append(op: Op<V>): void {
     this.ensureOpen();
     const seq = this.seq + 1;
     const json = JSON.stringify(op);
@@ -283,7 +292,6 @@ export class SealedRecordStore<V = unknown> implements Iterable<[string, V]> {
     fs.fsyncSync(this.fd!);
     this.seq = seq;
     this.journalEntries++;
-    return JSON.parse(json) as Op<V>;
   }
 
   /** The write that triggered a compaction is on disk already: a compaction that fails is reported, not thrown. */

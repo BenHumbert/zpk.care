@@ -37,7 +37,7 @@ import { PROVING_BUDGET_MS, type RouteRegistration } from '../nautilus-app-types
 import type { KeyObject } from 'crypto';
 import { ReplayCache, signRequest, signerIdFromHeaders, verifySignedRequest } from '../../security/signed-request.js';
 import { cachedRequestBody } from '../../security/request-body.js';
-import { createHash, randomBytes, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { hashString } from '../../zkp/hash-utils.js';
 import { buildPlanFormulary, planNetworkRoot, type PlanFormulary } from '../../onboarding/plan-formulary.js';
 import { publishedTermsOf } from '../../l2/plan-terms.js';
@@ -48,6 +48,8 @@ import { npiError } from '../../security/npi.js';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { join } from 'path';
 import { PersistedAttemptLimiter } from '../../security/attempt-limiter.js';
+import { SealedRecordStore } from '../../keys/sealed-store.js';
+import { SUBKEYS } from '../../keys/subkeys.js';
 import { SlidingWindowLimiter } from '../../security/rate-limit.js';
 import type { RecoveryDeposit } from '../../security/recovery-card.js';
 import { deriveInsurerKeypair, buildAgreementTerms } from '../../onboarding/employer-attestation.js';
@@ -88,14 +90,18 @@ interface EnrollmentReport {
   employerTold?: boolean;
 }
 
-/** What the insurer remembers about a code it has redeemed, keyed by the canonical code. */
+/** What the insurer remembers about a code it has redeemed, under the code's fingerprint, never the code (A-143). */
 interface RedeemedCode {
   /** The wallet bound at /enrollment/complete; null between redemption and completion (C2). */
   walletId: string | null;
   /** A-109: an employee's report that another device used the code */
   report?: EnrollmentReport;
-  /** The PIN hash the code was redeemed with: a repeat of the redemption must present it, with the commitment below. */
-  pinHash: string | null;
+  /**
+   * The PIN hash the code was redeemed with, as an HMAC under the plan's PIN key (A-143): a repeat of the redemption and
+   * a report must present the PIN hash, which is checked against this. A copy of the records cannot be tried against
+   * PINs without the key, which is a subkey of the plan's ceremony-made master and is not in the file.
+   */
+  pinCheck: string | null;
   /**
    * A-108: the SHA-256, in hex, of a secret the redeeming device made and keeps. The completion must present the secret,
    * and a repeat of the redemption this commitment, so only that device does either. Unlike the PIN hash, which the
@@ -123,53 +129,127 @@ interface StoredDeposit extends RecoveryDeposit {
   revokedReason?: string;
 }
 
-function redeemedCodes(server: NautilusAppServer): Map<string, RedeemedCode> {
-  const s = server as unknown as { __redeemedEnrollmentCodes?: Map<string, RedeemedCode> };
+/**
+ * A-142: one of the plan's record maps: a Map in memory, or, once the plan's ceremony keys are open, its sealed store
+ * (openPlanRecords), where each set() is on disk before it returns. A record changed in place is set again.
+ */
+interface RecordMap<V> {
+  get(key: string): V | undefined;
+  set(key: string, value: V): unknown;
+  has(key: string): boolean;
+  delete(key: string): boolean;
+  values(): IterableIterator<V>;
+  entries(): IterableIterator<[string, V]>;
+  [Symbol.iterator](): IterableIterator<[string, V]>;
+  readonly size: number;
+}
+
+type PlanRecordsServer = NautilusAppServer & {
+  __redeemedEnrollmentCodes?: RecordMap<RedeemedCode>;
+  __recoveryDeposits?: RecordMap<StoredDeposit>;
+  __enrollmentRegistry?: RecordMap<Record<string, unknown>>;
+  __planPinPepper?: Buffer;
+  __planRecordStores?: Array<SealedRecordStore<unknown>>;
+  /** Why the plan's stores could not be opened, when they could not: the routes refuse until it is fixed. */
+  __planRecordsError?: string;
+};
+
+/** The codes the plan redeemed, each under its fingerprint, Poseidon(code) (A-143). */
+function redeemedCodes(server: NautilusAppServer): RecordMap<RedeemedCode> {
+  const s = server as PlanRecordsServer;
   return (s.__redeemedEnrollmentCodes ??= new Map<string, RedeemedCode>());
 }
 
-function restoreRedeemedCodes(server: NautilusAppServer, data: Record<string, unknown>): void {
-  const persisted = data.redeemedEnrollmentCodes;
-  if (!persisted || typeof persisted !== 'object') return;
-  const map = redeemedCodes(server);
-  for (const [code, rec] of Object.entries(persisted as Record<string, RedeemedCode>)) map.set(code, rec);
-  if (map.size > 0) console.log('[insurer] Restored %d redeemed enrollment codes from local state', map.size);
-}
-
-/** Written before the handler does anything else with a redeemed code, so a crash cannot lose it. */
-async function persistRedeemedCodes(server: NautilusAppServer): Promise<void> {
-  try {
-    const localState = server.getLocalState();
-    const stateData = localState.getState() as any;
-    if (!stateData) return;
-    stateData.redeemedEnrollmentCodes = Object.fromEntries(redeemedCodes(server));
-    await localState.save(stateData);
-  } catch (err: unknown) {
-    console.warn('[enrollment] Failed to persist redeemed codes:', err instanceof Error ? err.message : String(err));
-  }
-}
-
-function recoveryDeposits(server: NautilusAppServer): Map<string, StoredDeposit> {
-  const s = server as unknown as { __recoveryDeposits?: Map<string, StoredDeposit> };
+/** The plan's half of each recovery card, by card ID. */
+function recoveryDeposits(server: NautilusAppServer): RecordMap<StoredDeposit> {
+  const s = server as PlanRecordsServer;
   return (s.__recoveryDeposits ??= new Map<string, StoredDeposit>());
 }
-function restoreRecoveryDeposits(server: NautilusAppServer, data: Record<string, unknown>): void {
-  const persisted = data.recoveryDeposits;
-  if (!persisted || typeof persisted !== 'object') return;
-  const map = recoveryDeposits(server);
-  for (const [cardId, rec] of Object.entries(persisted as Record<string, StoredDeposit>)) map.set(cardId, rec);
-  if (map.size > 0) console.log('[insurer] Restored %d recovery deposits from local state', map.size);
+
+/** The plan's enrollments, by wallet; an invite is named by its fingerprint, never its code (A-143). */
+function enrollmentRegistry(server: NautilusAppServer): RecordMap<Record<string, unknown>> {
+  const s = server as PlanRecordsServer;
+  return (s.__enrollmentRegistry ??= new Map<string, Record<string, unknown>>());
 }
-async function persistRecoveryDeposits(server: NautilusAppServer): Promise<void> {
+
+/** A code's fingerprint, the employer's tokenIdHash: the key the plan keeps a redemption under (A-143). */
+function fingerprintOfCode(code: string): string {
+  return hashString(code).toString();
+}
+
+/**
+ * A-143: what the plan keeps of a PIN hash, an HMAC of it under the plan's PIN key. With the ceremony keys open, that key
+ * is a subkey of the plan's master, so the records cannot be tried against PINs, or file a report, without it; without
+ * them the records live in memory only, under a key made for this process.
+ */
+function planPinCheck(server: NautilusAppServer, tokenPinHash: string): string {
+  const s = server as PlanRecordsServer;
+  const key = (s.__planPinPepper ??= randomBytes(32));
+  return createHmac('sha256', key).update(`zpk.care/plan-pin/v1\n${tokenPinHash}`, 'utf8').digest('hex');
+}
+
+/**
+ * A-142: the plan's enrollment records, kept across restarts once its ceremony keys are open: the codes it redeemed and
+ * their reports, its half of every recovery card, and the enrollment registry, each in a sealed store under its state
+ * directory (`plan-records/`) with a key derived for that store alone. The insurer's launcher calls this when its
+ * keyring unlocks; `keys` is the keyring, or a stand-in in tests.
+ */
+export function openPlanRecords(server: NautilusAppServer, keys: { subkey(label: string): Buffer }): void {
+  const s = server as PlanRecordsServer;
+  closePlanRecords(server);
+  const dir = join(server.getConfig().stateDir, 'plan-records');
+  const opened: Array<SealedRecordStore<unknown>> = [];
+  const open = <V>(name: string): SealedRecordStore<V> => {
+    const store = SealedRecordStore.open<V>({ dir, name, key: keys.subkey(SUBKEYS.planStore(name)) });
+    opened.push(store as SealedRecordStore<unknown>);
+    return store;
+  };
+  let redeemed: SealedRecordStore<RedeemedCode>;
+  let deposits: SealedRecordStore<StoredDeposit>;
+  let registry: SealedRecordStore<Record<string, unknown>>;
   try {
-    const localState = server.getLocalState();
-    const stateData = localState.getState() as any;
-    if (!stateData) return;
-    stateData.recoveryDeposits = Object.fromEntries(recoveryDeposits(server));
-    await localState.save(stateData);
-  } catch (err: unknown) {
-    console.warn('[recovery] Failed to persist recovery deposits:', err instanceof Error ? err.message : String(err));
+    redeemed = open<RedeemedCode>('redeemed-codes');
+    deposits = open<StoredDeposit>('recovery-deposits');
+    registry = open<Record<string, unknown>>('enrollment-registry');
+  } catch (err) {
+    // fail closed: the routes refuse with this reason, rather than take records into memory that a restart would lose
+    for (const store of opened) store.close();
+    s.__planRecordsError = err instanceof Error ? err.message : String(err);
+    throw err;
   }
+  delete s.__planRecordsError;
+  s.__redeemedEnrollmentCodes = redeemed;
+  s.__recoveryDeposits = deposits;
+  s.__enrollmentRegistry = registry;
+  s.__planPinPepper = keys.subkey(SUBKEYS.planPinPepper);
+  s.__planRecordStores = [redeemed, deposits, registry] as Array<SealedRecordStore<unknown>>;
+  console.log('[insurer] Enrollment records opened from the sealed stores: %d redeemed codes, %d recovery deposits, %d enrollments', redeemed.size, deposits.size, registry.size);
+}
+
+/** Close the plan's sealed stores (shutdown, or a test that plays a restart). */
+export function closePlanRecords(server: NautilusAppServer): void {
+  const s = server as PlanRecordsServer;
+  for (const store of s.__planRecordStores ?? []) store.close();
+  if (s.__planRecordStores) {
+    delete s.__redeemedEnrollmentCodes;
+    delete s.__recoveryDeposits;
+    delete s.__enrollmentRegistry;
+    delete s.__planPinPepper;
+    delete s.__planRecordStores;
+  }
+}
+
+/**
+ * A-142: a node the ceremony keyed whose keys this machine has not opened yet holds no enrollment record, so it takes
+ * none: whatever it took would be lost. Claims never pass through here.
+ */
+const RECORDS_LOCKED = "The plan's enrollment records are locked until its key holders provision this machine (GET /keys/status).";
+/** Why the plan takes no enrollment record now, or null when it does. */
+function planRecordsRefusal(server: NautilusAppServer): string | null {
+  const failed = (server as PlanRecordsServer).__planRecordsError;
+  if (failed) return `The plan's enrollment records could not be opened (${failed}); nothing is taken until that is fixed.`;
+  const keyring = server.getKeyring();
+  return keyring !== null && !keyring.isUnlocked() ? RECORDS_LOCKED : null;
 }
 /** Release attempts per card: three free, then a doubling delay to fifteen minutes, counted in a plaintext sidecar (A7's limiter). */
 function recoveryAttempts(server: NautilusAppServer): PersistedAttemptLimiter {
@@ -237,16 +317,9 @@ type ResolvedTargets = { candidates: CodeTarget[] } | { status: number; error: s
  * ever tried against the employer the member named. Nothing is fanned out, and the URL never comes
  * from the request body.
  */
-async function resolveCodeTargets(
-  server: NautilusAppServer,
-  code: string,
-  hintEmployerId: string | undefined,
-): Promise<ResolvedTargets> {
-  const staticUrl = (server.getConfig() as { employerUrl?: string }).employerUrl;
-  if (staticUrl) return { candidates: [{ employerId: hintEmployerId ?? null, url: staticUrl }] };
-
+/** The employer nodes the sequencer's tenant registry lists; null when the sequencer cannot be read. */
+async function registeredEmployerNodes(server: NautilusAppServer): Promise<Array<{ employerId: string; employerNodeUrl: string }> | null> {
   const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
-  let nodes: Array<{ employerId: string; employerNodeUrl: string }> = [];
   try {
     const resp = await fetch(`${seqUrl}/rpc`, {
       method: 'POST',
@@ -255,8 +328,34 @@ async function resolveCodeTargets(
       signal: AbortSignal.timeout(5000),
     });
     const json = await resp.json() as { result?: unknown };
-    nodes = Array.isArray(json.result) ? json.result as typeof nodes : [];
+    return Array.isArray(json.result) ? json.result as Array<{ employerId: string; employerNodeUrl: string }> : [];
   } catch {
+    return null;
+  }
+}
+
+/** The node(s) of one employer, by its ID: a static employerUrl, or the employer's entries in the tenant registry. */
+async function resolveEmployerTargets(server: NautilusAppServer, employerId: string | null): Promise<ResolvedTargets> {
+  const staticUrl = (server.getConfig() as { employerUrl?: string }).employerUrl;
+  if (staticUrl) return { candidates: [{ employerId, url: staticUrl }] };
+  if (!employerId) return { status: 404, error: 'The redemption names no employer' };
+  const nodes = await registeredEmployerNodes(server);
+  if (nodes === null) return { status: 502, error: 'The sequencer could not be read for the employer node' };
+  const matching = nodes.filter((n) => n.employerId === employerId);
+  if (matching.length === 0) return { status: 404, error: `No node of employer ${employerId} is registered` };
+  return { candidates: matching.map((n) => ({ employerId: n.employerId, url: n.employerNodeUrl })) };
+}
+
+async function resolveCodeTargets(
+  server: NautilusAppServer,
+  code: string,
+  hintEmployerId: string | undefined,
+): Promise<ResolvedTargets> {
+  const staticUrl = (server.getConfig() as { employerUrl?: string }).employerUrl;
+  if (staticUrl) return { candidates: [{ employerId: hintEmployerId ?? null, url: staticUrl }] };
+
+  const nodes = await registeredEmployerNodes(server);
+  if (nodes === null) {
     return { status: 502, error: 'Cannot validate enrollment code: sequencer unreachable for employer lookup.' };
   }
   if (nodes.length === 0) {
@@ -454,12 +553,16 @@ interface EngineAnswer { status: number; json: Record<string, unknown> | null; m
  * insurer, as the validate oracle is asked, so its roster puts the employee back to pending for a new invite. True once a
  * candidate answers 200; no wallet is sent.
  */
-async function tellEmployerCancelled(server: NautilusAppServer, code: string, employerId: string | null): Promise<boolean> {
+/**
+ * A-109, A-143: tell the employer node that the plan cancelled the enrollment an invite made, by the invite's
+ * fingerprint (the plan keeps no code), at the employer the redemption named.
+ */
+async function tellEmployerCancelled(server: NautilusAppServer, tokenIdHash: string, employerId: string | null): Promise<boolean> {
   const signer = insurerSigner(server);
   if (!signer) return false;
-  const targets = await resolveCodeTargets(server, code, employerId ?? undefined);
+  const targets = await resolveEmployerTargets(server, employerId);
   if ('error' in targets) return false;
-  const path = `/tokens/${encodeURIComponent(code)}/enrollment-cancelled`;
+  const path = `/invites/${encodeURIComponent(tokenIdHash)}/enrollment-cancelled`;
   for (const c of targets.candidates) {
     const body = JSON.stringify({ reason: 'reported', nonce: randomBytes(16).toString('hex') });
     const headers = { 'Content-Type': 'application/json', ...signRequest({ signerId: 'insurer', privateKey: signer.privateKey, method: 'POST', path, body }) };
@@ -696,21 +799,9 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         }
       }
 
-      // Restore enrollment registry from persisted state (survives restarts)
-      if (data) {
-        const persisted = (data as any).enrollmentRegistry;
-        if (persisted && typeof persisted === 'object') {
-          const registry = (server as any).__enrollmentRegistry ??= new Map<string, unknown>();
-          for (const [wid, record] of Object.entries(persisted)) {
-            registry.set(wid, record);
-          }
-          console.log('[insurer] Restored %d enrollment records from local state', registry.size);
-        }
-      }
-      // A6: the codes already redeemed, so a retry after a restart is still idempotent.
-      if (data) restoreRedeemedCodes(server, data as unknown as Record<string, unknown>);
-      // A12b: the recovery deposits, so a card issued before a restart still recovers.
-      if (data) restoreRecoveryDeposits(server, data as unknown as Record<string, unknown>);
+      // A-142: the enrollment records are not restored here: they live in the plan's sealed stores, opened when its
+      // ceremony keys unlock (openPlanRecords), so a restart keeps them. The PIN-locked local state that held them was
+      // never unlocked in a deployment, so every save to it was dropped.
 
       server.setOnboardingPhase('ready');
       server.sendResponse(res, 200, true, {
@@ -799,6 +890,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
        * redeemed. A repeat must present the commitment as well, or the employer could bind the code
        * to a secret of its own by redeeming it again.
        */
+      if (planRecordsRefusal(server)) return server.sendResponse(res, 503, false, undefined, planRecordsRefusal(server)!);
       const b = body as { tokenId?: string; tokenPinHash?: string; completionCommitment?: string; role?: string; employerId?: string } | undefined;
       if (typeof b?.tokenId !== 'string' || b.tokenId.trim().length === 0) {
         return server.sendResponse(res, 400, false, undefined, 'An enrollment code is required.');
@@ -812,15 +904,17 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       }
       const commitment = b.completionCommitment.toLowerCase();
       const code = canonicalizeEnrollmentCode(b.tokenId) ?? b.tokenId.trim();
+      // A-143: the plan keeps a redemption under the code's fingerprint, never the code
+      const fp = fingerprintOfCode(code);
       const redeemed = redeemedCodes(server);
-      const prior = redeemed.get(code);
+      const prior = redeemed.get(fp);
       if (prior) {
         // A repeat with another PIN hash or another commitment is an attempt on a code redeemed by someone else, so it
         // counts against the code (wrongAttemptsPerCode), and past the limit nothing is compared.
-        if (wrongAttemptsPerCode.count(code) >= WRONG_ATTEMPTS_PER_CODE_PER_HOUR) return tooManyForCode(res);
-        const samePin = !!prior.pinHash && sameHex(prior.pinHash, b.tokenPinHash);
+        if (wrongAttemptsPerCode.count(fp) >= WRONG_ATTEMPTS_PER_CODE_PER_HOUR) return tooManyForCode(res);
+        const samePin = !!prior.pinCheck && sameHex(prior.pinCheck, planPinCheck(server, b.tokenPinHash));
         if (!samePin || !prior.completionCommitment || !sameHex(prior.completionCommitment, commitment)) {
-          wrongAttemptsPerCode.allow(code);
+          wrongAttemptsPerCode.allow(fp);
           // A-139: the right PIN from another device means another device used the code: the phone says so and offers
           // the report (/enrollment/report), where a wrong PIN gets the refusal it always got. The difference tells a
           // holder of the code that a PIN is right only for a code already spent, five tries an hour.
@@ -850,9 +944,9 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!outcome.groupIdHash || !outcome.planIdHash) {
         return server.sendResponse(res, 502, false, undefined, 'The employer redeemed the code but did not say which group and plan it enrols into.');
       }
-      redeemed.set(code, {
+      redeemed.set(fp, {
         walletId: null,
-        pinHash: b.tokenPinHash,
+        pinCheck: planPinCheck(server, b.tokenPinHash),
         completionCommitment: commitment,
         employerId: outcome.employerId,
         groupIdHash: outcome.groupIdHash,
@@ -860,7 +954,6 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         familyIdHash: outcome.familyIdHash,
         at: Date.now(),
       });
-      await persistRedeemedCodes(server);
       console.log('[enrollment] Code redeemed with employer %s; awaiting the wallet', outcome.employerId ?? 'static');
       server.sendResponse(res, 200, true, { redeemed: true, groupIdHash: outcome.groupIdHash, planIdHash: outcome.planIdHash, employerId: outcome.employerId });
     },
@@ -880,6 +973,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     method: 'POST',
     path: '/enrollment/report',
     handler: async (req, res, _params, _query, body) => {
+      if (planRecordsRefusal(server)) return server.sendResponse(res, 503, false, undefined, planRecordsRefusal(server)!);
       const b = body as { tokenId?: unknown; tokenPinHash?: unknown; completionCommitment?: unknown } | undefined;
       if (typeof b?.tokenId !== 'string' || b.tokenId.trim().length === 0) {
         return server.sendResponse(res, 400, false, undefined, 'An enrollment code is required.');
@@ -896,10 +990,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         return server.sendResponse(res, 429, false, undefined, 'Too many refused reports from this address in the last minute. Try again in a minute.');
       }
       const code = canonicalizeEnrollmentCode(b.tokenId) ?? b.tokenId.trim();
-      if (wrongAttemptsPerCode.count(code) >= WRONG_ATTEMPTS_PER_CODE_PER_HOUR) return tooManyForCode(res);
-      const rec = redeemedCodes(server).get(code);
-      if (!rec || !rec.pinHash || !sameHex(rec.pinHash, b.tokenPinHash)) {
-        wrongAttemptsPerCode.allow(code);
+      const fp = fingerprintOfCode(code);
+      if (wrongAttemptsPerCode.count(fp) >= WRONG_ATTEMPTS_PER_CODE_PER_HOUR) return tooManyForCode(res);
+      const rec = redeemedCodes(server).get(fp);
+      if (!rec || !rec.pinCheck || !sameHex(rec.pinCheck, planPinCheck(server, b.tokenPinHash))) {
+        wrongAttemptsPerCode.allow(fp);
         refusedReportsPerSource.allow(source);
         return server.sendResponse(res, 403, false, undefined, NOT_A_REPORT);
       }
@@ -912,7 +1007,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       }
       // A completion in flight for the other device is waited for, so its wallet is what is held, not a completion
       // already past the check.
-      const inFlight = completing.get(code);
+      const inFlight = completing.get(fp);
       if (inFlight) { try { await inFlight.approval; } catch { /* its outcome is read from the record below */ } }
       const held: EnrollmentReport['held'] = rec.walletId ? 'wallet' : 'completion';
       if (rec.walletId) {
@@ -924,7 +1019,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         }
       }
       rec.report = { at: Date.now(), reporterCommitment: commitment, held, status: 'open' };
-      await persistRedeemedCodes(server);
+      redeemedCodes(server).set(fp, rec);
       console.log('[enrollment] Report filed: another device used a code; its %s is held', held);
       server.sendResponse(res, 200, true, { reported: true, held });
     },
@@ -938,8 +1033,9 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     path: '/enrollment/reports',
     adminOnly: true,
     handler: async (_req, res) => {
-      const reports = [...redeemedCodes(server)].filter(([, r]) => r.report).map(([code, r]) => ({
-        tokenIdHash: hashString(code).toString(),
+      if (planRecordsRefusal(server)) return server.sendResponse(res, 503, false, undefined, planRecordsRefusal(server)!);
+      const reports = [...redeemedCodes(server)].filter(([, r]) => r.report).map(([fp, r]) => ({
+        tokenIdHash: fp,
         employerId: r.employerId,
         walletId: r.walletId,
         reportedAt: r.report!.at,
@@ -963,14 +1059,16 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     path: '/enrollment/reports/resolve',
     adminOnly: true,
     handler: async (_req, res, _params, _query, body) => {
+      if (planRecordsRefusal(server)) return server.sendResponse(res, 503, false, undefined, planRecordsRefusal(server)!);
       const b = body as { tokenIdHash?: unknown; action?: unknown } | undefined;
       if (b?.action !== 'release' && b?.action !== 'cancel') {
         return server.sendResponse(res, 400, false, undefined, 'action must be "release" or "cancel"');
       }
-      const found = [...redeemedCodes(server)].find(([code, r]) => r.report && hashString(code).toString() === b.tokenIdHash);
-      if (!found) return server.sendResponse(res, 404, false, undefined, 'No report for this code');
-      const [code, rec] = found;
-      const report = rec.report!;
+      // A-143: a report is named by the invite's fingerprint, which is also the key the plan keeps it under
+      const fp = typeof b.tokenIdHash === 'string' ? b.tokenIdHash : '';
+      const rec = fp ? redeemedCodes(server).get(fp) : undefined;
+      if (!rec?.report) return server.sendResponse(res, 404, false, undefined, 'No report for this code');
+      const report = rec.report;
       if (report.status === 'released' || (report.status === 'cancelled' && report.employerTold)) {
         return server.sendResponse(res, 409, false, undefined, `This report is already ${report.status}`);
       }
@@ -982,7 +1080,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         }
         report.status = 'released';
         report.resolvedAt = Date.now();
-        await persistRedeemedCodes(server);
+        redeemedCodes(server).set(fp, rec);
         return server.sendResponse(res, 200, true, { status: 'released' });
       }
       if (report.status === 'open') {
@@ -993,10 +1091,10 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         }
         report.status = 'cancelled';
         report.resolvedAt = Date.now();
-        await persistRedeemedCodes(server);
+        redeemedCodes(server).set(fp, rec);
       }
-      report.employerTold = await tellEmployerCancelled(server, code, rec.employerId);
-      await persistRedeemedCodes(server);
+      report.employerTold = await tellEmployerCancelled(server, fp, rec.employerId);
+      redeemedCodes(server).set(fp, rec);
       if (!report.employerTold) {
         return server.sendResponse(res, 502, false, undefined,
           'The enrollment was cancelled, but the employer could not be told, so HR cannot send a new invite yet: cancel again to retry.');
@@ -1053,7 +1151,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
    * carried; it has to be on the sequencer already. Once the engine has recorded the approval, the code is bound to
    * the wallet.
    */
-  async function approveAndBind(node: InsurerNode, rec: RedeemedCode, walletId: string): Promise<Approval> {
+  async function approveAndBind(node: InsurerNode, fp: string, rec: RedeemedCode, walletId: string): Promise<Approval> {
     let plans: BenefitPlanConfig[] = [];
     try { plans = (await node.listPlans()) ?? []; } catch { plans = []; }
     if (!Array.isArray(plans)) plans = [];
@@ -1083,7 +1181,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     if (!rec.walletId) {
       rec.walletId = walletId;
       rec.completedAt = Date.now();
-      await persistRedeemedCodes(server);
+      redeemedCodes(server).set(fp, rec);
     }
     return { approved: true };
   }
@@ -1095,6 +1193,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!node) {
         return server.sendResponse(res, 503, false, undefined, 'Insurer node not configured');
       }
+      if (planRecordsRefusal(server)) return server.sendResponse(res, 503, false, undefined, planRecordsRefusal(server)!);
       const b = body as { tokenId?: string; completionSecret?: string; walletId?: string; role?: string; recoveryDeposits?: unknown } | undefined;
       if (typeof b?.walletId !== 'string' || !DECIMAL.test(b.walletId)) {
         return server.sendResponse(res, 400, false, undefined, 'Missing walletId');
@@ -1103,23 +1202,24 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         return server.sendResponse(res, 400, false, undefined, 'An enrollment code is required.');
       }
       const code = canonicalizeEnrollmentCode(b.tokenId) ?? b.tokenId.trim();
+      const fp = fingerprintOfCode(code);
       const source = server.callerKey(req);
       if (refusedCompletionsPerSource.count(source) >= REFUSED_COMPLETIONS_PER_SOURCE_PER_MINUTE) {
         res.setHeader('Retry-After', '60');
         return server.sendResponse(res, 429, false, undefined,
           'Too many refused enrollment completions from this address in the last minute. Try again in a minute.');
       }
-      if (wrongAttemptsPerCode.count(code) >= WRONG_ATTEMPTS_PER_CODE_PER_HOUR) return tooManyForCode(res);
-      const rec = redeemedCodes(server).get(code);
+      if (wrongAttemptsPerCode.count(fp) >= WRONG_ATTEMPTS_PER_CODE_PER_HOUR) return tooManyForCode(res);
+      const rec = redeemedCodes(server).get(fp);
       const answered = commitmentOf(b.completionSecret);
       // The wallet the code is taken for: the one a completion bound it to, or the one a completion in flight claimed
       // it for.
-      const inFlight = completing.get(code);
+      const inFlight = completing.get(fp);
       const takenFor = rec?.walletId ?? inFlight?.walletId ?? null;
       if (!rec || !rec.completionCommitment || answered === null || !sameHex(rec.completionCommitment, answered)
         || (takenFor !== null && takenFor !== b.walletId)) {
         refusedCompletionsPerSource.allow(source);
-        wrongAttemptsPerCode.allow(code);
+        wrongAttemptsPerCode.allow(fp);
         return server.sendResponse(res, 403, false, undefined, NOT_COMPLETED);
       }
       // A-109: its employee reported that another device used the code; nothing completes until the plan releases it
@@ -1130,9 +1230,9 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (deposits === null) {
         return server.sendResponse(res, 400, false, undefined, 'recoveryDeposits must be a list of {cardId, share2Hex, pinVerifier, identitySalt, groupIdHash, planIdHash, domainTag}');
       }
-      const registry = (server as any).__enrollmentRegistry ??= new Map<string, Record<string, unknown>>();
-      const existing = registry.get(b.walletId) as Record<string, unknown> | undefined;
-      if (existing && existing.tokenId !== code) {
+      const registry = enrollmentRegistry(server);
+      const existing = registry.get(b.walletId);
+      if (existing && existing.tokenIdHash !== fp) {
         return server.sendResponse(res, 409, false, undefined, 'Wallet already enrolled');
       }
       // Claimed before anything is awaited, so no other completion passes the checks above between them and the claim
@@ -1142,14 +1242,15 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (inFlight) {
         outcome = await inFlight.approval;
       } else {
-        const approving = approveAndBind(node, rec, b.walletId);
-        completing.set(code, { walletId: b.walletId, approval: approving });
-        try { outcome = await approving; } finally { completing.delete(code); }
+        const approving = approveAndBind(node, fp, rec, b.walletId);
+        completing.set(fp, { walletId: b.walletId, approval: approving });
+        try { outcome = await approving; } finally { completing.delete(fp); }
       }
       if (!outcome.approved) return server.sendResponse(res, outcome.status, false, undefined, outcome.error);
       const enrollmentRecord = {
         walletId: b.walletId,
-        tokenId: code,
+        // A-143: the invite by its fingerprint; the plan keeps no code
+        tokenIdHash: fp,
         role: b.role ?? 'member',
         groupId: null,
         planId: null,
@@ -1159,20 +1260,8 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         enrolledAt: (existing?.enrolledAt as number | undefined) ?? Date.now(),
       };
       registry.set(b.walletId, enrollmentRecord);
-      try {
-        const localState = server.getLocalState();
-        const stateData = localState.getState() as any;
-        if (stateData) {
-          if (!stateData.enrollmentRegistry) stateData.enrollmentRegistry = {};
-          stateData.enrollmentRegistry[b.walletId] = enrollmentRecord;
-          await localState.save(stateData);
-        }
-      } catch (saveErr: any) {
-        console.warn('[enrollment] Failed to persist enrollment to local state:', saveErr?.message ?? saveErr);
-      }
       const filed = fileDeposits(server, b.walletId, deposits);
-      if (filed.length > 0) await persistRecoveryDeposits(server);
-      console.log('[enrollment] Member enrolled: wallet=%s code=%s deposits=%d', b.walletId.slice(0, 16), code, filed.filter((f) => f.filed).length);
+      console.log('[enrollment] Member enrolled: wallet=%s deposits=%d', b.walletId.slice(0, 16), filed.filter((f) => f.filed).length);
       server.sendResponse(res, 200, true, {
         enrolled: true,
         ...enrollmentRecord,
@@ -1190,6 +1279,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   // refuse every member's recovery.
   const RELEASE_LOCK_AFTER = 10;
   async function releaseOrRevoke(req: IncomingMessage, res: ServerResponse, body: unknown, mode: 'release' | 'revoke'): Promise<void> {
+    if (planRecordsRefusal(server)) return server.sendResponse(res, 503, false, undefined, planRecordsRefusal(server)!);
     const caller = server.callerKey(req);
     if (!recoveryPerCaller(server).allow(caller)) {
       res.setHeader('Retry-After', '60');
@@ -1214,7 +1304,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (dep && !dep.revokedAt) {
         dep.failures = (dep.failures ?? 0) + 1;
         if (dep.failures >= RELEASE_LOCK_AFTER) { dep.revokedAt = Date.now(); dep.revokedReason = 'locked after repeated failed attempts'; }
-        await persistRecoveryDeposits(server);
+        recoveryDeposits(server).set(cardId, dep);
       }
       return server.sendResponse(res, 403, false, undefined, mode === 'release' ? 'This card and PIN do not release a deposit.' : 'This card and PIN do not revoke a deposit.');
     }
@@ -1222,13 +1312,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     if (mode === 'revoke') {
       dep!.revokedAt = Date.now();
       dep!.revokedReason = 'revoked by the member';
-      await persistRecoveryDeposits(server);
+      recoveryDeposits(server).set(cardId, dep!);
       console.log('[recovery] card %s revoked', cardId);
       return server.sendResponse(res, 200, true, { cardId, revoked: true });
     }
     dep!.releasedAt = Date.now();
     dep!.releaseCount = (dep!.releaseCount ?? 0) + 1;
-    await persistRecoveryDeposits(server);
+    recoveryDeposits(server).set(cardId, dep!);
     console.log('[recovery] deposit released for card %s', cardId);
     server.sendResponse(res, 200, true, {
       share2Hex: dep!.share2Hex, identitySalt: dep!.identitySalt, groupIdHash: dep!.groupIdHash, planIdHash: dep!.planIdHash, domainTag: dep!.domainTag,
@@ -1305,6 +1395,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     method: 'POST',
     path: '/recovery/deposit',
     handler: async (req, res, _params, _query, body) => {
+      if (planRecordsRefusal(server)) return server.sendResponse(res, 503, false, undefined, planRecordsRefusal(server)!);
       // The recovery routes' limit per caller: a signed request costs a read of the sequencer's registry, at most one in
       // ten seconds.
       if (!recoveryPerCaller(server).allow(server.callerKey(req))) {
@@ -1319,10 +1410,8 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (signed === undefined) {
         return server.sendResponse(res, 502, false, undefined, 'Cannot reach the sequencer to check the wallet\'s signature. Try again later.');
       }
-      const registry = (server as any).__enrollmentRegistry as Map<string, unknown> | undefined;
-      if (!signed || !registry?.has(b.walletId)) return server.sendResponse(res, 403, false, undefined, DEPOSIT_REFUSED);
+      if (!signed || !enrollmentRegistry(server).has(b.walletId)) return server.sendResponse(res, 403, false, undefined, DEPOSIT_REFUSED);
       const filed = fileDeposits(server, b.walletId, deposits);
-      await persistRecoveryDeposits(server);
       server.sendResponse(res, 201, true, { recoveryCards: filed });
     },
   });
@@ -1353,7 +1442,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         const entityMap = new Map(entities.map((e: any) => [e.walletId, e]));
 
         // Get local enrollment records (group/employer associations)
-        const registry = (server as any).__enrollmentRegistry as Map<string, any> | undefined;
+        const registry = enrollmentRegistry(server) as RecordMap<any>;
 
         // Build roster view
         const roster = registrations.map(r => {
@@ -1420,8 +1509,9 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!b?.walletId) {
         return server.sendResponse(res, 400, false, undefined, 'Missing walletId');
       }
+      if (planRecordsRefusal(server)) return server.sendResponse(res, 503, false, undefined, planRecordsRefusal(server)!);
 
-      const registry = (server as any).__enrollmentRegistry ??= new Map<string, any>();
+      const registry = enrollmentRegistry(server);
       const record = {
         walletId: b.walletId,
         role: b.role ?? 'member',

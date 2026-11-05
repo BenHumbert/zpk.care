@@ -52,7 +52,7 @@ import { NautilusAppServer } from './nautilus-app-server.js';
 import { parentPidFromEnv, watchParent } from './parent-watchdog.js';
 import { nodeKeyFromEnv } from '../security/node-roles.js';
 import type { NautilusAppConfig } from './nautilus-app-types.js';
-import { buildInsurerRoutes } from './routes/insurer-routes.js';
+import { buildInsurerRoutes, openPlanRecords, closePlanRecords } from './routes/insurer-routes.js';
 import { buildMarketplaceRoutes, buildEmployerAdminRoutes } from './routes/marketplace-routes.js';
 import { InsurerNode } from './insurer-node.js';
 import { resolveBindHost, resolveAllowedOrigins, resolveRpcProxyPolicy } from '../security/network-policy.js';
@@ -177,10 +177,23 @@ async function main(): Promise<void> {
     // A-136: once unlocked, the plan's sealed registry of the employer tenants it activated, so they come back after
     // this node's restart with their records, on their ports, with their admin tokens
     keyring.onUnlocked((k) => {
-      tenantRegistry = SealedRecordStore.open<TenantRegistration>({
-        dir: path.join(config.stateDir, 'plan-records'), name: 'tenants', key: k.subkey(SUBKEYS.planStore('tenants')),
-      });
-      configureTenantKeys({ keys: k, registry: tenantRegistry, stateDir: config.stateDir });
+      // A-142: the plan's own enrollment records, in sealed stores under its state directory. One that cannot be
+      // opened leaves the node up and its enrollment and recovery routes refusing, with the reason (fail closed).
+      try {
+        openPlanRecords(server, k);
+      } catch (err) {
+        console.error("  [keys] the plan's enrollment records could not be opened: %s", err instanceof Error ? err.message : String(err));
+        console.error('         enrollment, reports and recovery are refused until this is fixed; claims are not affected');
+      }
+      try {
+        tenantRegistry = SealedRecordStore.open<TenantRegistration>({
+          dir: path.join(config.stateDir, 'plan-records'), name: 'tenants', key: k.subkey(SUBKEYS.planStore('tenants')),
+        });
+        configureTenantKeys({ keys: k, registry: tenantRegistry, stateDir: config.stateDir });
+      } catch (err) {
+        console.error("  [keys] the plan's registry of employer tenants could not be opened: %s; no tenant is brought back or started", err instanceof Error ? err.message : String(err));
+        return;
+      }
       if (serverReady) void bringBackTenants();
     });
     await keyring.start();
@@ -347,6 +360,7 @@ async function main(): Promise<void> {
     } catch { /* orchestrator module may not be loaded — ignore */ }
     await server.stop();
     tenantRegistry?.close();
+    closePlanRecords(server);
     server.getKeyring()?.close();
     console.log('  [shutdown] Server stopped');
     process.exit(0);

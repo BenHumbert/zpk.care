@@ -3602,3 +3602,28 @@ The regression batch ran 173 suites, all passing. The typecheck is src 18, scrip
 260 of 260 checks across 35 steps. One batch fewer settled during the run than in slice 3's run, so there were two batch checks fewer; every other check was the same. Before the restart, the harness's employer node had 1 group and 2 roster entries: one enrolled with its invite consumed, one pending with HR's new invite unused. The network was then stopped and booted again without clearing state. The plan's server unlocked by DPAPI and brought the employer node back, in the background once it could shut down and was watching its parent, at the same URL. Its groups and roster were the same, the same admin token was accepted, and a wrong one was refused. The first try of this run used a check script of mine that misread the roster's answer. It also had a second boot of 2 minutes against the usual 30 s, which was load on the machine: the sequencer's first proof program compiled in 23 s, against 4 to 6 s in every other boot. kill:ports then stopped the network and left the servers on 8000 and 8080 running.
 
 Scoreboard: 147 findings; 120 fixed; 27 open, none critical.
+
+**A-142 and A-143 fixed, 2026-11-05 (the sealed stores and key ceremony, slice 5: the plan's enrollment records).**
+The plan forgot at every restart the codes it redeemed, its reports and its half of every recovery card. It saved them
+into its PIN-locked local state, which nothing unlocks in a deployment. And it kept each code in plain form beside the
+PIN hash it was redeemed with, which is all a report needs.
+
+Now, once the plan's ceremony keys are open, its records live in three sealed stores under `plan-records/`:
+`redeemed-codes`, `recovery-deposits` and `enrollment-registry` (`openPlanRecords`). Each store has its own subkey, and
+every change is on disk before it is answered.
+
+- A redemption is kept under the code's fingerprint, the employer's tokenIdHash, with the PIN hash only as an HMAC
+  under the plan's PIN key (`pinCheck`).
+- The registry names the invite by its fingerprint. The completion's answer and the plan's log no longer carry the
+  code.
+- The plan tells the employer of a cancellation by the fingerprint (`/invites/:tokenIdHash/enrollment-cancelled`), at
+  the employer the redemption recorded.
+- While a keyed node's keys are not yet open on its machine, the enrollment, report, recovery and roster-registration
+  routes answer 503 rather than take records they would lose. Claims are never touched.
+- The code-based cancellation route and the local-state persistence are gone.
+
+*Verified.* `tests/enrollment-complete-binding.test.ts` has 3 new tests, all failing on the old code. First, a redemption, its completion, a recovery deposit and a report survive a restart, and no file names a code, a PIN hash or a card's share. Second, another key opens none of it, and a node whose stores would not open then refuses with the reason rather than run from memory; that test was also shown failing with the check taken out. Third, a keyed node not yet unlocked refuses all eight enrollment and recovery routes and asks no employer. `tests/enrollment-codes.test.ts` now reads the plan's records from its sealed stores and the completion's fingerprint, with a second server on the same directory playing the plan after a restart; its cancellation tests use the fingerprint route. Regression batch: 173 suites, 2,112 tests, all passing, run again after the fail-closed follow-up. Typecheck: src 18, scripts 2, the same errors as before.
+
+*Live, the same day (secured boot with a 2-of-3 ceremony, one member, explorer on 8010):* 260 of 260 checks across 35 steps. The plan opened empty stores at provisioning. The network was then stopped and booted again without clearing state, and the plan reopened 2 redeemed codes, 2 recovery deposits and 1 enrollment. Its report list was the same as before the restart: the harness's cancelled report, with the employer told. The member's unused recovery card A still released the plan's half, and card B, revoked before the restart, was still refused. The employer node came back as in slice 4. The fail-closed follow-up came after this run (a store that will not open leaves the routes refusing, with the reason). kill:ports then stopped the network and left the servers on 8000 and 8080 running.
+
+Scoreboard: 147 findings; 122 fixed; 25 open, none critical.

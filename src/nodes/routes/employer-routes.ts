@@ -414,20 +414,24 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
 
   routes.push({
     method: 'POST',
-    path: '/tokens/:tokenId/enrollment-cancelled',
+    path: '/invites/:tokenIdHash/enrollment-cancelled',
     handler: async (req, res, params, _query, body) => {
       /*
        * A-109: the plan cancelled the enrollment this code made. An employee reported that someone else used the invite,
        * the plan held the wallet that used it, and once the employer confirmed its real employee the plan terminated that
        * wallet and says so here. Only the insurer, signed and limited as the oracle is. The code is spent for good and the
        * employee's roster row goes back to pending, out of the enrollment count, so HR can send a new invite; no wallet
-       * crosses this boundary (I6).
+       * crosses this boundary (I6). A-143: the invite is named by its fingerprint, the tokenIdHash this node keeps it
+       * under, since the plan keeps no code either.
        */
       const node = server.getEntityNode() as EmployerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Employer node not configured');
       if (!insurerSigned(req, res, node, body, 'A cancellation')) return;
+      if (!/^\d{1,100}$/.test(params.tokenIdHash)) {
+        return server.sendResponse(res, 400, false, undefined, "An invite's fingerprint is a decimal number");
+      }
       try {
-        server.sendResponse(res, 200, true, node.cancelEnrollment(normalizeTokenId(params.tokenId)));
+        server.sendResponse(res, 200, true, node.cancelEnrollmentByHash(params.tokenIdHash));
       } catch (err: unknown) {
         server.sendResponse(res, 409, false, undefined, err instanceof Error ? err.message : String(err));
       }
