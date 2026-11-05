@@ -145,6 +145,15 @@ export function recordHashOf(record: CeremonyRecordBody & { signatures?: unknown
   return sha256Hex(canonicalJson(bodyOf(record)));
 }
 
+/**
+ * The fingerprint of a start's one-time key, which the node prints on its own console: a holder releases a share only
+ * after reading the same fingerprint there, so a key swapped on the way to the holder is caught.
+ */
+export function bootFingerprint(bootPublicKeyHex: string): string {
+  if (!HEX32.test(bootPublicKeyHex)) throw new CeremonyRecordError('bootFingerprint: a public key is 32 bytes of hex');
+  return createHash('sha256').update(Buffer.from(bootPublicKeyHex, 'hex')).digest('hex').slice(0, 16).toUpperCase().match(/.{4}/g)!.join('-');
+}
+
 function recordMessage(recordHash: string): Buffer {
   return Buffer.from(`zpk.care/ceremony-record/v1\n${recordHash}`, 'utf8');
 }

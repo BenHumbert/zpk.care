@@ -44,6 +44,7 @@ import { timingSafeEqual, randomBytes } from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { Socket } from 'net';
 import type { EntityNodeBase } from './entity-node-base.js';
+import type { NodeKeyring } from '../keys/node-keyring.js';
 import type { L2EventHandler, L2ChainEvent } from '../l2/l2-node.js';
 import { l2Stringify } from '../l2/l2-json.js';
 import { NautilusLocalState } from './nautilus-local-state.js';
@@ -181,6 +182,8 @@ export class NautilusAppServer {
   private server: http.Server | https.Server | null = null;
   private listening = false;
   private entityNode: EntityNodeBase | null = null;
+  /** The node's ceremony keys (src/keys/node-keyring.ts), on a node the key ceremony keyed. */
+  private keyring: NodeKeyring | null = null;
   private localState: NautilusLocalState;
   private routes: CompiledRoute[] = [];
   private startTime = 0;
@@ -260,6 +263,15 @@ export class NautilusAppServer {
   /** Get the entity node (null before onboarding) */
   getEntityNode(): EntityNodeBase | null {
     return this.entityNode;
+  }
+
+  /** The node's ceremony keys, or null on a node the key ceremony did not key (src/nodes/routes/key-routes.ts). */
+  setKeyring(keyring: NodeKeyring | null): void {
+    this.keyring = keyring;
+  }
+
+  getKeyring(): NodeKeyring | null {
+    return this.keyring;
   }
 
   /** Get the encrypted local state manager */

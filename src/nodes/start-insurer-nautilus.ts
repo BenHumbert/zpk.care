@@ -36,6 +36,11 @@
  *   ZKTRIDENT_RPC_PROXY        — 1 to re-enable POST /rpc forwarding (default: off)
  *   ZKTRIDENT_DISPLAY_NAME     — Display name for logging
  *   ZKTRIDENT_ADMIN_TOKEN      — Bearer token for admin endpoints (required)
+ *   ZKTRIDENT_CEREMONY_RECORD  — The signed key ceremony record. This node's keys come from the master its
+ *                                key holders provision once per machine (POST /keys/release) and its
+ *                                machine keeps sealed after that, so a restart needs no one
+ *   ZKTRIDENT_CEREMONY_NODE_ID — This node's name in the record (default: insurer)
+ *   ZKTRIDENT_KEY_SEAL         — dpapi (the Windows default) or development (unsecure boots only)
  *
  * Usage:
  *   ZKTRIDENT_ADMIN_TOKEN=secret npx tsx src/nodes/start-insurer-nautilus.ts
@@ -51,6 +56,10 @@ import { buildInsurerRoutes } from './routes/insurer-routes.js';
 import { buildMarketplaceRoutes, buildEmployerAdminRoutes } from './routes/marketplace-routes.js';
 import { InsurerNode } from './insurer-node.js';
 import { resolveBindHost, resolveAllowedOrigins, resolveRpcProxyPolicy } from '../security/network-policy.js';
+import { buildKeyRoutes, attachNodeKeyring } from './routes/key-routes.js';
+import { NodeKeyring } from '../keys/node-keyring.js';
+import { resolveMachineSeal } from '../keys/machine-seal.js';
+import { verifyCeremonyRecord, type CeremonyRecord } from '../keys/ceremony.js';
 
 // ─── Environment ─────────────────────────────────────────────
 
@@ -109,6 +118,7 @@ async function main(): Promise<void> {
   server.registerRoutes(buildInsurerRoutes(server));
   server.registerRoutes(buildMarketplaceRoutes(server));
   server.registerRoutes(buildEmployerAdminRoutes(server));
+  server.registerRoutes(buildKeyRoutes(server));
 
   // Insurer has no wallet, no PIN — create node directly
   const node = new InsurerNode({
@@ -121,6 +131,36 @@ async function main(): Promise<void> {
   server.setOnboardingPhase('credentialing' as any);
 
   console.log('  [init] InsurerNode created (no wallet, admin-gated)');
+
+  // ── Keys (the key ceremony, owner 2026-11-04; the restart rule, owner 2026-11-05) ──
+  // With a ceremony record this node's keys come from its master: provisioned once per machine by the key holders,
+  // then opened by this machine's seal at every start, with no one. Claims never wait on it: they do not pass through
+  // this node. Until it is unlocked the node signs no employer attestation.
+  const ceremonyRecordPath = env.ZKTRIDENT_CEREMONY_RECORD?.trim();
+  if (ceremonyRecordPath) {
+    let record: CeremonyRecord;
+    try {
+      record = JSON.parse(fs.readFileSync(ceremonyRecordPath, 'utf8')) as CeremonyRecord;
+      verifyCeremonyRecord(record);
+    } catch (err) {
+      console.error('  [FATAL] the key ceremony record at %s is not valid: %s', ceremonyRecordPath, err instanceof Error ? err.message : String(err));
+      process.exit(1);
+    }
+    if (config.insurerSigningSeed) {
+      console.warn('  [keys] ZKTRIDENT_INSURER_SIGNING_SEED is ignored: this node signs with the key the ceremony made');
+      config.insurerSigningSeed = undefined;
+    }
+    const keyring = new NodeKeyring({
+      record,
+      nodeId: env.ZKTRIDENT_CEREMONY_NODE_ID?.trim() || 'insurer',
+      stateDir: config.stateDir,
+      seal: resolveMachineSeal(env),
+    });
+    attachNodeKeyring(server, keyring);
+    await keyring.start();
+  } else {
+    console.warn('  [keys] no key ceremony record: the insurer signs with %s', config.insurerSigningSeed ? 'the seed it was given' : 'nothing (no seed was given)');
+  }
 
   // ── Start Server ──
 
@@ -279,6 +319,7 @@ async function main(): Promise<void> {
       shutdownAllTenants();
     } catch { /* orchestrator module may not be loaded — ignore */ }
     await server.stop();
+    server.getKeyring()?.close();
     console.log('  [shutdown] Server stopped');
     process.exit(0);
   };

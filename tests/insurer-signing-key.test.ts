@@ -178,10 +178,14 @@ describe('the wiring that keeps the signer and the verifier in step', () => {
     expect(src).not.toContain('const signingSecret = server.getConfig().adminToken');
   });
 
-  test('the boot derives the pinned key from the same seed it gives the insurer', () => {
+  test('the boot pins the insurer key from the same plan that keys the insurer', () => {
+    // The key ceremony (owner, 2026-11-04): one plan gives both halves, the record's insurer key and its path, or a
+    // seed and the key made from it, so the two cannot drift; tests/launcher-ceremony.test.ts checks the plan itself.
     const src = require('fs').readFileSync('src/nodes/start-leviathan.ts', 'utf-8') as string;
-    expect(src).toContain('insurerPublicKeyFromSeed(insurerSigningSeed)');
-    expect(src).toContain('ZKTRIDENT_INSURER_SIGNING_SEED: insurerSigningSeed');
+    expect(src).toContain('insurerKeys = planInsurerKeys(env, checkpointDir)');
+    expect(src).toContain('const insurerAttestationPublicKeyHex = insurerKeys.insurerAttestationPublicKeyHex;');
+    expect(src).toContain('...insurerKeys.insurerChildEnv,');
     expect(src).toContain('insurerAttestationPublicKeyHex,');
+    expect(src).not.toContain('crypto.randomBytes(32)');
   });
 });

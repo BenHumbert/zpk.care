@@ -3498,3 +3498,71 @@ which is then refused, the plan sees the report by the invite's fingerprint and 
 the employee back to pending with the invite spent, and HR's new invite is texted to the employee. kill:ports then
 stopped the network and left the servers on 8000 and 8080 running. Scoreboard: 141 findings; 118 fixed; 23 open, none
 critical.
+
+**The sealed stores and the key ceremony, slices 1 to 3, 2026-11-05 (owner: "let's go on the invite stores and ceremony"; A-147 fixed).**
+The owner's decisions: node secrets are made at a multisig key ceremony modeled on the DNS root ceremony (2026-11-04),
+and a restart needs no one: "if it shuts down and restarts we dont need keys to have it come back online"
+(2026-11-05). So the key holders provision a node once per machine and the node then seals its master to that
+machine; this replaces the design of the same morning, in which the node's peers handed its key back at each rejoin.
+
+- Slice 1 (c472ef8), the building blocks in `src/keys/`:
+  - Shamir sharing over GF(2^8), whose multiplication never branches or looks up on secret bytes.
+  - Sealing to one X25519 key; the envelope's purpose is bound into its key and its tag.
+  - Per-purpose subkeys by HKDF.
+  - A sealed record store: an encrypted snapshot plus an append-only journal. Each entry is bound to its store,
+    generation and sequence number, and each write is fsynced. A torn last line is dropped, and a crash during
+    compaction loses nothing.
+  - The machine seal: DPAPI under the node's account on Windows, reached through PowerShell at its absolute path
+    with the secret on stdin. A secured boot elsewhere refuses; an unsecure boot keeps the master in the clear and
+    says so.
+- Slice 2 (3575449), the ceremony itself:
+  - Holder keys, Ed25519 to sign and X25519 to receive, under a passphrase (scrypt 2^17).
+  - The ceremony program, which splits each node's master, seals each share to its holder, wipes the master, and
+    writes a record of the holders, the threshold, a check value and the insurer key.
+  - The record is valid with threshold holder signatures. A later record must also carry the previous holders'
+    signatures.
+  - The ceremony refuses a split in which one team could rebuild a key alone.
+  - The programs are `scripts/keys/holder.ts` (keygen, card, sign-record, release) and `scripts/keys/ceremony.ts`
+    (hash, run, verify).
+- Slice 3, the boot:
+  - With `ZKTRIDENT_CEREMONY_RECORD`, the sequencer pins the record as its trust anchor in its checkpoint directory
+    and pins the insurer key the record publishes (`src/keys/ceremony-anchor.ts`, `launcher-ceremony.ts`). It then
+    starts only with that record, or one that follows it, signed by its holders.
+  - The insurer node gets the record's path, not a seed. It keeps its master in `src/keys/node-keyring.ts`.
+  - On a machine with no master yet, the node prints a one-time key's fingerprint and waits on
+    `GET /keys/status` and `POST /keys/release` (`src/nodes/routes/key-routes.ts`). It takes a release only from a
+    holder in the record, for its own key, name and the holder's slot. Refusals are limited per address.
+  - With the threshold met, it rebuilds the master and checks it against the record; a lying holder's share is set
+    aside and named. It then seals the master to the machine and makes the insurer's signing seed from it.
+  - Every later start opens the sealed master by itself. Another machine opens nothing and is provisioned again.
+  - A node holding another ceremony's master refuses a new one, since moving its stores (a rotation) is not built.
+  - Without a record, the boot keeps the old seed and says so.
+
+*Verified.* Each new suite failed first:
+
+| Suite | Tests |
+|---|---|
+| `tests/key-shamir.test.ts` (FIPS-197 vectors; every byte pair against an independent table; every 3-of-5 subset; two shares fit every secret byte equally) | 13 |
+| `tests/key-seal.test.ts` | 13 |
+| `tests/sealed-store.test.ts` | 19 |
+| `tests/machine-seal.test.ts` (real DPAPI) | 9 |
+| `tests/key-ceremony.test.ts` | 21 |
+| `tests/key-ceremony-cli.test.ts` (both programs end to end, the release against a real node server) | 2 |
+| `tests/node-keyring.test.ts` | 12 |
+| `tests/insurer-key-provisioning.test.ts` | 5 |
+| `tests/launcher-ceremony.test.ts` | 3 |
+
+`tests/insurer-signing-key.test.ts` now reads the launcher's one key plan. Regression batch: 172 suites, 2,101 tests,
+all passing. Typecheck: src 18 and scripts 2, the same errors.
+
+*Live, the same day* (secured boot, one member, explorer on 8010):
+1. A ceremony of three throwaway holders, any 2 needed, its record signed by two.
+2. The sequencer pinned the record as its trust anchor, and the plan's server waited and printed its one-time key.
+3. Two holders released their shares with the holder program, each checking that fingerprint. The plan's server
+   unlocked and sealed its master.
+4. The harness passed 262 of 262 checks across 35 steps.
+5. The whole network was stopped and booted again without clearing state. The record matched the anchor, and the
+   plan's server unlocked by DPAPI with no holder and no one-time key, with the same insurer key.
+6. kill:ports then stopped the network and left the servers on 8000 and 8080 running.
+
+Scoreboard: 147 findings; 119 fixed; 28 open, none critical.

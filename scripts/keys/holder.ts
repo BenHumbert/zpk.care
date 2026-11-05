@@ -25,13 +25,20 @@
  *   sign-record --key <file> --record <record.json> [--yes]
  *       Check a ceremony record and add this holder's signature to it. Without --yes it asks for the first 8
  *       characters of the record hash, which the ceremony program printed, so a holder signs only what was shown.
+ *   release --key <file> --share <file> --node <url> [--boot-fingerprint XXXX-XXXX-XXXX-XXXX] [--yes]
+ *       Provision a node: seal this holder's share to the one-time key of the node's current start and send it. The
+ *       fingerprint of that key is computed here, from the key the share is sealed to, and must match the one the
+ *       node prints on its own console: given with --boot-fingerprint, or typed back when asked. A key swapped on
+ *       the way is caught that way. Needed once per machine; a restarted node unlocks by itself.
  *
  * The passphrase is asked without echo, or read from ZPK_HOLDER_PASSPHRASE when automation plays the holder.
  */
 import {
   createHolderKey, unlockHolderKey, holderFingerprint, type HolderKeyFile, type HolderCard,
 } from '../../src/keys/holder-key.js';
-import { addRecordSignature, recordHashOf, signCeremonyRecord, type CeremonyRecord } from '../../src/keys/ceremony.js';
+import {
+  addRecordSignature, recordHashOf, signCeremonyRecord, releaseShare, bootFingerprint, type CeremonyRecord, type ShareFile,
+} from '../../src/keys/ceremony.js';
 import { parseArgs, required, holderPassphrase, readJson, writeJson, confirm, fail } from './cli-util.js';
 
 function cardOf(file: HolderKeyFile): HolderCard {
@@ -76,7 +83,37 @@ async function main(): Promise<void> {
     console.log(`Signed by ${holder.card.label}`);
     return;
   }
-  throw new Error('usage: holder.ts keygen|card|sign-record (see the header of scripts/keys/holder.ts)');
+  if (command === 'release') {
+    const share = readJson<ShareFile>(required(options, 'share'));
+    const file = readJson<HolderKeyFile>(required(options, 'key'));
+    const node = required(options, 'node').replace(/\/+$/, '');
+    const statusResp = await fetch(`${node}/keys/status`);
+    const status = (await statusResp.json() as { data?: { state: string; ceremonyId: string; nodeId: string; threshold: number; received: number; bootPublicKeyHex?: string } }).data;
+    if (!status) throw new Error(`${node} answered ${statusResp.status} and no key status`);
+    if (status.state !== 'awaiting-shares' || !status.bootPublicKeyHex) throw new Error(`${status.nodeId} is not waiting for shares (${status.state})`);
+    if (status.ceremonyId !== share.ceremonyId || status.nodeId !== share.nodeId) {
+      throw new Error(`this share is for ${share.nodeId} of ceremony ${share.ceremonyId}; the node is ${status.nodeId} of ${status.ceremonyId}`);
+    }
+    const fingerprint = bootFingerprint(status.bootPublicKeyHex);
+    console.log(`${status.nodeId} (ceremony ${status.ceremonyId}) is waiting for ${status.threshold} holders; ${status.received} have released.`);
+    console.log(`Its one-time key, as this program computes it: ${fingerprint}`);
+    const expected = options.get('boot-fingerprint');
+    if (expected) {
+      if (expected.trim().toUpperCase() !== fingerprint) throw new Error("that is not the fingerprint you were given from the node's console: nothing was released");
+    } else if (!flags.has('yes')) {
+      if (!(await confirm("Type its first 4 characters as the node's console shows them, to release: ", fingerprint.slice(0, 4)))) throw new Error('not released');
+    }
+    const holder = unlockHolderKey(file, await holderPassphrase());
+    const release = releaseShare(share, holder, { ceremonyId: share.ceremonyId, nodeId: share.nodeId, bootPublicKeyHex: status.bootPublicKeyHex });
+    const sent = await fetch(`${node}/keys/release`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(release) });
+    const answer = await sent.json() as { ok: boolean; data?: { state: string; received: number; threshold: number }; error?: string };
+    if (!answer.ok || !answer.data) throw new Error(`the node refused the release: ${answer.error ?? sent.status}`);
+    console.log(answer.data.state === 'unlocked'
+      ? `${share.nodeId} is unlocked and has sealed its master to its machine.`
+      : `Released: ${answer.data.received} of ${answer.data.threshold}.`);
+    return;
+  }
+  throw new Error('usage: holder.ts keygen|card|sign-record|release (see the header of scripts/keys/holder.ts)');
 }
 
 main().catch(fail);

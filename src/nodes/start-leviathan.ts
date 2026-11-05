@@ -37,9 +37,15 @@
  *   ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN — The prescriber node's own admin token, for its
  *                                patient-price and prior-authorization routes (default:
  *                                derived from ZKTRIDENT_ADMIN_TOKEN, deriveNodeAdminToken)
- *   ZKTRIDENT_INSURER_SIGNING_SEED — Insurer's Ed25519 attestation seed. NOT the admin
- *                                token (A-14). Random per boot if unset, which
- *                                invalidates attestations from a previous run.
+ *   ZKTRIDENT_CEREMONY_RECORD  — The signed key ceremony record (scripts/keys/ceremony.ts). The first
+ *                                one is pinned as this sequencer's trust anchor in the checkpoint
+ *                                directory; the insurer's attestation key comes from it, and the
+ *                                insurer node makes its seed from the master its machine keeps sealed.
+ *   ZKTRIDENT_KEY_SEAL         — How a node seals its master to its machine: dpapi (the Windows
+ *                                default) or development (unsecure boots only; not sealed)
+ *   ZKTRIDENT_INSURER_SIGNING_SEED — Without a ceremony record: the insurer's Ed25519 attestation
+ *                                seed. NOT the admin token (A-14). Random per boot if unset,
+ *                                which invalidates attestations from a previous run.
  *   ZKTRIDENT_GOSSIP_SECRET    — HMAC-SHA256 shared secret for gossip auth (default: none)
  *   ZKTRIDENT_CHECKPOINT_DIR   — Directory for checkpoint files (default: ./l2-data)
  *   ZKTRIDENT_MAX_CHECKPOINTS  — Max checkpoint files to keep (default: 10)
@@ -81,8 +87,7 @@ import type { PartitionConfig } from '../l2/l2-partition.js';
 import type { VizEvent } from '../l2/l2-rpc-server.js';
 import http from 'http';
 import { resolveBindHost, resolveAllowedOrigins, resolveExplorerPort } from '../security/network-policy.js';
-import crypto from 'crypto';
-import { insurerPublicKeyFromSeed } from '../onboarding/employer-attestation.js';
+import { planInsurerKeys, type InsurerKeyPlan } from '../keys/launcher-ceremony.js';
 import { generateNodeKey, childEnvironment, deriveNodeAdminToken, NODE_ID_ENV, NODE_KEY_SEED_ENV, type NodeRole } from '../security/node-roles.js';
 import { InvariantMonitor, snapshotOf } from '../l2/invariant-monitor.js';
 import { AdjudicationService } from '../adjudication/interactive-service.js';
@@ -144,10 +149,23 @@ const gossipSecret = env.ZKTRIDENT_GOSSIP_SECRET;
  * deployment that keeps employer attestations across restarts must set
  * ZKTRIDENT_INSURER_SIGNING_SEED.
  */
-const insurerSigningSeed = env.ZKTRIDENT_INSURER_SIGNING_SEED
-  ?? crypto.randomBytes(32).toString('base64url');
-const insurerAttestationPublicKeyHex = insurerPublicKeyFromSeed(insurerSigningSeed);
 const checkpointDir = env.ZKTRIDENT_CHECKPOINT_DIR ?? './l2-data';
+/*
+ * The key ceremony (owner, 2026-11-04) replaces the seed above when a record is configured: the sequencer pins the
+ * record as its trust anchor and pins the insurer key it publishes, and the insurer node, given only the record's
+ * path, makes its seed from the master its key holders provisioned and its machine keeps sealed. Nothing secret passes
+ * through this process, and the key is the same after every restart (src/keys/launcher-ceremony.ts).
+ */
+let insurerKeys: InsurerKeyPlan;
+try {
+  insurerKeys = planInsurerKeys(env, checkpointDir);
+} catch (err) {
+  console.error('  [FATAL] %s', err instanceof Error ? err.message : String(err));
+  console.error('          The sequencer starts only with the pinned ceremony record or one its holders signed to follow it.');
+  process.exit(1);
+}
+for (const note of insurerKeys.notes) console.log('  [keys] %s', note);
+const insurerAttestationPublicKeyHex = insurerKeys.insurerAttestationPublicKeyHex;
 const maxCheckpoints = parseInt(env.ZKTRIDENT_MAX_CHECKPOINTS ?? '10', 10);
 const l2Only = (env.ZKTRIDENT_L2_ONLY ?? 'true') !== 'false';
 const enableSSE = (env.ZKTRIDENT_SSE ?? 'true') !== 'false';
@@ -807,9 +825,10 @@ async function main(): Promise<void> {
   spawnEntity('insurer', 'start-insurer-nautilus.ts', 4004, {
     // A9: the insurer's own admin token for its own routes; the operator's token never leaves this process.
     ...(insurerAdminToken ? { ZKTRIDENT_ADMIN_TOKEN: insurerAdminToken } : {}),
-    // A9: the insurer's own signing seed, which only the insurer gets. Its public half is pinned
-    // on the sequencer above, so the two cannot drift.
-    ZKTRIDENT_INSURER_SIGNING_SEED: insurerSigningSeed,
+    // A9 and the key ceremony: what the insurer's key comes from, which only the insurer gets: the ceremony
+    // record's path (its seed is made from its sealed master) or, without a ceremony, the seed itself. Its public
+    // half is pinned on the sequencer above, so the two cannot drift.
+    ...insurerKeys.insurerChildEnv,
     ...(unsecureMode ? { ZKTRIDENT_UNSECURE: 'true' } : {}),
   });
 
