@@ -15,7 +15,7 @@
  */
 
 import { Field } from 'o1js';
-import { timingSafeEqual } from 'crypto';
+import { createHmac, timingSafeEqual } from 'crypto';
 import {
   GroupEnrollmentToken,
   buildGroupEnrollmentToken,
@@ -82,6 +82,11 @@ export interface TokenRecord {
   familyIdHash?: string;
   /** Poseidon(tokenId + PIN) — enrollment 2FA binding. Set by HR Tool after token generation. */
   tokenPinHash?: string;
+  /**
+   * A-136: on a node with a PIN key, what is kept instead of tokenPinHash: an HMAC of it under that key, so a copy of the
+   * records cannot be tried against PINs without the key, even by someone who also holds the code.
+   */
+  pinCheck?: string;
   /** Number of failed PIN attempts (locked after MAX_PIN_ATTEMPTS) */
   pinAttempts?: number;
   /** Token lifecycle status */
@@ -94,6 +99,33 @@ export interface TokenRecord {
 
 /** What became of an invite (inviteStatusOf): a record's status, or locked by wrong PINs (A-109 notices). */
 export type InviteStatus = TokenRecord['status'] | 'locked';
+
+const TOKEN_FIELDS = ['tokenIdHash', 'groupIdHash', 'planIdHash', 'employeeIdHash', 'familyIdHash', 'validUntil', 'issuerHash', 'nonce'] as const;
+
+/**
+ * An invite as the employer node's sealed store keeps it (A-136): the record without the wallet that used it (I6; only
+ * the in-process EnrollmentService ever sets one) and with the token's fields as decimal strings.
+ */
+export interface StoredInvite extends Omit<TokenRecord, 'token' | 'consumedByWalletId'> {
+  token: Record<(typeof TOKEN_FIELDS)[number], string>;
+}
+
+/** Whether an invite has its PIN bound, as the PIN hash or as the keyed check of one. */
+export function hasPinBinding(record: TokenRecord): boolean {
+  return Boolean(record.tokenPinHash || record.pinCheck);
+}
+
+function storedInviteOf(record: TokenRecord): StoredInvite {
+  const { token, consumedByWalletId: _wallet, ...rest } = record;
+  const fields = Object.fromEntries(TOKEN_FIELDS.map((f) => [f, token[f].toString()])) as StoredInvite['token'];
+  return { ...rest, token: fields };
+}
+
+function recordFromStored(stored: StoredInvite): TokenRecord {
+  const { token, ...rest } = stored;
+  const fields = Object.fromEntries(TOKEN_FIELDS.map((f) => [f, Field(token[f])]));
+  return { ...rest, token: new GroupEnrollmentToken(fields as unknown as GroupEnrollmentToken) };
+}
 
 /**
  * Token validation result.
@@ -136,11 +168,40 @@ export class TokenAuthority {
   private tokens: Map<string, TokenRecord>;
   private nonceCounter: number;
   private issuer: string;
+  /** A-136: the key over the PIN hashes, on a node that keeps its records; null keeps the hash itself, in memory. */
+  private readonly pinPepper: Buffer | null;
+  /** A-136: the invites changed since takeChanges, by fingerprint, and whether the nonce counter moved. */
+  private readonly changed = new Set<string>();
+  private nonceChanged = false;
 
-  constructor(issuer: string) {
+  constructor(issuer: string, opts: { pinPepper?: Uint8Array } = {}) {
     this.tokens = new Map();
     this.nonceCounter = 0;
     this.issuer = issuer;
+    this.pinPepper = opts.pinPepper ? Buffer.from(opts.pinPepper) : null;
+  }
+
+  /** The keyed check of a PIN hash (A-136). */
+  private pinCheckOf(tokenPinHash: string): string {
+    return createHmac('sha256', this.pinPepper!).update(`zpk.care/invite-pin/v1\n${tokenPinHash}`, 'utf8').digest('hex');
+  }
+
+  /** What changed since the last call (A-136), for the employer node to write to its store in one entry. */
+  takeChanges(): { invites: StoredInvite[]; nonceCounter: number | null } {
+    const invites = [...this.changed].map((h) => this.tokens.get(h)).filter((r): r is TokenRecord => !!r).map(storedInviteOf);
+    const nonceCounter = this.nonceChanged ? this.nonceCounter : null;
+    this.changed.clear();
+    this.nonceChanged = false;
+    return { invites, nonceCounter };
+  }
+
+  /** Put back the invites and the nonce counter a store kept (A-136). */
+  restore(invites: StoredInvite[], nonceCounter: number): void {
+    for (const stored of invites) {
+      const record = recordFromStored(stored);
+      this.tokens.set(record.tokenIdHash, record);
+    }
+    this.nonceCounter = Math.max(this.nonceCounter, nonceCounter);
   }
 
   /** A code's one-way fingerprint, Poseidon(code): the tokenIdHash its invite's struct carries. */
@@ -216,6 +277,8 @@ export class TokenAuthority {
     };
 
     this.tokens.set(record.tokenIdHash, record);
+    this.changed.add(record.tokenIdHash);
+    this.nonceChanged = true;
 
     return { token, tokenId: id };
   }
@@ -249,6 +312,7 @@ export class TokenAuthority {
     const expiry = BigInt(record.validUntil);
     if (current > expiry) {
       record.status = 'expired';
+      this.changed.add(record.tokenIdHash);
       return { valid: false, reason: 'Token expired' };
     }
 
@@ -276,6 +340,7 @@ export class TokenAuthority {
     record.status = 'consumed';
     record.consumedByWalletId = walletId.toString();
     record.consumedAt = new Date().toISOString();
+    this.changed.add(record.tokenIdHash);
   }
 
   /**
@@ -295,6 +360,7 @@ export class TokenAuthority {
     }
 
     record.status = 'revoked';
+    this.changed.add(record.tokenIdHash);
   }
 
   /**
@@ -307,6 +373,7 @@ export class TokenAuthority {
     if (!record) throw new Error('Token not found');
     if (record.status !== 'consumed') throw new Error(`Nothing to cancel: the code was never used (it is ${record.status})`);
     record.status = 'revoked';
+    this.changed.add(record.tokenIdHash);
   }
 
   /**
@@ -319,8 +386,10 @@ export class TokenAuthority {
     const record = this.tokens.get(TokenAuthority.fingerprintOf(tokenId));
     if (!record) throw new Error('Token not found');
     if (record.status !== 'unused') throw new Error(`Cannot set PIN hash: token already ${record.status}`);
-    if (record.tokenPinHash) throw new Error('PIN hash already set — cannot overwrite');
-    record.tokenPinHash = tokenPinHash;
+    if (hasPinBinding(record)) throw new Error('PIN hash already set — cannot overwrite');
+    if (this.pinPepper) record.pinCheck = this.pinCheckOf(tokenPinHash);
+    else record.tokenPinHash = tokenPinHash;
+    this.changed.add(record.tokenIdHash);
   }
 
   /** Max failed PIN attempts before token is locked */
@@ -349,7 +418,11 @@ export class TokenAuthority {
     const record = this.tokens.get(TokenAuthority.fingerprintOf(tokenId))!;
 
     // If token has a PIN hash, verify it
-    if (record.tokenPinHash) {
+    if (hasPinBinding(record)) {
+      // A-136: a record kept as the keyed check of its PIN hash can be checked only with the key
+      const keyed = record.pinCheck !== undefined;
+      if (keyed && !this.pinPepper) return { valid: false, reason: 'This node has no PIN key to check an enrollment PIN with' };
+
       // Rate limiting: lock after MAX_PIN_ATTEMPTS failed attempts
       const attempts = record.pinAttempts ?? 0;
       if (attempts >= TokenAuthority.MAX_PIN_ATTEMPTS) {
@@ -358,12 +431,13 @@ export class TokenAuthority {
 
       if (!tokenPinHash) {
         record.pinAttempts = attempts + 1;
+        this.changed.add(record.tokenIdHash);
         return { valid: false, reason: 'Enrollment PIN required' };
       }
 
       // Timing-safe comparison to prevent side-channel leakage
-      const a = Buffer.from(tokenPinHash, 'utf8');
-      const b = Buffer.from(record.tokenPinHash, 'utf8');
+      const a = Buffer.from(keyed ? this.pinCheckOf(tokenPinHash) : tokenPinHash, 'utf8');
+      const b = Buffer.from(keyed ? record.pinCheck! : record.tokenPinHash!, 'utf8');
       let match = false;
       if (a.length === b.length) {
         match = timingSafeEqual(a, b);
@@ -371,11 +445,13 @@ export class TokenAuthority {
 
       if (!match) {
         record.pinAttempts = attempts + 1;
+        this.changed.add(record.tokenIdHash);
         const remaining = TokenAuthority.MAX_PIN_ATTEMPTS - (attempts + 1);
         return { valid: false, reason: `Invalid enrollment PIN (${remaining} attempts remaining)` };
       }
 
       // PIN verified — reset attempts
+      if (attempts !== 0) this.changed.add(record.tokenIdHash);
       record.pinAttempts = 0;
     }
 
@@ -406,7 +482,7 @@ export class TokenAuthority {
     tokenPinHash: string | undefined,
   ): TokenValidationResult & { consumed?: boolean } {
     const record = this.tokens.get(TokenAuthority.fingerprintOf(tokenId));
-    if (record && record.status === 'unused' && !record.tokenPinHash) {
+    if (record && record.status === 'unused' && !hasPinBinding(record)) {
       return { valid: false, reason: 'Enrollment PIN not set for this code; ask HR to re-issue it' };
     }
     const result = this.validateTokenWithPin(tokenId, currentDate, tokenPinHash);
@@ -414,6 +490,7 @@ export class TokenAuthority {
     const live = this.tokens.get(TokenAuthority.fingerprintOf(tokenId))!;
     live.status = 'consumed';
     live.consumedAt = new Date().toISOString();
+    this.changed.add(live.tokenIdHash);
     return { ...result, consumed: true };
   }
 

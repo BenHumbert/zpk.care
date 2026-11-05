@@ -31,7 +31,8 @@
 import { Field, Poseidon } from 'o1js';
 import { hashString } from '../zkp/hash-utils.js';
 import { TokenAuthority, inviteExpiryProblem, compactInviteDate } from '../onboarding/token-authority.js';
-import type { TokenRecord, TokenValidationResult, InviteStatus } from '../onboarding/token-authority.js';
+import type { TokenRecord, TokenValidationResult, InviteStatus, StoredInvite } from '../onboarding/token-authority.js';
+import type { SealedRecordStore } from '../keys/sealed-store.js';
 import type { GroupEnrollmentToken } from '../onboarding/group-enrollment-token.js';
 import { EntityNodeBase } from './entity-node-base.js';
 import type { EmployerNodeConfig } from './entity-node-types.js';
@@ -93,6 +94,16 @@ export interface EmployerRosterEntry {
  */
 export type EmployerRosterView = EmployerRosterEntry & { inviteStatus: InviteStatus | null };
 
+/**
+ * What the employer node keeps in its sealed store (A-136), one record per key: `group:<groupId>`,
+ * `roster:<employeeIdHash>`, `invite:<tokenIdHash>` and `meta`. Hashes only: no code, no PIN hash, no wallet.
+ */
+export type EmployerStoredRecord =
+  | { kind: 'group'; group: EmployerGroupRecord }
+  | { kind: 'roster'; entry: EmployerRosterEntry }
+  | { kind: 'invite'; invite: StoredInvite }
+  | { kind: 'meta'; nonceCounter: number };
+
 // ─── EmployerNode ────────────────────────────────────────────
 
 export class EmployerNode extends EntityNodeBase {
@@ -102,6 +113,10 @@ export class EmployerNode extends EntityNodeBase {
   private insurerUrl: string | null;
   private employerId: string;
   private sequencerUrl: string;
+  /** A-136: where the groups, roster and invites survive a restart; null keeps them in memory only. */
+  private readonly store: SealedRecordStore<EmployerStoredRecord> | null;
+  private readonly changedGroups = new Set<string>();
+  private readonly changedRoster = new Set<string>();
 
   /** Pseudo-walletId derived from employerId for messaging */
   private employerWalletId: string;
@@ -119,11 +134,47 @@ export class EmployerNode extends EntityNodeBase {
 
   constructor(config: EmployerNodeConfig) {
     super({ ...config, role: 'employer' });
-    this.tokenAuthority = new TokenAuthority(config.employerId);
+    if (config.store && !config.pinPepper) {
+      throw new Error('EmployerNode: a store needs its PIN key (pinPepper), or the PIN hashes it keeps could be tried offline');
+    }
+    this.tokenAuthority = new TokenAuthority(config.employerId, { pinPepper: config.pinPepper });
     this.insurerUrl = config.insurerUrl ?? null;
     this.employerId = config.employerId;
     this.sequencerUrl = config.sequencerUrl;
     this.employerWalletId = Poseidon.hash([hashString(config.employerId)]).toString();
+    this.store = config.store ?? null;
+    if (this.store) this.loadFromStore();
+  }
+
+  /** A-136: put back the groups, roster and invites the store kept. */
+  private loadFromStore(): void {
+    const invites: StoredInvite[] = [];
+    let nonceCounter = 0;
+    for (const [, record] of this.store!) {
+      if (record.kind === 'group') this.groups.set(record.group.groupId, record.group);
+      else if (record.kind === 'roster') this.roster.set(record.entry.employeeIdHash, record.entry);
+      else if (record.kind === 'invite') invites.push(record.invite);
+      else if (record.kind === 'meta') nonceCounter = record.nonceCounter;
+    }
+    this.tokenAuthority.restore(invites, nonceCounter);
+    this.tokenAuthority.takeChanges();
+  }
+
+  /** A-136: write what an operation changed to the store, in one entry; without a store, nothing. */
+  private commit(): void {
+    const { invites, nonceCounter } = this.tokenAuthority.takeChanges();
+    const groups = [...this.changedGroups].map((id) => this.groups.get(id)).filter((g): g is EmployerGroupRecord => !!g);
+    const roster = [...this.changedRoster].map((h) => this.roster.get(h)).filter((e): e is EmployerRosterEntry => !!e);
+    this.changedGroups.clear();
+    this.changedRoster.clear();
+    if (!this.store) return;
+    const entries: Array<[string, EmployerStoredRecord]> = [
+      ...groups.map((group): [string, EmployerStoredRecord] => [`group:${group.groupId}`, { kind: 'group', group }]),
+      ...roster.map((entry): [string, EmployerStoredRecord] => [`roster:${entry.employeeIdHash}`, { kind: 'roster', entry }]),
+      ...invites.map((invite): [string, EmployerStoredRecord] => [`invite:${invite.tokenIdHash}`, { kind: 'invite', invite }]),
+    ];
+    if (nonceCounter !== null) entries.push(['meta', { kind: 'meta', nonceCounter }]);
+    if (entries.length > 0) this.store.putMany(entries);
   }
 
   /** Refresh attestation from sequencer — returns true if a valid attestation was loaded.
@@ -295,6 +346,8 @@ export class EmployerNode extends EntityNodeBase {
     };
 
     this.groups.set(groupId, record);
+    this.changedGroups.add(groupId);
+    this.commit();
     return record;
   }
 
@@ -306,6 +359,8 @@ export class EmployerNode extends EntityNodeBase {
 
     group.status = 'terminated';
     group.terminationDate = terminationDate;
+    this.changedGroups.add(groupId);
+    this.commit();
   }
 
   /** List all groups */
@@ -428,6 +483,8 @@ export class EmployerNode extends EntityNodeBase {
       status: 'pending',
       createdAt: Date.now(),
     });
+    this.changedRoster.add(employeeIdHash);
+    this.commit();
 
     return result;
   }
@@ -446,12 +503,20 @@ export class EmployerNode extends EntityNodeBase {
 
   /** Revoke an unused token */
   revokeToken(tokenId: string): void {
-    this.tokenAuthority.revokeToken(tokenId);
+    try {
+      this.tokenAuthority.revokeToken(tokenId);
+    } finally {
+      this.commit();
+    }
   }
 
   /** Set the PIN hash on a token (called by HR Tool after token generation) */
   setTokenPinHash(tokenId: string, tokenPinHash: string): void {
-    this.tokenAuthority.setTokenPinHash(tokenId, tokenPinHash);
+    try {
+      this.tokenAuthority.setTokenPinHash(tokenId, tokenPinHash);
+    } finally {
+      this.commit();
+    }
   }
 
   /** Get token status */
@@ -461,12 +526,20 @@ export class EmployerNode extends EntityNodeBase {
 
   /** Validate a token (without PIN) */
   validateToken(tokenId: string, currentDate: string): TokenValidationResult {
-    return this.tokenAuthority.validateToken(tokenId, currentDate);
+    try {
+      return this.tokenAuthority.validateToken(tokenId, currentDate);
+    } finally {
+      this.commit();
+    }
   }
 
   /** Validate a token with PIN (enrollment 2FA) */
   validateTokenWithPin(tokenId: string, currentDate: string, tokenPinHash?: string): TokenValidationResult {
-    return this.tokenAuthority.validateTokenWithPin(tokenId, currentDate, tokenPinHash);
+    try {
+      return this.tokenAuthority.validateTokenWithPin(tokenId, currentDate, tokenPinHash);
+    } finally {
+      this.commit();
+    }
   }
 
   /**
@@ -483,14 +556,18 @@ export class EmployerNode extends EntityNodeBase {
     currentDate: string,
     tokenPinHash: string | undefined,
   ): TokenValidationResult & { consumed?: boolean } {
-    const fingerprint = TokenAuthority.fingerprintOf(tokenId);
-    if (this.rosterEntryForInvite(fingerprint)?.status === 'terminated') {
-      this.withdrawInvite(fingerprint);
-      return { valid: false, reason: "This invite was withdrawn: its employee is no longer on the employer's roster" };
+    try {
+      const fingerprint = TokenAuthority.fingerprintOf(tokenId);
+      if (this.rosterEntryForInvite(fingerprint)?.status === 'terminated') {
+        this.withdrawInvite(fingerprint);
+        return { valid: false, reason: "This invite was withdrawn: its employee is no longer on the employer's roster" };
+      }
+      const result = this.tokenAuthority.redeemTokenWithPin(tokenId, currentDate, tokenPinHash);
+      if (result.valid && result.consumed) this.markRosterEnrolled(fingerprint);
+      return result;
+    } finally {
+      this.commit();
     }
-    const result = this.tokenAuthority.redeemTokenWithPin(tokenId, currentDate, tokenPinHash);
-    if (result.valid && result.consumed) this.markRosterEnrolled(fingerprint);
-    return result;
   }
 
   /** Mark the roster entry whose invite has this fingerprint enrolled, and count it against its group once; never one that has left. */
@@ -499,9 +576,11 @@ export class EmployerNode extends EntityNodeBase {
       if (entry.tokenIdHash !== tokenIdHash) continue;
       if (entry.status === 'pending') {
         entry.status = 'enrolled';
+        this.changedRoster.add(entry.employeeIdHash);
         for (const group of this.groups.values()) {
           if (group.groupIdHash === entry.groupIdHash) {
             group.enrolledCount++;
+            this.changedGroups.add(group.groupId);
             break;
           }
         }
@@ -547,7 +626,9 @@ export class EmployerNode extends EntityNodeBase {
     const entry = this.roster.get(employeeIdHash);
     if (!entry) throw new Error('Roster entry not found');
     entry.status = 'terminated';
+    this.changedRoster.add(employeeIdHash);
     if (entry.tokenIdHash) this.withdrawInvite(entry.tokenIdHash);
+    this.commit();
   }
 
   /**
@@ -562,13 +643,16 @@ export class EmployerNode extends EntityNodeBase {
     const entry = this.rosterEntryForInvite(fingerprint);
     if (entry && entry.status === 'enrolled') {
       entry.status = 'pending';
+      this.changedRoster.add(entry.employeeIdHash);
       for (const group of this.groups.values()) {
         if (group.groupIdHash === entry.groupIdHash) {
           group.enrolledCount = Math.max(0, group.enrolledCount - 1);
+          this.changedGroups.add(group.groupId);
           break;
         }
       }
     }
+    this.commit();
     return { cancelled: true, employeeIdHash: entry?.employeeIdHash ?? null };
   }
 

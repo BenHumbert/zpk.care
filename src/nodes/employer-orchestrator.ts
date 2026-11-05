@@ -38,6 +38,12 @@
  *
  * On any failure, spawned child processes are killed and the tenant is
  * NOT registered. The caller receives a descriptive error.
+ *
+ * A-136: once the plan's node is unlocked by its ceremony keys (configureTenantKeys), each tenant is given its own
+ * keys on stdin, derived for that employer only (its sealed store's key and its PIN key), and its admin token only as
+ * a SHA-256; the plan keeps a sealed registry of the tenants it activated and brings each back after its own restart
+ * (respawnRegisteredTenants), on the same port, with the same token, its records intact. Without the keys a tenant
+ * starts as before: in memory only, with its token in its environment.
  */
 import { spawn, type ChildProcess } from 'child_process';
 import { createServer } from 'net';
@@ -46,6 +52,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { signedFetch, type SequencerSigner } from './sequencer-fetch.js';
 import { childEnvironment, NODE_ID_ENV } from '../security/node-roles.js';
+import type { SealedRecordStore } from '../keys/sealed-store.js';
+import { SUBKEYS } from '../keys/subkeys.js';
 
 const thisDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -58,7 +66,10 @@ interface LiveTenant {
   employerId: string;
   employerNodeUrl: string;
   employerChild: ChildProcess;
-  adminToken: string;
+  /** The SHA-256 of the tenant's admin token, in hex; its first 16 characters are what the sequencer is sent. */
+  adminTokenSha256: string;
+  /** The token itself, only for a tenant started without keys, so a retried activation can be answered (as before). */
+  adminToken?: string;
   startedAt: number;
   sequencerUrl: string;
   /** Signs the insurer node's requests to the sequencer with its own key (A9). */
@@ -91,7 +102,7 @@ function ensureKeepaliveRunning(): void {
               employerId: tenant.employerId,
               employerNodeUrl: tenant.employerNodeUrl,
               pid: tenant.employerChild.pid || 0,
-              adminTokenFingerprint: fingerprint(tenant.adminToken),
+              adminTokenFingerprint: tenant.adminTokenSha256.slice(0, 16),
             },
           }),
         });
@@ -161,8 +172,64 @@ function generateAdminToken(employerId: string): string {
   return `${employerId.toLowerCase()}-admin-${randomBytes(16).toString('hex')}`;
 }
 
-function fingerprint(token: string): string {
-  return createHash('sha256').update(token).digest('hex').slice(0, 16);
+function sha256Hex(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+/** Whether a port on loopback can be listened on. */
+function portIsFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const srv = createServer();
+    srv.once('error', () => resolve(false));
+    srv.listen(port, '127.0.0.1', () => srv.close(() => resolve(true)));
+  });
+}
+
+// ─── A-136: the tenants' keys and the plan's registry of them ─────────────
+
+/** Where a tenant's keys come from: the plan's ceremony keys (NodeKeyring), or a stand-in in tests. */
+export interface TenantKeySource {
+  subkey(label: string): Buffer;
+}
+
+/** What the plan keeps about a tenant it activated, in its sealed store, to bring it back after its own restart. */
+export interface TenantRegistration {
+  employerId: string;
+  employerPubKeyHex: string;
+  port: number;
+  /** The tenant checks its admin token against this; the plan keeps no token once the employer has collected it. */
+  adminTokenSha256: string;
+  activatedAt: number;
+  /** The token itself, only until the employer collects it, so a restart before then does not lose it. */
+  pendingAdminToken?: string;
+}
+
+let tenantKeys: { keys: TenantKeySource; registry: SealedRecordStore<TenantRegistration>; stateDir: string } | null = null;
+
+/** Called once the plan's node is unlocked: from now on tenants are keyed, registered, and brought back after a restart. */
+export function configureTenantKeys(opts: { keys: TenantKeySource; registry: SealedRecordStore<TenantRegistration>; stateDir: string }): void {
+  tenantKeys = opts;
+}
+
+export function resetTenantKeysForTests(): void {
+  tenantKeys = null;
+}
+
+export function tenantRegistration(employerId: string): TenantRegistration | null {
+  return tenantKeys?.registry.get(employerId) ?? null;
+}
+
+/** The employer collected its admin token: the plan keeps only its hash from now on. */
+export function markTenantCredentialsCollected(employerId: string): void {
+  const registration = tenantKeys?.registry.get(employerId);
+  if (!registration?.pendingAdminToken) return;
+  const { pendingAdminToken: _collected, ...kept } = registration;
+  tenantKeys!.registry.put(employerId, kept);
+}
+
+/** A tenant's own directory under the plan's state directory. */
+function tenantStateDir(stateDir: string, employerId: string): string {
+  return path.join(stateDir, 'tenants', employerId.replace(/[^A-Za-z0-9._-]/g, '_'));
 }
 
 // ─── Tenant Environment ────────────────────────────────────
@@ -182,6 +249,10 @@ function fingerprint(token: string): string {
  */
 const INSURER_ONLY_ENV_KEYS: readonly string[] = [
   NODE_ID_ENV,
+  // the key ceremony keyed the insurer, not its tenants: a tenant's keys come on stdin (A-136)
+  'ZKTRIDENT_CEREMONY_RECORD',
+  'ZKTRIDENT_CEREMONY_NODE_ID',
+  'ZKTRIDENT_KEY_SEAL',
   'ZKTRIDENT_TLS_CERT',
   'ZKTRIDENT_TLS_KEY',
   'ZKTRIDENT_PROVER_API_KEY',
@@ -199,7 +270,10 @@ interface TenantSettings {
   employerPubKeyHex: string;
   sequencerUrl: string;
   insurerUrl: string;
-  adminToken: string;
+  /** Without keys: the token itself, as before. */
+  adminToken?: string;
+  /** With keys (A-136): the token's hash, the tenant's own state directory, and its keys on stdin. */
+  keyed?: { adminTokenSha256: string; stateDir: string };
 }
 
 /**
@@ -225,7 +299,9 @@ function tenantEnvironment(base: NodeJS.ProcessEnv, tenant: TenantSettings): Rec
     ZKTRIDENT_EMPLOYER_PUBKEY_HEX: tenant.employerPubKeyHex,
     ZKTRIDENT_SEQUENCER_URL: tenant.sequencerUrl,
     ZKTRIDENT_INSURER_URL: tenant.insurerUrl,
-    ZKTRIDENT_ADMIN_TOKEN: tenant.adminToken,
+    ...(tenant.keyed
+      ? { ZKTRIDENT_ADMIN_TOKEN_SHA256: tenant.keyed.adminTokenSha256, ZKTRIDENT_TENANT_KEYS: 'stdin', ZKTRIDENT_STATE_DIR: tenant.keyed.stateDir }
+      : { ZKTRIDENT_ADMIN_TOKEN: tenant.adminToken }),
     ZKTRIDENT_PARENT_PID: String(process.pid),
     // No ZKTRIDENT_CORS_ORIGINS: the spawned node resolves the local dashboard
     // origins itself. Passing '*' here opened every employer node to any origin.
@@ -269,10 +345,16 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
   // spawning a duplicate. This makes activation safe to retry.
   const existing = liveTenants.get(employerId);
   if (existing && !existing.employerChild.killed) {
+    const adminToken = existing.adminToken ?? tenantRegistration(employerId)?.pendingAdminToken;
+    if (!adminToken) {
+      throw new Error(
+        `Tenant "${employerId}" is already running at ${existing.employerNodeUrl}, and its admin token was collected; it is not shown again.`,
+      );
+    }
     return {
       employerId,
       employerNodeUrl: existing.employerNodeUrl,
-      adminToken: existing.adminToken,
+      adminToken,
       hrToolSetup: hrToolSetupFor(existing.employerNodeUrl),
     };
   }
@@ -358,8 +440,51 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
   // ─── Step 3: Allocate a port and the tenant's admin token ───
   const employerPort = await allocateEphemeralPort();
   const adminToken = generateAdminToken(employerId);
+  const adminTokenSha256 = sha256Hex(adminToken);
 
-  // ─── Step 4: Fork the employer node ───
+  // ─── Steps 4 to 6: start it, register it, track it ───
+  const tenant = await startTenantProcess({
+    employerId, employerPubKeyHex, sequencerUrl, insurerUrl, signSequencerRequest, port: employerPort, adminTokenSha256,
+    ...(tenantKeys ? {} : { adminToken }),
+  });
+
+  // A-136: the plan's sealed registry, which brings the tenant back after the plan's restart. The token itself is kept
+  // only until the employer collects it (markTenantCredentialsCollected).
+  tenantKeys?.registry.put(employerId, {
+    employerId, employerPubKeyHex, port: employerPort, adminTokenSha256, activatedAt: tenant.startedAt, pendingAdminToken: adminToken,
+  });
+
+  console.log(`[orchestrator] Tenant "${employerId}" spawned — employer node: ${tenant.employerNodeUrl}. The HR Tool runs on the employer's machine.`);
+
+  return {
+    employerId,
+    employerNodeUrl: tenant.employerNodeUrl,
+    adminToken,
+    hrToolSetup: hrToolSetupFor(tenant.employerNodeUrl),
+  };
+}
+
+interface TenantStart {
+  employerId: string;
+  employerPubKeyHex: string;
+  sequencerUrl: string;
+  insurerUrl: string;
+  signSequencerRequest: SequencerSigner;
+  port: number;
+  adminTokenSha256: string;
+  /** Only for a tenant started without keys: given the token itself, as before. */
+  adminToken?: string;
+}
+
+/**
+ * Start one tenant, wait for it, register it on the sequencer and track it: for a first activation and for the respawn
+ * after the plan's restart alike. With the plan's keys configured the tenant is given its keys on stdin.
+ */
+async function startTenantProcess(t: TenantStart): Promise<LiveTenant> {
+  const { employerId, employerPubKeyHex, sequencerUrl, insurerUrl, signSequencerRequest } = t;
+  const seqUrl = sequencerUrl.replace(/\/+$/, '');
+  const keys = tenantKeys;
+
   // A7: spawned from this node binary with tsx's loader rather than through `npx` and a shell, so
   // a tenant is one process instead of three, and told this process's PID so it can exit on its
   // own if this process dies without running its shutdown handlers (eight orphans from four runs
@@ -367,13 +492,24 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
   const employerScript = path.resolve(thisDir, 'start-employer-nautilus.ts');
   const employerChild = spawn(process.execPath, ['--import', 'tsx', employerScript], {
     cwd: process.cwd(),
-    env: tenantEnvironment(process.env, { port: employerPort, employerId, employerPubKeyHex, sequencerUrl, insurerUrl, adminToken }),
-    stdio: ['ignore', 'pipe', 'pipe'],
+    env: tenantEnvironment(process.env, {
+      port: t.port, employerId, employerPubKeyHex, sequencerUrl, insurerUrl,
+      ...(keys ? { keyed: { adminTokenSha256: t.adminTokenSha256, stateDir: tenantStateDir(keys.stateDir, employerId) } } : { adminToken: t.adminToken }),
+    }),
+    stdio: [keys ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     windowsHide: true,
   });
+  if (keys) {
+    // A-136: this employer's own keys, derived for it alone, on stdin: never in its environment or on a disk
+    const storeKey = keys.keys.subkey(SUBKEYS.tenantStore(employerId));
+    const pinPepper = keys.keys.subkey(SUBKEYS.tenantPinPepper(employerId));
+    employerChild.stdin?.end(`${JSON.stringify({ storeKeyHex: storeKey.toString('hex'), pinPepperHex: pinPepper.toString('hex') })}\n`);
+    storeKey.fill(0);
+    pinPepper.fill(0);
+  }
   employerChild.stdout?.on('data', (d: Buffer) => process.stdout.write(`[tenant ${employerId}] ${d}`));
   employerChild.stderr?.on('data', (d: Buffer) => process.stderr.write(`[tenant ${employerId}] ${d}`));
-  const employerNodeUrl = `http://127.0.0.1:${employerPort}`;
+  const employerNodeUrl = `http://127.0.0.1:${t.port}`;
 
   // Wait for the employer node to boot and load its attestation
   try {
@@ -400,7 +536,7 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
           employerId,
           employerNodeUrl,
           pid: employerChild.pid || 0,
-          adminTokenFingerprint: fingerprint(adminToken),
+          adminTokenFingerprint: t.adminTokenSha256.slice(0, 16),
         },
       }),
     });
@@ -413,12 +549,13 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
     throw new Error(`Failed to register tenant on sequencer: ${e?.message || e}`);
   }
 
-  // ─── Step 6: Track locally + return ───
+  // ─── Step 6: Track locally ───
   const tenant: LiveTenant = {
     employerId,
     employerNodeUrl,
     employerChild,
-    adminToken,
+    adminTokenSha256: t.adminTokenSha256,
+    ...(t.adminToken ? { adminToken: t.adminToken } : {}),
     startedAt: Date.now(),
     sequencerUrl,
     signSequencerRequest,
@@ -439,17 +576,60 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
         params: { employerId },
       }),
     }).catch(() => {});
-    liveTenants.delete(employerId);
+    if (liveTenants.get(employerId)?.employerChild === employerChild) liveTenants.delete(employerId);
   });
 
-  console.log(`[orchestrator] Tenant "${employerId}" spawned — employer node: ${employerNodeUrl}. The HR Tool runs on the employer's machine.`);
+  return tenant;
+}
 
-  return {
-    employerId,
-    employerNodeUrl,
-    adminToken,
-    hrToolSetup: hrToolSetupFor(employerNodeUrl),
-  };
+/**
+ * A-136: bring back the tenants the plan activated before its restart, from its sealed registry: each on its port when
+ * that is free again (it is waited for a few seconds, as a tenant of the stopped process may still be closing), with its
+ * admin token's hash and its keys, its records reopened from its own store.
+ */
+export async function respawnRegisteredTenants(opts: {
+  sequencerUrl: string;
+  insurerUrl: string;
+  signSequencerRequest: SequencerSigner;
+}): Promise<Array<{ employerId: string; employerNodeUrl: string; ok: boolean; error?: string }>> {
+  const keys = tenantKeys;
+  if (!keys) return [];
+  const results: Array<{ employerId: string; employerNodeUrl: string; ok: boolean; error?: string }> = [];
+  for (const registration of [...keys.registry.values()]) {
+    const live = liveTenants.get(registration.employerId);
+    if (live && !live.employerChild.killed) {
+      results.push({ employerId: registration.employerId, employerNodeUrl: live.employerNodeUrl, ok: true });
+      continue;
+    }
+    let port = registration.port;
+    let free = await portIsFree(port);
+    for (let i = 0; !free && i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      free = await portIsFree(port);
+    }
+    if (!free) {
+      port = await allocateEphemeralPort();
+      keys.registry.put(registration.employerId, { ...registration, port });
+      console.warn(`[orchestrator] Port ${registration.port} of tenant "${registration.employerId}" is taken; it comes back on ${port}, and its HR Tool needs the new URL`);
+    }
+    try {
+      const tenant = await startTenantProcess({
+        employerId: registration.employerId,
+        employerPubKeyHex: registration.employerPubKeyHex,
+        sequencerUrl: opts.sequencerUrl,
+        insurerUrl: opts.insurerUrl,
+        signSequencerRequest: opts.signSequencerRequest,
+        port,
+        adminTokenSha256: registration.adminTokenSha256,
+      });
+      console.log(`[orchestrator] Tenant "${registration.employerId}" brought back at ${tenant.employerNodeUrl}`);
+      results.push({ employerId: registration.employerId, employerNodeUrl: tenant.employerNodeUrl, ok: true });
+    } catch (e: any) {
+      console.error(`[orchestrator] Tenant "${registration.employerId}" could not be brought back: ${e?.message || e}`);
+      results.push({ employerId: registration.employerId, employerNodeUrl: `http://127.0.0.1:${port}`, ok: false, error: e?.message || String(e) });
+    }
+  }
+  return results;
 }
 
 /**

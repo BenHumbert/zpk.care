@@ -3566,3 +3566,39 @@ all passing. Typecheck: src 18 and scripts 2, the same errors.
 6. kill:ports then stopped the network and left the servers on 8000 and 8080 running.
 
 Scoreboard: 147 findings; 119 fixed; 28 open, none critical.
+
+**A-136 fixed, 2026-11-05 (the sealed stores and key ceremony, slice 4: the employer node's records across a restart).**
+The employer tenant kept its groups, roster and invites in memory and ended with the plan's process. Now, once the
+plan's ceremony keys are open, the orchestrator gives each tenant two keys on stdin: its store key and its PIN key, HKDF
+subkeys of the plan's master for that employer alone, never in its environment. The tenant keeps its records in a
+sealed store under its own directory (`nautilus-data/tenants/<employer>/records`), each operation in one fsynced
+journal entry.
+
+What the store holds is what the node held, hashes only. It has no code (A-109) and no wallet (I6). It doesn't even
+hold the PIN hash: it keeps an HMAC of it under the PIN key (`pinCheck`), so a copy of the records can't be tried
+against PINs, even by someone who also holds a code.
+
+The plan keeps a sealed registry of the tenants it activated (`plan-records/tenants`). After its own restart it brings
+each one back on its port, with its admin token, which the tenant checks against the token's SHA-256
+(`adminTokenSha256`, `ZKTRIDENT_ADMIN_TOKEN_SHA256`). The plan keeps the token itself only until the employer collects
+it. The activation pages answer for a restored tenant as for a finished activation, and a collected token is cleared
+from the activation job too. Not covered: a tenant whose port is taken at the restart comes back on a new port, and its
+HR Tool needs the new URL; there is still no way to issue an employer a new admin token.
+
+*Verified.* `tests/employer-tenant-store.test.ts` has 8 tests, all failing on the old code:
+- records survive restarts, and an invite issued before one still enrolls after it;
+- no code, PIN hash or wallet in the store;
+- wrong PINs count across a restart;
+- without the PIN key nothing checks a PIN;
+- a store needs its PIN key;
+- the in-memory node is unchanged;
+- the admin token is checked against its hash;
+- the plan's restart, run for real in `tests/helpers/tenant-respawn.ts`: the same port, the same token and the same
+  records, and the token is kept only until it is collected.
+
+The regression batch ran 173 suites, all passing. The typecheck is src 18, scripts 2, with the same errors as before.
+
+*Live, the same day* (secured boot with a 2-of-3 ceremony, one member, explorer on 8010):
+260 of 260 checks across 35 steps. One batch fewer settled during the run than in slice 3's run, so there were two batch checks fewer; every other check was the same. Before the restart, the harness's employer node had 1 group and 2 roster entries: one enrolled with its invite consumed, one pending with HR's new invite unused. The network was then stopped and booted again without clearing state. The plan's server unlocked by DPAPI and brought the employer node back, in the background once it could shut down and was watching its parent, at the same URL. Its groups and roster were the same, the same admin token was accepted, and a wrong one was refused. The first try of this run used a check script of mine that misread the roster's answer. It also had a second boot of 2 minutes against the usual 30 s, which was load on the machine: the sequencer's first proof program compiled in 23 s, against 4 to 6 s in every other boot. kill:ports then stopped the network and left the servers on 8000 and 8080 running.
+
+Scoreboard: 147 findings; 120 fixed; 27 open, none critical.

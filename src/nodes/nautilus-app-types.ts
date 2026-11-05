@@ -104,6 +104,11 @@ export interface NautilusAppConfig {
   /** This node's own admin token, for this node's own admin routes (A9). Never a sequencer credential. */
   adminToken?: string;
   /**
+   * A-136: the SHA-256, in hex, of this node's admin token, for a node that must not hold the token itself: an employer
+   * tenant the plan brings back after a restart is given the hash the plan keeps, and checks the bearer against it.
+   */
+  adminTokenSha256?: string;
+  /**
    * The insurer's dedicated Ed25519 attestation signing seed — phase A item A9, finding A-14.
    *
    * Employer attestations used to be counter-signed with `adminToken`. A bearer token reused as a

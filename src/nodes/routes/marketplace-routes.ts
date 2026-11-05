@@ -75,6 +75,26 @@ interface ActivationJob {
 }
 const activationJobs: Map<string, ActivationJob> = new Map();
 
+/**
+ * A-136: the activation job of a tenant the plan brought back after its own restart. The jobs were kept in memory, so a
+ * restart forgot them while the orchestrator restored the tenant itself from the plan's sealed registry; such a tenant
+ * is reported complete as a finished job would be, with its admin token only while the employer has not collected it.
+ */
+async function restoredJob(app: EmployerApplication): Promise<ActivationJob | undefined> {
+  if (app.status !== 'active') return undefined;
+  const { listLiveTenants, tenantRegistration, hrToolSetupFor } = await import('../employer-orchestrator.js');
+  const live = listLiveTenants().find((t) => t.employerId === app.employerId);
+  if (!live) return undefined;
+  const registration = tenantRegistration(app.employerId);
+  const job: ActivationJob = {
+    status: 'complete',
+    startedAt: registration?.activatedAt ?? live.startedAt,
+    result: { employerNodeUrl: live.employerNodeUrl, hrToolSetup: hrToolSetupFor(live.employerNodeUrl), adminToken: registration?.pendingAdminToken ?? '' },
+  };
+  activationJobs.set(app.applicationId, job);
+  return job;
+}
+
 let applicationStorePath: string | null = null;
 
 /** Load application store from disk */
@@ -888,7 +908,7 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
        * request away. It now reports completion and nothing more; the token comes from
        * activate-credentials with the activation secret.
        */
-      const existingJob = activationJobs.get(params.applicationId);
+      const existingJob = activationJobs.get(params.applicationId) ?? await restoredJob(app);
       if (existingJob && existingJob.status === 'complete' && existingJob.result) {
         return server.sendResponse(res, 200, true, {
           jobKey: params.applicationId,
@@ -962,7 +982,7 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
     handler: async (_req, res, params) => {
       const app = applicationStore.get(params.jobKey);
       if (!app) return server.sendResponse(res, 404, false, undefined, 'Application not found');
-      const job = activationJobs.get(params.jobKey);
+      const job = activationJobs.get(params.jobKey) ?? await restoredJob(app);
       if (!job) return server.sendResponse(res, 404, false, undefined, 'No activation job for this application');
 
       const sequencerUrl = server.getConfig().sequencerUrl;
@@ -1036,7 +1056,7 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
           'Invalid activation code.');
       }
 
-      const job = activationJobs.get(params.applicationId);
+      const job = activationJobs.get(params.applicationId) ?? await restoredJob(app);
       if (!job || job.status !== 'complete' || !job.result) {
         return server.sendResponse(res, 409, false, undefined,
           'This tenant is not provisioned yet. Poll activate-status until it reports complete.');
@@ -1051,12 +1071,17 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
       saveApplicationStore();
       // The identifier is logged; the secret and the token are not.
       console.log('[marketplace] Admin credentials collected for %s', app.applicationId);
+      // A-136: shown once, and from now on kept nowhere: not in this job, and in the plan's registry as its hash only
+      const adminToken = job.result.adminToken;
+      job.result.adminToken = '';
+      const { markTenantCredentialsCollected } = await import('../employer-orchestrator.js');
+      markTenantCredentialsCollected(app.employerId);
 
       return server.sendResponse(res, 200, true, {
         employerId: app.employerId,
         employerNodeUrl: job.result.employerNodeUrl,
         hrToolSetup: job.result.hrToolSetup,
-        adminToken: job.result.adminToken,
+        adminToken,
         message: 'Store this token securely. It will not be shown again.',
       });
     },

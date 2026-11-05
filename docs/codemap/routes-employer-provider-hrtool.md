@@ -39,7 +39,9 @@ GAP: I7 — the per-tenant admin token is delivered by two ungated marketplace r
 | Attestation load | `l2_verifyEmployer` unauthenticated (152-157); needs `result.valid && result.attestation` (159); `att.publicKeyHex` must equal the pinned env key (165) → mismatch `process.exit(1)` (198-201); retries at 0/500/1000/2000/4000/8000/16000 ms (189); not loaded after 7 tries → `exit(1)` (205-210). **Fail-closed by construction** | 145-210 |
 | Ready | `setOnboardingPhase('ready')` before `server.start()` (212, 216) — so `/onboarding/configure` is always 409 | 212-216 |
 
-### 2.2 State held (`src/nodes/employer-node.ts`) — memory only, nothing persisted
+### 2.2 State held (`src/nodes/employer-node.ts`) — memory only, nothing persisted (until A-136, 2026-11-05)
+
+Since A-136 a tenant the plan keyed reads its store key and PIN key from stdin (`ZKTRIDENT_TENANT_KEYS=stdin`; `readTenantKeys` in `start-employer-nautilus.ts`). It opens `SealedRecordStore('employer')` under `<stateDir>/records` and loads `group:`, `roster:`, `invite:` and `meta` records (`EmployerStoredRecord`, `loadFromStore`). Each operation writes what it changed in one entry (`commit`, with `TokenAuthority.takeChanges`). Invites keep `pinCheck`, an HMAC under the PIN key, in place of `tokenPinHash`. The orchestrator keeps `TenantRegistration`s in the plan's sealed `tenants` store and brings tenants back with `respawnRegisteredTenants` after the plan's restart: same port when free, the token as its SHA-256.
 
 | Field | Content | Source |
 |---|---|---|

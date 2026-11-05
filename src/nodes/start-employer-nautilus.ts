@@ -36,7 +36,11 @@
  *                                (default: the local dashboard origins)
  *   ZKTRIDENT_RPC_PROXY        — 1 to re-enable POST /rpc forwarding (default: off)
  *   ZKTRIDENT_DISPLAY_NAME     — Display name for logging
- *   ZKTRIDENT_ADMIN_TOKEN      — Bearer token for admin endpoints (required)
+ *   ZKTRIDENT_ADMIN_TOKEN      — Bearer token for admin endpoints (required unless the hash below is given)
+ *   ZKTRIDENT_ADMIN_TOKEN_SHA256 — A-136: the token's SHA-256 instead, as the plan's orchestrator gives it
+ *   ZKTRIDENT_TENANT_KEYS      — A-136: "stdin" when the orchestrator writes this tenant's keys on stdin
+ *                                (its sealed store's key and its PIN key); without them the node keeps
+ *                                its groups, roster and invites in memory only
  *   ZKTRIDENT_EMPLOYER_ID      — Employer identifier (required)
  *   ZKTRIDENT_INSURER_URL      — Insurer Nautilus URL for token submission (optional)
  *
@@ -49,7 +53,8 @@ import { fileURLToPath } from 'url';
 import { NautilusAppServer } from './nautilus-app-server.js';
 import type { NautilusAppConfig } from './nautilus-app-types.js';
 import { buildEmployerRoutes } from './routes/employer-routes.js';
-import { EmployerNode } from './employer-node.js';
+import { EmployerNode, type EmployerStoredRecord } from './employer-node.js';
+import { SealedRecordStore } from '../keys/sealed-store.js';
 import { resolveBindHost, resolveAllowedOrigins, resolveRpcProxyPolicy } from '../security/network-policy.js';
 import { parentPidFromEnv, watchParent } from './parent-watchdog.js';
 
@@ -71,7 +76,47 @@ const config: NautilusAppConfig = {
   rpcProxy: resolveRpcProxyPolicy(env, 'employer node'),
   displayName: env.ZKTRIDENT_DISPLAY_NAME,
   adminToken: env.ZKTRIDENT_ADMIN_TOKEN,
+  adminTokenSha256: env.ZKTRIDENT_ADMIN_TOKEN_SHA256,
 };
+if (config.adminTokenSha256 !== undefined && !/^[0-9a-f]{64}$/.test(config.adminTokenSha256)) {
+  console.error('  [FATAL] ZKTRIDENT_ADMIN_TOKEN_SHA256 must be 64 lower-case hex characters');
+  process.exit(1);
+}
+
+/**
+ * A-136: the tenant's keys, one JSON line on stdin from the plan's process (never in the environment or on a disk): the
+ * key of its sealed store, where its groups, roster and invites survive a restart, and the key over the PIN hashes it
+ * keeps.
+ */
+function readTenantKeys(): Promise<{ storeKey: Buffer; pinPepper: Buffer }> {
+  return new Promise((resolve, reject) => {
+    let text = '';
+    const timer = setTimeout(() => reject(new Error('no keys arrived on stdin within 10 s')), 10_000);
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (chunk: string) => {
+      text += chunk;
+      const end = text.indexOf('\n');
+      if (end < 0) return;
+      clearTimeout(timer);
+      process.stdin.pause();
+      try {
+        const parsed = JSON.parse(text.slice(0, end)) as { storeKeyHex?: unknown; pinPepperHex?: unknown };
+        if (typeof parsed.storeKeyHex !== 'string' || !/^[0-9a-f]{64}$/.test(parsed.storeKeyHex)
+          || typeof parsed.pinPepperHex !== 'string' || !/^[0-9a-f]{64}$/.test(parsed.pinPepperHex)) {
+          throw new Error('malformed');
+        }
+        resolve({ storeKey: Buffer.from(parsed.storeKeyHex, 'hex'), pinPepper: Buffer.from(parsed.pinPepperHex, 'hex') });
+      } catch {
+        reject(new Error('the keys on stdin are not { storeKeyHex, pinPepperHex }'));
+      }
+      text = '';
+    });
+    process.stdin.on('end', () => {
+      clearTimeout(timer);
+      reject(new Error('stdin closed before the keys arrived'));
+    });
+  });
+}
 
 // Auto-detect dashboard directory
 const thisDir = path.dirname(fileURLToPath(import.meta.url));
@@ -120,8 +165,22 @@ async function main(): Promise<void> {
   // Register employer routes
   server.registerRoutes(buildEmployerRoutes(server));
 
+  // A-136: with the keys the plan hands over, the node keeps its records in its sealed store across restarts
+  let store: SealedRecordStore<EmployerStoredRecord> | null = null;
+  let pinPepper: Buffer | undefined;
+  if (env.ZKTRIDENT_TENANT_KEYS === 'stdin') {
+    try {
+      const keys = await readTenantKeys();
+      store = SealedRecordStore.open<EmployerStoredRecord>({ dir: path.join(config.stateDir, 'records'), name: 'employer', key: keys.storeKey });
+      keys.storeKey.fill(0);
+      pinPepper = keys.pinPepper;
+    } catch (err) {
+      console.error('  [FATAL] the tenant keys could not be read or its records opened: %s', err instanceof Error ? err.message : String(err));
+      process.exit(1);
+    }
+  }
+
   // Employer has no wallet, no PIN — create node directly
-  const adminToken = config.adminToken;
   const node = new EmployerNode({
     role: 'employer',
     sequencerUrl: config.sequencerUrl,
@@ -129,7 +188,9 @@ async function main(): Promise<void> {
     employerId,
     insurerUrl,
     // A9: the tenant's own admin token is not a sequencer credential, and an employer node calls no privileged sequencer method.
+    ...(store ? { store, pinPepper } : {}),
   });
+  pinPepper?.fill(0);
   server.setEntityNode(node);
 
   // Phase A: Fail-closed by construction. The employer node always requires a
@@ -141,6 +202,7 @@ async function main(): Promise<void> {
   console.log('  [init] Employer ID:  %s', employerId);
   console.log('  [init] Pinned PubKey: %s…', employerPubKeyHex.slice(0, 16));
   console.log('  [init] Attestation:  REQUIRED (fail-closed)');
+  console.log('  [init] Records:      %s', store ? `sealed store (${node.listGroups().length} group(s), ${node.listRoster().length} roster entr(ies) kept)` : 'memory only (no tenant keys)');
   if (insurerUrl) {
     console.log('  [init] Insurer URL:  %s', insurerUrl);
   }
@@ -229,7 +291,7 @@ async function main(): Promise<void> {
   console.log('  Insurer URL:   %s', insurerUrl ?? 'not configured');
   console.log('  TLS:           %s', server.isTls() ? 'enabled' : 'disabled');
   console.log('  SSE:           %s', config.enableSSE ? 'enabled' : 'disabled');
-  console.log('  Admin token:   %s', config.adminToken ? 'configured' : 'NONE (admin endpoints disabled)');
+  console.log('  Admin token:   %s', config.adminTokenSha256 ? 'configured (checked against its hash)' : config.adminToken ? 'configured' : 'NONE (admin endpoints disabled)');
   if (config.dashboardDir) {
     console.log('  Dashboard:     %s://%s:%d/', proto, config.host === '0.0.0.0' ? 'localhost' : config.host, server.getPort());
   }
@@ -244,6 +306,7 @@ async function main(): Promise<void> {
     console.log('');
     console.log('  [%s] Shutting down gracefully...', signal);
     await server.stop();
+    store?.close();
     console.log('  [shutdown] Server stopped');
     process.exit(0);
   };

@@ -33,7 +33,7 @@ import type { RouteRegistration } from '../nautilus-app-types.js';
 import { verifySignedRequest, ReplayCache } from '../../security/signed-request.js';
 import { SlidingWindowLimiter } from '../../security/rate-limit.js';
 import { normalizeTokenId } from '../../onboarding/enrollment-code.js';
-import { inviteExpiryProblem, compactInviteDate } from '../../onboarding/token-authority.js';
+import { inviteExpiryProblem, compactInviteDate, hasPinBinding } from '../../onboarding/token-authority.js';
 
 /**
  * Build all employer routes.
@@ -402,7 +402,7 @@ export function buildEmployerRoutes(server: NautilusAppServer): RouteRegistratio
       // An orphan: generation succeeded and set-pin-hash never landed. It cannot be redeemed and the
       // HR Tool revokes these; say so rather than counting a PIN attempt against it.
       const record = node.getTokenRecord(tokenId);
-      if (record && record.status === 'unused' && !record.tokenPinHash) {
+      if (record && record.status === 'unused' && !hasPinBinding(record)) {
         return server.sendResponse(res, 409, false, undefined, 'Token PIN hash not yet set — retry enrollment code generation');
       }
 

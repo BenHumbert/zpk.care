@@ -75,6 +75,10 @@ export interface EmployerNodeConfig extends EntityNodeConfig {
   employerId: string;
   /** Optional insurer Nautilus URL for token submission */
   insurerUrl?: string;
+  /** A-136: the sealed store the node keeps its groups, roster and invites in; without one it keeps them in memory only. */
+  store?: import('../keys/sealed-store.js').SealedRecordStore<import('./employer-node.js').EmployerStoredRecord>;
+  /** A-136: the key over the PIN hashes the node keeps; required with a store. */
+  pinPepper?: Uint8Array;
 }
 
 // ─── Claim View ──────────────────────────────────────────

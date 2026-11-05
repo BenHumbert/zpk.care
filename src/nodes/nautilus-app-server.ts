@@ -40,7 +40,7 @@ import http from 'http';
 import https from 'https';
 import fs from 'fs';
 import path from 'path';
-import { timingSafeEqual, randomBytes } from 'crypto';
+import { createHash, timingSafeEqual, randomBytes } from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { Socket } from 'net';
 import type { EntityNodeBase } from './entity-node-base.js';
@@ -306,6 +306,13 @@ export class NautilusAppServer {
   private async checkNautilusAdminAuth(req: IncomingMessage, method: string, path: string): Promise<boolean> {
     const authHeader = req.headers['authorization'];
     if (typeof authHeader === 'string' && authHeader.length > 0) {
+      if (this.config.adminTokenSha256) {
+        // A-136: checked against the token's hash, which is all a tenant the plan brought back is given
+        const presented = /^Bearer (.+)$/.exec(authHeader)?.[1];
+        const expected = Buffer.from(this.config.adminTokenSha256, 'hex');
+        if (!presented || expected.length !== 32) return false;
+        return timingSafeEqual(createHash('sha256').update(presented, 'utf8').digest(), expected);
+      }
       if (!this.config.adminToken) return false; // Default-deny
       const a = Buffer.from(authHeader);
       const b = Buffer.from(`Bearer ${this.config.adminToken}`);

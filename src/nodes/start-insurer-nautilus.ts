@@ -60,6 +60,9 @@ import { buildKeyRoutes, attachNodeKeyring } from './routes/key-routes.js';
 import { NodeKeyring } from '../keys/node-keyring.js';
 import { resolveMachineSeal } from '../keys/machine-seal.js';
 import { verifyCeremonyRecord, type CeremonyRecord } from '../keys/ceremony.js';
+import { SealedRecordStore } from '../keys/sealed-store.js';
+import { SUBKEYS } from '../keys/subkeys.js';
+import { configureTenantKeys, respawnRegisteredTenants, type TenantRegistration } from './employer-orchestrator.js';
 
 // ─── Environment ─────────────────────────────────────────────
 
@@ -132,6 +135,20 @@ async function main(): Promise<void> {
 
   console.log('  [init] InsurerNode created (no wallet, admin-gated)');
 
+  let tenantRegistry: SealedRecordStore<TenantRegistration> | null = null;
+  let serverReady = false;
+  const bringBackTenants = async () => {
+    const back = await respawnRegisteredTenants({
+      sequencerUrl: config.sequencerUrl,
+      insurerUrl: `http://localhost:${config.port}`,
+      signSequencerRequest: (m, p, b) => server.sequencerAuthHeaders(m, p, b),
+    });
+    for (const t of back) {
+      if (t.ok) console.log('  [tenants] %s is back at %s', t.employerId, t.employerNodeUrl);
+      else console.error('  [tenants] %s could not be brought back: %s', t.employerId, t.error);
+    }
+  };
+
   // ── Keys (the key ceremony, owner 2026-11-04; the restart rule, owner 2026-11-05) ──
   // With a ceremony record this node's keys come from its master: provisioned once per machine by the key holders,
   // then opened by this machine's seal at every start, with no one. Claims never wait on it: they do not pass through
@@ -157,6 +174,15 @@ async function main(): Promise<void> {
       seal: resolveMachineSeal(env),
     });
     attachNodeKeyring(server, keyring);
+    // A-136: once unlocked, the plan's sealed registry of the employer tenants it activated, so they come back after
+    // this node's restart with their records, on their ports, with their admin tokens
+    keyring.onUnlocked((k) => {
+      tenantRegistry = SealedRecordStore.open<TenantRegistration>({
+        dir: path.join(config.stateDir, 'plan-records'), name: 'tenants', key: k.subkey(SUBKEYS.planStore('tenants')),
+      });
+      configureTenantKeys({ keys: k, registry: tenantRegistry, stateDir: config.stateDir });
+      if (serverReady) void bringBackTenants();
+    });
     await keyring.start();
   } else {
     console.warn('  [keys] no key ceremony record: the insurer signs with %s', config.insurerSigningSeed ? 'the seed it was given' : 'nothing (no seed was given)');
@@ -289,6 +315,7 @@ async function main(): Promise<void> {
   // Credentialing complete — signal ready so the leviathan health gate passes
   server.setOnboardingPhase('ready');
   console.log('  [init] Credentialing complete — phase → ready');
+  serverReady = true;
 
   const proto = server.isTls() ? 'https' : 'http';
   console.log('');
@@ -319,6 +346,7 @@ async function main(): Promise<void> {
       shutdownAllTenants();
     } catch { /* orchestrator module may not be loaded — ignore */ }
     await server.stop();
+    tenantRegistry?.close();
     server.getKeyring()?.close();
     console.log('  [shutdown] Server stopped');
     process.exit(0);
@@ -339,6 +367,10 @@ async function main(): Promise<void> {
       },
     });
   }
+
+  // A-136: the tenants activated before this restart, when the keys are already open; in the background, once this
+  // node can shut down and watches its parent, since each tenant takes a few seconds to start
+  if (tenantRegistry) void bringBackTenants();
 }
 
 main().catch((err) => {
