@@ -58,6 +58,15 @@ export function deriveSubkey(master: Uint8Array, label: string, length = 32): Bu
   return Buffer.from(hkdfSync('sha256', master, SALT, Buffer.from(label, 'utf8'), length));
 }
 
+/**
+ * The insurer's attestation signing seed, as the string `insurerSigningSeed` takes (deriveInsurerKeypair hashes it into
+ * the Ed25519 key). Made from the master, it is the same after every restart, so the attestations it signed stay valid,
+ * and no operator keeps it: until now it was random at each boot unless ZKTRIDENT_INSURER_SIGNING_SEED was set.
+ */
+export function insurerSigningSeedFrom(master: Uint8Array): string {
+  return deriveSubkey(master, SUBKEYS.insurerSigningSeed).toString('base64url');
+}
+
 /** The check value the ceremony record carries for a master: rebuilt shares must reproduce it. */
 export function masterCheckHex(master: Uint8Array): string {
   return deriveSubkey(master, SUBKEYS.check).toString('hex');
