@@ -14,10 +14,3 @@ tests/layer7.test.ts                 # 145 s
 tests/layer8.test.ts                 # 152 s
 tests/layer9.test.ts                 # 75 s
 tests/network.test.ts                # 108 s (run beside another suite)
-#
-# Failing until phase 3 of docs/CLEANUP-PLAN.md removes the code they test or the suite itself:
-tests/benchmark.test.ts              # EnrollmentService.processEnrollment (3.3)
-tests/smoke-e2e.test.ts              # walks the flows from before the hardening; the live harness walks them now (3)
-tests/smoke-leviathan.test.ts        # the same (3)
-tests/production-showcase.test.ts    # the same (3)
-tests/minimal-recursion.test.ts      # a February reproduction of an o1js recursion issue, not a test of this code (3)
