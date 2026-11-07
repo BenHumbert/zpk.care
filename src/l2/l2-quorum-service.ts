@@ -54,7 +54,6 @@ import type {
 import {
   buildQuorumVoteMessage,
   buildStateCertMessage,
-  DEFAULT_QUORUM_TIMEOUT_MS,
 } from './l2-quorum-types.js';
 
 // ─── Ed25519 DER Helpers ────────────────────────────────

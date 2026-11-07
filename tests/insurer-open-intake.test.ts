@@ -133,7 +133,6 @@ const OPEN_FROM_SOURCE = 'Too many open employer applications from this address.
 const HOURLY = 'Too many employer applications from this address in the last hour. Try again in an hour.';
 const FULL = 'The insurer holds as many open employer applications as it keeps: apply again once some are decided';
 /** What the apply route answered every caller once any ten applications had been kept in a minute. */
-const ROUTE_WIDE = 'Too many applications. Try again in a minute.';
 /** The address the insurer's staff decide from. No application in this file comes from it. */
 const STAFF = '127.0.0.1';
 

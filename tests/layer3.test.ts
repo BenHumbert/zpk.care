@@ -33,13 +33,10 @@ import {
   LIFECYCLE_ACTIVE,
   LIFECYCLE_REVOKED,
   lifecycleLeafCommitment,
-  assertValidTransition,
   isValidTransition,
 } from '../src/engine/lifecycle.js';
 import {
   EMPTY_CREDENTIAL_ROOT,
-  StateTransitionProgram,
-  TransitionOutput,
 } from '../src/engine/state-transition.js';
 import {
   WalletState,
@@ -49,8 +46,6 @@ import {
 import {
   deriveMemberWalletId,
   derivePrescriberWalletId,
-  memberWalletPreimage,
-  ProofGateProgram,
 } from '../src/wallets/index.js';
 import type { MemberLocalData } from '../src/models/member.js';
 import type { PrescriberLocalData } from '../src/models/prescriber.js';
@@ -197,7 +192,6 @@ describe('Layer 3 — zkApp Core Engine', () => {
     let local: Awaited<ReturnType<typeof Mina.LocalBlockchain>>;
     let deployer: Mina.TestPublicKey;
     let admin: Mina.TestPublicKey;
-    let nonAdmin: Mina.TestPublicKey;
     let contractKey: PrivateKey;
     let contract: CareContract;
     let adminPkHash: Field;
@@ -206,7 +200,7 @@ describe('Layer 3 — zkApp Core Engine', () => {
       local = await Mina.LocalBlockchain({ proofsEnabled: false });
       Mina.setActiveInstance(local);
 
-      [deployer, admin, nonAdmin] = local.testAccounts;
+      [deployer, admin] = local.testAccounts;
       contractKey = PrivateKey.random();
       contract = new CareContract(contractKey.toPublicKey());
       adminPkHash = Poseidon.hash(admin.toFields());

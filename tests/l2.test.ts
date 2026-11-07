@@ -28,7 +28,6 @@ import { L2SequencerService, DEFAULT_BATCH_INTERVAL_MS, MAX_TRANSITIONS_PER_BATC
 import type { AdminStateConfig } from '../src/l2/l2-sequencer-service.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
 import { WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
-import { computeGlobalStateRoot } from '../src/l2/global-state.js';
 import type {
   L2Receipt,
   L2Block,

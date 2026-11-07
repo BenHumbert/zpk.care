@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { Field, Struct, Poseidon, ZkProgram } from 'o1js';
+import { Field, Struct, ZkProgram } from 'o1js';
 import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY } from '../credentials/credential-data.js';
 import { EligibilityData } from '../eligibility/eligibility-data.js';
 import { ForestRoots } from '../eligibility/forest-roots.js';

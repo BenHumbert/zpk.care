@@ -32,7 +32,7 @@
  * Run: npx jest tests/wallet-migration.test.ts --verbose
  */
 
-import { Field, Poseidon, MerkleTree } from 'o1js';
+import { Field, Poseidon } from 'o1js';
 
 // ─── Recovery Card ─────────────────────────────────────────
 import {
@@ -48,7 +48,6 @@ import type { EnrollmentBackup } from '../src/security/enrollment-backup.js';
 // ─── Claim Accumulator ────────────────────────────────────
 import { computeClaimLeafHash } from '../src/l2/claim-accumulator-types.js';
 import type { ClaimLeaf } from '../src/l2/claim-accumulator-types.js';
-import { ClaimAccumulatorService } from '../src/l2/claim-accumulator-service.js';
 
 // ─── L2 Sequencer ──────────────────────────────────────────
 import { L2SequencerService } from '../src/l2/l2-sequencer-service.js';
@@ -67,7 +66,6 @@ import {
   memberTransitionPreimage,
   prescriberTransitionPreimage,
   pharmacyTransitionPreimage,
-  paddedPreimage,
   DOMAIN_TAG_MEMBER,
   DOMAIN_TAG_PRESCRIBER,
   DOMAIN_TAG_PHARMACY,
@@ -81,15 +79,6 @@ import { MigrationOutput } from '../src/wallets/wallet-migration-program.js';
 import { hashString } from '../src/zkp/hash-utils.js';
 
 // ─── Enrollment Service ────────────────────────────────────
-import { WalletRegistry, WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
-import { BenefitPlanRegistry } from '../src/eligibility/benefit-plan-registry.js';
-import {
-  GroupRegistry,
-  buildGroupConfig,
-} from '../src/onboarding/group-registry.js';
-import { OpaqueRoster } from '../src/onboarding/opaque-roster.js';
-import { PlanTemplate } from '../src/onboarding/plan-template.js';
-import type { PlanTemplateConfig } from '../src/onboarding/plan-template.js';
 import type { MemberLocalData } from '../src/models/member.js';
 import type { PrescriberLocalData } from '../src/models/prescriber.js';
 import type { PharmacyLocalData } from '../src/models/pharmacy.js';
@@ -123,26 +112,6 @@ const TEST_PRESCRIBER: PrescriberLocalData = {
 const TEST_PHARMACY: PharmacyLocalData = {
   serviceProviderIdQualifier: 1,
   serviceProviderId: 'NPI9876543210',
-};
-
-const TEST_PLAN_CONFIG: PlanTemplateConfig = {
-  planId: 'PLAN-GOLD-2026',
-  copayAmountCents: 3000,
-  coverageType: 1,
-  deductibleAmountCents: 50000,
-  oopMaxCents: 800000,
-  annualBenefitMaxCents: 10000000,
-  formularyEntries: [
-    {
-      ndc: '00071015523',
-      tierLevel: 2,
-      copayAmount: 2000,
-      requiresPriorAuth: false,
-      maxQuantityPerFill: 30,
-      maxDaySupply: 90,
-      stepTherapyRequired: false,
-    },
-  ],
 };
 
 const NDC_LISINOPRIL_HASH = Poseidon.hash([Field(BigInt('00378180510'))]).toString();
@@ -215,10 +184,8 @@ const REG_ROOT_0 = Field(1000);
 const REG_ROOT_1 = Field(1001);
 const REG_ROOT_2 = Field(1002);
 const REG_ROOT_3 = Field(1003);
-const REG_ROOT_4 = Field(1004);
 const LC_ROOT = Field(2000);
 const WALLET_A = Field(100);
-const WALLET_B = Field(200);
 
 // ─── 1. Recovery Card v2 ───────────────────────────────────
 
@@ -552,7 +519,7 @@ describe('Accumulator Reconstruction', () => {
 describe('TokenAuthority.getTokenByHash', () => {
   test('finds consumed token by hash', () => {
     const authority = new TokenAuthority('ACME Corporation');
-    const { token, tokenId } = authority.generateToken(
+    authority.generateToken(
       'ACME-CORP-001',
       'PLAN-GOLD-2026',
       'EMP-12345',

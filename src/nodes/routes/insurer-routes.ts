@@ -746,23 +746,6 @@ export function reportBodyError(body: unknown, opts: { priorAuths?: boolean } = 
 export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration[] {
   const routes: RouteRegistration[] = [];
 
-  // Shared helper to get VerifiedClaim[] from the sequencer
-  // (fetches all claims and transforms for reporting)
-  let cachedClaims: { claims: VerifiedClaim[]; fetchedAt: number } | null = null;
-  const CLAIMS_CACHE_TTL_MS = 30_000; // 30s cache
-
-  async function getVerifiedClaims(node: InsurerNode): Promise<VerifiedClaim[]> {
-    const now = Date.now();
-    if (cachedClaims && now - cachedClaims.fetchedAt < CLAIMS_CACHE_TTL_MS) {
-      return cachedClaims.claims;
-    }
-    // The insurer node has buildVerifiedClaims as a private method;
-    // we use its public report generators which accept VerifiedClaim[].
-    // For now we return an empty array — the insurer app should call
-    // the individual report endpoints with claims data in the POST body.
-    return [];
-  }
-
   // ══════════════════════════════════════════════════════════
   //  ONBOARDING (simplified — no wallet, no key)
   // ══════════════════════════════════════════════════════════
@@ -775,8 +758,6 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (phase === 'ready') {
         return server.sendResponse(res, 409, false, undefined, 'Already configured');
       }
-
-      const b = body as { adminToken?: string } | undefined;
 
       const node = new InsurerNode({
         role: 'insurer',

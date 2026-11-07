@@ -22,7 +22,7 @@
  */
 
 import { InMemoryWalProvider, FileWalProvider, computeWalIntegrityHash } from '../src/l2/l2-wal.js';
-import type { WalEntry, IWalProvider, WalConfig } from '../src/l2/l2-wal.js';
+import type { WalEntry } from '../src/l2/l2-wal.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';

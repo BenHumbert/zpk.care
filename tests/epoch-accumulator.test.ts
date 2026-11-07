@@ -26,7 +26,6 @@
  * Run: npx jest tests/epoch-accumulator.test.ts --verbose
  */
 import { EpochAccumulatorService } from '../src/l2/epoch-accumulator-service.js';
-import type { EpochInfo } from '../src/l2/epoch-accumulator-service.js';
 import type { ClaimLeaf, ClaimMetadata } from '../src/l2/claim-accumulator-types.js';
 
 jest.setTimeout(30_000);

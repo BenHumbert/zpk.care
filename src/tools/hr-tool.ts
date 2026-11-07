@@ -53,18 +53,14 @@
  */
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { mkdirSync } from 'fs';
-import { resolve } from 'path';
 import { createInterface } from 'readline';
 import {
   generateGroupSeed,
   saveGroupSeed,
   loadGroupSeed,
-  parseCsv,
-  hashEmployeeRecords,
   saveCorrelationTable,
   loadCorrelationTable,
   reconcile,
-  encryptWithPassphrase,
   decryptWithPassphrase,
   ensureDataDir,
   groupPaths,
@@ -74,7 +70,6 @@ import type {
   CorrelationTable,
   CorrelationEntry,
   TokenDistributionRecord,
-  ReconciliationResult,
 } from './hr-tool-core.js';
 
 // ─── Helpers ────────────────────────────────────────────────

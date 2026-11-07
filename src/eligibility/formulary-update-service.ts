@@ -20,7 +20,6 @@ import { FormularyEntry, buildFormularyEntry } from '../access-control/formulary
 import type { FormularyEntryLocalData } from '../access-control/formulary-entry.js';
 import { EligibilityData } from './eligibility-data.js';
 import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
-import { ACCUMULATOR_LEAF_INDEX } from '../access-control/accumulator-data.js';
 
 /**
  * Result of a formulary rebuild for one member.

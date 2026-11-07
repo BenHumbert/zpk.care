@@ -34,7 +34,6 @@ import http from 'http';
 import { Field } from 'o1js';
 import {
   StateTransitionProgram,
-  type StateTransitionProof,
 } from '../engine/state-transition.js';
 import { WalletRegistryWitness } from '../wallets/wallet-state.js';
 import { LifecycleWitness } from '../engine/lifecycle.js';

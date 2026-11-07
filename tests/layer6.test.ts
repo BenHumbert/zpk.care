@@ -16,7 +16,6 @@
 
 import { Field, Poseidon } from 'o1js';
 import {
-  FormularyEntry,
   TIER_GENERIC,
   TIER_PREFERRED,
   TIER_NON_PREFERRED,
@@ -32,7 +31,6 @@ import type { PriorAuthLocalData } from '../src/access-control/prior-auth-data.j
 import { FormularyRegistry, FORMULARY_TREE_HEIGHT } from '../src/access-control/formulary-registry.js';
 import {
   AccessControlProgram,
-  AccessControlOutput,
 } from '../src/access-control/access-control-program.js';
 import { AccessControlService } from '../src/access-control/access-control-service.js';
 import { AccessVerificationService } from '../src/access-control/access-verification-service.js';

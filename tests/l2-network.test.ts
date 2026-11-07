@@ -29,7 +29,6 @@ import {
   bigintReviver,
   l2Stringify,
   l2Parse,
-  BIGINT_PREFIX,
 } from '../src/l2/l2-json.js';
 import { L2RpcServer, RPC_METHOD_NOT_FOUND, RPC_PARSE_ERROR, RPC_INVALID_REQUEST } from '../src/l2/l2-rpc-server.js';
 import type { RpcRequest, RpcResponse } from '../src/l2/l2-rpc-server.js';
@@ -38,7 +37,6 @@ import { L2Node } from '../src/l2/l2-node.js';
 import type { L2ChainEvent } from '../src/l2/l2-node.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
 import { WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
-import type { L2Receipt, L2Batch } from '../src/l2/l2-types.js';
 import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 
 // ─── Test Setup ─────────────────────────────────────────────
@@ -614,7 +612,6 @@ describe('SSE Event Streaming', () => {
 
     // Wait for connection
     await new Promise((r) => setTimeout(r, 200));
-    const countBefore = events.length;
 
     // Disconnect
     disconnect();

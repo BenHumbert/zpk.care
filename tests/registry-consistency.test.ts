@@ -35,7 +35,7 @@ import { L2SequencerService } from '../src/l2/l2-sequencer-service.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
 import { WalletRegistry, WalletState, WalletRegistryWitness, WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
 import {
-  lifecycleLeafCommitment, LifecycleWitness, LIFECYCLE_REGISTERED, LIFECYCLE_ELIGIBLE,
+  lifecycleLeafCommitment, LIFECYCLE_REGISTERED, LIFECYCLE_ELIGIBLE,
 } from '../src/engine/lifecycle.js';
 import { TransitionOutput } from '../src/engine/state-transition.js';
 import { NautilusAppServer } from '../src/nodes/nautilus-app-server.js';

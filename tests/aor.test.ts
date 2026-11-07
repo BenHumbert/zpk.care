@@ -36,7 +36,6 @@ import {
   DOMAIN_TAG_MEMBER,
   deriveRepresentativeWalletId,
   representativeWalletPreimage,
-  validateEnrollmentKey,
   generateEnrollmentKey,
 } from '../src/wallets/wallet-derivation.js';
 import type { RepresentativeLocalData } from '../src/wallets/wallet-derivation.js';
@@ -44,17 +43,14 @@ import {
   REL_APPOINTED_REPRESENTATIVE,
   REL_SPOUSE,
   SCOPE_READ,
-  SCOPE_WRITE,
   SCOPE_PICKUP,
   SCOPE_ALL,
   DelegationData,
 } from '../src/messaging/delegation-data.js';
 import {
   MSG_TYPE_AOR_INITIATE,
-  MSG_TYPE_AOR_CONFIRMED,
   MSG_TYPE_AOR_REVOKE,
   PICKUP_COOLDOWN_MS,
-  AOR_DEFAULT_VALIDITY_DAYS,
   AOR_RATE_LIMIT_MS,
   OFFLINE_TTL_MS,
   validateAorDocument,
@@ -64,7 +60,6 @@ import {
 import type { AorLocalData } from '../src/messaging/aor-data.js';
 import { AorService } from '../src/messaging/aor-service.js';
 import {
-  RepEnrollmentToken,
   buildRepEnrollmentToken,
 } from '../src/onboarding/rep-enrollment-token.js';
 import {
@@ -1164,7 +1159,7 @@ describe('MessagingService — sendRevocationNotification', () => {
   });
 
   test('nonce increments for same sender', () => {
-    const { service, delReg, index, delegationCommitment, delegationData } = buildServiceWithAor();
+    const { service, delReg, index, delegationCommitment } = buildServiceWithAor();
     delReg.revokeDelegation(index);
 
     const result1 = service.sendRevocationNotification(

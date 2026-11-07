@@ -490,7 +490,6 @@ async function main(): Promise<void> {
 
   // Console emitter → stdout
   const consoleEmitter = (event: { type: string; message: string; timestamp: number; elapsedMs?: number }) => {
-    const ts = new Date(event.timestamp).toLocaleTimeString();
     const elapsed = event.elapsedMs ? ` (${(event.elapsedMs / 1000).toFixed(2)}s)` : '';
     console.log(`  [interactive] [${event.type}] ${event.message}${elapsed}`);
   };

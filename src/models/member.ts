@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { Field, Struct, Poseidon, CircuitString } from 'o1js';
+import { Field, Struct, Poseidon } from 'o1js';
 
 /**
  * Member — maps to NCPDP Patient + Insurance segments (minimum fields).

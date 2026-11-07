@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { Field, Poseidon, MerkleTree } from 'o1js';
+import { Field, MerkleTree } from 'o1js';
 import type { ILocalStore } from '../storage/local-store.js';
 import {
   TransitionOutput,
@@ -22,7 +22,7 @@ import {
 } from '../engine/state-transition.js';
 import { BatchProgram, BatchProof, BatchOutput } from './batch-program.js';
 import { ChainProgram, ChainProof } from './chain-program.js';
-import { computeGlobalStateRoot, ChainOutput } from './global-state.js';
+import { ChainOutput } from './global-state.js';
 import type {
   L2Receipt,
   L2Block,
@@ -35,7 +35,6 @@ import { AuditService } from '../audit/audit-service.js';
 import { AuditMerkleIndex } from '../audit/audit-merkle-index.js';
 import { l2Stringify } from './l2-json.js';
 import type { AuditEvent, AuditLog } from '../audit/audit-types.js';
-import type { ClaimContext } from '../reporting/report-types.js';
 import type { L2SequencerState } from './l2-checkpoint.js';
 import type { ClaimSubmissionMetadata } from './l2-types.js';
 import { ClaimAccumulatorService, DuplicateFillError } from './claim-accumulator-service.js';
@@ -43,17 +42,16 @@ import { computeClaimLeafHash, type ClaimAccumulatorEntry } from './claim-accumu
 import { MessageStoreService } from './message-store-service.js';
 import type { StoredMessage, MessagePayload, MessageStoreEntry } from './message-store-types.js';
 import { ProviderRegistryService } from './provider-registry-service.js';
-import type { ProviderRegistryEntry, ProviderLeaf, ProviderMetadata, ProviderRegistryState } from './provider-registry-types.js';
+import type { ProviderRegistryEntry, ProviderLeaf, ProviderMetadata } from './provider-registry-types.js';
 import { ProviderLifecycle } from './provider-registry-types.js';
 import type { PartitionConfig } from './l2-partition.js';
 import { isMyPartition, getPartition } from './l2-partition.js';
 import { WalletRegistry, WalletState, WALLET_TREE_HEIGHT } from '../wallets/wallet-state.js';
 import { lifecycleLeafCommitment, LIFECYCLE_REGISTERED, LIFECYCLE_ELIGIBLE, LIFECYCLE_ACTIVE, LIFECYCLE_REVOKED, LifecycleWitness } from '../engine/lifecycle.js';
-import type { IWalProvider, WalEntry } from './l2-wal.js';
+import type { IWalProvider } from './l2-wal.js';
 import type { TransitionProofVerifier } from './l2-proof-verifier.js';
 import type { ProvingJobRequest, ProvingJobResult } from './l2-proving-pool-types.js';
 import { FormularyService } from './formulary-service.js';
-import type { FormularyServiceState } from './formulary-service.js';
 import { ProvingLease, type LeaseAnswer, type LeaseStatus } from './proving-lease.js';
 
 /** Default batch interval: 3 minutes (matches MINA L1 block time) */

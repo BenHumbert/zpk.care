@@ -28,7 +28,6 @@ import {
   RX_STATUS_REVERSED,
   RX_STATUS_TRANSFERRED,
   RX_STATUS_DISPENSED,
-  EMERGENCY_FILL_HASH,
   isValidStatusTransition,
   assertValidStatusTransition,
 } from '../src/prescription/prescription-data.js';
@@ -38,14 +37,12 @@ import type {
 } from '../src/prescription/prescription-data.js';
 import {
   PrescriptionProgram,
-  PrescriptionOutput,
-  PrescriptionProof,
 } from '../src/prescription/prescription-program.js';
 import { PrescriptionService } from '../src/prescription/prescription-service.js';
 import { PrescriptionVerificationService } from '../src/prescription/prescription-verification-service.js';
 import { CredentialData, CREDENTIAL_TYPE_PRESCRIPTION, CREDENTIAL_TYPE_ELIGIBILITY } from '../src/credentials/credential-data.js';
 import { CredentialInventory } from '../src/credentials/credential-inventory.js';
-import { CredentialProgram, CredentialOperationProof, CREDENTIAL_OP_VERIFY } from '../src/credentials/credential-program.js';
+import { CredentialProgram, CREDENTIAL_OP_VERIFY } from '../src/credentials/credential-program.js';
 import { ProofGateProgram } from '../src/wallets/proof-gate.js';
 import { DOMAIN_TAG_PRESCRIBER } from '../src/wallets/wallet-derivation.js';
 import { MerkleForest, ForestDomain } from '../src/zkp/merkle-forest.js';
@@ -54,17 +51,11 @@ import { hashString, dateToField, quantityToField } from '../src/zkp/hash-utils.
 import { InMemoryStore } from '../src/storage/local-store.js';
 import {
   WalletRegistry,
-  WalletState,
   WALLET_TREE_HEIGHT,
 } from '../src/wallets/wallet-state.js';
 import { EMPTY_CREDENTIAL_ROOT } from '../src/engine/state-transition.js';
 import {
   deriveEncryptionKeyPair,
-  deriveSharedSecret,
-  encryptMessage,
-  decryptMessage,
-  computeContentHash,
-  publicKeyToFields,
 } from '../src/messaging/encryption.js';
 import {
   MessageRegistry,
@@ -107,7 +98,6 @@ const prescriberWalletId = Poseidon.hash([DOMAIN_TAG_PRESCRIBER, PRESCRIBER_QUAL
 const memberWalletId = Field(999888777666555444n);
 const pharmacyWalletId = Field(777666555444333222n);
 const pharmacy2WalletId = Field(888777666555444333n);
-const adminWalletId = Field(100200300400500600n);
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -386,7 +376,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       );
 
       const inventory = new CredentialInventory();
-      const { credentialIndex, newInventoryRoot, newRegistryRoot } =
+      const { credentialIndex, newInventoryRoot } =
         service.mintPrescriptionToPharmacy(pharmacyWalletId, credentialData, inventory);
 
       expect(credentialIndex).toBe(0n);
@@ -498,7 +488,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       );
 
       // Build and mint initial prescription
-      const { credentialData, initialStatus } = service.buildPrescriptionCredential(
+      const { initialStatus } = service.buildPrescriptionCredential(
         prescriberWalletId,
         memberWalletId,
         pharmacyWalletId,
@@ -694,11 +684,8 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
   // ── PrescriptionProgram — proveStatusUpdate ─────────────
 
   describe('PrescriptionProgram', () => {
-    let compiled = false;
-
     beforeAll(async () => {
       await PrescriptionProgram.compile();
-      compiled = true;
     }, 120_000);
 
     describe('proveStatusUpdate', () => {

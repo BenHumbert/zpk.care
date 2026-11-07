@@ -121,7 +121,6 @@ const WAIT_TO_COMPLETE = 'Too many attempts to complete an enrollment with this 
 /** What the member's device answers at redemption when the insurer's limit on wrong attempts with the code refuses it. */
 const CODE_BLOCKED = 'This enrollment code has had too many wrong attempts in the last hour. Try again in an hour, or ask HR for a new code.';
 /** What the member's device answered every 429 of the insurer's at redemption with, the code's limit included. */
-const NETWORK_MINUTE = 'Too many enrollment attempts came from this network. Try again in a minute.';
 /** What the member's device answers when it kept no completion secret for its code. */
 const NO_SECRET = 'This device keeps no completion secret for its enrollment code, and the insurer completes a code only for the device that redeemed it: ask HR for a new code and start over';
 

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { Field, Struct, Poseidon, ZkProgram, Provable } from 'o1js';
+import { Field, Struct, ZkProgram } from 'o1js';
 import { ProofGateProof } from '../wallets/proof-gate.js';
 import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY } from '../credentials/credential-data.js';
 import { ForestMerkleWitness } from '../zkp/merkle-forest.js';

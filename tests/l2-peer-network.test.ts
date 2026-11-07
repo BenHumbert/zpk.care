@@ -21,7 +21,6 @@ import { Field, MerkleTree } from 'o1js';
 import { InMemoryStore } from '../src/storage/local-store.js';
 import { WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
 import { L2Node } from '../src/l2/l2-node.js';
-import type { L2NodeStatus } from '../src/l2/l2-node.js';
 import { L2RpcServer } from '../src/l2/l2-rpc-server.js';
 import { L2Client } from '../src/l2/l2-client.js';
 import { L2PeerNetwork, generateMessageId } from '../src/l2/l2-peer-network.js';
@@ -35,12 +34,7 @@ import type {
   PeerInfo,
   GossipMessage,
   GossipMessageType,
-  PeerNetworkConfig,
   StateDigest,
-  ProofAcceptedPayload,
-  BatchBuiltPayload,
-  BatchSettledPayload,
-  BatchFailedPayload,
   PeerAnnouncePayload,
   L2NodeRole,
 } from '../src/l2/l2-peer-types.js';

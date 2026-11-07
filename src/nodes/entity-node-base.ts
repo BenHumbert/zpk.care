@@ -37,7 +37,7 @@ import type { ClaimAccumulatorEntry } from '../l2/claim-accumulator-types.js';
 import type { StoredMessage, MessagePayload, MessageStoreEntry } from '../l2/message-store-types.js';
 import type { RequestSigner } from '../security/wallet-key.js';
 import type { NfcCredentialAttestation } from '../credentials/nfc-attestation.js';
-import type { L2ChainEvent, L2EventHandler, L2NodeStatus } from '../l2/l2-node.js';
+import type { L2EventHandler, L2NodeStatus } from '../l2/l2-node.js';
 import type {
   EntityNodeConfig,
   EntityRole,

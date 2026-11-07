@@ -21,7 +21,6 @@ import {
   Field,
   method,
   Poseidon,
-  MerkleTree,
   MerkleWitness,
   Permissions,
 } from 'o1js';

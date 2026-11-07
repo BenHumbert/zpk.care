@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { Field, Poseidon, Encoding } from 'o1js';
+import { Field, Poseidon } from 'o1js';
 import { ReportingService } from '../src/reporting/reporting-service.js';
 import { hashString } from '../src/zkp/hash-utils.js';
 import type {
@@ -32,7 +32,6 @@ import {
 import {
   MSG_TYPE_SUPPORT,
   MSG_TYPE_SUPPORT_SUMMARY,
-  MSG_TYPE_GENERAL,
 } from '../src/messaging/message-data.js';
 
 // ─── Test Data ──────────────────────────────────────────────

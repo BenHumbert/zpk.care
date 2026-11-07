@@ -391,7 +391,6 @@ async function main() {
   trace.check('No route of the HR Tool shows a PIN again (A-109)', hrHashOfMember.length > 0 && reveal.status === 404 && !reveal.text.includes(textedPin(MEMBER.mobile)), 404, reveal.status);
   const empl = await http('GET', `${hrToolUrl}/api/employees`);
   trace.check('The employee list carries no PINs', !JSON.stringify(unwrap(empl.json) ?? empl.json ?? '').includes('tokenPIN'), 'none', 'checked');
-  const empHash = hashString(MEMBER.employeeId).toString();
   const myIssue = issued.find(r => r.employeeId === MEMBER.employeeId) ?? issued[0];
   const myToken = { tokenId: myIssue?.tokenId ?? tokens[0]?.tokenId ?? '', tokenPIN: textedPin(MEMBER.mobile) };
   trace.check('Codes reference employees only by hash', tokens.every(t => !JSON.stringify(t).includes(MEMBER.lastName)), 'no names', 'checked');

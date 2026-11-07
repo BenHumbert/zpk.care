@@ -35,7 +35,6 @@ import {
   decryptMessage,
   computeContentHash,
   publicKeyToFields,
-  fieldsToPublicKey,
 } from './encryption.js';
 import { hashString } from '../zkp/hash-utils.js';
 import { MSG_TYPE_AOR_REVOKE } from './aor-data.js';

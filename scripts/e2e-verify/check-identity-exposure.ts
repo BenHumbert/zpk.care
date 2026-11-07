@@ -2,9 +2,8 @@
 // Looks for each member's identity hashes on the sequencer's disk and in its public routes,
 // then tries a small dictionary attack on the name and birth-date hashes.
 import fs from 'fs';
-import path from 'path';
 import { hashString, hashDate } from '../../src/zkp/hash-utils.js';
-const [disk, ...walletFiles] = process.argv.slice(2);
+const [disk] = process.argv.slice(2);
 const stateText = fs.readFileSync(disk, 'utf8');
 const publicState = await (await fetch('http://localhost:3030/interactive/state')).text();
 const people = [

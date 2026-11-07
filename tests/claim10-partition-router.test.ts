@@ -194,12 +194,6 @@ describe('Claim 10: Deterministic Partition Router', () => {
 
     // Generate 10 walletIds and verify routing
     const walletIds = generateWalletIds(10);
-    const urlMap = new Map<string, string>([
-      [ctx0.url, 'lev-0'],
-      [ctx1.url, 'lev-1'],
-      [ctx2.url, 'lev-2'],
-    ]);
-
     for (const walletId of walletIds) {
       const expectedPartition = getPartition(walletId, 3);
       const url = router.getSequencerUrl(walletId);

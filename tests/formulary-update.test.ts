@@ -27,19 +27,16 @@
  * authority; the source is unchanged. Its two cases on EnrollmentService's bulk update of a plan's members went with
  * that method (the cleanup's phase 3.3): it updated only members the broken processEnrollment had made.
  */
-import { Field, Poseidon, MerkleTree } from 'o1js';
+import { Field } from 'o1js';
 import {
   FormularyUpdateService,
 } from '../src/eligibility/formulary-update-service.js';
-import type { PublishedFormulary } from '../src/eligibility/formulary-update-service.js';
 import {
   EligibilityData,
   COVERAGE_PHARMACY,
 } from '../src/eligibility/eligibility-data.js';
 import { MerkleForest, ForestDomain } from '../src/zkp/merkle-forest.js';
 import { hashString } from '../src/zkp/hash-utils.js';
-import { FormularyRegistry } from '../src/access-control/formulary-registry.js';
-import { buildFormularyEntry } from '../src/access-control/formulary-entry.js';
 import type { FormularyEntryLocalData } from '../src/access-control/formulary-entry.js';
 import { ACCUMULATOR_LEAF_INDEX, buildAccumulatorData } from '../src/access-control/accumulator-data.js';
 import { L2SequencerService } from '../src/l2/l2-sequencer-service.js';
@@ -47,54 +44,12 @@ import { L2Node, DEFAULT_L2_NODE_OPTIONS } from '../src/l2/l2-node.js';
 import { L2RpcServer } from '../src/l2/l2-rpc-server.js';
 import { L2Client } from '../src/l2/l2-client.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
-import {
-  WalletRegistry,
-  WalletState,
-  WALLET_TREE_HEIGHT,
-} from '../src/wallets/wallet-state.js';
-import { CredentialInventory } from '../src/credentials/credential-inventory.js';
-import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY } from '../src/credentials/credential-data.js';
-import {
-  deriveMemberWalletId,
-} from '../src/wallets/index.js';
-import type { MemberLocalData } from '../src/models/member.js';
-import { PlanTemplate } from '../src/onboarding/plan-template.js';
-import { TokenAuthority } from '../src/onboarding/token-authority.js';
-import { GroupRegistry, buildGroupConfig } from '../src/onboarding/group-registry.js';
-import { OpaqueRoster } from '../src/onboarding/opaque-roster.js';
-import { BenefitPlanRegistry } from '../src/eligibility/benefit-plan-registry.js';
 import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 
 // ─── Test Data ───────────────────────────────────────────
 
-const TEST_ENROLLMENT_KEY = 'xK9#mP2$vL5nQ8wR3jF7';
-
 /** l2_storeFormulary is an operator write: the RPC server and the client share this admin token. */
 const TEST_ADMIN_TOKEN = 'formulary-update-admin-token';
-
-const testMember1: MemberLocalData = {
-  cardholderId: 'CARD-FM-001',
-  dateOfBirth: '19850315',
-  genderCode: 1,
-  firstName: 'Alice',
-  lastName: 'Smith',
-};
-
-const testMember2: MemberLocalData = {
-  cardholderId: 'CARD-FM-002',
-  dateOfBirth: '19900720',
-  genderCode: 2,
-  firstName: 'Bob',
-  lastName: 'Jones',
-};
-
-/** C1: member derivation takes the identity salt; the suite uses one fixed value. */
-const TEST_SALT = 'ab'.repeat(32);
-
-const member1WalletId = deriveMemberWalletId(testMember1, TEST_ENROLLMENT_KEY, Field(0), TEST_SALT);   // before: no salt, and the suite stopped here
-const member2WalletId = deriveMemberWalletId(testMember2, TEST_ENROLLMENT_KEY, Field(0), TEST_SALT);
-
-const adminWalletId = Poseidon.hash([Field(999)]);
 
 const baseFormularyEntries: FormularyEntryLocalData[] = [
   {
@@ -215,7 +170,6 @@ describe('Formulary Update Push (GAP 3)', () => {
       forest.setLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX, accData.commitment());
 
       // Get accumulator commitment before rebuild
-      const accCommitmentBefore = accData.commitment().toString();
 
       // Rebuild
       FormularyUpdateService.rebuildMemberForest(forest, eligData, Field(333));

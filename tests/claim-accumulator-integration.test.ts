@@ -26,7 +26,7 @@
  * Run: npx jest tests/claim-accumulator-integration.test.ts --verbose
  */
 
-import { Field, Poseidon, MerkleTree } from 'o1js';
+import { Field, Poseidon } from 'o1js';
 import { InMemoryStore } from '../src/storage/local-store.js';
 import { L2SequencerService } from '../src/l2/l2-sequencer-service.js';
 import { L2Node } from '../src/l2/l2-node.js';

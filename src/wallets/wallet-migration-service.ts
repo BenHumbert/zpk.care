@@ -35,9 +35,6 @@ import {
   memberTransitionPreimage,
   prescriberTransitionPreimage,
   pharmacyTransitionPreimage,
-  DOMAIN_TAG_MEMBER,
-  DOMAIN_TAG_PRESCRIBER,
-  DOMAIN_TAG_PHARMACY,
 } from './wallet-derivation.js';
 import type { MemberLocalData } from '../models/member.js';
 import type { PrescriberLocalData } from '../models/prescriber.js';

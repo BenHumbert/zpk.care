@@ -19,8 +19,6 @@ import { ProofGateProgram } from '../wallets/proof-gate.js';
 import {
   WalletRegistry,
   WalletState,
-  WalletRegistryWitness,
-  WALLET_TREE_HEIGHT,
 } from '../wallets/wallet-state.js';
 import {
   LifecycleWitness,

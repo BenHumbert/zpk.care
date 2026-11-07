@@ -35,7 +35,7 @@ import http from 'http';
 import https from 'https';
 import type { StateTransitionProof } from '../engine/state-transition.js';
 import type { L2ChainEvent, L2EventHandler, L2NodeStatus } from './l2-node.js';
-import type { L2Receipt, L2Block, L2Batch, L2ChainState, L2ChainProofResponse, ClaimSubmissionMetadata, BenefitPlanConfig } from './l2-types.js';
+import type { L2Receipt, L2Block, L2Batch, L2ChainState, L2ChainProofResponse, BenefitPlanConfig } from './l2-types.js';
 import type { ClaimAccumulatorEntry } from './claim-accumulator-types.js';
 import type { StoredMessage, MessagePayload, MessageStoreEntry } from './message-store-types.js';
 import type { AuditLog } from '../audit/audit-types.js';

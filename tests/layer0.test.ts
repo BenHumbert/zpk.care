@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-import { Field, Poseidon } from 'o1js';
 import {
   hashString,
   dateToField,
@@ -25,12 +24,10 @@ import {
   buildPrescriberData,
   buildPharmacyData,
   buildMedicationData,
-  buildMedicationPricingData,
   buildTransactionHeaderData,
   generateMemberIdentifier,
   MerkleForest,
   ForestDomain,
-  ForestMerkleWitness,
 } from '../src/zkp/index.js';
 import { InMemoryStore } from '../src/storage/index.js';
 import type { MemberLocalData } from '../src/models/member.js';

@@ -32,7 +32,6 @@ import {
 import {
   LIFECYCLE_ELIGIBLE,
   LIFECYCLE_ACTIVE,
-  LIFECYCLE_REGISTERED,
   lifecycleLeafCommitment,
   LifecycleWitness,
 } from '../src/engine/lifecycle.js';
@@ -40,7 +39,6 @@ import {
   derivePrescriberWalletId,
   derivePharmacyWalletId,
   prescriberWalletPreimage,
-  pharmacyWalletPreimage,
   ProofGateProgram,
 } from '../src/wallets/index.js';
 import { WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';

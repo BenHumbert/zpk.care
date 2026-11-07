@@ -24,12 +24,10 @@ import { CredentialData, CREDENTIAL_TYPE_PRESCRIPTION } from '../credentials/cre
 import { CredentialInventory } from '../credentials/credential-inventory.js';
 import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
 import { ForestRoots } from '../eligibility/forest-roots.js';
-import { hashString } from '../zkp/hash-utils.js';
 import {
   PrescriptionData,
   PrescriptionStatusData,
   RX_STATUS_ADJUDICATED,
-  RX_STATUS_TRANSFERRED,
   EMERGENCY_FILL_HASH,
   isValidStatusTransition,
 } from './prescription-data.js';
@@ -85,7 +83,6 @@ export interface TransferResult {
 export class PrescriptionService {
   private store: ILocalStore;
   private registry: WalletRegistry;
-  private lifecycleTree: MerkleTree;
 
   constructor(
     store: ILocalStore,
@@ -94,7 +91,6 @@ export class PrescriptionService {
   ) {
     this.store = store;
     this.registry = registry;
-    this.lifecycleTree = lifecycleTree;
   }
 
   // ─── Create Prescription ──────────────────────────────────

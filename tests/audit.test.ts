@@ -23,7 +23,7 @@
  */
 import { Field, Poseidon } from 'o1js';
 import { AuditService, DEFAULT_ORPHAN_THRESHOLD_MS } from '../src/audit/audit-service.js';
-import { AuditMerkleIndex, AuditEventWitness } from '../src/audit/audit-merkle-index.js';
+import { AuditMerkleIndex } from '../src/audit/audit-merkle-index.js';
 import type {
   AuditEvent,
   AuditLog,

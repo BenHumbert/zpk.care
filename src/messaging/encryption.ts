@@ -15,7 +15,7 @@
  */
 
 import { createHash, createCipheriv, createDecipheriv, diffieHellman, hkdfSync } from 'crypto';
-import { generateKeyPairSync, createPublicKey, createPrivateKey } from 'crypto';
+import { createPublicKey, createPrivateKey } from 'crypto';
 import { Field, Poseidon, Encoding } from 'o1js';
 
 /**

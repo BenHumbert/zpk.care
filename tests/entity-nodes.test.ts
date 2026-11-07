@@ -35,7 +35,6 @@ import type {
   MemberNodeConfig,
   PrescriberNodeConfig,
   PharmacyNodeConfig,
-  InsurerNodeConfig,
 } from '../src/nodes/entity-node-types.js';
 import type { ClaimAccumulatorEntry } from '../src/l2/claim-accumulator-types.js';
 

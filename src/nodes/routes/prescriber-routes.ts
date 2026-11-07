@@ -290,8 +290,6 @@ export function buildPrescriberRoutes(
       if (!data?.walletId) {
         return server.sendResponse(res, 409, false, undefined, 'Wallet not derived');
       }
-      const b = body as { insurerUrl?: string } | undefined;
-
       const node = new PrescriberNode({
         role: 'prescriber',
         walletId: data.walletId,

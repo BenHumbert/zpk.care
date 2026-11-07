@@ -29,7 +29,6 @@ import type { AccumulatorLocalData } from '../src/access-control/accumulator-dat
 import {
   AccumulatorFulfillmentOutput,
   AccumulatorFulfillmentProgram,
-  AccumulatorFulfillmentProof,
 } from '../src/fulfillment/accumulator-fulfillment-program.js';
 import { AccumulatorFulfillmentService } from '../src/fulfillment/accumulator-fulfillment-service.js';
 import { FamilyAccumulatorService } from '../src/onboarding/family-accumulator-service.js';
@@ -59,9 +58,7 @@ import {
 import { InMemoryStore } from '../src/storage/local-store.js';
 import {
   WalletRegistry,
-  WalletState,
 } from '../src/wallets/wallet-state.js';
-import { EMPTY_CREDENTIAL_ROOT } from '../src/engine/state-transition.js';
 import { DOMAIN_TAG_PHARMACY } from '../src/wallets/wallet-derivation.js';
 
 // ─── Test Data ──────────────────────────────────────────────

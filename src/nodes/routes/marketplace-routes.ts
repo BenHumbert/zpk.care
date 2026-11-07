@@ -30,7 +30,7 @@
  *   - Duplicate employer attestation blocked on sequencer
  *   - Content-Disposition filename sanitized
  */
-import { randomBytes, createHash, timingSafeEqual, sign as ed25519Sign, createPrivateKey, createPublicKey } from 'crypto';
+import { randomBytes, createHash, timingSafeEqual, sign as ed25519Sign } from 'crypto';
 import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
@@ -179,9 +179,6 @@ export function getApplicationStore(): Map<string, EmployerApplication> {
 }
 
 // ─── Insurer Signing Helper ─────────────────────────────────
-
-/** PKCS8 DER prefix for Ed25519 private keys */
-const ED25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
 
 /**
  * Sign a message with the insurer's Ed25519 key.

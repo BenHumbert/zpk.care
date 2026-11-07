@@ -276,7 +276,7 @@ async function createGroup(): Promise<void> {
   }
 
   try {
-    const result = await apiCall(employerUrl, 'POST', '/groups', {
+    await apiCall(employerUrl, 'POST', '/groups', {
       groupId: GROUP_CONFIG.groupId,
       planId: GROUP_CONFIG.planId,
       effectiveDate: GROUP_CONFIG.effectiveDate,

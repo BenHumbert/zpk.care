@@ -41,7 +41,7 @@ import type { StateTransitionProof } from '../engine/state-transition.js';
 import { L2SequencerService } from './l2-sequencer-service.js';
 import { RequestRefused } from './request-refused.js';
 import type { AdminStateConfig, ReplicatedClaimLeftOut } from './l2-sequencer-service.js';
-import type { L2Receipt, L2Batch, L1Status, ClaimSubmissionMetadata } from './l2-types.js';
+import type { L2Receipt, L2Batch, ClaimSubmissionMetadata } from './l2-types.js';
 import type { ClaimAccumulatorEntry } from './claim-accumulator-types.js';
 import {
   L2CheckpointStore,
@@ -50,7 +50,6 @@ import {
 import type {
   L2Checkpoint,
   L2CheckpointTrigger,
-  L2SequencerState,
 } from './l2-checkpoint.js';
 import { L2PeerNetwork, generateMessageId } from './l2-peer-network.js';
 import type { PartitionConfig } from './l2-partition.js';

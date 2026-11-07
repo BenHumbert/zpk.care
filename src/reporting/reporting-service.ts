@@ -16,7 +16,7 @@
 
 import { Field, Poseidon } from 'o1js';
 import { hashString } from '../zkp/hash-utils.js';
-import { FulfillmentOutput, FULFILL_OP_CLAIM, FULFILL_OP_REVERSAL } from '../fulfillment/fulfillment-program.js';
+import { FulfillmentOutput, FULFILL_OP_CLAIM } from '../fulfillment/fulfillment-program.js';
 import type {
   VerifiedClaim,
   ClaimContext,

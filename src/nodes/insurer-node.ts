@@ -30,7 +30,6 @@
  */
 import type { L2Receipt, L2Batch, L2ChainProofResponse } from '../l2/l2-types.js';
 import type { AuditLog, FullAuditReport, ChainIntegrityResult, FinancialBalanceResult, DuplicateDetectionResult } from '../audit/audit-types.js';
-import type { ClaimAccumulatorEntry } from '../l2/claim-accumulator-types.js';
 import type { MessageStoreEntry } from '../l2/message-store-types.js';
 import type {
   ReportFilter,
@@ -262,38 +261,6 @@ export class InsurerNode extends EntityNodeBase {
   }
 
   // ─── Reporting (12 types) ───────────────────────────────
-
-  /**
-   * Build VerifiedClaim[] from ClaimAccumulatorEntries.
-   * Maps the on-chain leaf + metadata into the ReportingService input format.
-   */
-  private buildVerifiedClaims(entries: ClaimAccumulatorEntry[]): VerifiedClaim[] {
-    return entries.map((e) => ({
-      prescriptionHash: '0', // Not available from claim accumulator
-      entryCommitment: e.leafHash,
-      patientPayCents: Number(BigInt(e.leaf.patientPayCents)),
-      planPayCents: Number(BigInt(e.leaf.planPayCents)),
-      operationType:
-        e.leaf.operationType === '2'
-          ? ('reversal' as const)
-          : ('fulfillment' as const),
-      pharmacyWalletId: e.leaf.pharmacyWalletId,
-      memberWalletId: e.leaf.memberWalletId,
-      prescriberWalletId: e.leaf.prescriberWalletId,
-      ndcHash: e.leaf.ndcHash,
-      ingredientCostCents: 0, // Not stored in claim accumulator
-      dispensingFeeCents: 0,
-      quantityDispensed: '0',
-      dateOfService: Number(e.leaf.dateOfService),
-      ndc: e.metadata.ndc,
-      gpi: e.metadata.gpi,
-      daysSupply: e.metadata.daysSupply,
-      fillNumber: e.metadata.fillNumber,
-      brandName: e.metadata.brandName,
-      therapeuticClass: e.metadata.therapeuticClass,
-      tierLevel: e.metadata.tierLevel,
-    }));
-  }
 
   /** 1. Claims register — chronological list of all claims */
   generateClaimsRegister(

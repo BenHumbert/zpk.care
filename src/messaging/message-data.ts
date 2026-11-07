@@ -15,7 +15,7 @@
  */
 
 import { Field, Struct, Poseidon } from 'o1js';
-import { hashString, dateToField } from '../zkp/hash-utils.js';
+import { hashString } from '../zkp/hash-utils.js';
 
 // ─── Message Type Constants ─────────────────────────────────
 

@@ -34,8 +34,6 @@ import {
 } from '../src/l2/l2-checkpoint.js';
 import type {
   L2Checkpoint,
-  L2SequencerState,
-  L2NodeStats,
 } from '../src/l2/l2-checkpoint.js';
 import { l2Stringify, l2Parse } from '../src/l2/l2-json.js';
 import { InMemoryStore } from '../src/storage/local-store.js';

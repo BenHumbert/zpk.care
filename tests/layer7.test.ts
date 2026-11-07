@@ -19,10 +19,7 @@ import {
   MessageData,
   buildMessageData,
   MSG_TYPE_PRESCRIPTION,
-  MSG_TYPE_PA_REQUEST,
   MSG_TYPE_PA_RESPONSE,
-  MSG_TYPE_NOTIFICATION,
-  MSG_TYPE_GENERAL,
 } from '../src/messaging/message-data.js';
 import type { MessageLocalData } from '../src/messaging/message-data.js';
 import {
@@ -59,11 +56,10 @@ import {
 } from '../src/messaging/message-registry.js';
 import {
   MessagingProgram,
-  MessagingOutput,
 } from '../src/messaging/messaging-program.js';
 import { MessagingService } from '../src/messaging/messaging-service.js';
 import { MessagingVerificationService } from '../src/messaging/messaging-verification-service.js';
-import { hashString, dateToField } from '../src/zkp/hash-utils.js';
+import { hashString } from '../src/zkp/hash-utils.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
 import { CareContract } from '../src/engine/care-contract.js';
 import { PrivateKey, Mina, AccountUpdate } from 'o1js';

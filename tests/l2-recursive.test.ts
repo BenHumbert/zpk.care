@@ -38,7 +38,6 @@
 import { Field, MerkleTree, Poseidon } from 'o1js';
 import {
   StateTransitionProgram,
-  TransitionOutput,
   EMPTY_CREDENTIAL_ROOT,
 } from '../src/engine/state-transition.js';
 import {

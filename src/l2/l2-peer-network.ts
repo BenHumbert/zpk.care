@@ -737,11 +737,6 @@ export class L2PeerNetwork {
 
   // ─── Internal ─────────────────────────────────────────
 
-  /** Check if a peer URL is already connected */
-  private isPeerAlreadyConnected(url: string): boolean {
-    return this.findPeerByUrl(url) !== undefined;
-  }
-
   /** Find a peer by URL (regardless of connection status) */
   private findPeerByUrl(url: string): PeerInfo | undefined {
     for (const peer of this.peers.values()) {

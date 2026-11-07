@@ -43,24 +43,19 @@ import {
   StateTransitionProgram,
 } from '../src/engine/state-transition.js';
 import {
-  LIFECYCLE_REGISTERED,
   LIFECYCLE_ELIGIBLE,
   lifecycleLeafCommitment,
-  LifecycleWitness,
 } from '../src/engine/lifecycle.js';
 import {
   deriveMemberWalletId,
   derivePrescriberWalletId,
   derivePharmacyWalletId,
   memberWalletPreimage,
-  prescriberWalletPreimage,
   pharmacyWalletPreimage,
   ProofGateProgram,
 } from '../src/wallets/index.js';
 import {
   WalletRegistry,
-  WalletState,
-  CREDENTIAL_INVENTORY_HEIGHT,
   WALLET_TREE_HEIGHT,
 } from '../src/wallets/wallet-state.js';
 import { InMemoryStore } from '../src/storage/local-store.js';

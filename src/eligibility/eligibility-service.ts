@@ -27,7 +27,7 @@ import {
 import type { ILocalStore } from '../storage/local-store.js';
 import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY } from '../credentials/credential-data.js';
 import { CredentialInventory } from '../credentials/credential-inventory.js';
-import { MerkleForest, ForestDomain, ForestMerkleWitness } from '../zkp/merkle-forest.js';
+import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
 import { EligibilityData } from './eligibility-data.js';
 import { ForestRoots } from './forest-roots.js';
 import { BenefitPlanRegistry } from './benefit-plan-registry.js';

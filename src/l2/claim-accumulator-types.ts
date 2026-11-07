@@ -26,7 +26,7 @@
  * in the audit Poseidon hash chain (GlobalState → ChainProof → on-chain).
  */
 
-import { Field, Poseidon, MerkleTree, MerkleWitness } from 'o1js';
+import { Field, Poseidon, MerkleWitness } from 'o1js';
 
 // ─── Tree Constants ─────────────────────────────────────────
 

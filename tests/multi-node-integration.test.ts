@@ -290,9 +290,6 @@ describe('Multi-Node Integration (Claims 8 × 9 × 10)', () => {
     const ctx2 = await createTestLeviathan(3, 2, 'int-lev-2', nodeIds);
     activeContexts.push(ctx0, ctx1, ctx2);
 
-    // MemberNode connected to lev-0
-    const member = new MemberNode({ role: 'member', sequencerUrl: ctx0.url, walletId: '100' });
-
     // Manually build a PartitionRouter (since Leviathan.getPartitionRouter() returns null)
     const router = new PartitionRouter(3);
     router.setPartition(0, ctx0.url);

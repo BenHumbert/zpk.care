@@ -30,7 +30,7 @@
  * deterministically from the enrollment key via deriveEncryptionKeyPair().
  */
 
-import { Field, Poseidon, MerkleTree, MerkleWitness } from 'o1js';
+import { Field, Poseidon, MerkleWitness } from 'o1js';
 
 // ─── Tree Constants ─────────────────────────────────────────
 

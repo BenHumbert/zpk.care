@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { Field, Struct, Poseidon, Bool } from 'o1js';
+import { Field, Struct, Poseidon } from 'o1js';
 import { hashString, dateToField, quantityToField } from '../zkp/hash-utils.js';
 
 // ─── Status Constants ───────────────────────────────────────────

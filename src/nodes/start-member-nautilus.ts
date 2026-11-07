@@ -66,7 +66,6 @@ import type { NautilusAppConfig } from './nautilus-app-types.js';
 import type { NautilusStateData } from './nautilus-local-state.js';
 import { buildMemberRoutes, applyPendingWalletUpdates } from './routes/member-routes.js';
 import { MemberNode } from './member-node.js';
-import { Field } from 'o1js';
 import { resolveBindHost, resolveAllowedOrigins, resolveRpcProxyPolicy } from '../security/network-policy.js';
 
 // ─── Environment ─────────────────────────────────────────────

@@ -16,7 +16,7 @@
 
 import { Field, Poseidon } from 'o1js';
 import { randomBytes } from 'crypto';
-import { hashString, dateToField, hashDate, codeToField, hashIdentityField, hashIdentityDate, isIdentitySalt } from '../zkp/hash-utils.js';
+import { hashString, codeToField, hashIdentityField, hashIdentityDate, isIdentitySalt } from '../zkp/hash-utils.js';
 import type { MemberLocalData } from '../models/member.js';
 import type { PrescriberLocalData } from '../models/prescriber.js';
 import type { PharmacyLocalData } from '../models/pharmacy.js';

@@ -28,7 +28,7 @@ import {
   computePartitionDigestHash,
   computeQuorumThreshold,
 } from '../src/l2/l2-quorum-service.js';
-import type { QuorumConfig, QuorumProposal, QuorumVote, StateCertificate } from '../src/l2/l2-quorum-types.js';
+import type { QuorumConfig, QuorumProposal, QuorumVote } from '../src/l2/l2-quorum-types.js';
 import { buildQuorumVoteMessage, buildStateCertMessage } from '../src/l2/l2-quorum-types.js';
 import type { StateDigest } from '../src/l2/l2-peer-types.js';
 

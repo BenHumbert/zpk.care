@@ -9,7 +9,6 @@
 import { describe, test, expect, beforeAll, jest } from '@jest/globals';
 import { Field, MerkleTree } from 'o1js';
 
-let svc: any;
 let AdjudicationService: any;
 let node: any;
 

@@ -46,13 +46,12 @@ import {
 } from '../wallets/wallet-derivation.js';
 import { ProofGateProgram, ProofGateProof } from '../wallets/proof-gate.js';
 import { forestLeavesOf, credentialFieldsOf, rederiveInventoryRoot, type WalletUpdatePayload } from '../credentials/wallet-update.js';
-import { WalletRegistry, WalletRegistryWitness, WALLET_TREE_HEIGHT } from '../wallets/wallet-state.js';
+import { WalletRegistry, WalletRegistryWitness } from '../wallets/wallet-state.js';
 
 // Engine
 import { lifecycleLeafCommitment, LifecycleWitness, LIFECYCLE_ELIGIBLE, LIFECYCLE_REGISTERED, LIFECYCLE_REVOKED } from '../engine/lifecycle.js';
 import { StateTransitionProgram, StateTransitionProof, EMPTY_CREDENTIAL_ROOT } from '../engine/state-transition.js';
 import { BatchProgram } from '../l2/batch-program.js';
-import { WalletState } from '../wallets/wallet-state.js';
 import type { L2Node } from '../l2/l2-node.js';
 import type { L2Receipt } from '../l2/l2-types.js';
 import type { BenefitPlanConfig } from '../l2/l2-types.js';
@@ -115,9 +114,6 @@ import {
   RX_STATUS_PARTIALLY_FILLED,
   RX_STATUS_FILLED,
   RX_STATUS_DISPENSED,
-  RX_STATUS_CANCELLED,
-  RX_STATUS_REJECTED,
-  RX_STATUS_REVERSED,
   isValidStatusTransition,
 } from '../prescription/prescription-data.js';
 import { PrescriptionProgram } from '../prescription/prescription-program.js';
@@ -2621,7 +2617,6 @@ export class AdjudicationService {
     // Build credential inventory
     const credentialInventory = new CredentialInventory();
     credentialInventory.mint(credentialData);
-    const inventoryRoot = credentialInventory.getRoot();
 
     // Insurer admin op: the wallet becomes ELIGIBLE in the sequencer's trees. It is normally
     // already registered by the member's own registration proof; provision() also covers a

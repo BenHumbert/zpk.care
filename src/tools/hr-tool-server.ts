@@ -269,8 +269,6 @@ function auditLog(action: string, detail: string = ''): void {
 
 /** Employer node URL this session is bound to. Identifies the workspace. */
 let activeWorkspaceUrl: string | null = null;
-/** Workspace metadata loaded from disk. */
-let activeWorkspaceMeta: WorkspaceMeta | null = null;
 /** Passphrase kept in memory for re-encryption on save. Cleared on lock. */
 let activePassphrase: string | null = null;
 /** Ed25519 client key for signing employer node requests. Workspace-scoped. */
@@ -288,7 +286,6 @@ let activeSeed: Buffer | null = null;
 let activeTable: CorrelationTable | null = null;
 
 let lastActivityTime: number = 0;
-let sessionTimeoutTimer: ReturnType<typeof setInterval> | null = null;
 
 function touchSession(): void {
   lastActivityTime = Date.now();
@@ -304,7 +301,6 @@ function checkSessionTimeout(): void {
 
 function lockSession(): void {
   activeWorkspaceUrl = null;
-  activeWorkspaceMeta = null;
   activePassphrase = null;
   activeClientKey = null;
   activeAdminToken = null;
@@ -381,7 +377,6 @@ function passphrasePolicyError(passphrase: unknown, confirm: unknown): string | 
 
 function openWorkspace(url: string, meta: WorkspaceMeta, passphrase: string, clientKey: HrToolClientKey | null, adminToken: string | null): void {
   activeWorkspaceUrl = url;
-  activeWorkspaceMeta = meta;
   activePassphrase = passphrase;
   activeClientKey = clientKey;
   activeAdminToken = adminToken;
@@ -712,7 +707,6 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
       const remoteGroups = Array.isArray(resp.data) ? resp.data : [];
 
       // Annotate each group with whether we have a local seed/table for it.
-      const ws = workspacePaths(DATA_DIR, activeWorkspaceUrl!);
       const enriched = remoteGroups.map((g: any) => {
         const gid = g.groupId;
         let hasLocalState = false;
@@ -1331,7 +1325,7 @@ const server = createServer(async (req, res) => {
 ensureDataDir(DATA_DIR);
 
 // Session timeout checker — runs every 60 seconds
-sessionTimeoutTimer = setInterval(checkSessionTimeout, 60_000);
+setInterval(checkSessionTimeout, 60_000);
 // A-109: the notices, while unlocked; locked, there is no number to text
 if (NOTICE_INTERVAL_MS > 0) setInterval(() => { runNotices().catch(() => { /* tried again next time */ }); }, NOTICE_INTERVAL_MS);
 

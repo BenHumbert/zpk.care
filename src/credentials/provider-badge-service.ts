@@ -29,7 +29,7 @@
  */
 
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'crypto';
-import type { ProviderBadge, BadgeAuthResult, BadgeTapEvent } from './provider-badge-types.js';
+import type { ProviderBadge, BadgeAuthResult } from './provider-badge-types.js';
 import type { ProviderType } from '../l2/provider-registry-types.js';
 import {
   derivePrescriberWalletId,

@@ -15,12 +15,11 @@
  */
 
 import { Field } from 'o1js';
-import { AccumulatorData, ACCUMULATOR_LEAF_INDEX } from './accumulator-data.js';
+import { AccumulatorData } from './accumulator-data.js';
 import { AccumulatorQueryService } from './accumulator-query-service.js';
 import type { AccumulatorStatus } from './accumulator-query-service.js';
-import { FormularyEntry } from './formulary-entry.js';
 import { FormularyRegistry } from './formulary-registry.js';
-import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
+import { MerkleForest } from '../zkp/merkle-forest.js';
 import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY } from '../credentials/credential-data.js';
 
 // ─── Tier Labels ─────────────────────────────────────────
@@ -215,7 +214,6 @@ export class BenefitCheckService {
     if (formulary.covered && formulary.formularyIndex >= 0n) {
       const entry = formularyRegistry.getEntry(formulary.formularyIndex);
       if (entry) {
-        const storedLeaf = formularyRegistry.getRoot();
         // Entry exists in the registry we were given — trust chain
         // goes: formularyRoot in EligibilityData → formularyRegistry.getRoot()
         formularyVerified = true;

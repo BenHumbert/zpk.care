@@ -14,11 +14,10 @@
  * limitations under the License.
  */
 
-import { Field, Poseidon } from 'o1js';
+import { Field } from 'o1js';
 import { CredentialData, CREDENTIAL_TYPE_PRESCRIPTION } from '../credentials/credential-data.js';
 import { CredentialProgram, CredentialOperationProof, CREDENTIAL_OP_VERIFY } from '../credentials/credential-program.js';
 import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
-import { hashString } from '../zkp/hash-utils.js';
 import {
   PrescriptionData,
   PrescriptionStatusData,

@@ -25,13 +25,12 @@
  *
  * Run: npx jest tests/pcp.test.ts --verbose
  */
-import { Field, Poseidon, MerkleTree } from 'o1js';
+import { Field, Poseidon } from 'o1js';
 import { hashString, dateToField } from '../src/zkp/hash-utils.js';
 import {
   MerkleForest,
   ForestDomain,
   ForestMerkleWitness,
-  TREE_HEIGHT,
 } from '../src/zkp/merkle-forest.js';
 import { ForestRoots } from '../src/eligibility/forest-roots.js';
 import {
@@ -47,12 +46,9 @@ import type { PcpAssignmentLocalData } from '../src/eligibility/pcp-assignment-d
 import { PcpVerificationOutput } from '../src/eligibility/pcp-verification-program.js';
 import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY, CREDENTIAL_TYPE_PRESCRIPTION } from '../src/credentials/credential-data.js';
 import {
-  EligibilityData,
   buildEligibilityData,
-  COVERAGE_PHARMACY,
 } from '../src/eligibility/eligibility-data.js';
 import {
-  AccumulatorData,
   buildAccumulatorData,
   ACCUMULATOR_LEAF_INDEX,
 } from '../src/access-control/accumulator-data.js';
@@ -65,7 +61,6 @@ const OTHER_PRESCRIBER_WALLET_ID = Poseidon.hash([Field(2), Field(500), Field(60
 const ADMIN_WALLET_ID = Poseidon.hash([Field(0), Field(999)]);
 
 const TODAY = '20260215';
-const PAST_DATE = '20260101';
 const FUTURE_DATE = '20261231';
 const EXPIRED_DATE = '20250101';
 
@@ -343,9 +338,6 @@ describe('Credential Forest Root Update', () => {
       annualBenefitUsedCents: 0,
     });
     forest.setLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX, accumData.commitment());
-
-    // Record forest root BEFORE PCP assignment
-    const forestRootBefore = forest.getForestRoot();
 
     // PCP assignment
     forest.setLeaf(ForestDomain.MEMBER, PCP_ASSIGNMENT_LEAF_INDEX, pcpData.commitment());

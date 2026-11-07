@@ -39,7 +39,7 @@ import { Field } from 'o1js';
 import type { ILocalStore } from '../storage/local-store.js';
 import type { StateTransitionProof, TransitionOutput } from '../engine/state-transition.js';
 import { L2SequencerService } from './l2-sequencer-service.js';
-import type { AdminStateConfig, ReplicatedClaimLeftOut } from './l2-sequencer-service.js';
+import type { ReplicatedClaimLeftOut } from './l2-sequencer-service.js';
 import type { L2Receipt, L2Batch, L2Block, ClaimSubmissionMetadata } from './l2-types.js';
 import type { AuditEvent, AuditLog } from '../audit/audit-types.js';
 import type { ClaimAccumulatorEntry } from './claim-accumulator-types.js';
@@ -77,7 +77,7 @@ import type {
 } from './l2-leviathan-types.js';
 import type { IWalProvider } from './l2-wal.js';
 import { L2QuorumService, QuorumKeyAuthority, computeStateDigestHash } from './l2-quorum-service.js';
-import type { QuorumConfig, QuorumProposal, QuorumVote, QuorumCertificate, StateCertificate } from './l2-quorum-types.js';
+import type { QuorumConfig, QuorumProposal, QuorumVote, StateCertificate } from './l2-quorum-types.js';
 import type { StateDigest } from './l2-peer-types.js';
 import type { ProvingPool } from './l2-proving-pool.js';
 
@@ -87,7 +87,6 @@ export class L2Leviathan {
   private config: LeviathanConfig;
   private nodeId: string;
   private options: L2NodeOptions;
-  private store: ILocalStore;
 
   // Per-partition sequencer instances
   private partitionSequencers: Map<number, L2SequencerService> = new Map();
@@ -155,7 +154,6 @@ export class L2Leviathan {
     };
     this.options = { ...DEFAULT_L2_NODE_OPTIONS, ...options };
     this.nodeId = options.nodeId ?? `lev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    this.store = store;
 
     // Create one L2SequencerService per partition
     for (let i = 0; i < config.partitionCount; i++) {

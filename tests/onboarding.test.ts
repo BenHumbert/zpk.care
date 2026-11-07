@@ -36,7 +36,6 @@ import { hashString, dateToField } from '../src/zkp/hash-utils.js';
 
 // ─── GroupEnrollmentToken ──────────────────────────────────
 import {
-  GroupEnrollmentToken,
   buildGroupEnrollmentToken,
   TOKEN_STATUS_UNUSED,
   TOKEN_STATUS_CONSUMED,
@@ -55,19 +54,15 @@ import {
   buildGroupConfig,
   GroupRegistry,
   GROUP_STATUS_ACTIVE,
-  GROUP_STATUS_TERMINATED,
-  GROUP_TREE_HEIGHT,
 } from '../src/onboarding/group-registry.js';
 import type { GroupConfigLocalData } from '../src/onboarding/group-registry.js';
 
 // ─── OpaqueRoster ──────────────────────────────────────────
 import {
-  RosterEntry,
   buildRosterEntry,
   OpaqueRoster,
   ENROLLMENT_STATUS_ACTIVE,
   ENROLLMENT_STATUS_TERMINATED,
-  ROSTER_TREE_HEIGHT,
 } from '../src/onboarding/opaque-roster.js';
 
 // ─── TokenAuthority ────────────────────────────────────────
@@ -79,15 +74,6 @@ import { EnrollmentService } from '../src/onboarding/enrollment-service.js';
 // ─── Dependencies from existing layers ─────────────────────
 import { WalletRegistry, WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
 import { lifecycleLeafCommitment, LIFECYCLE_ELIGIBLE, LIFECYCLE_REVOKED } from '../src/engine/lifecycle.js';
-import { BenefitPlanRegistry } from '../src/eligibility/benefit-plan-registry.js';
-import { CREDENTIAL_TYPE_ELIGIBILITY } from '../src/credentials/credential-data.js';
-import { MerkleForest, ForestDomain, TREE_HEIGHT } from '../src/zkp/merkle-forest.js';
-import { ACCUMULATOR_LEAF_INDEX } from '../src/access-control/accumulator-data.js';
-import {
-  deriveMemberWalletId,
-} from '../src/wallets/wallet-derivation.js';
-import type { MemberLocalData } from '../src/models/member.js';
-import { fixtureIdentitySalt } from '../src/data/index.js';
 
 // ─── Test Data ─────────────────────────────────────────────
 
@@ -138,16 +124,6 @@ const TEST_PLAN_CONFIG: PlanTemplateConfig = {
     },
   ],
 };
-
-const TEST_MEMBER: MemberLocalData = {
-  cardholderId: 'CARD123456789',
-  dateOfBirth: '19850315',
-  genderCode: 1,
-  firstName: 'John',
-  lastName: 'Doe',
-};
-
-const TEST_ENROLLMENT_KEY = 'xK9#mP2$vL5nQ8wR3jF7';
 
 // ─── Tests ─────────────────────────────────────────────────
 

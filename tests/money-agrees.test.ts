@@ -31,9 +31,8 @@
  * it read the refusal instead of the result (the review of round eight of the security fixes,
  * 2026-10-24); it asks them with the operator's bearer now.
  */
-import { Field, MerkleTree, Poseidon } from 'o1js';
+import { Field, Poseidon } from 'o1js';
 import { InMemoryStore } from '../src/storage/local-store.js';
-import { WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
 import { L2Node } from '../src/l2/l2-node.js';
 import { L2RpcServer } from '../src/l2/l2-rpc-server.js';
 import { L2SequencerService } from '../src/l2/l2-sequencer-service.js';
@@ -189,7 +188,6 @@ describe('the balance check', () => {
 
 describe('the RPC and the engine\'s fill job', () => {
   const OPERATOR = 'operator-token-for-tests';
-  const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
   let node: L2Node;
   let server: L2RpcServer;
   let url: string;

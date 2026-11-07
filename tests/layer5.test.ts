@@ -67,13 +67,11 @@ import {
 } from '../src/wallets/index.js';
 import {
   WalletRegistry,
-  WalletState,
-  WalletRegistryWitness,
   WALLET_TREE_HEIGHT,
 } from '../src/wallets/wallet-state.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
-import { MerkleForest, ForestDomain, ForestMerkleWitness } from '../src/zkp/merkle-forest.js';
-import { hashString, dateToField } from '../src/zkp/hash-utils.js';
+import { MerkleForest, ForestDomain } from '../src/zkp/merkle-forest.js';
+import { hashString } from '../src/zkp/hash-utils.js';
 import { NetworkMerkleWitness, NETWORK_TREE_HEIGHT } from '../src/eligibility/provider-network-registry.js';
 import type { MemberLocalData } from '../src/models/member.js';
 import type { PrescriberLocalData } from '../src/models/prescriber.js';

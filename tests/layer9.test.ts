@@ -28,8 +28,6 @@ import type {
 } from '../src/fulfillment/fulfillment-data.js';
 import {
   FulfillmentProgram,
-  FulfillmentOutput,
-  FulfillmentProof,
   FULFILL_OP_CLAIM,
   FULFILL_OP_REVERSAL,
 } from '../src/fulfillment/fulfillment-program.js';
@@ -40,9 +38,7 @@ import {
   PrescriptionStatusData,
   RX_STATUS_ADJUDICATED,
   RX_STATUS_FILLED,
-  RX_STATUS_PARTIALLY_FILLED,
 } from '../src/prescription/prescription-data.js';
-import { PrescriptionService } from '../src/prescription/prescription-service.js';
 import { CredentialData, CREDENTIAL_TYPE_PRESCRIPTION } from '../src/credentials/credential-data.js';
 import { CredentialInventory } from '../src/credentials/credential-inventory.js';
 import { MerkleForest, ForestDomain } from '../src/zkp/merkle-forest.js';
@@ -58,10 +54,8 @@ import {
 import { InMemoryStore } from '../src/storage/local-store.js';
 import {
   WalletRegistry,
-  WalletState,
   WALLET_TREE_HEIGHT,
 } from '../src/wallets/wallet-state.js';
-import { EMPTY_CREDENTIAL_ROOT } from '../src/engine/state-transition.js';
 import { MerkleTree } from 'o1js';
 
 // ─── Test Data ──────────────────────────────────────────────
@@ -73,7 +67,6 @@ const PHARM_EK_HASH = Field(666);
 const pharmacyWalletId = Poseidon.hash([DOMAIN_TAG_PHARMACY, PHARM_QUAL, PHARM_ID_HASH, PHARM_EK_HASH]);
 const prescriberWalletId = Field(111222333444555666n);
 const memberWalletId = Field(999888777666555444n);
-const adminWalletId = Field(100200300400500600n);
 
 const ndcHash = hashString('00071015523'); // Lisinopril 10mg
 
@@ -558,11 +551,8 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
   // ── FulfillmentProgram (slow — requires compile) ──────────
 
   describe('FulfillmentProgram', () => {
-    let compiled = false;
-
     beforeAll(async () => {
       await FulfillmentProgram.compile();
-      compiled = true;
     }, 180_000);
 
     describe('proveFulfillment', () => {
@@ -760,7 +750,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
     describe('proveReversal', () => {
       it('valid reversal generates proof with matching refund amounts', async () => {
         // Set up a fulfilled prescription
-        const { rxData, forest, filledStatus } = setupFilledPrescription();
+        const { rxData, forest } = setupFilledPrescription();
         const fulfillment = createTestFulfillmentData(rxData.commitment());
 
         // Insert settlement commitment at TRANSACTION index 2

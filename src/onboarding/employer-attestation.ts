@@ -34,7 +34,7 @@ import {
   verify as ed25519Verify,
   type KeyObject,
 } from 'crypto';
-import { Poseidon, Encoding, Field } from 'o1js';
+import { Poseidon, Field } from 'o1js';
 import { hashString, dateToField } from '../zkp/hash-utils.js';
 import type { AgreementTerms, AgreementPlanTerms, EmployerAttestation, EmployerApplication, BenefitPlanConfig } from '../l2/l2-types.js';
 import { planAsPublished, publishedTermsOf } from '../l2/plan-terms.js';

@@ -45,7 +45,7 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import type { Socket } from 'net';
 import type { EntityNodeBase } from './entity-node-base.js';
 import type { NodeKeyring } from '../keys/node-keyring.js';
-import type { L2EventHandler, L2ChainEvent } from '../l2/l2-node.js';
+import type { L2ChainEvent } from '../l2/l2-node.js';
 import { l2Stringify } from '../l2/l2-json.js';
 import { NautilusLocalState } from './nautilus-local-state.js';
 import type {

@@ -92,7 +92,6 @@ import { buildMemberRoutes } from '../src/nodes/routes/member-routes.js';
 import { EmployerNode } from '../src/nodes/employer-node.js';
 import type { NautilusAppConfig, RouteRegistration } from '../src/nodes/nautilus-app-types.js';
 import type { EmployerAttestation } from '../src/l2/l2-types.js';
-import type { NautilusStateData } from '../src/nodes/nautilus-local-state.js';
 
 const CODE_RE = /^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){4}$/;
 /** A stand-in for the plan's ceremony keyring: the same subkeys for every server of these tests (A-142). */
