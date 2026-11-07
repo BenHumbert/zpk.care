@@ -59,7 +59,6 @@ This is the recommended way to start everything fresh. It:
 | `npm test` | Run the regression batch, the suites in `scripts/dev/regression-suites.txt`, one at a time (about ten minutes); `npm test -- tests/a.test.ts` runs only the suites named |
 | `npm run test:all` | Run every suite, the slow ones that compile and prove circuits (`scripts/dev/slow-suites.txt`) included |
 | `npm run start:explorer` | Run just the block explorer (port 8000) |
-| `npm run start:flowchart` | Run the animated end-to-end visualizer demo |
 | `npm run fetch:nadac` | Fetch fresh NADAC drug-pricing data |
 | `npm run bootstrap` | Scripted full-system bootstrap |
 | `npm run start:hr-tool` | Run the HR Tool, on the employer's own machine (since A7 nothing spawns it); set `HR_TOOL_TEXT_SERVICE` or it issues no invite (A-109). `npm run hr-tool` is its command line, whose import refuses (A-141) |
